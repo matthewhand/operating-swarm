@@ -3,7 +3,7 @@
 - **Status:** Accepted for Wave 0 (docs + thinnest scaffold; no feature parity)
 - **Date:** 2026-09-06
 - **Issue:** [#481](https://github.com/matthewhand/open-swarm/issues/481) (REQ-111) — Wave 0
-- **Related:** Herdr remotes [#463](https://github.com/matthewhand/open-swarm/issues/463) / [HERDR.md](../HERDR.md), README direction [#466](https://github.com/matthewhand/open-swarm/issues/466), session picker [#468](https://github.com/matthewhand/open-swarm/issues/468) / [#469](https://github.com/matthewhand/open-swarm/issues/469), desktop [#554](https://github.com/matthewhand/open-swarm/issues/554) / [ADR-003](./003-desktop-packaging.md), GIF [#529](https://github.com/matthewhand/open-swarm/issues/529) / [#456](https://github.com/matthewhand/open-swarm/issues/456)
+- **Related:** Herdr remotes [#463](https://github.com/matthewhand/open-swarm/issues/463) / [HERDR.md](../HERDR.md), README direction [#466](https://github.com/matthewhand/open-swarm/issues/466), session picker [#468](https://github.com/matthewhand/open-swarm/issues/468) / [#469](https://github.com/matthewhand/open-swarm/issues/469), desktop [#554](https://github.com/matthewhand/open-swarm/issues/554) / [ADR-003](./003-desktop-packaging.md), GIF [#529](https://github.com/matthewhand/open-swarm/issues/529) / [#456](https://github.com/matthewhand/open-swarm/issues/456), ADR-011 collision renumbering [#888](https://github.com/matthewhand/open-swarm/issues/888)
 - **Supersedes:** none. Complements [ADR-001](../ADR-001-primary-ui.md) (SPA chrome) and ADR-003 (desktop is another client of the same API).
 - **Does not close the programme MVP.** Child Issues own Waves 1–N. This ADR + scaffold close **Wave 0 only**.
 

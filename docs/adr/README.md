@@ -19,4 +19,6 @@ ADR-006 **amends** ADR-005’s `ApiKindBase` slot: user-facing kinds become CLI 
 
 ADR-011 **amends** ADR-006: Remote stays one kind; variants are `RemoteHarness` implementations, not extra kinds.
 
+ADR-012 **renumbers** the TUI Wave 0 record from draft ADR-011 to ADR-012 to resolve the collision with REQ-203 RemoteHarness ([#888](https://github.com/matthewhand/open-swarm/issues/888)).
+
 Related research (not an ADR): [Grok Bot keybinding parity](../GROK_KEYBINDING_PARITY.md) (REQ-150 / #552).
