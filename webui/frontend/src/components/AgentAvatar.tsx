@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { useGeneratedAvatar } from '../lib/agentAvatars'
 import { isGeneratedStillSrc } from '../lib/imageGenSettings'
 import { useAvatarTheme } from '../lib/useAvatarTheme'
+import type { AgentStatus } from '../types/agent'
 import BlobAvatar from './BlobAvatar'
 import BeeAvatar from './BeeAvatar'
+import { Robot3DAvatar } from './Robot3DAvatar'
 
 /**
  * Bland circular fallback — not the Bert-like default owned by REQ-6 (#309).
@@ -29,6 +31,10 @@ export interface AgentAvatarProps {
   className?: string
   agentId?: string | null
   active?: boolean
+  /** Agent working/listen/error state — drives the 3D robot clips (REQ-194 Phase 3). */
+  status?: AgentStatus
+  /** ADR-008 §2: enable the WebGL pose-player (chat header only — one GL context). */
+  gl?: boolean
   style?: React.CSSProperties
 }
 
@@ -57,6 +63,8 @@ export default function AgentAvatar({
   className = '',
   agentId,
   active = false,
+  status = 'idle',
+  gl = false,
   style,
 }: AgentAvatarProps) {
   const [broken, setBroken] = useState(false)
@@ -105,6 +113,21 @@ export default function AgentAvatar({
   }
 
   // Unset or broken face -> resolve via avatar theme
+  if (theme === 'robot3d') {
+    return (
+      <div
+        className={`avatar ${className}`.trim()}
+        data-agent-avatar="default"
+        data-avatar-theme="robot3d"
+        data-avatar-size={size}
+        aria-hidden={alt ? undefined : true}
+        style={style}
+      >
+        <Robot3DAvatar agentId={agentId} status={status} size={size} gl={gl} />
+      </div>
+    )
+  }
+
   if (theme === 'bee') {
     return (
       <div

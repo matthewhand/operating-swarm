@@ -8,12 +8,12 @@ describe('AvatarThemePicker Phase 0 robot3d stub', () => {
     localStorage.removeItem(AVATAR_THEME_STORAGE_KEY)
   })
 
-  it('shows a disabled 3D robot option that links to ADR-008', () => {
+  it('offers an enabled 3D robot option (REQ-194 Phase 1) linking to ADR-008', () => {
     render(<AvatarThemePicker />)
-    const option = screen.getByRole('option', { name: '3D robot (coming soon)' })
-    expect(option).toBeDisabled()
+    const option = screen.getByRole('option', { name: '3D robot' })
+    expect(option).not.toBeDisabled()
     expect(option).toHaveValue('robot3d')
-    const link = screen.getByRole('link', { name: '3D robot (ADR-008)' })
+    const link = screen.getByRole('link', { name: 'ADR-008' })
     expect(link).toHaveAttribute('href', ROBOT3D_ADR_HREF)
     expect(screen.getByLabelText('Avatar theme')).toHaveValue('blobs')
   })

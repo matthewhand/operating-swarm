@@ -17,6 +17,12 @@ Attribution
   SDK (https://github.com/openai/openai-agents-python, MIT License), Swarm's
   production-ready successor. openai-agents is consumed as a regular
   dependency, not vendored.
+* The REQ-194 3D robot avatar theme loads the three.js WebGL library
+  (https://github.com/mrdoob/three.js, MIT License) lazily — only when the
+  `robot3d` theme is selected — via a dynamic import so it is code-split out
+  of the main chat graph. The robot meshes are original stylised art built
+  from three.js primitives (MIT) and are deliberately NOT the licensed
+  Reachy mesh from pollen-robotics.
 
 Vendored third-party assets
 ---------------------------

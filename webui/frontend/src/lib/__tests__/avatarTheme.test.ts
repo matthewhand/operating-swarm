@@ -56,11 +56,10 @@ describe('avatar theme persist', () => {
     expect(localStorage.getItem(AVATAR_THEME_STORAGE_KEY)).toBe('bland')
   })
 
-  it('does not persist reserved robot3d until Phase 1 adds it to the catalog', () => {
-    expect(saveAvatarTheme(ROBOT3D_THEME_RESERVED)).toBe('blobs')
-    expect(localStorage.getItem(AVATAR_THEME_STORAGE_KEY)).toBeNull()
-    localStorage.setItem(AVATAR_THEME_STORAGE_KEY, ROBOT3D_THEME_RESERVED)
-    expect(loadAvatarTheme()).toBe('blobs')
+  it('persists robot3d since REQ-194 Phase 1 added it to the catalog', () => {
+    expect(saveAvatarTheme(ROBOT3D_THEME_RESERVED)).toBe('robot3d')
+    expect(localStorage.getItem(AVATAR_THEME_STORAGE_KEY)).toBe('robot3d')
+    expect(loadAvatarTheme()).toBe('robot3d')
   })
 
   it('dispatches a same-tab event so pickers update without reload', () => {

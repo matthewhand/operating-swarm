@@ -16,6 +16,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.18.0",
+    "three": "^0.169.0",
     "zustand": "^5.0.15"
   },
   "scripts": {
@@ -56,6 +57,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
+    "@types/three": "^0.169.0",
     "@vitejs/plugin-react": "^6.0.2",
     "axe-core": "^4.12.1",
     "eslint": "^8.53.0",

@@ -2480,7 +2480,9 @@ const ChatPage = () => {
                 src={selectedAgent?.avatar_path}
                 agentId={agentIdFromBlueprint(selectedBlueprint)}
                 active={Boolean(streamingMessage)}
+                status={streamingMessage ? 'working' : 'idle'}
                 size="lg"
+                gl
                 className="os-chat-header__avatar shrink-0"
               />
             ) : null}

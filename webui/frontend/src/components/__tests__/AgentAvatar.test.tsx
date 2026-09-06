@@ -205,6 +205,17 @@ describe('AgentAvatar', () => {
     expect(container.querySelector('[data-avatar-still]')).not.toBeInTheDocument()
   })
 
+  it('renders the 3D robot theme with a non-blocking SVG fallback in jsdom', () => {
+    saveAvatarTheme('robot3d')
+    const { container } = render(<AgentAvatar agentId="codey" />)
+    const face = container.querySelector('[data-avatar-theme="robot3d"]')
+    expect(face).toHaveAttribute('data-agent-avatar', 'default')
+    expect(face).toHaveAttribute('data-avatar-theme', 'robot3d')
+    // No WebGL in jsdom -> static fallback SVG, chat is never blocked.
+    expect(container.querySelector('[data-robot3d-static]')).toBeInTheDocument()
+    expect(container.querySelector('[data-robot3d-mode]')).toHaveAttribute('data-robot3d-mode', 'fallback')
+  })
+
   it('sizes a custom xs face with the capped class instead of 100% fill', () => {
     const { container } = render(
       <div style={{ display: 'flex', width: 400, height: 400 }}>

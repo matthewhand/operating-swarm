@@ -1,7 +1,8 @@
-import { writeFileSync } from 'node:fs'
 import { test, expect } from '@playwright/test'
 
-test('Rail avatar theme lists a disabled 3D robot coming-soon option', async ({ page }) => {
+test('Rail avatar theme offers an enabled 3D robot option (REQ-194 Phase 1)', async ({
+  page,
+}) => {
   await page.route('**/v1/**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -20,34 +21,22 @@ test('Rail avatar theme lists a disabled 3D robot coming-soon option', async ({ 
   await expect(picker).toHaveValue('blobs')
 
   const robot3d = page.locator('#os-avatar-theme option[value="robot3d"]')
-  await expect(robot3d).toHaveText('3D robot (coming soon)')
-  await expect(robot3d).toBeDisabled()
-  const adr = page.getByRole('link', { name: '3D robot (ADR-008)' })
+  await expect(robot3d).toHaveText('3D robot')
+  await expect(robot3d).not.toBeDisabled()
+  const adr = page.getByRole('link', { name: 'ADR-008' })
   await expect(adr).toBeVisible()
   await expect(adr).toHaveAttribute(
     'href',
     'https://github.com/matthewhand/open-swarm/blob/main/docs/adr/008-3d-robot-avatar-theme.md',
   )
+
+  // Selecting robot3d persists the theme (no longer a reserved non-value).
+  await picker.selectOption('robot3d')
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('swarm_avatar_theme')))
-    .toBeNull()
+    .toBe('robot3d')
 
-  const optionDump = await page.locator('#os-avatar-theme option').evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const option = node as HTMLOptionElement
-      return {
-        value: option.value,
-        label: option.textContent?.trim(),
-        disabled: option.disabled,
-      }
-    }),
-  )
-  writeFileSync(
-    '/opt/cursor/artifacts/avatar_theme_robot3d_options.json',
-    `${JSON.stringify(optionDump, null, 2)}\n`,
-  )
+  // The combo sub-picker appears only while robot3d is active.
+  await expect(page.getByTestId('robot3d-combo-picker')).toBeVisible()
 
-  await dialog.locator('.pt-2').screenshot({
-    path: '/opt/cursor/artifacts/avatar_theme_robot3d_picker_rail.png',
-  })
 })

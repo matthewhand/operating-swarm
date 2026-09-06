@@ -1,6 +1,6 @@
 # ADR-008: Optional 3D robot avatar theme family (Reachy-inspired)
 
-- **Status:** Accepted for Phase 0 (docs + disabled picker stub; no WebGL / no mesh runtime)
+- **Status:** Accepted — Phase 0 ADR shipped; **Phases 1–3 implemented** (theme enabled in pickers, lazy WebGL pose-player, 2×2 body/head combo catalog, status→clip wire). See CHANGELOG / FEATURE_STATUS.
 - **Date:** 2026-09-06 (amends the 2026-09-04 look-only draft that landed via [#675](https://github.com/matthewhand/open-swarm/pull/675))
 - **Issue:** [#667](https://github.com/matthewhand/open-swarm/issues/667) (REQ-194)
 - **Reachy report:** [reachy-3d-avatar-inspiration.md](../reports/reachy-3d-avatar-inspiration.md)
@@ -16,7 +16,13 @@
 4. **Mix-and-match** (Phase 2) = `MiniPose` + head **attach offsets**, not bone-name swap.
 5. Custom uploaded 2D `avatar_path` still wins. No Neon. No secrets.
 
-This ADR + the Reachy report are **Phase 0** of REQ-194. Phase 0 is complete here. Implement Phases 1–3 stay parked; ready-to-file follow-up bodies are in §10.
+This ADR + the Reachy report are **Phase 0** of REQ-194. Phase 0 is complete here. **Phases 1–3 are implemented** on the private mirror (`matthewhand/open-swarm-private`):
+
+1. **Phase 1 — one mesh:** `robot3d` is now a selectable theme on the one Rail key; the chat header lazily `import()`s a WebGL pose-player (`webui/frontend/src/lib/robot3d/posePlayer.ts`) that poses an **original procedural robot** (primitives, MIT) from baked `MiniPose` clips (`clips.ts`) — idle/working required, listen/error/dance shared. WebGL-less environments render a static SVG robot; chat never blocks. `three` is code-split out of the main chat graph (ADR-008 §2 decision 2).
+2. **Phase 2 — combos:** `catalog.ts` ships 2 bodies × 2 heads on one pose family (attach offsets, `headAttachment`); the combo sub-key (`swarm_robot3d_combo`) is active only while the theme is `robot3d` (§2.4 rules 1–5).
+3. **Phase 3 — status wire:** `statusMap.ts` maps AgentStatus working/listen/error/happy → clips; `Robot3DAvatar` + fallback react to status; tests cover the mapping.
+
+Follow-up bodies in §10 are retained as reference.
 
 Evidence below is from `origin/main` at writing (`869aace9` and this branch). No secrets are documented. Use `${VAR}` names only.
 
@@ -79,7 +85,7 @@ The expensive parts are (1) isolation so chat never waits on GL, (2) vendoring/b
 
 Picker copy today: Default (static grey), Blobs (per-agent shapes + slit eyes), Bee (geometric brand marks, opt-in, never auto-applied). **Custom uploaded faces always win.**
 
-`saveAvatarTheme('robot3d')` must keep falling back to `blobs` until Phase 1 adds the key. The Phase 0 stub is a **disabled** `<option>` plus an ADR link — it must not persist.
+`saveAvatarTheme('robot3d')` **persists since Phase 1** added the key (`webui/frontend/src/lib/avatarTheme.ts`); both the SPA picker and the Django `/settings/` twin offer an enabled **3D robot** option, and the combo sub-picker appears only while `robot3d` is active (ADR-008 §2 decision 1).
 
 ### 3.2 How faces render on the rail and in chat
 
@@ -239,8 +245,8 @@ Phase 1 ships one `kind: 'full'` mesh that already plays `idle` / `working`. Pha
 
 - Reachy report: stack, pose/clip contract, licensing.
 - This ADR: embed path, perf, theme key, event hooks.
-- Optional stub: disabled “3D robot (coming soon)” + ADR link on both pickers.
-- No mesh runtime.
+- Optional stub shipped in Phase 0; **Phases 1–3 implemented** — enabled “3D robot” option on both pickers, lazy WebGL pose-player on the chat header, 2×2 body/head combo catalog, AgentStatus → clip wire.
+- No mesh runtime from the licensed Reachy repo (original procedural robot only).
 
 ### Phase 1 — one licensed mesh + idle/working
 
@@ -331,7 +337,7 @@ Parent: #667. Depends on Phase 1.
 
 ## 11. Consequences
 
-- Operators: optional 3D presence in the chat header in a later PR; Blobs remain the default; bland, Bee, and custom 2D faces unchanged. Phase 0 shows a disabled “coming soon” row that links here.
+- Operators: optional 3D presence in the chat header (**Phases 1–3 live**); Blobs remain the default; bland, Bee, and custom 2D faces unchanged. The chat hero uses ONE WebGL context (ADR-008 §2 decision 2); every other AgentAvatar site shows the static SVG robot so a large rail cannot exhaust the browser's WebGL context limit.
 - Implementers: no Three on the chat critical path; no N canvases; no combo UI before the MiniPose validator; no Glance iframe; no secrets; no Neon; no FF `:8001`.
 - `/agents` leftover SVG packs stay leftover. Do not treat them as the 3D theme.
 - This PR: Reachy report + this ADR + disabled picker stub. **Fixes #667** as **Phase 0 only**. Phases 1–3 are the §10 follow-ups.
