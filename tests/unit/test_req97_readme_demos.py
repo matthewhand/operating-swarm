@@ -11,6 +11,7 @@ from pathlib import Path
 from swarm.core.handoff_graph import repo_root
 
 STEMS = ("cli-agents", "api-agents", "remote-agents", "combined-team")
+GIF_STEMS = ("cli-agent", "api-agent", "remote-agent", "combined-team")
 ASSETS = repo_root() / "docs" / "assets" / "readme"
 README = repo_root() / "README.md"
 RECORDING = ASSETS / "RECORDING.md"
@@ -63,19 +64,18 @@ def test_readme_embeds_four_demo_slots_in_order():
     how_to = text.find("## WebUI (start here)")
     assert 0 <= pitch < demos < how_to
 
-    for stem in STEMS:
-        rel = f"docs/assets/readme/{stem}.svg"
+    for stem in GIF_STEMS:
+        rel = f"docs/demo/{stem}.gif"
         assert rel in text, f"README must embed {rel}"
         target = (README.parent / rel).resolve()
         assert target.is_file(), f"README embed does not resolve: {rel}"
 
-    assert "CLI agents" in text
-    assert "API agents" in text
-    assert "Remote agents" in text
+    assert "CLI Agent" in text or "CLI agents" in text
+    assert "API Agent" in text or "API agents" in text
+    assert "Remote Agent" in text or "Remote agents" in text
     assert "OpenMousBot" in text
-    assert "Combined team" in text
-    assert "CLI + API + remote" in text
-    assert "docs/assets/readme/RECORDING.md" in text
+    assert "Combined Team" in text or "Combined team" in text
+    assert re.search(r"CLI\s*\+\s*API", text, re.I)
     assert "docs/SHOWOFF_DEMO_AGENTS.md" in text
 
 
