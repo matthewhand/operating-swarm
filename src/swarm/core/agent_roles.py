@@ -27,7 +27,9 @@ this role's blueprint; this module at least names the badge contract.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 ROLE_DEFAULT = "default"
 ROLE_SUPPORT = "support"
@@ -302,3 +304,90 @@ def blueprint_role_fields(meta: dict[str, Any] | None) -> dict[str, Any]:
         "suggestions_agent": suggestions,
         "workflow": normalize_workflow(meta.get("workflow")),
     }
+
+
+@dataclass
+class ModeBPayload:
+    """Mode B role-invocation payload per ADR-010 (REQ-191/REQ-191b).
+
+    Mode B is used when other agents invoke a role agent via as_tool or handoff.
+    Unlike Mode A (human chat with full private configure thread), Mode B uses
+    strictly caller_context + latest_message.
+    """
+
+    invocation: str  # "as_tool" | "handoff"
+    caller_id: str
+    role: str
+    latest_message: str
+    caller_context: str | list[dict[str, Any]]
+    callee_thread_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.invocation not in CANONICAL_WORKFLOWS:
+            norm_inv = normalize_workflow(self.invocation)
+            if norm_inv:
+                self.invocation = norm_inv
+            else:
+                raise ValueError(
+                    f"Invalid invocation '{self.invocation}': must be 'as_tool' or 'handoff'"
+                )
+        if not self.caller_id:
+            raise ValueError("caller_id is required for Mode B invocation")
+        self.role = normalize_agent_role(self.role)
+        if not self.latest_message:
+            raise ValueError("latest_message is required for Mode B invocation")
+        if self.caller_context is None:
+            raise ValueError("caller_context is required for Mode B invocation")
+
+    def build_model_messages(self, system_prompt: str | None = None) -> list[dict[str, str]]:
+        """Construct model context window for Mode B execution.
+
+        Strictly per ADR-010:
+        Model messages = execution prompt + caller_context + latest_message only.
+        callee_thread_id is explicitly NOT loaded as model context.
+        """
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        if isinstance(self.caller_context, str):
+            messages.append({
+                "role": "user",
+                "content": f"[Caller Context from {self.caller_id}]:\n{self.caller_context}",
+            })
+        elif isinstance(self.caller_context, list):
+            for item in self.caller_context:
+                if isinstance(item, dict) and "role" in item and "content" in item:
+                    messages.append({"role": str(item["role"]), "content": str(item["content"])})
+                else:
+                    messages.append({"role": "user", "content": str(item)})
+
+        messages.append({"role": "user", "content": self.latest_message})
+        return messages
+
+
+def is_mode_b_payload(data: Any) -> bool:
+    """True when data matches the Mode B invocation payload contract."""
+    if not isinstance(data, dict):
+        return False
+    inv = data.get("invocation")
+    norm_inv = normalize_workflow(inv) if inv else None
+    return (
+        norm_inv in CANONICAL_WORKFLOWS
+        and bool(data.get("caller_id"))
+        and bool(data.get("role"))
+        and bool(data.get("latest_message"))
+        and "caller_context" in data
+    )
+
+
+def parse_mode_b_payload(data: dict[str, Any]) -> ModeBPayload:
+    """Parse and validate Mode B invocation payload dict."""
+    return ModeBPayload(
+        invocation=data["invocation"],
+        caller_id=str(data["caller_id"]),
+        role=data["role"],
+        latest_message=str(data["latest_message"]),
+        caller_context=data["caller_context"],
+        callee_thread_id=data.get("callee_thread_id"),
+    )
