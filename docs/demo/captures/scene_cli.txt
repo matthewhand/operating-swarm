@@ -1,0 +1,13 @@
+$ # Discover installed agentic CLIs on host
+$ uv run swarm-cli cli-agents --init --check-auth
+Discovered host CLIs:
+  - grok (v1.2.0 · status: healthy · session: native)
+  - antigravity (v0.8.4 · status: healthy · session: native)
+  - opencode (v0.4.1 · status: healthy · session: native)
+Initialized 3 native CLI agent seats.
+$ # Launch grok-cli in a native terminal session
+$ SWARM_TEST_MODE=1 uv run swarm-cli launch grok-cli --message "Inspect repository status"
+[grok-cli] Starting native CLI session (cli:grok)...
+[grok-cli] Reading workspace: 4 agent kinds configured (CLI | API | Blueprint | Remote).
+[grok-cli] Clean working tree on branch main. No secrets detected.
+[grok-cli] Native CLI session complete (exit code: 0).

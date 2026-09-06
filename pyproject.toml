@@ -122,6 +122,8 @@ test = [
     "pytest-asyncio>=0.21.0",
     "factory-boy>=3.3.0",
     "sseclient-py>=1.7.2",
+    # REQ-97 demo GIF validation (tests + scripts/render_demo_gif.py).
+    "pillow>=10.0.0",
     "pytest-env>=1.0.0",
     "pytest-xdist",
     "anyio>=4.0.0",

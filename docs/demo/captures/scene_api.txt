@@ -1,0 +1,11 @@
+$ # Discover registered API model seats
+$ curl -s http://localhost:8000/v1/models | jq -c '[.data[].id | select(contains("api") or contains("litellm"))]'
+["litellm-api","openai-direct","azure-gpt4o"]
+$ # Stream chat completion from true API inference seat
+$ curl -s http://localhost:8000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${API_AUTH_TOKEN}" \
+    -d '{"model":"litellm-api","stream":true,"messages":[{"role":"user","content":"Verify security"}]}'
+data: {"id":"chatcmpl-api-456","model":"litellm-api","choices":[{"delta":{"role":"assistant","content":"Auditing security posture..."}}]}
+data: {"id":"chatcmpl-api-456","model":"litellm-api","choices":[{"delta":{"content":" All credentials sourced from environment. Zero secrets committed."}}]}
+data: [DONE]

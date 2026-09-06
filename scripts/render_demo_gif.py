@@ -36,6 +36,7 @@ Requires Pillow (`uv pip install pillow`) and DejaVu Sans Mono (Linux default).
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -98,8 +99,9 @@ def wrap(text: str, cols: int) -> list[str]:
 class Terminal:
     """Accumulates display lines and renders window-styled frames."""
 
-    def __init__(self, font: ImageFont.FreeTypeFont):
+    def __init__(self, font: ImageFont.FreeTypeFont, title: str = TITLE):
         self.font = font
+        self.title = title
         self.char_w = font.getlength(" ")
         self.cols = int((WIDTH - 2 * PAD_X) / self.char_w)
         self.height = TITLEBAR_H + 2 * PAD_Y + ROWS * LINE_H
@@ -114,8 +116,8 @@ class Terminal:
         for i, color in enumerate(TRAFFIC):
             cx = 18 + i * 22
             d.ellipse([cx - 6, TITLEBAR_H // 2 - 6, cx + 6, TITLEBAR_H // 2 + 6], fill=color)
-        d.text((WIDTH // 2 - d.textlength(TITLE, font=self.font) // 2, TITLEBAR_H // 2 - FONT_SIZE // 2 - 1),
-               TITLE, font=self.font, fill=FG_TITLE)
+        d.text((WIDTH // 2 - d.textlength(self.title, font=self.font) // 2, TITLEBAR_H // 2 - FONT_SIZE // 2 - 1),
+               self.title, font=self.font, fill=FG_TITLE)
         return img
 
     def snapshot(self, duration_ms: int, partial: str | None = None, cursor: bool = False) -> None:
@@ -181,12 +183,39 @@ def play_scene(term: Terminal, scene_path: Path) -> None:
         term.print_output(pending)
 
 
-def main() -> None:
-    font = load_font()
-    term = Terminal(font)
-    scenes = sorted(CAPTURES.glob("scene*.txt"))
-    if not scenes:
-        sys.exit(f"No scene files found in {CAPTURES}")
+
+DEMO_SPECS = [
+    {
+        "filename": "cli-agent.gif",
+        "title": "open-swarm — CLI Agent (Host executable & native session)",
+        "scenes": ["scene_cli.txt"],
+    },
+    {
+        "filename": "api-agent.gif",
+        "title": "open-swarm — API Agent (OpenAI-compatible inference seat)",
+        "scenes": ["scene_api.txt"],
+    },
+    {
+        "filename": "remote-agent.gif",
+        "title": "open-swarm — Remote Agent (OpenMousBot & Hermes harnesses)",
+        "scenes": ["scene_remote.txt"],
+    },
+    {
+        "filename": "combined-team.gif",
+        "title": "open-swarm — Combined Team (CLI + API + Remote)",
+        "scenes": ["scene_team.txt"],
+    },
+    {
+        "filename": "cli-and-api.gif",
+        "title": "open-swarm demo — SWARM_TEST_MODE (no API key)",
+        "scenes": ["scene1.txt", "scene2.txt", "scene3.txt", "scene4.txt"],
+    },
+]
+
+
+def render_spec(spec: dict, font: ImageFont.FreeTypeFont) -> None:
+    term = Terminal(font, spec["title"])
+    scenes = [CAPTURES / s for s in spec["scenes"]]
     for idx, scene in enumerate(scenes):
         if idx:
             term.clear()
@@ -194,12 +223,12 @@ def main() -> None:
         is_last = idx == len(scenes) - 1
         term.snapshot(FINAL_HOLD_MS if is_last else SCENE_HOLD_MS)
 
-    # quantize against a shared palette so the GIF doesn't flicker
     palette_src = term.frames[-1].quantize(colors=64)
     pframes = [f.quantize(colors=64, palette=palette_src, dither=Image.Dither.NONE) for f in term.frames]
-    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    out_path = REPO_ROOT / "docs" / "demo" / spec["filename"]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     pframes[0].save(
-        OUT_PATH,
+        out_path,
         save_all=True,
         append_images=pframes[1:],
         duration=term.durations,
@@ -207,8 +236,17 @@ def main() -> None:
         optimize=True,
     )
     total_s = sum(term.durations) / 1000
-    size_kb = OUT_PATH.stat().st_size / 1024
-    print(f"wrote {OUT_PATH} — {len(pframes)} frames, {total_s:.1f}s loop, {size_kb:.0f} KiB")
+    size_kb = out_path.stat().st_size / 1024
+    print(f"wrote {out_path.name} — {len(pframes)} frames, {total_s:.1f}s loop, {size_kb:.0f} KiB")
+    readme_dest = REPO_ROOT / "assets" / "readme" / spec["filename"]
+    readme_dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(out_path, readme_dest)
+
+
+def main() -> None:
+    font = load_font()
+    for spec in DEMO_SPECS:
+        render_spec(spec, font)
 
 
 if __name__ == "__main__":

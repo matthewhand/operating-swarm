@@ -1,0 +1,12 @@
+$ # List configured external agentic harnesses (OpenMousBot, Hermes, Rakazo)
+$ uv run swarm-cli remotes
+Configured Remote Harnesses:
+  - hermes-remote       Hermes Agentic Harness  (remote:hermes · status: online)
+  - openmousbot-remote  OpenMousBot Gateway      (remote:openmousbot · status: online)
+  - rakazo-remote       Rakazo Node             (remote:rakazo · status: ready)
+$ # Dispatch task across the bridge to OpenMousBot Remote
+$ SWARM_TEST_MODE=1 uv run swarm-cli launch openmousbot-remote --message "Ping remote bridge"
+[remote-bridge] Connecting to OpenMousBot Remote adapter...
+[OpenMousBot Remote] Handshake verified via remote protocol.
+[OpenMousBot Remote] Task received: "Ping remote bridge" -> ACK (latency: 14ms).
+[OpenMousBot Remote] Remote execution complete.

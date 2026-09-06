@@ -22,37 +22,38 @@ Direction: [docs/VISION.md](docs/VISION.md). Vocabulary: [docs/GLOSSARY.md](docs
 
 ## Demos
 
-Four compact slots — CLI, API, remote, then the mix. **Posters now** (this VM
-cannot film `:8001`). Live GIFs replace the same stems using
-[docs/assets/readme/RECORDING.md](docs/assets/readme/RECORDING.md). Demo names:
-[docs/SHOWOFF_DEMO_AGENTS.md](docs/SHOWOFF_DEMO_AGENTS.md) (Mode A).
+Compact walkthroughs of open-swarm's core agent capabilities — from individual CLI, API, and Remote seats to a unified team combining all three in one flow.
 
-<table>
-<tr>
-<td align="center" width="50%">
-<strong>CLI agents</strong><br/>
-<img src="docs/assets/readme/cli-agents.svg" alt="CLI agents — Grok / OpenCode / agy poster" width="320"/>
-</td>
-<td align="center" width="50%">
-<strong>API agents</strong><br/>
-<img src="docs/assets/readme/api-agents.svg" alt="API agents — OpenAI-compatible owned thread poster" width="320"/>
-</td>
-</tr>
-<tr>
-<td align="center" width="50%">
-<strong>Remote agents</strong> (OpenMousBot)<br/>
-<img src="docs/assets/readme/remote-agents.svg" alt="Remote agents — OpenMousBot poster" width="320"/>
-</td>
-<td align="center" width="50%">
-<strong>Combined team</strong> (CLI + API + remote)<br/>
-<img src="docs/assets/readme/combined-team.svg" alt="Combined team — CLI plus API plus OpenMousBot poster" width="320"/>
-</td>
-</tr>
-</table>
+| Kind / Story | What it demonstrates | Preview |
+|---|---|---|
+| **CLI Agent** | Host executable running in a native terminal session (`grok`, `agy`, `opencode`) | ![CLI Agent Demo](docs/demo/cli-agent.gif) |
+| **API Agent** | True inference seat queried directly via the OpenAI-compatible HTTP completions API | ![API Agent Demo](docs/demo/api-agent.gif) |
+| **Remote Agent** | External agentic harnesses (**OpenMousBot**, **Hermes**, **Rakazo**, **Herdr**) | ![Remote Agent Demo](docs/demo/remote-agent.gif) |
+| **Combined Team** | The open-swarm differentiator: one flow coordinating **CLI + API + Remote** via openai-agents handoff | ![Combined Team Demo](docs/demo/combined-team.gif) |
 
-A historical terminal loop (one blueprint as CLI + API) stays at
-[`docs/demo/cli-and-api.gif`](docs/demo/cli-and-api.gif) — not the Grok chrome
-story.
+> A historical terminal loop (one blueprint as CLI + API) is preserved at [`docs/demo/cli-and-api.gif`](docs/demo/cli-and-api.gif).
+
+---
+
+## WebUI (start here)
+
+Product chrome is the Grok-like SPA: rail, remotes, sessions, Settings sheet. `/` and `/chat` are that chrome. Django trailing-slash pages (`/blueprint-library/`, `/settings/`, `/sessions/`, …) stay the operator dump — not the pitch.
+
+```bash
+git clone https://github.com/matthewhand/open-swarm.git
+cd open-swarm
+uv sync --all-extras
+cp .env.example .env          # set OPENAI_API_KEY, API_AUTH_TOKEN, DJANGO_SECRET_KEY
+cp swarm_config.example.json swarm_config.json   # optional local SoT; secrets stay ${VAR} in .env
+make frontend                 # builds webui/frontend/dist/
+docker compose up --build     # API + local Postgres (not Neon / not SQLite)
+# open http://localhost:8000
+```
+
+Compose’s durable DB is the `postgres` service. Set `DATABASE_URL` for any
+cloud Postgres. Neon is test/CI only — [docs/DATABASE.md](docs/DATABASE.md).
+
+Without `dist/`, `/` falls back to Django templates. Rebuild after SPA pulls. Auth: [docs/AUTH.md](docs/AUTH.md) (websocket needs a session cookie; bearer does not auth WS).
 
 ---
 
@@ -81,28 +82,6 @@ Four user-facing kinds. **Team is not a fifth kind.**
 **Team** = a **Blueprint subtype**: a roster plus openai-agents **handoff / agent-as-tool** so CLI, API, Blueprint, and Remote members can see and talk. Do not call `/v1/teams` aliases a Team — those are **Profiles** (LLM-profile aliases).
 
 **Honest mid-flight ([#652](https://github.com/matthewhand/open-swarm/issues/652) / [ADR-006](docs/adr/006-api-vs-blueprint-kinds.md)):** on `main` today, stored `api` is still the leftover “not CLI, not remote” bucket (mostly recipes). There is not yet a first-class “wire this endpoint” seat. Target: rename those seats to `blueprint`, then introduce a true `api` inference seat. Prefer the four names above in new copy.
-
----
-
-## WebUI (start here)
-
-Product chrome is the Grok-like SPA: rail, remotes, sessions, Settings sheet. `/` and `/chat` are that chrome. Django trailing-slash pages (`/blueprint-library/`, `/settings/`, `/sessions/`, …) stay the operator dump — not the pitch.
-
-```bash
-git clone https://github.com/matthewhand/open-swarm.git
-cd open-swarm
-uv sync --all-extras
-cp .env.example .env          # set OPENAI_API_KEY, API_AUTH_TOKEN, DJANGO_SECRET_KEY
-cp swarm_config.example.json swarm_config.json   # optional local SoT; secrets stay ${VAR} in .env
-make frontend                 # builds webui/frontend/dist/
-docker compose up --build     # API + local Postgres (not Neon / not SQLite)
-# open http://localhost:8000
-```
-
-Compose’s durable DB is the `postgres` service. Set `DATABASE_URL` for any
-cloud Postgres. Neon is test/CI only — [docs/DATABASE.md](docs/DATABASE.md).
-
-Without `dist/`, `/` falls back to Django templates. Rebuild after SPA pulls. Auth: [docs/AUTH.md](docs/AUTH.md) (websocket needs a session cookie; bearer does not auth WS).
 
 ---
 

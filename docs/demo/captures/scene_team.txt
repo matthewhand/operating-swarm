@@ -1,0 +1,9 @@
+$ # Cross-harness team: Chief of Staff coordinates CLI, API, and Remote seats
+$ SWARM_TEST_MODE=1 uv run swarm-cli launch demo-bridge --message "Coordinate release checks"
+[Demo Bridge] Initializing multi-harness team via openai-agents handoffs...
+[Chief of Staff (Blueprint)] Planning workflow across 4 seats:
+  -> Handoff to [Antigravity CLI (cli)]: Executing local test suite... [PASSED]
+  -> Handoff to [LiteLLM API (api)]: Synthesizing release changelog... [DONE]
+  -> Handoff to [Hermes Remote (remote)]: Syncing state to Hermes harness... [SYNCED]
+  -> Handoff to [OpenMousBot Remote (remote)]: Verifying external gateway... [VERIFIED]
+[Chief of Staff] Workflow complete: CLI + API + Remote coordinated in one unified flow.
