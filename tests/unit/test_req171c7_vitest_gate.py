@@ -63,10 +63,10 @@ def test_vitest_job_runs_npm_test_after_npm_ci():
 
 
 def test_python_matrix_stays_off_browsers():
-    """3.12 pytest stays keyless/SQLite — no Playwright, no npm test."""
+    """3.12/3.13 pytest stays keyless/SQLite — no Playwright, no npm test."""
     job = _load_workflow(PYTEST_WORKFLOW)["jobs"]["test"]
     matrix = job["strategy"]["matrix"]["python-version"]
-    assert matrix == ["3.12"]
+    assert matrix == ["3.12", "3.13"]
     blob = "\n".join(_job_step_runs(job)).lower()
     assert "playwright" not in blob
     assert "npm test" not in blob
