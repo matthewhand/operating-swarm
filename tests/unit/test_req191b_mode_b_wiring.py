@@ -92,6 +92,23 @@ def test_mode_b_validation_failures():
             latest_message="",
             caller_context="ctx",
         )
+    with pytest.raises(ValueError, match="caller_context is required"):
+        ModeBPayload(
+            invocation=WORKFLOW_AS_TOOL,
+            caller_id="agent1",
+            role=ROLE_SUPPORT,
+            latest_message="help",
+            caller_context="",
+        )
+
+    with pytest.raises(ValueError, match="caller_context is required"):
+        ModeBPayload(
+            invocation=WORKFLOW_AS_TOOL,
+            caller_id="agent1",
+            role=ROLE_SUPPORT,
+            latest_message="help",
+            caller_context=[],
+        )
 
 
 def test_is_and_parse_mode_b_payload():
@@ -110,3 +127,7 @@ def test_is_and_parse_mode_b_payload():
 
     invalid_raw = {"role": "gate"}
     assert not is_mode_b_payload(invalid_raw)
+
+    assert not is_mode_b_payload({**raw, "caller_context": ""})
+    assert not is_mode_b_payload({**raw, "caller_context": []})
+    assert not is_mode_b_payload({**raw, "caller_context": None})

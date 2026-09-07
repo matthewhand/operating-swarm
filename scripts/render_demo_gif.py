@@ -216,6 +216,9 @@ DEMO_SPECS = [
 def render_spec(spec: dict, font: ImageFont.FreeTypeFont) -> None:
     term = Terminal(font, spec["title"])
     scenes = [CAPTURES / s for s in spec["scenes"]]
+    for scene in scenes:
+        if not scene.exists():
+            sys.exit(f"Scene file not found: {scene}")
     for idx, scene in enumerate(scenes):
         if idx:
             term.clear()

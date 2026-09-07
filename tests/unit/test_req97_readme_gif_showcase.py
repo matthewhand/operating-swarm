@@ -62,8 +62,8 @@ def test_demo_gif_assets_exist_and_are_valid():
 
         with Image.open(doc_path) as img:
             assert img.format == "GIF"
-            assert getattr(img, "is_animated", False)
-            assert img.n_frames > 1
+            assert getattr(img, "is_animated", False) is True
+            assert getattr(img, "n_frames", 0) > 1
 
         if filename != "cli-and-api.gif":
             asset_path = repo_root() / "assets" / "readme" / filename
@@ -88,7 +88,10 @@ def test_no_secrets_in_captures_and_demos():
         assert needle not in lowered
 
     captures_dir = repo_root() / "docs" / "demo" / "captures"
-    for capture_file in captures_dir.glob("*.txt"):
+    assert captures_dir.exists(), f"Captures directory not found: {captures_dir}"
+    capture_files = list(captures_dir.glob("*.txt"))
+    assert len(capture_files) > 0, "No capture files found to verify"
+    for capture_file in capture_files:
         content = capture_file.read_text(encoding="utf-8").lower()
         for needle in ("sk-", "github_pat_", "ghp_", "192.168.", "10.0.0."):
             assert needle not in content, f"Found secret or private IP in {capture_file.name}: {needle}"

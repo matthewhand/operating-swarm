@@ -336,7 +336,7 @@ class ModeBPayload:
         self.role = normalize_agent_role(self.role)
         if not self.latest_message:
             raise ValueError("latest_message is required for Mode B invocation")
-        if self.caller_context is None:
+        if not self.caller_context:
             raise ValueError("caller_context is required for Mode B invocation")
 
     def build_model_messages(self, system_prompt: str | None = None) -> list[dict[str, str]]:
@@ -377,7 +377,7 @@ def is_mode_b_payload(data: Any) -> bool:
         and bool(data.get("caller_id"))
         and bool(data.get("role"))
         and bool(data.get("latest_message"))
-        and "caller_context" in data
+        and bool(data.get("caller_context"))
     )
 
 
