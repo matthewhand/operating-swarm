@@ -81,7 +81,11 @@ def test_readme_embeds_four_demo_slots_in_order():
 
 def test_readme_demo_copy_says_openmousbot_not_omb():
     text = _readme()
-    demos = text.split("## Demos", 1)[1].split("## Short history", 1)[0]
+    parts = text.split("## Demos", 1)
+    assert len(parts) >= 2, "README must contain '## Demos' section"
+    after_demos = parts[1].split("## Short history", 1)
+    assert len(after_demos) >= 2, "README must contain '## Short history' section"
+    demos = after_demos[0]
     assert "OpenMousBot" in demos
     # User-facing demo captions must not say OMB (internal ids stay off README).
     assert not re.search(r"\bOMB\b", demos), "README Demos must label OpenMousBot, not OMB"

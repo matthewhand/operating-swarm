@@ -85,6 +85,12 @@ class WaitDecision:
         return max(0, int(math.ceil(self.remaining_seconds)))
 
     def public_dict(self) -> dict[str, Any]:
+        """Serialize wait decision for API and frontend consumers.
+
+        Note: Internal rate limiting math uses time.monotonic() to avoid clock
+        jump skew. The frontend expects wait_until_ms in Unix epoch milliseconds
+        relative to Date.now(), so we explicitly anchor remaining time to time.time().
+        """
         remaining = self.remaining_int()
         return {
             "reason": self.rule,

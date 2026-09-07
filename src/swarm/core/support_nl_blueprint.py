@@ -120,7 +120,7 @@ def class_name_for_id(blueprint_id: str) -> str:
 def interpret_nl(prompt: str) -> str:
     """Map a natural-language ask to a small template. Ignores any pasted Python."""
     text = (prompt or "").lower()
-    if "```" in (prompt or "") or "class " in (prompt or "") and "def " in (prompt or ""):
+    if "```" in (prompt or "") or ("class " in (prompt or "") and "def " in (prompt or "")):
         # User pasted code — still treat as NL intent, never require they author it.
         text = re.sub(r"```.*?```", " ", prompt or "", flags=re.S).lower()
     if any(word in text for word in ("skeptic", "circular", "punt-back", "punt back")):
