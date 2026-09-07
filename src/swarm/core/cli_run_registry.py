@@ -31,7 +31,7 @@ _current_owner: contextvars.ContextVar[dict[str, str] | None] = contextvars.Cont
 )
 
 _lock = threading.Lock()
-_runs: dict[str, "CliRun"] = {}
+_runs: dict[str, CliRun] = {}
 
 
 @dataclass
@@ -238,8 +238,5 @@ def terminate_cli_runs(
             if tracked is not None:
                 tracked.terminated = True
         if terminate_process_group(run.pid, run.pgid):
-            killed = True
-        else:
-            # Already gone — still an honest user stop of a tracked run.
             killed = True
     return "terminated" if killed else "not_running"

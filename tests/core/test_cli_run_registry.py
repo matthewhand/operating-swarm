@@ -19,7 +19,6 @@ from swarm.core.cli_run_registry import (
     terminate_process_group,
 )
 
-
 PY = sys.executable
 
 
@@ -105,7 +104,6 @@ def test_terminate_does_not_signal_unrelated_pid(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stream_run_registers_and_user_terminate_sets_flag(tmp_path):
-    import asyncio
 
     pidfile = tmp_path / "child.pid"
     code = (
@@ -133,3 +131,19 @@ async def test_stream_run_registers_and_user_terminate_sets_flag(tmp_path):
     assert _wait_dead(pid)
     finals = [c for c in chunks if c.final]
     assert finals and finals[-1].result is not None and finals[-1].result.terminated
+
+def test_terminate_already_dead_process_returns_not_running():
+    child = _looping_child()
+    pgid = os.getpgid(child.pid)
+    token = register_cli_run(
+        user_key="u0",
+        agent_id="cli_agent",
+        conversation_id="conv-1",
+        pid=child.pid,
+        pgid=pgid,
+    )
+    assert token
+    child.terminate()
+    child.wait(timeout=5)
+    assert terminate_cli_runs("u0", "cli_agent") == "not_running"
+

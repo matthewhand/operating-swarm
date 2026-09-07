@@ -17,7 +17,11 @@ PY = sys.executable
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    from django.conf import settings
+    client = APIClient()
+    if getattr(settings, "SWARM_API_KEY", None):
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.SWARM_API_KEY}")
+    return client
 
 
 @pytest.fixture(autouse=True)
