@@ -101,12 +101,12 @@ export function useCompactedCardMenu({
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        setMenu(null)
+        closeMenu()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menu])
+  }, [menu, closeMenu])
 
   const openAt = useCallback((x: number, y: number) => {
     setMenu({ x, y })
@@ -142,10 +142,14 @@ export function useCompactedCardMenu({
         return
       }
       if (id === 'copy') {
-        const result = await copyTextToClipboard(copyText)
-        if (result === 'empty') {
-          toast?.error(COPY_EMPTY_TITLE, COPY_EMPTY_MESSAGE)
-        } else if (result === 'failed') {
+        try {
+          const result = await copyTextToClipboard(copyText)
+          if (result === 'empty') {
+            toast?.error(COPY_EMPTY_TITLE, COPY_EMPTY_MESSAGE)
+          } else if (result === 'failed') {
+            toast?.error(COPY_FAILED_TITLE, COPY_FAILED_MESSAGE)
+          }
+        } catch {
           toast?.error(COPY_FAILED_TITLE, COPY_FAILED_MESSAGE)
         }
         closeMenu()
@@ -154,6 +158,7 @@ export function useCompactedCardMenu({
       if (id === 'delete') {
         onRemove()
         closeMenu()
+        return
       }
     },
     [closeMenu, copyText, onRemove, onToggleExpand, toast],

@@ -51,3 +51,12 @@ describe('compactedCardMenuItems (REQ-213)', () => {
     ).toBe('digest\n\n---\n[user]: Ship it\n\n[Codey]: Done')
   })
 })
+  it('omits empty lines and separator when all compacted items are empty', () => {
+    expect(
+      compactedCardCopyText({
+        text: 'main digest',
+        compacted: [{ role: 'user', text: '' }, { role: 'assistant', text: '   ' }],
+      }),
+    ).toBe('main digest')
+  })
+
