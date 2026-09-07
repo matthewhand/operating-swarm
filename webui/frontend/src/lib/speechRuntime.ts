@@ -125,7 +125,7 @@ export async function transcribeCustomBlob(blob: Blob, filename = 'audio.webm'):
 
 export async function recordMicrophoneAudio(
   win: Window = window,
-): Promise<{ stop: () => Promise<Blob> }> {
+): Promise<{ stop: () => Promise<Blob>; abort: () => void }> {
   const media = win.navigator?.mediaDevices
   if (!media?.getUserMedia) {
     throw new Error('Microphone capture is not available in this browser.')
@@ -142,25 +142,41 @@ export async function recordMicrophoneAudio(
     if (event.data && event.data.size > 0) chunks.push(event.data)
   }
   recorder.start()
+  const cleanup = () => {
+    try {
+      stream.getTracks().forEach((track) => track.stop())
+    } catch {
+      /* ignore */
+    }
+  }
   return {
     stop: () =>
       new Promise((resolve, reject) => {
         recorder.onstop = () => {
-          stream.getTracks().forEach((track) => track.stop())
+          cleanup()
           const type = recorder.mimeType || 'audio/webm'
           resolve(new Blob(chunks, { type }))
         }
         recorder.onerror = () => {
-          stream.getTracks().forEach((track) => track.stop())
+          cleanup()
           reject(new Error('Recording failed.'))
         }
         try {
           recorder.stop()
         } catch (err) {
-          stream.getTracks().forEach((track) => track.stop())
+          cleanup()
           reject(err)
         }
       }),
+    abort: () => {
+      try {
+        if (recorder.state !== 'inactive') recorder.stop()
+      } catch {
+        /* ignore */
+      } finally {
+        cleanup()
+      }
+    },
   }
 }
 

@@ -133,8 +133,9 @@ def _write_store(store: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schema": SCHEMA, "agents": store.get("agents") or {}}
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    os.close(fd)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with open(tmp, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, default=str)
             handle.write("\n")
         os.replace(tmp, path)
