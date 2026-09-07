@@ -10,6 +10,7 @@ from swarm.core.agent_folder import (
     folder_from_blueprint_code,
     resolve_agent_folder,
     resolve_session_cwd,
+    lookup_agent_folder,
 )
 
 
@@ -70,3 +71,10 @@ def test_lookup_uses_settings_when_params_blank(tmp_path, monkeypatch):
     store.update_settings("my_cli", {"folder": str(folder)})
     assert resolve_session_cwd(agent_id="my_cli") == str(folder.resolve())
     store.reset_agent_settings_cache()
+
+def test_lookup_agent_folder_handles_import_error(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "swarm.core.agent_settings", None)
+    # Should not raise exception
+    assert lookup_agent_folder("non_existent_agent") == ""
+

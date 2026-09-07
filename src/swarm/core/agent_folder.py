@@ -63,7 +63,7 @@ def lookup_agent_folder(
         stored = get_settings(agent).get("folder")
         if isinstance(stored, str) and stored.strip():
             return stored.strip()
-    except Exception:
+    except (ImportError, OSError, KeyError, AttributeError):
         pass
     try:
         from swarm.views.blueprint_library_views import get_user_blueprint_library
@@ -77,7 +77,7 @@ def lookup_agent_folder(
             comment = folder_from_blueprint_code(item.get("code"))
             if comment:
                 return comment
-    except Exception:
+    except (ImportError, OSError, KeyError, AttributeError):
         pass
     return ""
 
