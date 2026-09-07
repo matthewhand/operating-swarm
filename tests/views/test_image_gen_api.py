@@ -19,7 +19,11 @@ _STILL_PNG = base64.b64decode(
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    from django.conf import settings
+    client = APIClient()
+    if getattr(settings, "SWARM_API_KEY", None):
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.SWARM_API_KEY}")
+    return client
 
 
 @pytest.fixture(autouse=True)
@@ -94,7 +98,7 @@ def test_generate_stub_sets_still_avatar(api_client, _isolate_image_gen: Path):
         config_path=_isolate_image_gen,
     )
 
-    def _fake_generate(prompt, *, settings=None, opener=None, timeout=30.0):
+    def _fake_generate(prompt, **_kwargs):
         assert "still" in prompt.lower() or prompt
         return _STILL_PNG
 

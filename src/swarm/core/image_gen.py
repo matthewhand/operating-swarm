@@ -10,11 +10,13 @@ Blob theme eyes.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import logging
 import os
 import re
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -23,7 +25,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from swarm.core.chat_store import normalize_agent_id
-from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
+from swarm.core.paths import (
+    ensure_swarm_directories_exist,
+    get_user_config_dir_for_swarm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +118,10 @@ def _normalize_base_url(url: str) -> str:
     if not raw:
         return ""
     if "://" not in raw:
-        raw = f"http://{raw}"
+        raise ImageGenError(
+            "Image generation base URL must include a scheme (http:// or https://). "
+            "Refusing to auto-prepend http:// for security."
+        )
     return raw
 
 
@@ -258,6 +266,9 @@ def probe_status(settings: ImageGenSettings | None = None) -> dict[str, Any]:
         pub["http_status"] = code
         return pub
     except urllib.error.HTTPError as exc:
+        if exc.fp:
+            with contextlib.suppress(Exception):
+                exc.fp.close()
         pub["status"] = "ok"
         pub["detail"] = f"Image generation endpoint answered HTTP {exc.code}."
         pub["http_status"] = int(exc.code)
@@ -276,7 +287,7 @@ def _is_still_image(payload: bytes) -> bool:
     if payload.startswith(_GIF_SIGS):
         return False
     if payload.startswith(_PNG_SIG):
-        return _ACTL not in payload[:8192] and b"acTL" not in payload
+        return _ACTL not in payload[:8192]
     if payload.startswith(_JPEG_SIG):
         return True
     if payload.startswith(_WEBP_RIFF) and payload[8:12] == _WEBP_WEBP:
@@ -321,6 +332,17 @@ def generate_still(
         raise ImageGenError(
             "Image generation is not configured. Set a base URL in Settings → Image generation."
         )
+    parsed = urlparse(url)
+    if (
+        parsed.scheme == "http"
+        and parsed.hostname not in ("localhost", "127.0.0.1", "::1", "[::1]")
+        and spec.api_key
+        and not _is_unresolved_placeholder(spec.api_key)
+    ):
+        raise ImageGenError(
+            "Insecure HTTP connection with API key is not permitted for remote hosts. "
+            "Use HTTPS to protect credentials."
+        )
     text = (prompt or "").strip()
     if not text:
         raise ImageGenError("Provide a prompt for the still avatar.")
@@ -346,7 +368,13 @@ def generate_still(
             except Exception:
                 ctype = ""
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:240] if exc.fp else ""
+        detail = ""
+        if exc.fp:
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")[:240]
+            finally:
+                with contextlib.suppress(Exception):
+                    exc.fp.close()
         raise ImageGenError(
             f"Image generation endpoint returned HTTP {exc.code}. {detail}".strip()
         ) from exc
@@ -424,21 +452,23 @@ def load_avatar_map() -> dict[str, str]:
     return out
 
 
+_avatar_map_lock = threading.Lock()
+
+
 def _write_avatar_map(mapping: dict[str, str]) -> None:
     path = avatars_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schema": 1, "avatars": dict(mapping)}
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    os.close(fd)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with open(tmp, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
             handle.write("\n")
         os.replace(tmp, path)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
 
 
@@ -448,8 +478,11 @@ def avatar_path_for(agent_id: str) -> str | None:
 
 
 def _safe_stem(agent_id: str) -> str:
-    agent = normalize_agent_id(agent_id)
-    if not _ID_FILE_RE.match(agent):
+    raw = (agent_id or "").strip()
+    if not raw or "/" in raw or "\\" in raw or ".." in raw:
+        raise ImageGenError("Agent id is not safe for an avatar filename.")
+    agent = normalize_agent_id(raw)
+    if agent in (".", "..") or not _ID_FILE_RE.match(agent):
         raise ImageGenError("Agent id is not safe for an avatar filename.")
     return agent
 
@@ -459,17 +492,18 @@ def store_still_avatar(agent_id: str, image: bytes) -> str:
     if not _is_still_image(image):
         raise ImageGenError("Stored avatar must be a still image (not GIF/APNG/video).")
     stem = _safe_stem(agent_id)
-    root = avatar_storage_dir()
+    root = avatar_storage_dir().resolve()
     root.mkdir(parents=True, exist_ok=True)
     filename = f"{stem}_still.png"
     dest = (root / filename).resolve()
-    if not str(dest).startswith(str(root.resolve())):
+    if not dest.is_relative_to(root) or dest.parent != root:
         raise ImageGenError("Avatar path escaped storage root.")
     dest.write_bytes(image)
     url = f"{avatar_url_prefix()}{filename}"
-    mapping = load_avatar_map()
-    mapping[stem] = url
-    _write_avatar_map(mapping)
+    with _avatar_map_lock:
+        mapping = load_avatar_map()
+        mapping[stem] = url
+        _write_avatar_map(mapping)
     return url
 
 

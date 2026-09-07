@@ -161,3 +161,67 @@ def test_is_still_image_rejects_gif_accepts_png():
     assert image_gen_core._is_still_image(_STILL_PNG) is True
     assert image_gen_core._is_still_image(_GIF) is False
     assert image_gen_core._is_still_image(b"") is False
+
+def test_normalize_base_url_rejects_schemeless(isolated_store: Path):
+    with pytest.raises(image_gen_core.ImageGenError, match="must include a scheme"):
+        image_gen_core.persist_settings(
+            base_url="api.example.com/v1",
+            config_path=isolated_store,
+        )
+
+
+def test_generate_still_rejects_insecure_remote_http(isolated_store: Path, monkeypatch):
+    monkeypatch.setenv("INSECURE_API_KEY", "sk-secret-key")
+    spec, _ = image_gen_core.persist_settings(
+        base_url="http://remote-api.example.com/v1",
+        api_key_env="INSECURE_API_KEY",
+        config_path=isolated_store,
+    )
+    with pytest.raises(image_gen_core.ImageGenError, match="Insecure HTTP connection"):
+        image_gen_core.generate_still("a prompt", settings=spec)
+
+
+def test_apng_acTL_detected():
+    apng = _STILL_PNG[:16] + b"acTL" + _STILL_PNG[16:]
+    assert image_gen_core._is_still_image(apng) is False
+
+
+def test_http_error_closes_fp(isolated_store: Path):
+    import io
+    import urllib.error
+
+    spec, _ = image_gen_core.persist_settings(
+        base_url="http://127.0.0.1:9/v1",
+        config_path=isolated_store,
+    )
+    fp = io.BytesIO(b'{"error": "rate limited"}')
+
+    def _raise_http_error(*_args, **_kwargs):
+        raise urllib.error.HTTPError("http://127.0.0.1:9/v1", 429, "Too Many Requests", {}, fp)
+
+    with pytest.raises(image_gen_core.ImageGenError, match="HTTP 429"):
+        image_gen_core.generate_still("test", settings=spec, opener=_raise_http_error)
+    assert fp.closed is True
+
+
+def test_store_still_avatar_path_traversal(isolated_store: Path):
+    assert isolated_store.is_file()
+    with pytest.raises(image_gen_core.ImageGenError, match="safe for an avatar filename|escaped storage root"):
+        image_gen_core.store_still_avatar("../escape", _STILL_PNG)
+
+
+def test_store_still_avatar_concurrency(isolated_store: Path):
+    assert isolated_store.is_file()
+    import concurrent.futures
+
+    def _worker(i: int):
+        image_gen_core.store_still_avatar(f"worker_{i}", _STILL_PNG)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        list(executor.map(_worker, range(10)))
+
+    avatar_map = image_gen_core.load_avatar_map()
+    assert len(avatar_map) == 10
+    for i in range(10):
+        assert f"worker_{i}" in avatar_map
+

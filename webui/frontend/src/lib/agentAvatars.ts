@@ -81,7 +81,8 @@ export function rememberGeneratedAvatar(agentId: string, avatarPath: string): vo
   if (!agentId) return
   const path = avatarPath.trim()
   if (!path) return
-  memory = { ...readLocal(), ...memory, [agentId]: path }
+  const local = readLocal()
+  memory = { ...local, ...memory, [agentId]: path }
   writeLocal(memory)
   emitChange(agentId)
 }
@@ -95,14 +96,15 @@ export async function hydrateGeneratedAvatars(): Promise<void> {
         const raw = await fetchImageGenSettings(false)
         const parsed = parseImageGenSettings(raw)
         if (parsed.avatars && Object.keys(parsed.avatars).length > 0) {
-          memory = { ...memory, ...parsed.avatars }
+          memory = { ...readLocal(), ...memory, ...parsed.avatars }
           writeLocal(memory)
         }
       } catch {
         /* offline / tests without a stub */
+      } finally {
+        hydrated = true
+        emitChange()
       }
-      hydrated = true
-      emitChange()
     })()
   }
   await hydratePromise
