@@ -467,13 +467,16 @@ class MailboxContext:
             delivered,
             _safe_log_payload(body),
         )
-        return {
+        result = {
             "ok": True,
             "target_id": target,
             "delivered": delivered,
             "sender_id": self.caller_id,
             "sender_hop": f"Messaged {target}",
         }
+        if not delivered:
+            result["warning"] = "delivery_skipped_no_user_key"
+        return result
 
     def _deliver(self, target_id: str, content: str) -> bool:
         from swarm.core import chat_store

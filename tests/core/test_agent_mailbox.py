@@ -323,3 +323,11 @@ def test_cli_install_attaches_nothing():
 
     attached = attach_to_agent(_Agent(), ctx)
     assert attached == []
+
+def test_send_message_surfaces_warning_without_user_key(tmp_path):
+    ctx = _ctx("pat", user_key="", chat_base_dir=tmp_path)
+    result = ctx.send("cos", "unauthenticated message")
+    assert result["ok"] is True
+    assert result["delivered"] is False
+    assert result["warning"] == "delivery_skipped_no_user_key"
+
