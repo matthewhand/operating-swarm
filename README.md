@@ -4,6 +4,13 @@
 <img src="assets/brand/bee-mark.svg" alt="Open Swarm bee mark" width="96"/>
 </div>
 
+<div align="center">
+<img src="assets/readme/cli-agents.svg" alt="CLI agents — Grok / OpenCode / agy poster" width="320"/>
+<img src="assets/readme/api-agents.svg" alt="API agents — OpenAI-compatible owned thread poster" width="320"/>
+<img src="assets/readme/remote-agents.svg" alt="Remote agents — OpenMousBot poster" width="320"/>
+<img src="assets/readme/combined-team.svg" alt="Combined team — CLI plus API plus OpenMousBot poster" width="320"/>
+</div>
+
 Brand marks live under [`assets/brand/`](assets/brand/): **minimal** for the tab favicon and PWA icons, **geometric** for in-app WebUI chrome, and **cyber-swarm** for marketing / website fanfare ([#768](https://github.com/matthewhand/open-swarm/issues/768)).
 
 **Open Swarm** is a Grok-like WebUI and an OpenAI-compatible API that seats four kinds of agents — **CLI**, **API** (true inference), **Blueprint** (programmatic / openai-agents), and **Remote** (Hermes / OpenMousBot / Rakazo / Herdr) — and composes them with **handoff** and **agent-as-tool**. The same blueprint runs from `swarm-cli` and from `/v1/chat/completions`.

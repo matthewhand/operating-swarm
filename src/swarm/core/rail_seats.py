@@ -78,7 +78,7 @@ DEMO_CATALOG_IDS = frozenset(
 USER_SOURCE_MARKERS = frozenset({"user", "wizard", "custom", "add-agent"})
 
 # Add-agent custom seats (REQ-171B / #607). Remote uses /v1/remotes/, not this store.
-ADD_AGENT_SEAT_KINDS = frozenset({"cli", "api"})
+ADD_AGENT_SEAT_KINDS = frozenset({"cli", "api", "blueprint"})
 ADD_AGENT_SOURCE = "add-agent"
 
 CLI_COMMAND_REQUIRED_ERROR = (
@@ -86,7 +86,7 @@ CLI_COMMAND_REQUIRED_ERROR = (
     "or choose API instead."
 )
 UNSUPPORTED_ADD_AGENT_KIND_ERROR = (
-    "Add-agent custom seats only support CLI or API. "
+    "Add-agent custom seats only support CLI, API, or Blueprint. "
     "Use Remotes for remote harnesses."
 )
 
@@ -253,7 +253,7 @@ def apply_marketplace_archive(
 
 
 def infer_custom_kind(item: Mapping[str, Any] | None) -> str:
-    """Resolve CLI/API from explicit kind, then category/tags (Add-agent wizard)."""
+    """Resolve CLI/API/Blueprint from explicit kind, then category/tags (Add-agent wizard)."""
     if not item:
         return ""
     kind = str(item.get("kind") or "").strip().lower()
@@ -263,6 +263,8 @@ def infer_custom_kind(item: Mapping[str, Any] | None) -> str:
     tags = [str(tag).strip().lower() for tag in (item.get("tags") or [])]
     if category == "cli" or "cli" in tags:
         return "cli"
+    if category == "blueprint" or "blueprint" in tags:
+        return "blueprint"
     if category == "api" or "api" in tags:
         return "api"
     return ""
@@ -286,7 +288,7 @@ def extract_cli_command(item: Mapping[str, Any] | None) -> str:
 
 
 def custom_item_is_rail_seat(item: Mapping[str, Any] | None) -> bool:
-    """True for Add-agent CLI/API customs that belong on the AGENTS rail.
+    """True for Add-agent CLI/API/Blueprint customs that belong on the AGENTS rail.
 
     Explicit ``rail: false`` stays catalog-only. Demo leftovers stay off the
     rail unless they opted in with ``rail: true``.
@@ -303,7 +305,7 @@ def custom_item_is_rail_seat(item: Mapping[str, Any] | None) -> bool:
 
 
 def build_custom_rail_item(body: Mapping[str, Any], *, existing: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Validate and stamp a custom-library row as a rail-visible CLI/API seat.
+    """Validate and stamp a custom-library row as a rail-visible CLI/API/Blueprint seat.
 
     Raises ``CustomSeatError`` with user-facing copy on failure.
     """

@@ -57,12 +57,14 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
     localStorage.clear()
   })
 
-  it('renders three agent kinds; Remote tab lists impls, not a Herdr kind', async () => {
+  it('renders four agent kinds; Remote tab lists impls, not a Herdr kind', async () => {
     renderWizard()
 
     expect(screen.getByTestId('add-agent-wizard')).toBeInTheDocument()
     expect(screen.getByTestId('kind-option-cli')).toBeInTheDocument()
     expect(screen.getByTestId('kind-option-api')).toBeInTheDocument()
+    expect(screen.getByTestId('kind-option-blueprint')).toBeInTheDocument()
+    expect(screen.getByTestId('kind-option-blueprint')).toHaveTextContent('Blueprint')
     expect(screen.getByTestId('kind-option-remote')).toBeInTheDocument()
     expect(screen.queryByTestId('kind-option-herdr')).not.toBeInTheDocument()
     expect(screen.getByTestId('kind-option-remote')).toHaveTextContent('Remote')
@@ -171,6 +173,51 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
           githubRepo: 'acme/app',
         }),
       )
+    })
+  })
+
+  it('creates a Blueprint agent on happy-path submit', async () => {
+    const createSpy = vi.spyOn(api, 'createCustomBlueprint').mockResolvedValue({
+      id: 'custom_bp_agent',
+      name: 'Release Captain',
+      description: 'Coordinates releases',
+      category: 'blueprint',
+      tags: ['blueprint'],
+      requirements: '',
+      code: '# Blueprint: Release Captain\n',
+      required_mcp_servers: [],
+      env_vars: [],
+    })
+
+    const { onCreated, onClose } = renderWizard()
+
+    fireEvent.click(screen.getByTestId('kind-option-blueprint'))
+    fireEvent.click(screen.getByTestId('empty-add-btn'))
+    expect(screen.getByTestId('input-blueprint-name')).toBeInTheDocument()
+    expect(screen.getByTestId('input-blueprint-prompt')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('input-blueprint-name'), {
+      target: { value: 'Release Captain' },
+    })
+
+    fireEvent.click(screen.getByTestId('submit-create-agent'))
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Release Captain',
+          category: 'blueprint',
+          kind: 'blueprint',
+          rail: true,
+          source: 'add-agent',
+        }),
+      )
+      expect(onCreated).toHaveBeenCalledWith({
+        id: 'custom_bp_agent',
+        name: 'Release Captain',
+        kind: 'blueprint',
+      })
+      expect(onClose).toHaveBeenCalled()
     })
   })
 

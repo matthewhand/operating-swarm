@@ -12,7 +12,7 @@ export function isRailSeat(row: {
   kind?: string | null
 }): boolean {
   const kind = String(row.kind || '').trim().toLowerCase()
-  if (kind === 'cli' || kind === 'herdr' || kind === 'api') return true
+  if (kind === 'cli' || kind === 'herdr' || kind === 'api' || kind === 'blueprint') return true
   return row.rail === true
 }
 

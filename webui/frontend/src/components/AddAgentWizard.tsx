@@ -1,5 +1,5 @@
 import { useState, useId, useMemo, useRef } from 'react'
-import { Terminal, Bot, Globe, Plus, ExternalLink, Edit3, X } from 'lucide-react'
+import { Terminal, Bot, Globe, Layers, Plus, ExternalLink, Edit3, X } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Modal, Button, Alert } from './DaisyUI'
 import {
@@ -27,7 +27,7 @@ import { RemoteSelect } from './RemoteSelect'
 import { addAgentRemoteImpls, configuredRemotes } from '../lib/remotes'
 import { remotesListForSelect, saveAgentRemoteBinding } from '../lib/agentRemote'
 
-export type AgentKind = 'cli' | 'api' | 'remote'
+export type AgentKind = 'cli' | 'api' | 'remote' | 'blueprint'
 
 export interface AddAgentWizardProps {
   isOpen: boolean
@@ -90,6 +90,11 @@ export default function AddAgentWizard({
   const [apiDescription, setApiDescription] = useState('')
   const [apiPrompt, setApiPrompt] = useState('')
 
+  // Blueprint fields (first-class kind; same shape as API)
+  const [bpName, setBpName] = useState('')
+  const [bpDescription, setBpDescription] = useState('')
+  const [bpPrompt, setBpPrompt] = useState('')
+
   // Remote fields
   const [remoteKind, setRemoteKind] = useState('omb')
   const [remoteBaseUrl, setRemoteBaseUrl] = useState('')
@@ -142,6 +147,9 @@ export default function AddAgentWizard({
     setApiName('')
     setApiDescription('')
     setApiPrompt('')
+    setBpName('')
+    setBpDescription('')
+    setBpPrompt('')
     setRemoteKind('omb')
     setRemoteBaseUrl('')
     setRemoteApiKey('')
@@ -251,6 +259,7 @@ export default function AddAgentWizard({
     const customList = customBlueprintsQuery.data?.data ?? []
     for (const item of customList) {
       if (item.category === 'cli' || item.tags?.includes('cli')) continue
+      if (item.category === 'blueprint' || item.tags?.includes('blueprint')) continue
       const edits = loadAgentEdit(item.id)
       const name = edits.name || item.name || item.id
       seen.add(item.id)
@@ -267,6 +276,7 @@ export default function AddAgentWizard({
     for (const item of catalog) {
       if (seen.has(item.id)) continue
       if (item.category === 'cli' || item.tags?.includes('cli')) continue
+      if (item.category === 'blueprint' || item.tags?.includes('blueprint')) continue
       const edits = loadAgentEdit(item.id)
       const name = edits.name || item.name || item.id
       seen.add(item.id)
@@ -289,6 +299,46 @@ export default function AddAgentWizard({
     }, 0)
   }
 
+  // Aggregate blueprint agents (first-class kind)
+  const blueprintAgents = useMemo<ManageAgentItem[]>(() => {
+    const list: ManageAgentItem[] = []
+    const seen = new Set<string>()
+
+    const customList = customBlueprintsQuery.data?.data ?? []
+    for (const item of customList) {
+      if (item.category === 'blueprint' || item.tags?.includes('blueprint')) {
+        const edits = loadAgentEdit(item.id)
+        const name = edits.name || item.name || item.id
+        seen.add(item.id)
+        list.push({
+          id: item.id,
+          name,
+          description: item.description || '',
+          prompt: item.code || '',
+          isCustom: true,
+        })
+      }
+    }
+
+    const catalog = blueprintsQuery.data?.data ?? []
+    for (const item of catalog) {
+      if (seen.has(item.id)) continue
+      if (item.category === 'blueprint' || item.tags?.includes('blueprint')) {
+        const edits = loadAgentEdit(item.id)
+        const name = edits.name || item.name || item.id
+        seen.add(item.id)
+        list.push({
+          id: item.id,
+          name,
+          description: item.description || '',
+          isCustom: false,
+        })
+      }
+    }
+
+    return list
+  }, [customBlueprintsQuery.data, blueprintsQuery.data])
+
   const handleStartEdit = (agent: ManageAgentItem) => {
     setError(null)
     setFolderError(null)
@@ -304,10 +354,16 @@ export default function AddAgentWizard({
       setCliGithubRepo(agent.githubRepo || stored.githubRepo)
       setCliWorkspacesEnabled(stored.workspacesEnabled)
       setCliDescription(agent.description || '')
-    } else if (selectedKind === 'api') {
-      setApiName(agent.name)
-      setApiDescription(agent.description || '')
-      setApiPrompt(agent.prompt || '')
+    } else if (selectedKind === 'api' || selectedKind === 'blueprint') {
+      if (selectedKind === 'blueprint') {
+        setBpName(agent.name)
+        setBpDescription(agent.description || '')
+        setBpPrompt(agent.prompt || '')
+      } else {
+        setApiName(agent.name)
+        setApiDescription(agent.description || '')
+        setApiPrompt(agent.prompt || '')
+      }
     }
     setTimeout(() => {
       firstInputRef.current?.focus()
@@ -433,21 +489,22 @@ ${folderComment}`
           resetFormFields()
           setMode('create')
         }
-      } else if (selectedKind === 'api') {
-        const name = apiName.trim()
-        const description = apiDescription.trim()
-        const prompt = apiPrompt.trim()
+      } else if (selectedKind === 'api' || selectedKind === 'blueprint') {
+        const isBp = selectedKind === 'blueprint'
+        const name = (isBp ? bpName : apiName).trim()
+        const description = (isBp ? bpDescription : apiDescription).trim()
+        const prompt = (isBp ? bpPrompt : apiPrompt).trim()
         if (!name) throw new Error('Agent name is required')
 
         if (mode === 'create') {
           const created = await createCustomBlueprint({
             name,
             description,
-            category: 'ai_assistants',
-            code: prompt || `# API Assistant: ${name}
+            category: isBp ? 'blueprint' : 'ai_assistants',
+            code: prompt || `# ${isBp ? 'Blueprint' : 'API Assistant'}: ${name}
 `,
-            tags: ['api'],
-            kind: 'api',
+            tags: [isBp ? 'blueprint' : 'api'],
+            kind: isBp ? 'blueprint' : 'api',
             rail: true,
             source: 'add-agent',
           })
@@ -456,7 +513,7 @@ ${folderComment}`
 
           await queryClient.invalidateQueries({ queryKey: ['blueprints'] })
           await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
-          onCreated?.({ id: created.id, name: created.name, kind: 'api' })
+          onCreated?.({ id: created.id, name: created.name, kind: isBp ? 'blueprint' : 'api' })
           handleClose()
         } else if (mode === 'edit' && editingAgentId) {
           saveAgentEdit(editingAgentId, { name })
@@ -465,9 +522,9 @@ ${folderComment}`
             await updateCustomBlueprint(editingAgentId, {
               name,
               description,
-              code: prompt || `# API Assistant: ${name}
+              code: prompt || `# ${isBp ? 'Blueprint' : 'API Assistant'}: ${name}
 `,
-              kind: 'api',
+              kind: isBp ? 'blueprint' : 'api',
               rail: true,
             })
           } catch {
@@ -549,7 +606,8 @@ ${folderComment}`
     }
   }
 
-  const currentAgents = selectedKind === 'cli' ? cliAgents : apiAgents
+  const currentAgents =
+    selectedKind === 'cli' ? cliAgents : selectedKind === 'blueprint' ? blueprintAgents : apiAgents
 
   return (
     <Modal
@@ -622,6 +680,20 @@ ${folderComment}`
           <button
             type="button"
             role="tab"
+            aria-selected={selectedKind === 'blueprint'}
+            className={`tab gap-2 flex-1 font-semibold text-xs sm:text-sm transition ${
+              selectedKind === 'blueprint' ? 'tab-active' : ''
+            }`}
+            onClick={() => handleSelectKind('blueprint')}
+            data-testid="kind-option-blueprint"
+          >
+            <Layers className="h-4 w-4" aria-hidden="true" />
+            <span>Blueprint</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
             aria-selected={selectedKind === 'remote'}
             className={`tab gap-2 flex-1 font-semibold text-xs sm:text-sm transition ${
               selectedKind === 'remote' ? 'tab-active' : ''
@@ -641,6 +713,7 @@ ${folderComment}`
         ) : null}
 
         {/* Tab content: 1. Existing List (Manage) */}
+        <hr className="border-base-300" data-testid="manage-surface-divider" />
         <div className="space-y-3" data-testid="manage-agent-surface">
           {selectedKind === 'remote' ? (
             configuredRemoteRows.length === 0 ? (
@@ -726,15 +799,23 @@ ${folderComment}`
               <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-base-200 text-base-content/50">
                 {selectedKind === 'cli' ? (
                   <Terminal className="h-4.5 w-4.5" />
+                ) : selectedKind === 'blueprint' ? (
+                  <Layers className="h-4.5 w-4.5" />
                 ) : (
                   <Bot className="h-4.5 w-4.5" />
                 )}
               </div>
               <p className="mt-2 text-sm font-medium">
-                {selectedKind === 'cli' ? 'No CLI agents yet' : 'No API agents yet'}
+                {selectedKind === 'cli'
+                  ? 'No CLI agents yet'
+                  : selectedKind === 'blueprint'
+                    ? 'No Blueprint agents yet'
+                    : 'No API agents yet'}
               </p>
               <p className="mt-1 text-xs text-base-content/60">
-                Get started by creating your first {selectedKind === 'cli' ? 'CLI' : 'API'} agent below.
+                Get started by creating your first{' '}
+                {selectedKind === 'cli' ? 'CLI' : selectedKind === 'blueprint' ? 'Blueprint' : 'API'}{' '}
+                agent below.
               </p>
               <Button
                 type="button"
@@ -744,7 +825,9 @@ ${folderComment}`
                 onClick={handleStartAddNew}
                 data-testid="empty-add-btn"
               >
-                Add {selectedKind === 'cli' ? 'CLI' : 'API'} Agent
+                Add{' '}
+                {selectedKind === 'cli' ? 'CLI' : selectedKind === 'blueprint' ? 'Blueprint' : 'API'}{' '}
+                Agent
               </Button>
             </div>
           ) : (
@@ -776,11 +859,15 @@ ${folderComment}`
                         className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
                           selectedKind === 'cli'
                             ? 'bg-emerald-500/10 text-emerald-500'
-                            : 'bg-sky-500/10 text-sky-500'
+                            : selectedKind === 'blueprint'
+                              ? 'bg-violet-500/10 text-violet-500'
+                              : 'bg-sky-500/10 text-sky-500'
                         }`}
                       >
                         {selectedKind === 'cli' ? (
                           <Terminal className="h-3.5 w-3.5" />
+                        ) : selectedKind === 'blueprint' ? (
+                          <Layers className="h-3.5 w-3.5" />
                         ) : (
                           <Bot className="h-3.5 w-3.5" />
                         )}
@@ -790,7 +877,9 @@ ${folderComment}`
                         <p className="text-[11px] text-base-content/60 truncate font-mono mt-0.5">
                           {selectedKind === 'cli'
                             ? agent.command || 'CLI'
-                            : agent.description || 'API Assistant'}
+                            : selectedKind === 'blueprint'
+                              ? agent.description || 'Blueprint'
+                              : agent.description || 'API Assistant'}
                           {agent.folder ? ` · ${agent.folder}` : ''}
                           {agent.githubRepo ? ` · ${agent.githubRepo}` : ''}
                         </p>
@@ -833,13 +922,17 @@ ${folderComment}`
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold uppercase tracking-wider text-base-content/70">
                 {mode === 'edit'
-                  ? `Edit ${selectedKind === 'cli' ? 'CLI' : 'API'} Agent: ${editingAgentName}`
+                  ? `Edit ${
+                      selectedKind === 'cli' ? 'CLI' : selectedKind === 'blueprint' ? 'Blueprint' : 'API'
+                    } Agent: ${editingAgentName}`
                   : `Add New ${
                       selectedKind === 'cli'
                         ? 'CLI'
                         : selectedKind === 'api'
-                        ? 'API'
-                        : 'Remote'
+                          ? 'API'
+                          : selectedKind === 'blueprint'
+                            ? 'Blueprint'
+                            : 'Remote'
                     } Agent`}
               </h4>
               {mode === 'edit' ? (
@@ -978,6 +1071,60 @@ ${folderComment}`
                 </div>
                 <AgentWorkspaceBinding
                   kind="api"
+                  value={emptyWorkspaceFields()}
+                  onChange={() => undefined}
+                />
+              </>
+            ) : null}
+
+            {selectedKind === 'blueprint' ? (
+              <>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-base-content/80">
+                    Blueprint Name <span className="text-error">*</span>
+                  </label>
+                  <input
+                    ref={firstInputRef}
+                    type="text"
+                    className="input input-sm input-bordered w-full"
+                    placeholder="e.g. Release Captain"
+                    value={bpName}
+                    onChange={(e) => setBpName(e.target.value)}
+                    required
+                    autoFocus
+                    aria-label="Blueprint name"
+                    data-testid="input-blueprint-name"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-base-content/80">
+                    Description (optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="input input-sm input-bordered w-full text-xs"
+                    placeholder="e.g. Coordinates releases across services"
+                    value={bpDescription}
+                    onChange={(e) => setBpDescription(e.target.value)}
+                    aria-label="Description"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-base-content/80">
+                    System Instructions / Prompt
+                  </label>
+                  <textarea
+                    className="textarea textarea-sm textarea-bordered w-full font-mono text-xs"
+                    rows={3}
+                    placeholder="You are a blueprint agent..."
+                    value={bpPrompt}
+                    onChange={(e) => setBpPrompt(e.target.value)}
+                    aria-label="System prompt"
+                    data-testid="input-blueprint-prompt"
+                  />
+                </div>
+                <AgentWorkspaceBinding
+                  kind="blueprint"
                   value={emptyWorkspaceFields()}
                   onChange={() => undefined}
                 />

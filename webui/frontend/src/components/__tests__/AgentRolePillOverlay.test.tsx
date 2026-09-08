@@ -73,7 +73,7 @@ describe('AgentSidebar Role Badges Overlay Avatar (REQ-175)', () => {
     vi.stubGlobal('fetch', mockFetch())
   })
 
-  it('renders role badge as an overlay on the agent avatar, leaving second row for snippet only', async () => {
+  it('renders role badge right-aligned on the agent name row instead of the timestamp', async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
@@ -92,19 +92,19 @@ describe('AgentSidebar Role Badges Overlay Avatar (REQ-175)', () => {
     // Find the role badge
     const badge = cosRow.querySelector('.os-agent-role-badge')
     expect(badge).not.toBeNull()
-    expect(badge).toHaveAttribute('data-avatar-overlay', 'true')
+    expect(badge).not.toHaveAttribute('data-avatar-overlay')
     expect(badge).toHaveAttribute('data-role', 'chief_of_staff')
     expect(badge).toHaveTextContent('CoS')
 
-    // Badge should be inside the avatar's relative container
-    const avatarContainer = badge?.parentElement
-    expect(avatarContainer).toHaveClass('relative')
-    expect(avatarContainer?.querySelector('[data-agent-avatar]')).not.toBeNull()
+    // Badge sits on the name row (right-aligned, timestamp slot), not on the avatar
+    const avatarSlot = cosRow.querySelector('.os-agent-row__avatar-slot')
+    expect(avatarSlot?.querySelector('.os-agent-role-badge')).toBeNull()
 
-    // Second text row should contain description snippet and not the badge
+    // Badge takes the timestamp position on the name row
     const textColumn = cosRow.querySelector('.min-w-0.flex-1')
     expect(textColumn).not.toBeNull()
-    expect(textColumn?.querySelector('.os-agent-role-badge')).toBeNull()
+    expect(textColumn?.querySelector('.os-agent-role-badge')).not.toBeNull()
+    expect(cosRow.querySelector('[data-testid="rail-row-timestamp"]')).toBeNull()
     expect(within(textColumn as HTMLElement).getByText('Oversees operations and strategic goals')).toBeInTheDocument()
 
     // Plain agent without special role has no badge

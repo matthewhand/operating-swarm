@@ -795,7 +795,7 @@ class LifecycleContext:
         if any(str(item.get("id") or "") == member_id for item in members if isinstance(item, dict)):
             return
         kind = str(row.get("kind") or infer_custom_kind(row) or "api")
-        if kind not in ("api", "cli", "remote", "herdr"):
+        if kind not in ("api", "cli", "remote", "herdr", "blueprint"):
             kind = "api"
         members.append(
             {
@@ -1105,7 +1105,7 @@ def context_from_runtime(
         explicit_kind = None
     kind = classify_agent_kind(
         caller_id,
-        explicit=explicit_kind if explicit_kind in ("api", "cli", "remote") else None,
+        explicit=explicit_kind if explicit_kind in ("api", "cli", "remote", "blueprint") else None,
     )
     role = role_of_member(caller_id, None, fallback=params.get("role"))
     meta = getattr(blueprint, "metadata", None) if blueprint is not None else None

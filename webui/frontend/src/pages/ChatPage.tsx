@@ -51,7 +51,8 @@ import { ComputerControlStub } from '../components/ComputerControlStub'
 import { NavbarRoutingPicker, type RoutingPathChange } from '../components/NavbarRoutingPicker'
 import { ChatMessageBubble } from '../components/ChatMessageBubble'
 import { SkillPopup } from '../components/SkillPopup'
-import ReadAloudButton from '../components/ReadAloudButton'
+import MessageRowActions from '../components/MessageRowActions'
+import CliSessionSwitcher from '../components/CliSessionSwitcher'
 import { SystemPreloadPill } from '../components/SystemPreloadPill'
 import { CompactSummaryCard } from '../components/CompactSummaryCard'
 import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
@@ -1186,7 +1187,7 @@ const ChatPage = () => {
     }
     setEditingKey(null)
     setAgentKind(classifyAgentKind(selectedBlueprint))
-    setMessagesEditable(canEditAgentMessages(selectedBlueprint) && !selectedCli)
+    setMessagesEditable(canEditAgentMessages(selectedBlueprint) && !remoteFromUrl)
     userKeyCounterRef.current = 0
     if (fresh) {
       // New empty session — do not restore a prior transcript.
@@ -1383,6 +1384,58 @@ const ChatPage = () => {
           needsApproval: true,
           concerned: true,
         })
+        return
+      }
+      if (event.kind === 'cli_session_update') {
+        // Live qwen/CLI provider session activity (inside OR outside open-swarm).
+        const ownThread =
+          Boolean(event.conversationId) &&
+          event.conversationId === conversationIdRef.current
+        if (ownThread && event.events.length > 0) {
+          setThreads((prev) => {
+            const current = prev[threadKey] ?? []
+            const additions: ChatMessage[] = []
+            if (event.events.some((row) => row.role === 'user')) {
+              additions.push({
+                key: `cliext-${Date.now()}-head`,
+                role: 'status',
+                text: `${event.cli} session updated outside open-swarm (live).`,
+                streaming: false,
+              })
+            }
+            event.events.forEach((row, idx) => {
+              if (row.role === 'user' || row.role === 'assistant') {
+                additions.push({
+                  key: `cliext-${Date.now()}-${idx}`,
+                  role: row.role,
+                  text: row.text,
+                  streaming: false,
+                })
+              } else {
+                additions.push({
+                  key: `cliext-tool-${Date.now()}-${idx}`,
+                  role: 'status',
+                  text: row.text,
+                  streaming: false,
+                })
+              }
+            })
+            return { ...prev, [threadKey]: [...current, ...additions] }
+          })
+        }
+        if (event.state === 'completed') {
+          const lastText = [...event.events]
+            .reverse()
+            .find((row) => row.role === 'assistant')?.text
+          const { agentId: notifyAgentId, agentName: notifyAgentName } = notifyCtxRef.current
+          maybeNotifyAgentTurn({
+            agentId: event.agentId || notifyAgentId || event.cli,
+            agentName: notifyAgentName,
+            snippet: lastText || '',
+            selectedAgentId: notifyAgentId,
+            tabHidden: typeof document !== 'undefined' ? document.hidden : false,
+          })
+        }
         return
       }
       setThreads((prev) => {
@@ -1804,11 +1857,22 @@ const ChatPage = () => {
         ws.send(buildChatWsEditFrame(turnIndex, nextText))
       }
       try {
-        await patchAgentMessage(agentIdFromBlueprint(selectedBlueprint), {
-          index: turnIndex,
-          content: nextText,
-          conversation_id: conversationIdRef.current,
-        })
+        const patched = await patchAgentMessage(
+          agentIdFromBlueprint(selectedBlueprint),
+          {
+            index: turnIndex,
+            content: nextText,
+            conversation_id: conversationIdRef.current,
+          },
+        )
+        if (patched.cli_session_reset) {
+          addToast({
+            type: 'info',
+            title: 'CLI session restarted',
+            message:
+              'A message was edited and the CLI session cannot rewind. The next message starts a fresh session.',
+          })
+        }
       } catch {
         addToast({
           type: 'error',
@@ -2553,28 +2617,32 @@ const ChatPage = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case shrink-0"
-            aria-label="Session token usage"
-            data-testid="token-meter-button"
-            onClick={() => setTokenDiagOpen(true)}
-          >
-            <div
-              className="h-1 w-14 overflow-hidden rounded-full bg-base-300"
-              role="meter"
-              aria-label="Tokens in context"
-              aria-valuemin={0}
-              aria-valuemax={meterMax}
-              aria-valuenow={tokenCount}
+          {/* Token visibility: only when swarm owns the numbers — API/blueprint
+              agents. CLI provider sessions carry no swarm-side usage (REQ-806). */}
+          {!isCliAgent ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case shrink-0"
+              aria-label="Session token usage"
+              data-testid="token-meter-button"
+              onClick={() => setTokenDiagOpen(true)}
             >
               <div
-                className="h-full rounded-full bg-base-content/45"
-                style={{ width: `${Math.max(tokenCount > 0 ? 4 : 0, tokenPct)}%` }}
-              />
-            </div>
-            <span className="tabular-nums whitespace-nowrap text-xs">{formatMeterLabel(tokenCount, contextMax)}</span>
-          </button>
+                className="h-1 w-14 overflow-hidden rounded-full bg-base-300"
+                role="meter"
+                aria-label="Tokens in context"
+                aria-valuemin={0}
+                aria-valuemax={meterMax}
+                aria-valuenow={tokenCount}
+              >
+                <div
+                  className="h-full rounded-full bg-base-content/45"
+                  style={{ width: `${Math.max(tokenCount > 0 ? 4 : 0, tokenPct)}%` }}
+                />
+              </div>
+              <span className="tabular-nums whitespace-nowrap text-xs">{formatMeterLabel(tokenCount, contextMax)}</span>
+            </button>
+          ) : null}
           {showEmptyRemoteChrome ? (
             <button
               type="button"
@@ -2687,6 +2755,13 @@ const ChatPage = () => {
               onChange={applyCliRoutingChange}
             />
           ) : null}
+          {isCliAgent && currentCli ? (
+            <CliSessionSwitcher
+              agentId={selectedBlueprint}
+              cli={currentCli}
+              agentName={selectedAgentName}
+            />
+          ) : null}
           <div
             className="flex items-center gap-2"
             role="toolbar"
@@ -2740,7 +2815,7 @@ const ChatPage = () => {
               ? 'cli'
               : agentKind
         }
-        data-messages-editable={messagesEditable && !isCliAgent && agentKind !== 'remote' ? 'true' : 'false'}
+        data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
         data-composer-inset={composerInsetPx}
         tabIndex={0}
         onScroll={(e) => {
@@ -2895,15 +2970,25 @@ const ChatPage = () => {
             const messageIndex = messages.findIndex((row) => row.key === message.key)
             const canEditThis =
               messagesEditable &&
-              !selectedCli &&
               !message.streaming &&
               (message.role === 'user' || message.role === 'assistant')
+            // CLI agents: while the run has produced no text the composer
+            // working avatar is the single indicator — no empty dots bubble.
+            if (
+              isCliAgent &&
+              message.role === 'assistant' &&
+              message.streaming &&
+              !message.text.trim()
+            ) {
+              return null
+            }
             const rawOffset = rawOffsetForMessage(messages, message.key)
             const showStartMarker =
               contextMeta.start_offset > 0 && rawOffset === contextMeta.start_offset
             return (
               <div
                 key={message.key}
+                className="group/osrow"
                 onContextMenu={(e) => {
                   if (message.role === 'system') return
                   handleBubbleContextMenu(e, message)
@@ -2936,6 +3021,7 @@ const ChatPage = () => {
                   }
                   canEdit={canEditThis}
                   canCompress={
+                    (isApiAgent || agentKind === 'blueprint') &&
                     !message.streaming &&
                     (message.role === 'user' || message.role === 'assistant') &&
                     rawOffsetForMessage(messages, message.key) >= 0
@@ -2974,7 +3060,7 @@ const ChatPage = () => {
                   ))}
                 </ChatMessageBubble>
                 {message.role === 'assistant' && !message.streaming && message.text.trim() ? (
-                  <ReadAloudButton text={message.text} />
+                  <MessageRowActions text={message.text} />
                 ) : null}
                 {SHOW_MESSAGE_ACTIONS && message.role === 'assistant' && !message.streaming && (
                   <ChatMessageActions
@@ -3016,7 +3102,7 @@ const ChatPage = () => {
               onChoose={chooseSuggestion}
             />
           ) : null}
-          {streamingMessage ? (
+          {streamingMessage && (isCliAgent || Boolean(streamingMessage.text.trim())) ? (
             <div
               className="os-composer-working"
               data-testid="composer-working-indicator"
@@ -3230,7 +3316,8 @@ const ChatPage = () => {
               <Reply className="h-4 w-4 opacity-70" aria-hidden="true" />
               Reply
             </button>
-            {(contextMenu.message.role === 'user' || contextMenu.message.role === 'assistant') &&
+            {(isApiAgent || agentKind === 'blueprint') &&
+            (contextMenu.message.role === 'user' || contextMenu.message.role === 'assistant') &&
             !contextMenu.message.streaming ? (
               <button
                 type="button"

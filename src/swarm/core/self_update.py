@@ -17,11 +17,12 @@ import os
 import re
 import shutil
 from pathlib import Path
+import os
 from typing import Any
 
 from swarm.core.pr_opened import is_github_pr_url, parse_pr_opened
 
-TARGET_OWNER_REPO = "matthewhand/open-swarm"
+TARGET_OWNER_REPO = os.environ.get("SWARM_GITHUB_REPO", "matthewhand/open-swarm")
 TARGET_REPO_URL = f"https://github.com/{TARGET_OWNER_REPO}"
 SKILL_NAME = "self-update-pr"
 LIVE_ENV = "SWARM_SELF_UPDATE_LIVE"
@@ -39,9 +40,10 @@ OPERATOR_CHECKLIST = (
     "Add a catalogued coding CLI (claude / codex / agy / opencode / grok) so it appears on the rail.",
     "Set that CLI agent's Folder to the open-swarm checkout (explicit cwd — not a temp workdir).",
     "Attach skill `self-update-pr` (composer `/skill self-update-pr` or agent-editor checkbox).",
-    "From SPA chat, send: open a trivial docs PR on matthewhand/open-swarm.",
+    f"From SPA chat, send: open a trivial docs PR on {TARGET_OWNER_REPO}.",
     "Second send must resume the stored CLI session id. If resume fails, a bubble-less honest line says a new session started — never a fake restore.",
-    "When the CLI prints a real `https://github.com/matthewhand/open-swarm/pull/N` URL, Chat shows the REQ-71 View PR card.",
+    "When the CLI prints a real `https://github.com/"
+    f"{TARGET_OWNER_REPO}/pull/N` URL, Chat shows the REQ-71 View PR card.",
     "Record that URL on Issue #424. Never invent or paste a placeholder URL.",
 )
 

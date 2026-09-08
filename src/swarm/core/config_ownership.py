@@ -26,7 +26,11 @@ DECISION_NOTE = (
     "Full coverage of non-secret product settings via Settings; "
     "secrets and deploy flags stay env-only (ADR-002 hybrid)."
 )
-ISSUE = "https://github.com/matthewhand/open-swarm/issues/776"
+ISSUE = (
+    "https://github.com/"
+    + os.environ.get("SWARM_GITHUB_REPO", "matthewhand/open-swarm")
+    + "/issues/776"
+)
 ADR = "docs/adr/002-config-ownership.md"
 
 FORCE_ENV_VAR = "SWARM_CONFIG_FORCE_ENV"

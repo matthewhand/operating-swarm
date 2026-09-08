@@ -3,7 +3,8 @@
  * Unauthenticated only. Failure → no upstream signal. No tokens.
  */
 
-export const GITHUB_REPO = 'matthewhand/open-swarm'
+export const GITHUB_REPO =
+  import.meta.env.VITE_SWARM_GITHUB_REPO || 'matthewhand/open-swarm'
 export const GITHUB_ISSUES_URL = `https://github.com/${GITHUB_REPO}/issues`
 export const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 export const GITHUB_API_LATEST = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`

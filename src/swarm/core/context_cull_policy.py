@@ -23,6 +23,7 @@ from swarm.core.chat_compact import (
 )
 from swarm.core.context_compress_policy import (
     AUTO_COMPRESS_PCT_KEY,
+    CONTEXT_COMPRESS_API_ONLY,
     DEFAULT_AUTO_COMPRESS_PCT,
     AutoCompactResult,
     auto_compact_before_send,
@@ -146,6 +147,8 @@ def load_context_policy(
         row = UserPreference.objects.filter(principal=principal).first()
     bag = row.values if row is not None and isinstance(row.values, dict) else {}
     policy = policy_from_values(bag)
+    if bag.get(CONTEXT_COMPRESS_API_ONLY):
+        policy.strategy = "api_only"
     if AUTO_COMPRESS_PCT_KEY not in bag:
         policy.compress_pct = load_auto_compress_threshold(user, principal=principal)
     return policy
@@ -370,6 +373,18 @@ def auto_cull_before_send(
 ) -> ContextPrepResult:
     """Drop the oldest slice when usage hits the cull trigger. Recent suffix stays."""
     policy = load_context_policy(user)
+    if policy.strategy == "api_only":
+        return ContextPrepResult(
+            acted=False,
+            reason="api_only",
+            strategy=STRATEGY_CULL,
+            info="Context culling skipped — API-only mode enabled",
+            threshold_pct=policy.cull_trigger_pct,
+            estimated_tokens=0,
+            max_context=None,
+            context=list(messages) if messages else [],
+            start_offset=0,
+        )
     trigger = (
         normalize_cull_trigger_pct(trigger_pct)
         if trigger_pct is not None

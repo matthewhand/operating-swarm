@@ -129,6 +129,9 @@ def test_infer_kind_and_command_from_wizard_fields():
     assert infer_custom_kind({"category": "cli"}) == "cli"
     assert infer_custom_kind({"tags": ["api"]}) == "api"
     assert infer_custom_kind({"category": "ai_assistants"}) == ""
+    assert infer_custom_kind({"kind": "blueprint"}) == "blueprint"
+    assert infer_custom_kind({"category": "blueprint"}) == "blueprint"
+    assert infer_custom_kind({"tags": ["blueprint"]}) == "blueprint"
     assert extract_cli_command({"command": "grok -p"}) == "grok -p"
     assert extract_cli_command({"code": "# CLI agent: Desk\n# Command: agy\n"}) == "agy"
     assert extract_cli_command({"code": "# no command here"}) == ""
@@ -142,6 +145,7 @@ def test_custom_item_is_rail_seat_for_add_agent_kinds():
     assert custom_item_is_rail_seat({"id": "poets", "category": "cli"}) is False
     assert custom_item_is_rail_seat({"id": "poets", "rail": True}) is True
     assert custom_item_is_rail_seat({"id": "gone", "kind": "api", "archived": True}) is False
+    assert custom_item_is_rail_seat({"id": "bp", "kind": "blueprint", "rail": True}) is True
 
 
 def test_build_custom_rail_item_requires_cli_command_and_rejects_remote():
@@ -163,12 +167,16 @@ def test_build_custom_rail_item_requires_cli_command_and_rejects_remote():
     assert api["kind"] == "api"
     assert api["rail"] is True
 
+    bp = build_custom_rail_item({"id": "captain", "kind": "blueprint"})
+    assert bp["kind"] == "blueprint"
+    assert bp["rail"] is True
+
     generic = build_custom_rail_item({"id": "scratch", "category": "test"})
     assert generic["rail"] is False
 
     with pytest.raises(CustomSeatError, match="CLI command is required"):
         build_custom_rail_item({"id": "blank", "kind": "cli"})
-    with pytest.raises(CustomSeatError, match="only support CLI or API"):
+    with pytest.raises(CustomSeatError, match="only support CLI, API, or Blueprint"):
         build_custom_rail_item({"id": "omb", "kind": "remote"})
 
 

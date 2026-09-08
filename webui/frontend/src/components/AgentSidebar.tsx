@@ -202,6 +202,7 @@ import CliSessionPicker from './CliSessionPicker'
 import {
   dispatchCliSessionSwitched,
   fetchCliSessions,
+  latestCliActivityMs,
   selectCliSession,
   type CliProviderSession,
 } from '../lib/cliSessions'
@@ -325,6 +326,10 @@ function isCliRailAgent(agent: { id?: string; kind?: string }): boolean {
 
 function isApiRailAgent(agent: { id?: string; kind?: string }): boolean {
   return agent.kind === 'api' || agent.id === 'api_agent'
+}
+
+function isBlueprintRailAgent(agent: { id?: string; kind?: string }): boolean {
+  return agent.kind === 'blueprint'
 }
 
 function toSidebarHerdr(row: HerdrAgent): SidebarAgent {
@@ -692,18 +697,51 @@ export default function AgentSidebar({
     const support = list.filter((a) => isSupportAgent(a))
     // Named api_agent comes from /v1/cli-agents/. Add-agent API customs stay
     // in the catalog with rail+kind and must not be dropped here (REQ-171B).
-    const catalogApi = list.filter((a) => isApiRailAgent(a) && !isSupportAgent(a))
+    const catalogApi = list.filter(
+      (a) => (isApiRailAgent(a) || isBlueprintRailAgent(a)) && !isSupportAgent(a),
+    )
     const rest = list.filter((a) => !isSupportAgent(a) && !isApiRailAgent(a))
     const merged = [...support, ...named, ...catalogApi, ...rest]
     const railRank = (a: SidebarAgent) => {
       if (isSupportAgent(a)) return 0
       if (isCliRailAgent(a)) return 1
-      if (isApiRailAgent(a)) return 2
+      if (isApiRailAgent(a) || isBlueprintRailAgent(a)) return 2
       if (isChiefOfStaff(roleFromAgent(a))) return 3
       return 4
     }
     return merged.sort((a, b) => railRank(a) - railRank(b))
   }, [catalog, cliQuery.data, herdrQuery.data, teams])
+  const cliAgentsForActivity = useMemo(
+    () =>
+      agents
+        .filter((a) => a.kind === 'cli' && typeof a.cli === 'string' && a.cli.length > 0)
+        .map((a) => ({ id: a.id, cli: a.cli as string })),
+    [agents],
+  )
+  const cliActivityQuery = useQuery({
+    queryKey: [
+      'cli-rail-activity',
+      cliAgentsForActivity.map((a) => `${a.id}:${a.cli}`).join('|'),
+    ],
+    queryFn: async () => {
+      const out: Record<string, number> = {}
+      await Promise.all(
+        cliAgentsForActivity.map(async ({ id, cli }) => {
+          try {
+            const ms = latestCliActivityMs(await fetchCliSessions(id, cli))
+            if (ms != null) out[id] = ms
+          } catch {
+            /* honest gap: row simply shows no timestamp */
+          }
+        }),
+      )
+      return out
+    },
+    enabled: cliAgentsForActivity.length > 0,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+  const cliActivityByAgent = cliActivityQuery.data ?? {}
   const rosterById = useMemo(() => new Map(teams.map((r) => [r.id, r])), [teams])
   const childTeamIds = useMemo(() => {
     const ids = new Set<string>()
@@ -1106,6 +1144,12 @@ export default function AgentSidebar({
       startNew?: boolean
     }) => {
       try {
+        const hintFolder = (opts.session?.folder || '').trim()
+        // Provider folder hints may be escaped slugs (qwen), not real paths —
+        // only forward/persist values that look like paths; the backend
+        // resolves the session cwd otherwise.
+        const sessionFolder =
+          hintFolder.startsWith('/') || hintFolder.startsWith('~') ? hintFolder : ''
         const result = await selectCliSession({
           agentId: opts.agentId,
           cli: opts.cli,
@@ -1114,7 +1158,11 @@ export default function AgentSidebar({
           fromConversationId: conversationIdForAgent(opts.agentId),
           title: opts.session?.title,
           snippet: opts.session?.snippet,
+          folder: sessionFolder || undefined,
         })
+        const resultFolder = (result.folder || '').trim()
+        const effectiveFolder = resultFolder || sessionFolder
+        if (effectiveFolder) saveAgentEdit(opts.agentId, { folder: effectiveFolder })
         dispatchCliSessionSwitched({
           agentId: opts.agentId,
           conversationId: result.conversation_id,
@@ -1346,6 +1394,7 @@ export default function AgentSidebar({
     const agent = agents.find((row) => row.id === hideId)
     if (agent && isCliRailAgent(agent)) return 'cli'
     if (agent && isHerdrAgent(agent)) return 'remote'
+    if ((agent as unknown as { kind?: string })?.kind === 'blueprint') return 'blueprint'
     return 'api'
   }
 
@@ -1968,7 +2017,12 @@ export default function AgentSidebar({
     const className = `os-agent-row group/row ${active ? 'os-agent-row--active' : ''} ${
       dragging ? 'os-agent-row--dragging' : ''
     } ${dropping ? 'os-agent-row--drop' : ''}`
-    const { snippet, timestamp } = getRowLastMessage(agent.id, sessions, agent as any)
+    const { snippet, timestamp } = getRowLastMessage(
+      agent.id,
+      sessions,
+      agent as any,
+      cliActivityByAgent[agent.id] ?? null,
+    )
     const timestampLabel = formatRailTimestamp(timestamp)
     const unread = unreadIds.includes(agent.id)
     const mark = (
@@ -1985,24 +2039,19 @@ export default function AgentSidebar({
     )
     const roleBadgeNode = badge ? (
       <span
-        className={`os-agent-role-badge ${roleCssClass(role)}`}
+        className={`os-agent-role-badge shrink-0 ${roleCssClass(role)}`}
         data-role={role}
         data-definition-id={agent.id}
-        data-avatar-overlay="true"
         role="button"
         tabIndex={0}
         aria-label={`Open ${role} settings`}
         style={{
-          position: 'absolute',
-          bottom: '0',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 10,
           fontSize: '0.55rem',
           padding: '0 0.25rem',
           lineHeight: '1.2',
           height: '0.9rem',
           boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+          whiteSpace: 'nowrap',
         }}
         onClick={(event) => {
           event.preventDefault()
@@ -2024,7 +2073,6 @@ export default function AgentSidebar({
       <>
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
           {mark}
-          {roleBadgeNode}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 items-center justify-between gap-1.5">
@@ -2047,6 +2095,8 @@ export default function AgentSidebar({
                   aria-label="Unread"
                   data-testid="rail-unread-dot"
                 />
+              ) : roleBadgeNode ? (
+                roleBadgeNode
               ) : timestampLabel ? (
                 <span
                   className={`os-rail-timestamp text-xs text-base-content/40 tabular-nums ${
@@ -2756,7 +2806,10 @@ export default function AgentSidebar({
               onDragEnd: finishDrag,
               onDragOver: (event: ReactDragEvent) => allowRowDrop(event, pin.id),
               onDrop: (event: ReactDragEvent) => dropPinReorder(event, pin.id),
-              onClick: pickOrClose,
+              onClick: (event: ReactMouseEvent<HTMLElement>) => {
+                pickOrClose?.()
+                event.currentTarget.blur()
+              },
               ...rowMenuHandlers(
                 pin.id,
                 pinName,

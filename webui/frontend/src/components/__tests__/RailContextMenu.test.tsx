@@ -40,6 +40,21 @@ describe('RailContextMenu (REQ-82)', () => {
     expect(onSelect).toHaveBeenCalledWith('delete')
   })
 
+  it('clamps into the viewport instead of clipping at the bottom edge', () => {
+    const items = railMenuItems({
+      kind: 'api',
+      pinned: false,
+      hidden: false,
+      unread: false,
+    })
+    render(
+      <RailContextMenu agentName="Codey" x={2000} y={2000} items={items} onSelect={vi.fn()} />,
+    )
+    const menu = screen.getByRole('menu', { name: 'Actions for Codey' })
+    expect(Number.parseFloat(menu.style.top)).toBeLessThan(2000)
+    expect(Number.parseFloat(menu.style.left)).toBeLessThan(2000)
+  })
+
   it('omits Edit Profile and Duplicate on CLI menus', () => {
     const items = railMenuItems({
       kind: 'cli',

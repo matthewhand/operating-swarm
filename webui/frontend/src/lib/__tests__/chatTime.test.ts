@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CHAT_TIME_ZONE,
   formatGapLabel,
+  formatRailTimestamp,
   parseCreatedAtMs,
   shouldShowGapStamp,
   sydneyDayKey,
@@ -65,5 +66,11 @@ describe('formatGapLabel', () => {
     )
     expect(formatGapLabel(THU_721, FRI_NOON)).toBe('Yesterday 7:21 AM')
     expect(formatGapLabel(WED_654, FRI_NOON)).toBe('Wed 2 Sep 6:54 AM')
+  })
+})
+
+describe('formatRailTimestamp', () => {
+  it('appends the clock to dates older than yesterday', () => {
+    expect(formatRailTimestamp(WED_654, FRI_NOON)).toBe('Wed 2 Sep 6:54 AM')
   })
 })

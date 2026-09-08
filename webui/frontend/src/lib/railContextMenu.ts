@@ -18,7 +18,7 @@ import { teamThreadId } from './teamRosters'
 
 export const RAIL_LONG_PRESS_MS = 500
 
-export type RailMenuKind = 'api' | 'cli' | 'team' | 'remote'
+export type RailMenuKind = 'api' | 'cli' | 'team' | 'remote' | 'blueprint'
 
 export type RailMenuItemId =
   | 'select-agent'

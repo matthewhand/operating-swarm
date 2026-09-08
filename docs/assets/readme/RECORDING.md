@@ -1,150 +1,140 @@
-# README demo recording checklist (REQ-97 / #456)
+# README Demo Capture Instructions
 
-**Intent:** Replace the four poster SVGs in this folder with short, secret-free
-loops that show CLI / API / remote / combined-team in the Grok-like WebUI.
-
-This cloud pass **did not film**. Constraints: no Firefox against `:8001`, no
-Neon, no live LAN. Posters are wired so the README slots exist today.
-
-**Follow-up:** file the issue body in [FOLLOWUP_ISSUE.md](./FOLLOWUP_ISSUE.md)
-(this agent cannot open GitHub issues — `gh` is read-only). Distinct from the
-announce hero clip ([#529](https://github.com/matthewhand/open-swarm/issues/529)).
+> **Purpose:** Live recapture checklist for the four compact README demo slots (CLI agents, API agents, Remote agents / OpenMousBot, Combined team). No secrets, no LAN dumps, no `:8001` until Matthew GO for capture host.
 
 ---
 
-## Target files (overwrite posters; keep the same stems)
+## Slots
 
-| Stem | Caption (user copy) | Poster today | Live capture target |
-|---|---|---|---|
-| `cli-agents` | CLI agents | `cli-agents.svg` | `cli-agents.gif` (or muted `.mp4` + this GIF fallback) |
-| `api-agents` | API agents | `api-agents.svg` | `api-agents.gif` |
-| `remote-agents` | Remote agents (**OpenMousBot**, never OMB) | `remote-agents.svg` | `remote-agents.gif` |
-| `combined-team` | Combined team (CLI + API + remote) | `combined-team.svg` | `combined-team.gif` |
-
-Keep each SVG as a poster / first-frame fallback after the GIF lands. README
-embeds the path that exists; tests lock the four stems.
-
-Prefer **small GIFs** (or muted mp4 + GIF fallback). Aim ≤ 2 MB each, 8–15 s,
-looping, no audio.
+| Slot | File | Caption |
+|------|------|---------|
+| 1 | `assets/readme/cli-agents.gif` | "CLI agents — Grok / OpenCode / agy" |
+| 2 | `assets/readme/api-agents.gif` | "API agents — OpenAI-compatible owned thread" |
+| 3 | `assets/readme/remote-agents.gif` | "Remote agents — OpenMousBot" |
+| 4 | `assets/readme/combined-team.gif` | "Combined team — CLI plus API plus OpenMousBot" |
 
 ---
 
-## Machine (clean demo / local preview)
+## Capture Requirements
 
-1. Fresh clone of `main` (or the release branch). Not Matthew’s day-to-day box.
-2. **Do not** film the Firefox `:8001` operator box. **Do not** use Neon.
-3. Local Compose on **`:8000`** (see root README WebUI steps):
+### General
+- **Duration:** 15–20 seconds each
+- **Format:** GIF (preferred) or mp4 + GIF fallback
+- **Size target:** ≤500 KB per asset
+- **No secrets** in frame (API keys, tokens, hostnames)
+- **No live LAN** traffic visible
+- **No `:8001`** — use local compose at `localhost:8000` unless capture host is explicitly approved
 
-   ```bash
-   uv sync --all-extras
-   cp .env.example .env
-   # set OPENAI_API_KEY, API_AUTH_TOKEN, DJANGO_SECRET_KEY — never show these
-   cp swarm_config.example.json swarm_config.json
-   make frontend
-   docker compose up --build
-   # open http://localhost:8000
-   ```
+### Slot 1: CLI agents
+**Command:** `uv run swarm-cli cli-agents --init --write --check-auth`
+**Show:** Agent discovery, list, and `swarm-cli launch cli_agent --message "What CLIs can you see?"`
 
-4. Seed **Demo** rosters only (additive; no day-to-day rename):
+### Slot 2: API agents
+**Command:** Start compose, then `curl -sf http://localhost:8000/v1/chat/completions -H "Authorization: Bearer $API_AUTH_TOKEN" -d '{"model": "codey", "messages": [{"role": "user", "content": "Explain this repo structure"}]}'`
+**Show:** `/v1/models` listing, streaming response from blueprint-backed API agent
 
-   ```bash
-   uv run python scripts/seed_demo_agents.py --reset
-   ```
+### Slot 3: Remote agents (OpenMousBot)
+**Prerequisite:** OpenMousBot running locally (or mocked)
+**Command:** `uv run swarm-cli remotes place <openmousbot_id>` → `swarm-cli launch openmousbot --message "What can you do?"`
+**Show:** Remote catalog, add, list, and a short interaction
 
-   Names: [SHOWOFF_DEMO_AGENTS.md](../../SHOWOFF_DEMO_AGENTS.md) **Mode A** on
-   harness rows (`Grok CLI`, `LiteLLM API`, `Hermes Remote`,
-   **`OpenMousBot Remote`**). Combined clip uses
-   [`demo-bridge.json`](../../examples/openai-agents-handoff-graphs/demo-bridge.json)
-   (Chief of Staff + Grok CLI + Hermes Remote) **or** a Mode A roster that
-   visibly includes an API seat plus OpenMousBot. Do not invent live hosts.
-
-5. Place remotes from **placeholders** (`placeholder:remote:omb` /
-   `placeholder:remote:hermes`). If a real OpenMousBot / Hermes is required
-   for motion, use a **lab** instance whose Settings URL is a dummy host
-   (`https://example.invalid` or `http://localhost:9xxx`) — never a house LAN
-   (`10.x`, `192.168.x`, `172.16–31.x`).
-
-6. Prefer scripted / mock inference where it still looks honest ([#317](https://github.com/matthewhand/open-swarm/issues/317)).
-   `SWARM_TEST_MODE=1` is fine for CLI-only beats. Do not paste private chats.
+### Slot 4: Combined team
+**Prerequisite:** Demo roster seeded (`scripts/seed_demo_agents.py --reset`)
+**Command:** `/chat?team=demo` → send a task that triggers CLI → API → Remote handoff
+**Show:** Multi-agent coordination across kinds
 
 ---
 
-## Viewport and chrome
-
-- Desktop **1280×800** (same as `scripts/capture_user_journey.py`).
-- Product chrome only: left rail + selected chat (`/` or `/chat`).
-- Rebuild `webui/frontend/dist/` so `/` is the Grok SPA, not Django fallback.
-- Hide OS dock / personal wallpaper. No house windows, family photos, or
-  identifiable street/room stills.
-- Before record: Settings sheet closed; no token fields visible; no `.env`
-  buffer; no `sk-` / `ghp_` / `github_pat_` in any pixel.
-
----
-
-## Four beats (script)
-
-Film **four separate clips**. Do not use `swarm-cli moa --team` as the team
-story. Do not call `/v1/teams` aliases a Team.
-
-### 1. CLI agents (`cli-agents`)
-
-1. Rail: select **Grok CLI** (or OpenCode / Antigravity CLI if that binary is
-   the one on PATH).
-2. Send: `What CLIs can you see?`
-3. Show the native CLI session in chat (kind-clear name in the header).
-4. Optional 2 s: hover the other CLI rows (`OpenCode CLI`, `Antigravity CLI`).
-
-### 2. API agents (`api-agents`)
-
-1. Rail: select **LiteLLM API** (Mode A). Honest mid-flight: if the seat is
-   still a leftover blueprint recipe, the caption must say so — do not imply a
-   finished “wire this endpoint” seat ([#652](https://github.com/matthewhand/open-swarm/issues/652)).
-2. Send a one-line ping. Show the owned thread (editable), not a remote lock.
-3. Optional 2 s: a terminal *off to the side is not required*; stay in WebUI.
-
-### 3. Remote agents (`remote-agents`) — label **OpenMousBot**
-
-1. Settings → Remotes (or rail) → **OpenMousBot Remote**.
-2. User-facing chrome must say **OpenMousBot**, never `OMB`.
-3. List / open a session on that remote. Hermes / Rakazo may appear as other
-   rows; the filmed seat is OpenMousBot.
-4. No live LAN IP in the URL bar, Settings fields, or chat.
-
-### 4. Combined team (`combined-team`)
-
-1. Rail: **Demo Bridge** (or a Demo team whose roster shows CLI + API + remote).
-2. Send one prompt that forces a **handoff** or **agent-as-tool** beat
-   (Chief of Staff routes; Grok CLI native; API seat; OpenMousBot or Hermes
-   remote).
-3. The clip must make the mix obvious: three kinds in one flow.
-4. Do **not** film MoA consensus-then-team as this slot.
-
----
-
-## Encode and drop-in
+## Recording Toolchain
 
 ```bash
-# Example: ffmpeg from a raw capture (adjust input name)
-ffmpeg -i raw-cli.mov -an -vf "fps=12,scale=640:-1:flags=lanczos" \
-  -loop 0 docs/assets/readme/cli-agents.gif
-```
+# Preferred: Gifox (macOS) / Peek (Linux) / ShareX (Windows)
+# Fallback: ffmpeg + ImageMagick
 
-- Mute (`-an`). No system audio.
-- Scale to ~640 px wide so GitHub README stays compact.
-- Scrub every frame: no secrets, no house stills, no live LAN IPs, no `OMB`
-  as a user-facing label.
-- Update [SCREENSHOTS.md](../../SCREENSHOTS.md) Captured date + Status
-  `current` for each stem.
-- Swap README `<img>` `src` from `.svg` to `.gif` (keep SVG as
-  `poster` / fallback in the figure if you add muted mp4).
-- Re-run `uv run pytest tests/unit/test_req97_readme_demos.py`.
+# Example (Linux, Peek):
+peek --duration=20 --fps=10 --delay=2 --output=cli-agents.gif
+
+# Compression (gifsicle, lossless):
+gifsicle -O3 --lossy=30 input.gif -o output.gif
+
+# Verify size:
+ls -lh *.gif
+```
 
 ---
 
-## Out of scope
+## Post-Capture Checklist
 
-- [#529](https://github.com/matthewhand/open-swarm/issues/529) 15–30 s launch
-  montage (separate hero).
-- Recapturing `docs/screenshots/` journey PNGs / golden-journey.
-- Filming Pinokio Discover (Open Swarm is sideload-only).
-- Committing production chats or Matthew’s private threads.
+- [ ] All four GIFs ≤ 500 KB each
+- [ ] No secrets/API keys visible
+- [ ] No LAN hostnames/IPs visible
+- [ ] Captured on approved host only
+- [ ] Assets placed in `assets/readme/`
+- [ ] README references updated (auto if filenames match)
+- [ ] Commit with message: `docs(readme): REQ-97b live demo GIFs for CLI/API/Remote/Combined slots`
+
+---
+
+## Regeneration from open-swarm Captures
+
+Source captures live in open-swarm repo at:
+- `docs/demo/captures/raw_*.txt` — raw terminal output
+- `docs/demo/captures/scene{1,2,3,4}.txt` — staged scenes
+- `scripts/render_demo_gif.py` — renderer
+
+To regenerate:
+```bash
+cd /path/to/open-swarm
+python scripts/render_demo_gif.py --input docs/demo/captures/scene1.txt --output /path/to/open-swarm-private/assets/readme/cli-agents.gif
+python scripts/render_demo_gif.py --input docs/demo/captures/scene2.txt --output /path/to/open-swarm-private/assets/readme/api-agents.gif
+python scripts/render_demo_gif.py --input docs/demo/captures/scene3.txt --output /path/to/open-swarm-private/assets/readme/remote-agents.gif
+python scripts/render_demo_gif.py --input docs/demo/captures/scene4.txt --output /path/to/open-swarm-private/assets/readme/combined-team.gif
+```
+
+---
+
+## CI Integration (Future)
+
+Add to `.github/workflows/demo-recapture.yml`:
+```yaml
+name: Demo Recapture Check
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'  # weekly
+jobs:
+  check-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify demo assets exist and are <500KB
+        run: |
+          for f in assets/readme/*.gif; do
+            if [ ! -f "$f" ]; then
+              echo "Missing: $f"
+              exit 1
+            fi
+            size=$(stat -c%s "$f")
+            if [ $size -gt 512000 ]; then
+              echo "Too large: $f ($size bytes)"
+              exit 1
+            fi
+          done
+```
+
+---
+
+## Related Issues/PRs
+
+- **REQ-97** (original posters): #456 / PR #869
+- **REQ-97b** (live captures): This issue
+- **REQ-136** (announce hero): #529 / PR #872
+- **Demo agent seeding:** `scripts/seed_demo_agents.py`
+
+---
+
+## Notes
+
+- SVG posters remain as fallbacks until live captures are available
+- The announce-bridge.gif (REQ-136) is a separate 15–20s storyboard at `docs/assets/readme/announce-bridge.gif`
+- Historical terminal loop `docs/demo/cli-and-api.gif` is NOT part of this set

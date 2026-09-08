@@ -6,6 +6,8 @@
  * Persist is best-effort localStorage, same contract as the rail hostname override.
  */
 
+import { GITHUB_REPO } from './githubRelease'
+
 export const AVATAR_THEME_STORAGE_KEY = 'swarm_avatar_theme'
 export const AVATAR_THEME_SET_EVENT = 'swarm:set-avatar-theme'
 
@@ -13,7 +15,7 @@ export const AVATAR_THEME_SET_EVENT = 'swarm:set-avatar-theme'
  * pre-Phase-1 disabled picker stub. */
 export const ROBOT3D_THEME_RESERVED = 'robot3d'
 export const ROBOT3D_ADR_HREF =
-  'https://github.com/matthewhand/open-swarm/blob/main/docs/adr/008-3d-robot-avatar-theme.md'
+  `https://github.com/${GITHUB_REPO}/blob/main/docs/adr/008-3d-robot-avatar-theme.md`
 
 export const AVATAR_THEMES = ['blobs', 'bland', 'default', 'bee', 'robot3d'] as const
 export type AvatarTheme = (typeof AVATAR_THEMES)[number]

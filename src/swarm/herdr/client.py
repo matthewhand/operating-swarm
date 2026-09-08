@@ -8,7 +8,7 @@ Argv rules
 ----------
 * Default (localhost): ``herdr workspace list`` — no ``--remote``.
 * Optional remote: ``herdr --remote <value> workspace list`` (and every other
-  command). ``value`` is an operator string such as ``matthewh@10.0.0.36``,
+  command). ``value`` is an operator string such as ``you@gpu-box``,
   ``workbox``, or ``ssh://you@server:2222``. Empty/omitted = localhost.
 * ``herdr agent prompt <TARGET> <TEXT>`` is the proven shape
   (``herdr agent prompt w3:p1 HERDR_PING_OK`` → JSON ``type: agent_prompted``).

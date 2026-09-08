@@ -439,23 +439,27 @@ html:not([data-theme="light"]) .os-composer,
 .os-blob-eyes {
   transform-box: fill-box;
   transform-origin: 0 0;
-  transform: translate(var(--ex, 20px), var(--ey, 18px)) rotate(var(--ea, 0deg));
+  transform: translate(var(--ex, 20px), var(--ey, 18px)) rotate(var(--ea, 0deg))
+    scale(var(--es, 1));
 }
 .os-blob-avatar[data-eye-state="active"] .os-blob-eyes {
   animation: os-blob-wander var(--ed, 9s) ease-in-out var(--ew, 0s) infinite;
 }
+/* Active (thinking/working) pose: eyes glance around and the blob leans into
+   the glance with a subtle size breath — perceptible but not theatrical. */
 @keyframes os-blob-wander {
   0%,
   100% {
-    transform: translate(var(--ex, 20px), var(--ey, 18px)) rotate(var(--ea, 0deg));
+    transform: translate(var(--ex, 20px), var(--ey, 18px)) rotate(var(--ea, 0deg))
+      scale(1);
   }
   28% {
-    transform: translate(calc(var(--ex, 20px) + 2.8px), calc(var(--ey, 18px) - 1.8px))
-      rotate(calc(var(--ea, 0deg) + 10deg));
+    transform: translate(calc(var(--ex, 20px) + 3.4px), calc(var(--ey, 18px) - 2.1px))
+      rotate(calc(var(--ea, 0deg) + 11deg)) scale(1.05);
   }
   62% {
-    transform: translate(calc(var(--ex, 20px) - 2.4px), calc(var(--ey, 18px) + 2.1px))
-      rotate(calc(var(--ea, 0deg) - 9deg));
+    transform: translate(calc(var(--ex, 20px) - 3px), calc(var(--ey, 18px) + 2.5px))
+      rotate(calc(var(--ea, 0deg) - 10deg)) scale(0.96);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -568,7 +572,7 @@ html:not([data-theme="light"]) .os-composer,
   border: 1px solid color-mix(in srgb, var(--color-base-content) 15%, transparent);
   box-shadow: none;
   flex-shrink: 0;
-  opacity: 0.75;
+  opacity: 0;
   transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out;
   pointer-events: none;
 }
@@ -1674,7 +1678,7 @@ html:not([data-theme="light"]) .os-composer__send,
 
 /* REQ-192: Tighter chat bubble margins — less wasted side gap (Grok transcript layout) */
 .os-chat-transcript {
-  padding-left: 0.5rem;
+  padding-left: 0.25rem;
   padding-right: 0.5rem;
   /* #743: last-message clearance tracks live sticky composer height */
   scroll-padding-bottom: var(--os-chat-composer-inset, 0px);
@@ -1742,7 +1746,7 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 @media (min-width: 640px) {
   .os-chat-transcript {
-    padding-left: 0.75rem;
+    padding-left: 0.5rem;
     padding-right: 0.75rem;
   }
 }
@@ -1753,6 +1757,15 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-chat-transcript .chat-start .chat-bubble,
 .os-chat-transcript .chat-end .chat-bubble {
   max-width: 95%;
+}
+/* No avatar column in the transcript grid — collapse DaisyUI's auto first
+   column so assistant bubbles hug the left edge instead of floating. */
+.os-chat-transcript .chat-start {
+  grid-template-columns: minmax(0, 1fr);
+}
+.os-chat-transcript .chat-start .chat-bubble {
+  grid-column-start: 1;
+  justify-self: start;
 }
 
 .os-chat-footer {
@@ -1996,7 +2009,7 @@ html:not([data-theme="light"]) .os-composer__send,
   border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
   box-shadow: none;
   flex-shrink: 0;
-  opacity: 0.75;
+  opacity: 0;
   transition: opacity 0.15s ease-in-out;
   pointer-events: none;
 }

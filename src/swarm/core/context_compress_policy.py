@@ -24,6 +24,7 @@ DEFAULT_AUTO_COMPRESS_PCT = 80
 MIN_AUTO_COMPRESS_PCT = 1
 MAX_AUTO_COMPRESS_PCT = 99
 AUTO_COMPRESS_PCT_KEY = "context_auto_compress_pct"
+CONTEXT_COMPRESS_API_ONLY = "context_compress_api_only"
 
 # Leave the latest user draft plus a recent assistant turn uncompressed.
 AUTO_COMPRESS_KEEP_RECENT = 2
@@ -72,9 +73,14 @@ def load_auto_compress_threshold(
     *,
     principal: str | None = None,
     values: dict[str, Any] | None = None,
-) -> int:
-    """Read the shared threshold from UserPreference (or an explicit bag)."""
+) -> int | None:
+    """Read the shared threshold from UserPreference (or an explicit bag).
+
+    Returns None when API-only mode is enabled (compression skipped for CLI agents).
+    """
     if values is not None:
+        if values.get(CONTEXT_COMPRESS_API_ONLY):
+            return None
         return normalize_auto_compress_pct(values.get(AUTO_COMPRESS_PCT_KEY))
 
     from swarm.models.preferences import UserPreference
@@ -89,6 +95,8 @@ def load_auto_compress_threshold(
     if row is None and principal:
         row = UserPreference.objects.filter(principal=principal).first()
     bag = row.values if row is not None and isinstance(row.values, dict) else {}
+    if bag.get(CONTEXT_COMPRESS_API_ONLY):
+        return None
     return normalize_auto_compress_pct(bag.get(AUTO_COMPRESS_PCT_KEY))
 
 
@@ -240,6 +248,16 @@ def auto_compact_before_send(
         if threshold_pct is not None
         else load_auto_compress_threshold(user)
     )
+    if pct is None:
+        return AutoCompactResult(
+            acted=False,
+            reason="api_only",
+            info="Context compression skipped — API-only mode enabled",
+            threshold_pct=DEFAULT_AUTO_COMPRESS_PCT,
+            estimated_tokens=0,
+            max_context=None,
+            context=list(messages or []) if messages else [],
+        )
     max_ctx = resolve_model_context_max(
         profile=profile,
         inference_entry=inference_entry,

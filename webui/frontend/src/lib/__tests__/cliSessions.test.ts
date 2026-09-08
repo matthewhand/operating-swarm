@@ -5,6 +5,7 @@ import {
   fetchCliSessions,
   filterCliSessions,
   formatActivityAge,
+  latestCliActivityMs,
   looksLikeSessionId,
   sanitizeCliSessionId,
   selectCliSession,
@@ -140,5 +141,22 @@ describe('CLI session Folder cwd (REQ-167)', () => {
 
     await selectCliSession({ agentId: 'cli_agent', cli: 'grok', startNew: true })
     expect(postSpy.mock.calls[0][1]).not.toHaveProperty('folder')
+  })
+})
+
+describe('latestCliActivityMs (#67)', () => {
+  it('returns the newest updated_at across sessions and recent', () => {
+    expect(
+      latestCliActivityMs({
+        sessions: [{ updated_at: '2026-09-05T12:00:00Z' }, { updated_at: '2026-09-06T12:00:00Z' }],
+        recent: [{ updated_at: '2026-09-04T12:00:00Z' }],
+      }),
+    ).toBe(Date.parse('2026-09-06T12:00:00Z'))
+  })
+
+  it('returns null when nothing usable exists', () => {
+    expect(latestCliActivityMs(null)).toBeNull()
+    expect(latestCliActivityMs({ sessions: [], recent: [] })).toBeNull()
+    expect(latestCliActivityMs({ sessions: [{ updated_at: 'bogus' }] })).toBeNull()
   })
 })

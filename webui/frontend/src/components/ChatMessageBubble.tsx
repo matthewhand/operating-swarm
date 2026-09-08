@@ -188,7 +188,6 @@ export function ChatMessageBubble({
     const target = event.target as HTMLElement | null
     if (target?.closest('a, button, textarea, input')) return
     if (selectionIsActive()) return
-    onStartEdit()
   }
 
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -247,7 +246,7 @@ export function ChatMessageBubble({
         <div
           className={`chat-bubble select-text ${
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
-          } ${canEdit && !streaming ? 'cursor-pointer' : ''}`}
+          }`}
           data-testid="chat-bubble"
           onClick={handleBubbleClick}
         >

@@ -41,6 +41,8 @@ export interface CliProviderSession {
   snippet: string
   updated_at: string
   source: CliSessionSource
+  /** Owning folder/cwd hint when the provider store exposes one (qwen). */
+  folder?: string
 }
 
 export interface CliSessionList {
@@ -73,6 +75,8 @@ export interface CliSessionSelectResult {
   status: string
   collapsed_prior: boolean
   import: 'none' | 'full' | 'partial'
+  folder?: string | null
+  git_branch?: string | null
   same_session?: boolean
 }
 
@@ -86,6 +90,21 @@ export async function fetchCliSessions(agentId: string, cli: string): Promise<Cl
   return apiGet<CliSessionList>(`/v1/cli-sessions/?${qs.toString()}`)
 }
 
+/** Newest provider activity across sessions+recent as epoch ms (rail timestamps, #67). */
+export function latestCliActivityMs(
+  list: { sessions?: Array<{ updated_at?: string | null }>; recent?: Array<{ updated_at?: string | null }> } | null | undefined,
+): number | null {
+  if (!list) return null
+  let best: number | null = null
+  for (const row of [...(list.sessions ?? []), ...(list.recent ?? [])]) {
+    const raw = row?.updated_at
+    if (!raw) continue
+    const ms = Date.parse(String(raw))
+    if (Number.isFinite(ms) && (best == null || ms > best)) best = ms
+  }
+  return best
+}
+
 export async function selectCliSession(opts: {
   agentId: string
   cli: string
@@ -94,10 +113,11 @@ export async function selectCliSession(opts: {
   fromConversationId?: string
   title?: string
   snippet?: string
+  folder?: string | null
 }): Promise<CliSessionSelectResult> {
   const from =
     (opts.fromConversationId || '').trim() || conversationIdForAgent(opts.agentId)
-  const folder = folderRequestValue(opts.agentId)
+  const folder = (opts.folder || '').trim() || folderRequestValue(opts.agentId)
   const data = await apiPost<CliSessionSelectResult>('/v1/cli-sessions/select/', {
     agent: agentIdFromBlueprint(opts.agentId),
     cli: opts.cli,

@@ -259,6 +259,42 @@ def test_old_compressions_are_not_copied(tmp_path, monkeypatch):
     assert any(m.get("kind") == PRIOR_HISTORY_KIND for m in result["messages"])
 
 
+def test_select_imports_qwen_provider_transcript_and_folder(tmp_path, monkeypatch):
+    import swarm.core.cli_session_stores as stores
+    from swarm.core.cli_session_select import select_cli_session
+    monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+    monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "agent_settings.json"))
+    settings_store.reset_agent_settings_cache()
+    monkeypatch.setattr(
+        stores,
+        "read_provider_transcript",
+        lambda cli, sid, store_dir=None: {
+            "turns": [
+                {"role": "user", "content": "run the tests"},
+                {"role": "assistant", "content": "Running now."},
+            ],
+            "cwd": "/home/dev/proj",
+            "git_branch": "feat/x",
+        },
+    )
+    # NOTE: select imports the reader from the stores module namespace,
+    # so patching stores.read_provider_transcript takes effect.
+    res = select_cli_session(
+        "u9",
+        "cli_agent",
+        "qwen",
+        session_id="sid-9",
+        title="tests",
+        base_dir=tmp_path,
+    )
+    assert res["same_session"] is False
+    assert res["import"] == "full"
+    assert res["folder"] == "/home/dev/proj"
+    assert res["git_branch"] == "feat/x"
+    assert any(m.get("content") == "run the tests" for m in res["messages"])
+    assert any(m.get("content") == "Running now." for m in res["messages"])
+
+
 def test_rejects_secret_shaped_paste(tmp_path, monkeypatch):
     monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
     try:

@@ -162,7 +162,7 @@ def _peer_from_member(member: dict[str, Any], team_id: str) -> Peer | None:
     else:
         kind = classify_agent_kind(
             member.get("source") or mid,
-            explicit=explicit if explicit in ("api", "cli", "remote") else None,
+            explicit=explicit if explicit in ("api", "cli", "remote", "blueprint") else None,
         )
     archived = member.get("archived") is True
     return Peer(
@@ -702,7 +702,7 @@ def context_from_runtime(
         explicit_kind = explicit_kind.strip().lower()
     else:
         explicit_kind = None
-    kind = classify_agent_kind(caller_id, explicit=explicit_kind if explicit_kind in ("api", "cli", "remote") else None)
+    kind = classify_agent_kind(caller_id, explicit=explicit_kind if explicit_kind in ("api", "cli", "remote", "blueprint") else None)
     role = role_of_member(caller_id, rosters, fallback=params.get("role"))
     meta = getattr(blueprint, "metadata", None) if blueprint is not None else None
     if (not role or role == "default") and isinstance(meta, dict) and meta.get("role"):

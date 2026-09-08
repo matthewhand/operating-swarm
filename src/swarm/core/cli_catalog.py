@@ -176,6 +176,20 @@ CATALOG: dict[str, dict[str, Any]] = {
         "mode": "write",
         "timeout": 240,
     },
+    "qwen": {
+        # Qwen Code (gemini-cli fork) one-shot. The positional `query` after
+        # `--` does NOT reach the CLI (it reports "No input provided"); use
+        # the protected -p=<prompt> form (matches gemini; -p is deprecated
+        # but functional). --yolo auto-approves all tools. JSON output is an
+        # ARRAY of claude-style events whose FINAL element is the result —
+        # parsed via the -1 list index supported by _extract_json_path.
+        # timeout None: interactive ws turns run unbounded (stop button kills
+        # the process group); set a number in cli_agents to re-arm a limit.
+        "cmd": ["qwen", "--output-format", "json", "--yolo", "-p={prompt}"],
+        "parse": "json:.-1.result",
+        "mode": "write",
+        "timeout": None,
+    },
 }
 
 
@@ -229,6 +243,11 @@ DEFAULT_EXPORT_NOTES = (
 # (google-antigravity/antigravity-cli#602).
 AGY_CONVERSATIONS_STORE = "agy_conversations"
 DEFAULT_AGY_CONVERSATIONS_DIR = "~/.gemini/antigravity-cli/conversations"
+# Qwen Code persists each session as ``<projects>/<escaped-cwd>/chats/<sid>.jsonl``
+# (claude-style JSONL; every event carries sessionId + cwd). The escaped dir
+# name is the session's cwd, non-alphanumerics → ``-``.
+QWEN_SESSIONS_STORE = "qwen_sessions"
+DEFAULT_QWEN_PROJECTS_DIR = "~/.qwen/projects"
 
 SESSION: dict[str, dict[str, Any]] = {
     "grok": {
@@ -318,6 +337,23 @@ SESSION: dict[str, dict[str, Any]] = {
             "--continue/-c is last session — do not use those here. "
             "Smoke/verify injects --no-session (ephemeral); production cmd does not. "
             "List is paste-only — no verified non-interactive list argv."
+        ),
+    },
+    "qwen": {
+        "resume_argv": ["--resume", "{session_id}"],
+        "resume_insert": 1,
+        "resume_strip": ["--continue", "-c"],
+        "session_id_paths": [".session_id"],
+        "list_store": QWEN_SESSIONS_STORE,
+        "list_store_dir": DEFAULT_QWEN_PROJECTS_DIR,
+        "list_capability": LIST_CAPABILITY_WORKS,
+        "notes": (
+            "qwen --resume <uuid> (also -r). -c/--continue is most-recent and "
+            "--session-id names a NEW session — do not use either to resume. "
+            "JSON output is an event array; every event carries session_id and "
+            "the final result event is authoritative (last match wins). "
+            "List works via the provider store: ~/.qwen/projects/<escaped-cwd>/"
+            "chats/<sid>.jsonl (id + mtime + first user text + cwd)."
         ),
     },
 }
@@ -496,13 +532,14 @@ CLI_TRAITS: dict[str, dict[str, float]] = {
     "codex":    {"intelligence": 0.75, "speed": 0.60, "cost": 0.50},
     "opencode": {"intelligence": 0.55, "speed": 0.65, "cost": 0.75},
     "pi":       {"intelligence": 0.70, "speed": 0.70, "cost": 0.70},
+    "qwen":     {"intelligence": 0.62, "speed": 0.85, "cost": 0.85},
 }
 
 # First-class sidebar CLIs — always listed like remote FRAMEWORKS (OpenMausBot),
 # even when the designer has not created a `kind=cli` record. Other catalog
 # CLIs stay available in the backend picker / designer.
 # Grok rail verify rows use ``{name}_agent`` ids (grok_agent, agy_agent, …).
-SIDEBAR_CLIS: tuple[str, ...] = ("grok", "agy", "opencode", "pi")
+SIDEBAR_CLIS: tuple[str, ...] = ("grok", "agy", "opencode", "pi", "qwen")
 
 CLI_SIDEBAR: dict[str, dict[str, str]] = {
     "grok": {
@@ -532,6 +569,13 @@ CLI_SIDEBAR: dict[str, dict[str, str]] = {
         "description": "Host pi CLI in non-interactive print mode (-p).",
         "color": "#fb923c",
         "icon": "π",
+    },
+    "qwen": {
+        "name": "Qwen",
+        "specialty": "Qwen Code CLI",
+        "description": "Host qwen CLI one-shot (JSON event array, --yolo auto-approve).",
+        "color": "#14b8a6",
+        "icon": "◈",
     },
 }
 
@@ -586,6 +630,7 @@ LIST_MODELS: dict[str, list[str]] = {
     "gemini": ["gemini", "--list-models"],
     "codex": ["codex", "debug", "models"],
     "opencode": ["opencode", "models"],
+    "qwen": ["qwen", "--list-models"],
 }
 
 # List-models probes must stay cheap and never hang a Settings / #358 caller.
@@ -612,6 +657,7 @@ MODEL_FLAG: dict[str, str] = {
     "opencode": "--model", # opencode run --model <name>
     "agy": "--model",      # agy --model <name>
     "grok": "-m",          # grok -m/--model <id> (verified: grok-4.6, grok-4.5)
+    "qwen": "-m",          # qwen -m/--model <id> (verified live: gateway slug auxiliary)
 }
 
 # Suggested model ids for the Agent Router CLI-model dropdown. The UI always

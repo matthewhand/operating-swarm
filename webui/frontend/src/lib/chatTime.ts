@@ -140,7 +140,7 @@ export function formatRailTimestamp(
     day: 'numeric',
     month: 'short',
   })
-  return `${stamp.weekday} ${stamp.day} ${stamp.month}`
+  return `${stamp.weekday} ${stamp.day} ${stamp.month} ${clock}`
 }
 
 export const PREVIEW_SNIPPET_MAX_CHARS = 100
@@ -199,6 +199,7 @@ export function getRowLastMessage(
   id: string,
   sessions?: Array<{ updatedAt?: number; startedAt?: number; snippet?: string }>,
   agentMeta?: Record<string, unknown>,
+  fallbackTimestampMs?: number | null,
 ): { snippet: string | null; timestamp: number | null } {
   const rawTime =
     agentMeta?.last_message_at ?? agentMeta?.lastMessageAt ?? agentMeta?.updated_at
@@ -230,7 +231,7 @@ export function getRowLastMessage(
             }
             return {
               snippet: rawSnippet ?? truncateSnippet(selected.text),
-              timestamp: ts ?? parsedTime ?? null,
+              timestamp: ts ?? parsedTime ?? fallbackTimestampMs ?? null,
             }
           }
         }
@@ -247,7 +248,7 @@ export function getRowLastMessage(
     if (top) {
       return {
         snippet: rawSnippet ?? (top.snippet ? truncateSnippet(top.snippet) : null),
-        timestamp: parsedTime ?? top.updatedAt ?? top.startedAt ?? null,
+        timestamp: parsedTime ?? top.updatedAt ?? top.startedAt ?? fallbackTimestampMs ?? null,
       }
     }
   }
@@ -255,6 +256,6 @@ export function getRowLastMessage(
   // 3. Fallback to explicit metadata or placeholder description
   return {
     snippet: rawSnippet ?? (agentMeta?.snippet as string) ?? (agentMeta?.description as string) ?? null,
-    timestamp: parsedTime,
+    timestamp: parsedTime ?? fallbackTimestampMs ?? null,
   }
 }

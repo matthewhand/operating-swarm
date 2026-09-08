@@ -652,6 +652,26 @@ def select_cli_session(
 
     from swarm.core.transcript_roles import append_event, append_turn, is_chrome_message
 
+    provider_cwd: str | None = None
+    provider_branch: str | None = None
+    if not start_new and sid and imported_messages is None:
+        try:
+            from swarm.core.cli_session_stores import read_provider_transcript
+            provider = read_provider_transcript(cli, sid)
+        except Exception:
+            logger.exception("Provider transcript import failed for %s/%s", cli, sid)
+            provider = None
+        if provider:
+            imported = provider.get("turns") or []
+            if imported:
+                imported_messages = [
+                    {"role": row.get("role"), "content": row.get("content")}
+                    for row in imported
+                    if isinstance(row, dict)
+                ]
+            provider_cwd = provider.get("cwd")
+            provider_branch = provider.get("git_branch")
+
     new_cid = mint_cli_conversation_id(agent)
     turns: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
@@ -738,6 +758,8 @@ def select_cli_session(
         "cli": cli,
         "conversation_id": new_cid,
         "cli_session_id": sid,
+        "folder": provider_cwd,
+        "git_branch": provider_branch,
         **_transcript_payload(turns, events),
         "status": notice,
         "collapsed_prior": collapsed,

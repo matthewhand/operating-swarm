@@ -29,7 +29,7 @@ from swarm.core.team_cos import apply_cos_fields
 
 logger = logging.getLogger(__name__)
 
-MEMBER_KINDS = ("api", "cli", "remote", "team", "herdr")
+MEMBER_KINDS = ("api", "cli", "remote", "blueprint", "team", "herdr")
 DEFAULT_WIRES = {"handoff": True, "as_tool": True}
 
 # In-memory cache. Isolated from swarm.views.utils._dynamic_registry (teams.json).

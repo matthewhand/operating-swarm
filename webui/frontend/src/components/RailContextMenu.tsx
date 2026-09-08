@@ -1,4 +1,4 @@
-import { Fragment, useState, type Ref } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   ArrowDown,
@@ -167,6 +167,23 @@ export default function RailContextMenu({
   onSubSelect,
   testId = 'rail-context-menu',
 }: RailContextMenuProps) {
+  // Clamp to the viewport so the menu never clips at the bottom/right edge.
+  const nodeRef = useRef<HTMLUListElement | null>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+  useLayoutEffect(() => {
+    const node = nodeRef.current
+    if (!node || typeof window === 'undefined') {
+      setPos({ left: x, top: y })
+      return
+    }
+    const margin = 8
+    const width = node.offsetWidth || 208
+    const height = node.offsetHeight || 0
+    setPos({
+      left: Math.max(margin, Math.min(x, window.innerWidth - width - margin)),
+      top: Math.max(margin, Math.min(y, window.innerHeight - height - margin)),
+    })
+  }, [x, y, items.length])
   const groups: RailMenuItemSpec[][] = []
   for (const item of items) {
     const last = groups[groups.length - 1]
@@ -179,11 +196,15 @@ export default function RailContextMenu({
 
   return (
     <ul
-      ref={menuRef}
+      ref={(node) => {
+        nodeRef.current = node
+        if (typeof menuRef === 'function') menuRef(node)
+        else if (menuRef) menuRef.current = node
+      }}
       role="menu"
       aria-label={`Actions for ${agentName}`}
-      className="menu menu-sm rounded-box fixed z-50 min-w-52 border border-base-300 bg-base-100 p-1 shadow-xl"
-      style={{ left: x, top: y }}
+      className="menu menu-sm rounded-box fixed z-50 min-w-52 border border-base-300 bg-base-100 p-1 shadow-xl max-h-[calc(100vh-16px)] overflow-y-auto"
+      style={{ left: pos.left, top: pos.top }}
       data-testid={testId}
     >
       {groups.map((group, index) => (

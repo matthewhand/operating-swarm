@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canEditAgentMessages, classifyAgentKind } from '../agentKind'
+import { canEditAgentMessages, classifyAgentKind, isSwarmOwnedAgent } from '../agentKind'
 
 describe('classifyAgentKind', () => {
   it('treats discovered blueprints as API (including cli_agent)', () => {
@@ -30,5 +30,13 @@ describe('classifyAgentKind', () => {
     expect(classifyAgentKind('omb')).toBe('remote')
     expect(classifyAgentKind('swarm')).toBe('api')
     expect(canEditAgentMessages('herdr')).toBe(false)
+  })
+
+  it('treats blueprint as a first-class swarm-owned kind', () => {
+    expect(classifyAgentKind('jeeves', 'blueprint')).toBe('blueprint')
+    expect(classifyAgentKind('blueprint:planner')).toBe('blueprint')
+    expect(canEditAgentMessages('blueprint:planner')).toBe(true)
+    expect(isSwarmOwnedAgent('blueprint:planner')).toBe(true)
+    expect(isSwarmOwnedAgent('cli:grok')).toBe(false)
   })
 })

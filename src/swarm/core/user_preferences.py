@@ -11,6 +11,7 @@ from typing import Any
 from swarm.auth import request_principal, token_principal
 from swarm.core.context_compress_policy import (
     AUTO_COMPRESS_PCT_KEY,
+    CONTEXT_COMPRESS_API_ONLY,
     DEFAULT_AUTO_COMPRESS_PCT,
     normalize_auto_compress_pct,
 )
@@ -56,6 +57,10 @@ PREF_REGISTRY: dict[str, dict[str, str]] = {
     CULL_FRACTION_PCT_KEY: {
         "type": "percent_1_99",
         "description": "Oldest fraction to drop on auto-cull (default 50).",
+    },
+    CONTEXT_COMPRESS_API_ONLY: {
+        "type": "boolean",
+        "description": "Enable API-only mode — skip compression/culling for CLI agents.",
     },
 }
 

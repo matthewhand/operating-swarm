@@ -1,10 +1,14 @@
-/** Classify chat agents as API, CLI, or remote (REQ-49 / REQ-203). */
+/** Classify chat agents as API, CLI, remote, or blueprint (REQ-49 / REQ-203).
+ *
+ * Blueprint agents are swarm-owned threads like API agents (editable in
+ * place). CLI and remote sessions are owned outside swarm.
+ */
 
-export type AgentKind = 'api' | 'cli' | 'remote'
+export type AgentKind = 'api' | 'cli' | 'remote' | 'blueprint'
 
-const KINDS = new Set<AgentKind>(['api', 'cli', 'remote'])
+const KINDS = new Set<AgentKind>(['api', 'cli', 'remote', 'blueprint'])
 
-/** Remote implementations — not a fifth user-facing kind (ADR-011). */
+/** Remote implementations — not an extra user-facing kind (ADR-011). */
 const REMOTE_IMPL_IDS = new Set([
   'herdr',
   'hermes',
@@ -36,6 +40,7 @@ export function classifyAgentKind(
   if (isRemoteImplId(explicit)) return 'remote'
   const text = (raw ?? '').trim().toLowerCase()
   if (text.startsWith('cli:')) return 'cli'
+  if (text.startsWith('blueprint:')) return 'blueprint'
   if (
     text.startsWith('remote:') ||
     text.startsWith('placeholder:remote:') ||
@@ -47,10 +52,19 @@ export function classifyAgentKind(
   return 'api'
 }
 
-/** True only for API-agent threads. CLI/remote sessions are owned outside swarm. */
+/** True for swarm-owned threads (API + blueprint). CLI/remote sessions are owned outside swarm. */
+export function isSwarmOwnedAgent(
+  raw: string | null | undefined,
+  explicit?: string | null,
+): boolean {
+  const kind = classifyAgentKind(raw, explicit)
+  return kind === 'api' || kind === 'blueprint'
+}
+
+/** True for editable threads: API + blueprint. CLI/remote stay read-only. */
 export function canEditAgentMessages(
   raw: string | null | undefined,
   explicit?: string | null,
 ): boolean {
-  return classifyAgentKind(raw, explicit) === 'api'
+  return isSwarmOwnedAgent(raw, explicit)
 }

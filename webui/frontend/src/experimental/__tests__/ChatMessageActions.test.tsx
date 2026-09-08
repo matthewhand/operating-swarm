@@ -1,21 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { ToastProvider } from '../../components/DaisyUI'
-import {
-  COPY_EMPTY_TITLE,
-  COPY_FAILED_TITLE,
-} from '../../lib/clipboard'
 import { ChatMessageActions } from '../ChatMessageActions'
-
-function stubExecCommand(ok: boolean) {
-  const exec = vi.fn().mockReturnValue(ok)
-  Object.defineProperty(document, 'execCommand', {
-    configurable: true,
-    writable: true,
-    value: exec,
-  })
-  return exec
-}
 
 function renderActions(text: string, onRetry?: () => void) {
   return render(
@@ -26,56 +12,9 @@ function renderActions(text: string, onRetry?: () => void) {
 }
 
 describe('ChatMessageActions', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('copies full raw text and shows Copied', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.assign(navigator, { clipboard: { writeText } })
-
-    renderActions('hello **markdown**')
-    fireEvent.click(screen.getByRole('button', { name: 'Copy message' }))
-
-    await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith('hello **markdown**')
-    })
-    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
-    expect(screen.getByText('Copied')).toBeInTheDocument()
-  })
-
-  it('falls back to execCommand when the Clipboard API rejects', async () => {
-    Object.assign(navigator, {
-      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
-    })
-    const exec = stubExecCommand(true)
-
-    renderActions('fallback body')
-    fireEvent.click(screen.getByRole('button', { name: 'Copy message' }))
-
-    await waitFor(() => {
-      expect(exec).toHaveBeenCalledWith('copy')
-    })
-    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
-    expect(screen.queryByText(COPY_FAILED_TITLE)).not.toBeInTheDocument()
-  })
-
-  it('toasts Copy failed when clipboard and fallback both fail', async () => {
-    Object.assign(navigator, {
-      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
-    })
-    stubExecCommand(false)
-
-    renderActions('still stuck')
-    fireEvent.click(screen.getByRole('button', { name: 'Copy message' }))
-
-    expect(await screen.findByText(COPY_FAILED_TITLE)).toBeInTheDocument()
-    expect(screen.queryByText('Copied')).not.toBeInTheDocument()
-  })
-
-  it('disables Copy when there is nothing to copy', () => {
-    renderActions('   ')
-    expect(screen.getByRole('button', { name: COPY_EMPTY_TITLE })).toBeDisabled()
+  it('renders no Copy button — Copy lives only in MessageRowActions (#70)', () => {
+    renderActions('hello **markdown**', vi.fn())
+    expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument()
   })
 
   it('wires Retry and does not mount react/reply/more stubs', () => {

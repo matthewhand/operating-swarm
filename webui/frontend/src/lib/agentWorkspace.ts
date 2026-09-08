@@ -12,7 +12,7 @@ import { FOLDER_FORMAT_ERROR, isValidFolderPath } from './agentFolder'
 
 export { FOLDER_FORMAT_ERROR, isValidFolderPath }
 
-export type AgentWorkspaceKind = 'cli' | 'api' | 'remote'
+export type AgentWorkspaceKind = 'cli' | 'api' | 'remote' | 'blueprint'
 
 export interface AgentWorkspaceFields {
   folder: string

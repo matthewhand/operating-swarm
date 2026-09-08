@@ -95,7 +95,7 @@ class HerdrAgentsAPIView(APIView):
         summary="Add a Herdr agent row",
         description=(
             "`name` is required. `remote` is optional (default empty = localhost). "
-            "Examples: matthewh@10.0.0.36, workbox, ssh://you@server:2222."
+            "Examples: you@gpu-box, workbox, ssh://you@server:2222."
         ),
         request=inline_serializer(
             name="HerdrAgentCreateRequest",
@@ -116,7 +116,7 @@ class HerdrAgentsAPIView(APIView):
             ),
             OpenApiExample(
                 "SSH remote",
-                value={"name": "workbox", "remote": "matthewh@10.0.0.36"},
+                value={"name": "workbox", "remote": "you@gpu-box"},
                 request_only=True,
             ),
         ],

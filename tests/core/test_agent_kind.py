@@ -10,11 +10,13 @@ def test_api_blueprints_are_editable():
     assert can_edit_agent_messages("codey") is True
 
 
-def test_cli_and_remote_prefixes_are_not_editable():
+def test_cli_threads_are_editable_with_session_restart_remote_is_not():
+    # CLI edits restart the provider session (caller clears cli_sessions);
+    # remote threads stay read-only.
     assert classify_agent_kind("cli:grok") == "cli"
     assert classify_agent_kind("remote:acp") == "remote"
     assert classify_agent_kind("placeholder:remote:acp") == "remote"
-    assert can_edit_agent_messages("cli:grok") is False
+    assert can_edit_agent_messages("cli:grok") is True
     assert can_edit_agent_messages("remote:acp") is False
 
 
@@ -32,3 +34,10 @@ def test_herdr_and_remote_impls_classify_as_remote():
     assert classify_agent_kind("omb") == "remote"
     assert can_edit_agent_messages("herdr") is False
     assert classify_agent_kind("swarm") == "api"
+
+
+def test_blueprint_is_a_first_class_editable_kind():
+    assert classify_agent_kind("jeeves", explicit="blueprint") == "blueprint"
+    assert classify_agent_kind("blueprint:planner") == "blueprint"
+    assert can_edit_agent_messages("blueprint:planner") is True
+    assert can_edit_agent_messages("jeeves", explicit="blueprint") is True

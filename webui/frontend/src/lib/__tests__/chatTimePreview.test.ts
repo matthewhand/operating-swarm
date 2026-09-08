@@ -77,6 +77,14 @@ describe('REQ-177: Rail preview snippet and live updates', () => {
       expect(res.snippet).toBe('Support agent description')
     })
 
+
+    it('uses the CLI activity fallback when no other timestamp exists (#67)', () => {
+      const res = getRowLastMessage('qwen', [], { description: 'Qwen agent' }, 1725500020000)
+      expect(res.timestamp).toBe(1725500020000)
+      const none = getRowLastMessage('qwen', [], { description: 'Qwen agent' })
+      expect(none.timestamp).toBeNull()
+    })
+
     it('resolves the latest assistant message from localStorage session', () => {
       putAgentChatSession('support', {
         conversationId: 'conv-123',

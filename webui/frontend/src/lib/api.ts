@@ -895,7 +895,7 @@ export interface CreateCustomBlueprintRequest {
   code?: string
   category?: string
   tags?: string[]
-  kind?: 'cli' | 'api'
+  kind?: 'cli' | 'api' | 'blueprint'
   command?: string
   rail?: boolean
   source?: string
