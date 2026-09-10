@@ -141,6 +141,15 @@ Per-request `params.workdir` / `params.cwd` (`cli_agent`, hybrid MoA, MoA orches
 - Explicit **Folder** (`params.folder` / agent settings, REQ-167 / #588) is used as process cwd when set. It is **not** remapped under the workspaces root.
 - `cleanup_run_workdir` / `prune_stale_run_workdirs` delete only directories that contain `.swarm-auto-run`. A user dir named `workspaces/run-deadbeefcafe` **without** the marker is kept.
 
+`software_dev` / `software_dev_team` file tools are a separate workdir: they
+default to the **API-host filesystem** (`params.workdir` or
+`SWARM_SOFTWARE_DEV_WORKDIR`). ubuntu-max `:8002` cannot read or write a
+tree that only exists on ubuntu-gtx (for example `~/chatty-commander`)
+unless `params.remote_workdir` or a remote-shaped `params.workdir`
+(`user@host:path` / `ssh://…`) plus SSH is configured. Identity is an
+env-var name for a key path — never a private key. See
+[ISSUE-148-software-dev-remote-workdir.md](./qa/ISSUE-148-software-dev-remote-workdir.md).
+
 ---
 
 ## 6. User blueprint discovery + AST sandbox

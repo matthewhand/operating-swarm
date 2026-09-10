@@ -29,8 +29,10 @@ longer required**.
 - explicit `params.seat` / `params.action` (Issue #136 e2e)
 - explicit grammar verbs: `status`, `quote`, `implement`, `review`, …
 
-Workspace/context keys (`workdir`, `cwd`, `issue`, `feasibility`, …) do
-**not** force the router by themselves.
+Workspace/context keys (`workdir`, `cwd`, `remote_workdir`, `ssh_host`,
+`ssh_user`, `issue`, `feasibility`, …) do **not** force the router by
+themselves. Remote workdir / SSH (Issue #148) is the same class of
+context param — see [ISSUE-148-software-dev-remote-workdir.md](./ISSUE-148-software-dev-remote-workdir.md).
 
 Freeform and Issue-first user messages use action `chat` and go to
 `Runner.run`. Structured multi-turn (`quote` grammar, then a later

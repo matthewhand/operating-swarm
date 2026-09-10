@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **`software_dev` remote workdir (Issue #148, partial):** CoS / engineer / skeptic file tools stay API-host local by default (`status` states FS-locality). `params.remote_workdir` or a remote-shaped `params.workdir` (`user@host:path` / `ssh://user@host/path`, or `ssh_host`+`ssh_user` plus a path) hops via OpenSSH using the Herdr argv builder. Each remote argv element is shell-quoted so OpenSSH space-join + login-shell parse keeps a multiline `python3 -c` helper intact (list-only stubs hid this). Identity is an env-var name for a key path — never a private key. Local `..` / prefix-sibling escapes still refused. Success(1) is not claimed Met (quoted hop + join regression is not a live SSH hop). Live ubuntu-max `:8002` → ubuntu-gtx prove remains. Refs #148. OpenSSH argv fleet note: Refs #157.
+
 ### Fixed
 - **`software_dev` workdir no longer skips Runner (Issue #150):** `params.workdir` / other workspace-context params no longer trip `bool(self._params)` into the deterministic seat router. Only `seat`/`action`, an explicit grammar verb (`status`/`quote`/`implement`/`review`/…), or `SWARM_TEST_MODE` select that path. Freeform and Issue-first user text reach `Runner.run(coordinator)` so CoS can call `consult_engineer` / `consult_skeptic`. Issue #136 e2e (`seat`+`action` under test mode) is unchanged. Prior tip quirk: any non-empty params (including workdir-only) skipped Runner; Chatty Commander #854 worked around that by omitting `workdir`. Fixes #150.
 

@@ -7,6 +7,8 @@ implementation checklist (kind-chat e2e), not a look-only audit.
 |---------|-------------|--------|
 | **Kind-chat e2e (auth + CLI/API/Blueprint/Team)** | private #136 | [ISSUE-136-kind-chat-e2e.md](./ISSUE-136-kind-chat-e2e.md) |
 | **`software_dev` workdir / Runner path** | private #150 | [ISSUE-150-software-dev-runner.md](./ISSUE-150-software-dev-runner.md) |
+| **`software_dev` remote workdir (SSH)** | private #148 | [ISSUE-148-software-dev-remote-workdir.md](./ISSUE-148-software-dev-remote-workdir.md) |
+| **Fleet patterns (OpenSSH argv note)** | private #157 | [ISSUE-157-fleet-patterns.md](./ISSUE-157-fleet-patterns.md) (pointer only; does not close #157) |
 | **B — left rail / agents / favourites / hidden / blueprints-as-agents** | REQ-171 [#596](https://github.com/matthewhand/open-swarm/issues/596), coordinates [#595](https://github.com/matthewhand/open-swarm/issues/595) ([`:8001` confirm](https://github.com/matthewhand/open-swarm/issues/595#issuecomment-5537343790)) | [REQ-171-surface-b-rail-agents.md](./REQ-171-surface-b-rail-agents.md) |
 | **Final skeptic sweep — Matthew asks vs delivered** | REQ-126 [#516](https://github.com/matthewhand/open-swarm/issues/516) | [REQ-126-final-skeptic-sweep.md](./REQ-126-final-skeptic-sweep.md) |
 

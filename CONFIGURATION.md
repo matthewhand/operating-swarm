@@ -296,6 +296,10 @@ environment / `.env`, never in `swarm_config.json` (reference them with
 | `XDG_DATA_HOME` | Base for state data (responses store). | `~/.local/share` |
 | `SWARM_WORKSPACES_DIR` / `WORKSPACES_DIR` | Root for per-request `params.workdir` / `params.cwd` and `swarm-cli moa --workdir` / `--cwd`. Relative paths resolve here; absolute paths outside this root are rejected unless unrestricted (below). | `$XDG_DATA_HOME/…/swarm/workspaces` (via `SWARM_USER_DATA_DIR` / platformdirs) |
 | `ALLOW_UNRESTRICTED_WORKDIR` | When `true`/`1`/`yes`, allow absolute workdirs outside `SWARM_WORKSPACES_DIR` (local CLI power users writing under `/tmp/…` or a repo checkout). Keep **off** for API servers. | `false` |
+| `SWARM_SOFTWARE_DEV_WORKDIR` | Default **local** workdir for `software_dev` file tools when `params.workdir` / `cwd` is unset. This is the **API-host filesystem** — a path that only exists on another host is invisible. | `$PWD/.software_dev_ws` |
+| `SWARM_SOFTWARE_DEV_REMOTE_WORKDIR` | Optional SSH remote tree (`user@host:path` or `ssh://user@host/path`). Same as `params.remote_workdir`. | unset (local FS) |
+| `SWARM_SOFTWARE_DEV_SSH_HOST` / `_SSH_USER` / `_SSH_PORT` | SSH target when the remote path is bare (or to override a URL). Refuses to guess a host. | unset |
+| `SWARM_SOFTWARE_DEV_SSH_IDENTITY` | Value is a key **file path** (not key material). `params.ssh_identity_env` names this variable. Never paste a private key. | unset |
 | `SWARM_BLUEPRINT_PATHS` | Extra blueprint roots scanned **in addition** to the bundled set (os.pathsep-separated). The user data blueprints dir is included **only when** `SWARM_ALLOW_USER_BLUEPRINT_DISCOVERY=true` (default off). Bundled blueprints win on name collision. | unset |
 
 ### Server, security & auth
