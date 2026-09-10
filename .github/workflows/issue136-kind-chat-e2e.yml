@@ -1,0 +1,58 @@
+name: Issue 136 kind-chat e2e
+
+on:
+  pull_request:
+    paths:
+      - "src/swarm/auth.py"
+      - "src/swarm/core/agent_kind.py"
+      - "src/swarm/views/utils.py"
+      - "src/swarm/views/chat_views.py"
+      - "src/swarm/urls.py"
+      - "src/swarm/consumers.py"
+      - "tests/api/test_issue136_kind_chat_e2e.py"
+      - "tests/core/test_agent_kind.py"
+      - "tests/unit/test_issue136_csrf_bearer.py"
+      - "docs/qa/ISSUE-136-kind-chat-e2e.md"
+      - "docs/AUTH.md"
+      - ".github/workflows/issue136-kind-chat-e2e.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/swarm/auth.py"
+      - "src/swarm/core/agent_kind.py"
+      - "src/swarm/views/utils.py"
+      - "src/swarm/views/chat_views.py"
+      - "src/swarm/urls.py"
+      - "src/swarm/consumers.py"
+      - "tests/api/test_issue136_kind_chat_e2e.py"
+      - "tests/core/test_agent_kind.py"
+      - "tests/unit/test_issue136_csrf_bearer.py"
+      - "docs/qa/ISSUE-136-kind-chat-e2e.md"
+      - "docs/AUTH.md"
+      - ".github/workflows/issue136-kind-chat-e2e.yml"
+
+jobs:
+  own-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install Python deps
+        run: uv sync --all-extras
+
+      - name: Issue 136 kind-chat e2e (own-diff)
+        run: |
+          uv run pytest \
+            tests/api/test_issue136_kind_chat_e2e.py \
+            tests/core/test_agent_kind.py \
+            tests/unit/test_issue136_csrf_bearer.py \
+            -q
+        env:
+          DJANGO_ALLOW_ASYNC_UNSAFE: "true"

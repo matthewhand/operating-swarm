@@ -32,11 +32,12 @@ Legend: ✅ working (verified) · 🟡 partial (caveat named) · 🔲 scaffolded
 | `codey` | ✅ | → `swarm.blueprints.codey.codey_cli:main`; `--help` exits 0 |
 | `suggestion` | ✅ | → `swarm.blueprints.suggestion.suggestion_cli:main`; `--help` exits 0 |
 
-## 3. API — ✅ 5
+## 3. API — ✅ 6
 
 | Feature | Status | Evidence |
 |---|---|---|
 | `/v1/chat/attachments/` (REQ-38) | ✅ | `ChatAttachment` on `swarm.models` + `chat_attachment_upload`; sqlite metadata, bytes on disk (`SWARM_ATTACHMENTS_DIR`). Tests: `tests/views/test_chat_attachments.py`, `tests/core/test_chat_attachments.py`. Restored after tip-of-main `ImportError` (REQ-134 / #524). |
+| Kind-chat e2e (Issue #136) | ✅ | Authenticated `/v1/chat/completions`: Bearer CSRF-exempt; session + `csrftoken`/`X-CSRFToken` cycle; guest/anon stays 403 when auth is on. Matrix: `cli_agent` (local echo), `api_agent` → `chatbot`, `support`, `software_dev` CoS/engineer as-tool. Honest 404 / unconfigured-CLI errors. Tests: `tests/api/test_issue136_kind_chat_e2e.py`. Checklist: [docs/qa/ISSUE-136-kind-chat-e2e.md](./docs/qa/ISSUE-136-kind-chat-e2e.md). No paid providers / no secrets. Fixes #136. |
 | `/v1/chat/completions` (non-streaming) | ✅ | `src/swarm/views/chat_views.py:86` `_handle_non_streaming`; route `urls.py:67`; `tests/views/test_chat_views.py` (18 tests) pass in isolation |
 | `/v1/chat/completions` SSE streaming | ✅ | `chat_views.py:128-162` `_handle_streaming` yields `text/event-stream` + `[DONE]`; `test_post_streaming_success` asserts Content-Type `text/event-stream` (`test_chat_views.py:214-241`) |
 | `/v1/models` | ✅ | `urls.py:56-57` → `OpenAIModelsView`; `tests/views/test_api_views.py::TestModelsListView` (5 tests) pass in isolation |

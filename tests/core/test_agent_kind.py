@@ -1,6 +1,12 @@
 """REQ-49: API vs CLI vs remote classification."""
 
-from swarm.core.agent_kind import can_edit_agent_messages, classify_agent_kind
+from swarm.core.agent_kind import (
+    API_AGENT_BLUEPRINT_ID,
+    API_AGENT_RAIL_ID,
+    can_edit_agent_messages,
+    classify_agent_kind,
+    resolve_chat_blueprint_id,
+)
 
 
 def test_api_blueprints_are_editable():
@@ -41,3 +47,12 @@ def test_blueprint_is_a_first_class_editable_kind():
     assert classify_agent_kind("blueprint:planner") == "blueprint"
     assert can_edit_agent_messages("blueprint:planner") is True
     assert can_edit_agent_messages("jeeves", explicit="blueprint") is True
+
+
+def test_api_agent_rail_id_resolves_to_chatbot_recipe():
+    assert resolve_chat_blueprint_id(API_AGENT_RAIL_ID) == API_AGENT_BLUEPRINT_ID
+    assert resolve_chat_blueprint_id("API_AGENT") == API_AGENT_BLUEPRINT_ID
+    assert resolve_chat_blueprint_id("cli_agent") == "cli_agent"
+    assert resolve_chat_blueprint_id("support") == "support"
+    assert resolve_chat_blueprint_id("software_dev") == "software_dev"
+    assert resolve_chat_blueprint_id(None) == ""

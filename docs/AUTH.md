@@ -159,7 +159,7 @@ Important trust bound: this is a **static AST filter**, **not an OS sandbox**. I
 
 | Control | Behavior |
 |---|---|
-| CSRF | Required on `custom_login` POST and HTML mutators (blueprint library, etc.). Token-auth REST views remain CSRF-exempt (Bearer clients have no cookie CSRF cycle). |
+| CSRF | Required on `custom_login` POST, HTML mutators (blueprint library, etc.), and **session-cookie** POSTs to `/v1/chat/completions` (DRF `SessionAuthentication` still checks CSRF even when the view is `@csrf_exempt`). SPA cycle: `GET /login/` or `/accounts/login/` primes `csrftoken`; send `credentials: 'include'` + `X-CSRFToken` from that cookie (`api.ts` `ensureCsrfCookie` / `buildHeaders`). Token-auth REST (`Authorization: Bearer` / `X-API-Key`) is CSRF-exempt **without** a cookie jar — both `/v1/chat/completions` routes wrap `as_view()` with `csrf_exempt` so ASGI/Daphne keeps the flag (live tip-of-main Bearer-without-cookie was 403 CSRF). Guest/anon without Bearer or session stays **403** when `ENABLE_API_AUTH` is on (do not weaken). Issue #136 / `tests/api/test_issue136_kind_chat_e2e.py`. |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Must include scheme+host(+port) for every UI origin (LAN/proxy too). |
 | Secure cookies | When `DEBUG=False`, `SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE` default on; opt out with `SWARM_SECURE_COOKIES=false` for HTTP staging. |
 | Always-on headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options` (default `DENY`; prod may override via `DJANGO_X_FRAME_OPTIONS`). |
@@ -176,7 +176,7 @@ Django operator page logic lives under `static/js/` (`{% static %}` + `data-acti
 ## Quick operator checklist
 
 1. Production: set `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, and `API_AUTH_TOKEN` (or multi-key vars).
-2. Point OpenAI clients at `/v1` with `Authorization: Bearer $API_AUTH_TOKEN`.
-3. Sign in at `/login/` for WebUI, Session Explorer, and websocket chat (session ≠ API token).
+2. Point OpenAI clients at `/v1` with `Authorization: Bearer $API_AUTH_TOKEN` (CSRF cookie not required). Kind turns: `cli_agent`, `api_agent` (→ `chatbot` recipe), `support`, `software_dev`.
+3. Sign in at `/login/` for WebUI, Session Explorer, and websocket chat (session ≠ API token). Browser POSTs to `/v1/chat/completions` also need the CSRF token cycle.
 4. Keep `ALLOW_UNRESTRICTED_WORKDIR` and `SWARM_ALLOW_USER_BLUEPRINT_DISCOVERY` off unless you intentionally widen trust.
 5. Expect prod CSP (`script-src 'self'`; `style-src 'self'`); rely on CSRF + frame/nosniff + auth gates above. Use `SWARM_CSP=false` only to disable the header.

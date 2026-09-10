@@ -18,6 +18,26 @@ AgentKind = Literal["api", "cli", "remote", "blueprint"]
 
 _VALID_KINDS = frozenset({"api", "cli", "remote", "blueprint"})
 
+# Rail seat ``api_agent`` is a first-class API kind row (LiteLLM / chatbot),
+# not a discoverable blueprint package. Websocket chat already maps it to
+# ``chatbot``; REST ``/v1/chat/completions`` must use the same recipe so a
+# Bearer/curl client can complete an API-agent turn.
+API_AGENT_RAIL_ID = "api_agent"
+API_AGENT_BLUEPRINT_ID = "chatbot"
+
+
+def resolve_chat_blueprint_id(model_or_agent_id: str | None) -> str:
+    """Blueprint id that actually runs a chat turn for ``model_or_agent_id``.
+
+    ``api_agent`` (rail / starter API seat) → ``chatbot``. Every other id is
+    returned stripped as-is (including ``cli_agent``, ``support``,
+    ``software_dev``).
+    """
+    raw = (model_or_agent_id or "").strip()
+    if raw.lower() == API_AGENT_RAIL_ID:
+        return API_AGENT_BLUEPRINT_ID
+    return raw
+
 
 def classify_agent_kind(
     raw: str | None,

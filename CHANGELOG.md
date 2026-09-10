@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Issue #136 kind-chat e2e:** Authenticated `/v1/chat/completions` path for legitimate clients — session cookie + CSRF token cycle, or Bearer / `X-API-Key` (CSRF-exempt, including when a leftover session cookie is present). Guest/anon stays 403 when API auth is on. Rail `api_agent` is listed on `/v1/models` and POSTs as the `chatbot` recipe (same mapping websocket already used). `urls.py` wraps both chat-completions routes with `csrf_exempt` so ASGI/Daphne keeps the flag (live Bearer-without-cookie was 403 CSRF when the callback lost it). Matrix evidence: CLI (`cli_agent` + local echo), API (`api_agent`), Blueprint (`support`), Team (`software_dev` CoS/engineer as-tool). Honest 404 / unconfigured-CLI errors. Tests + checklist in the private repo; no secrets / no paid providers. Fixes #136.
+
 ### Changed
 - **CI Python test matrix now gates on 3.12 only:** 3.10/3.11 are EOL-era; dropping them halves the matrix wall-clock while keeping the current supported line fully tested. `uv lock --check` + the full `uv run pytest` suite still run on every push/PR (`python-pytest.yml`).
 

@@ -677,8 +677,10 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     idx = 0
                 chosen = pick_scale_out(inference_seats, idx)
                 inference_seats = [chosen] if chosen else []
-            if str(blueprint_id).strip().lower() == "api_agent":
-                run_id = "chatbot"
+            from swarm.core.agent_kind import API_AGENT_RAIL_ID, resolve_chat_blueprint_id
+
+            if str(blueprint_id).strip().lower() == API_AGENT_RAIL_ID:
+                run_id = resolve_chat_blueprint_id(blueprint_id)
                 blueprint_instance = await get_blueprint_instance(run_id)
                 profile = None
                 if isinstance(params, dict):

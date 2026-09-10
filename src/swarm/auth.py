@@ -87,14 +87,28 @@ class StaticTokenAuthentication(BaseAuthentication):
 
 # --- Custom *Synchronous* Session Authentication ---
 class CustomSessionAuthentication(SessionAuthentication):
+    """Django session auth with CSRF for cookie clients only.
+
+    DRF's ``SessionAuthentication.enforce_csrf`` always runs a CSRF check
+    (it passes ``callback=None``, so a view-level ``@csrf_exempt`` is
+    ignored). That is correct for browser session POSTs — they must send
+    the CSRF cookie + ``X-CSRFToken`` cycle.
+
+    Bearer / ``X-API-Key`` REST clients have no cookie CSRF cycle. When a
+    valid static token is present we skip CSRF so a legitimate token
+    client is not blocked if a session cookie also exists (LAN
+    ``swarm-anon-preview``, leftover browser cookie, etc.). Invalid or
+    missing tokens do **not** skip CSRF — anonymous callers stay denied
+    and session-only POSTs still 403 without a CSRF token.
     """
-    Standard Django Session Authentication provided by DRF.
-    Relies on Django's session middleware to populate request.user.
-    This class itself is synchronous, but the underlying session loading
-    needs to be handled correctly in async views (e.g., via middleware or wrappers).
-    """
-    # No override needed unless customizing session behavior.
-    pass
+
+    def enforce_csrf(self, request):
+        if _request_has_valid_static_token(request):
+            logger.debug(
+                "[Auth][Session] Skipping CSRF — valid static token on request."
+            )
+            return
+        super().enforce_csrf(request)
 
 
 # ==============================================================================
@@ -140,6 +154,45 @@ class HasValidTokenOrSession(BasePermission):
         # If neither condition is met, deny permission.
         logger.debug("[Perm][TokenOrSession] Access denied: No valid token (request.auth=None) and no authenticated session user.")
         return False
+
+
+def _request_meta(request) -> dict:
+    """Django META from a DRF Request or raw HttpRequest."""
+    meta = getattr(request, "META", None)
+    if meta:
+        return meta
+    inner = getattr(request, "_request", None)
+    return getattr(inner, "META", None) or {}
+
+
+def _extract_static_token(request) -> str | None:
+    """Raw Bearer / X-API-Key credential, or None if absent."""
+    meta = _request_meta(request)
+    auth_header = (meta.get("HTTP_AUTHORIZATION") or "").split()
+    if len(auth_header) == 2 and auth_header[0].lower() == "bearer":
+        return str(auth_header[1])
+    key = meta.get("HTTP_X_API_KEY")
+    return str(key) if key else None
+
+
+def _accepted_static_tokens() -> list[str]:
+    accepted = list(getattr(settings, "SWARM_API_KEYS", None) or [])
+    if not accepted:
+        single = getattr(settings, "SWARM_API_KEY", None)
+        if single:
+            accepted = [single]
+    return [str(t) for t in accepted if t]
+
+
+def _request_has_valid_static_token(request) -> bool:
+    """True when the request presents a configured API token."""
+    provided = _extract_static_token(request)
+    if not provided:
+        return False
+    for expected in _accepted_static_tokens():
+        if hmac.compare_digest(provided, expected):
+            return True
+    return False
 
 
 def api_permission_classes():
