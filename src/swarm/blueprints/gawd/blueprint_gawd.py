@@ -29,14 +29,36 @@ class GAWDBlueprint(BlueprintBase):
         )
         return _real_print_search_progress_box(*args, **kwargs)
 
+    @staticmethod
+    def _prompt_from_messages(messages: list[dict[str, Any]]) -> str:
+        if not messages:
+            return ""
+        content = messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
+        return content if isinstance(content, str) else ("" if content is None else str(content))
+
+    @staticmethod
+    def _stdin_is_interactive() -> bool:
+        import sys
+        try:
+            return bool(sys.stdin) and sys.stdin.isatty()
+        except Exception:
+            return False
+
+    @staticmethod
+    def _assistant_chunk(message: str) -> dict[str, Any]:
+        return {
+            "choices": [{"role": "assistant", "content": message}],
+            "message": {"role": "assistant", "content": message},
+        }
+
     async def run(self,
                  messages: list[dict[str, Any]],
                  **kwargs: Any) -> AsyncGenerator[dict[str, Any], None]:
         import os
         op_start: float = tm.time()  # type: ignore
-        instruction = messages[-1]["content"] if messages else ""
+        instruction = self._prompt_from_messages(messages)
         if os.environ.get('SWARM_TEST_MODE'):
-            instruction = messages[-1].get("content", "") if messages else ""
+            instruction = self._prompt_from_messages(messages)
             spinner_lines = [
                 "Generating.",
                 "Generating..",
@@ -94,11 +116,18 @@ class GAWDBlueprint(BlueprintBase):
                 "message": {"role": "assistant", "content": message}
             }
             return
-        query = messages[-1]["content"] if messages else ""
+        query = instruction
         params = {"query": query}
         total_steps = 18
         spinner_states = ["Generating.", "Generating..", "Generating...", "Running..."]
         summary = f"Divine code inspiration for: '{query}'"
+        interactive = self._stdin_is_interactive()
+
+        async def ux_sleep(seconds: float) -> None:
+            # HTTP / closed-stdin callers should not pay CLI spinner delays.
+            if interactive:
+                await aio.sleep(seconds)
+
         # Spinner/UX enhancement: cycle through spinner states and show 'Taking longer than expected'
         for i, spinner_state in enumerate(spinner_states, 1):
             progress_line = f"Step {i}/{total_steps}"
@@ -116,7 +145,7 @@ class GAWDBlueprint(BlueprintBase):
                 emoji='✨',
                 border='╔'
             )
-            await aio.sleep(0.05)
+            await ux_sleep(0.05)
         for step in range(4, total_steps):
             spinner_state = op_start  # type: ignore
             progress_line = f"Step {step+1}/{total_steps}"
@@ -134,7 +163,7 @@ class GAWDBlueprint(BlueprintBase):
                 emoji='✨',
                 border='╔'
             )
-            await aio.sleep(0.13)
+            await ux_sleep(0.13)
         self.print_search_progress_box(
             op_type="Divine Code Inspiration",
             results=[f"Seeking divine code for '{query}'...", "Taking longer than expected"],
@@ -149,71 +178,49 @@ class GAWDBlueprint(BlueprintBase):
             emoji='✨',
             border='╔'
         )
-        await aio.sleep(0.1)
-        # Actually run the agent and get the LLM response
-        import asyncio
-        import shutil
-        import time
-        term_width = shutil.get_terminal_size().columns - 4
+        await ux_sleep(0.1)
+        # Messages already carry the prompt (HTTP / programmatic / CLI argv).
+        # Never call input() here — closed stdin raises EOFError and becomes
+        # an uncaught HTTP 500 on /v1/chat/completions (Issue #152).
+        user_input = query.strip()
 
-        # Print input history in grey
-        if hasattr(self, 'input_history'):
-            for entry in self.input_history[-3:]:  # Show last 3 entries
-                print(f"\033[38;5;240m> {entry}\033[0m")
-
-        # Get input and check for multi-line paste
-        print(f"\033[38;5;240m╭{'─' * term_width}╮\033[0m")
-        user_input = input("\033[38;5;240m│ \033[0m\033[1;37m\u2588 \033[0m")
-        print(f"\033[38;5;240m╰{'─' * term_width}╯\033[0m")
-
-        # Check for multi-line input
-        line_count = user_input.count('\n') + 1
-        user_input = user_input.strip()
-        if line_count > 1:
-            # Display summary line
-            print(f"\033[38;5;240m[Pasted Content - {line_count} lines]\033[0m")
-
-        # Store input in history
         if not hasattr(self, 'input_history'):
             self.input_history = []
         self.input_history.append(user_input)
 
-        # Print auto-accept status line
-        auto_accept = kwargs.get('auto_accept', False)
-        status_color = "\033[38;5;183m" if auto_accept else "\033[38;5;240m"
-        print(f"{status_color}⏵⏵ auto-accept edits {'on' if auto_accept else 'off'} (shift+tab to cycle)\033[0m")
-
+        import asyncio
+        import time
         agent: Any = self.coordinator  # type: ignore
         llm_response = ""
         try:
-            from agents import Runner
-            start_time = time.time()
-            tokens_received = 0
+            if agent is not None:
+                from agents import Runner
+                start_time = time.time()
 
-            def status_update_callback(content_type: str, content: str):
-                nonlocal tokens_received
-                if content_type == "user_output":
-                    tokens_received += len(content.split())
+                if interactive:
+                    print("\033[38;5;183mResponding\033[0m\033[38;5;240m (0s waited, 0 tokens)\033[0m", end="\r")
 
-            # Start status line
-            print("\033[38;5;183mResponding\033[0m\033[38;5;240m (0s waited, 0 tokens)\033[0m", end="\r")
+                response = await Runner.run(
+                    agent,
+                    user_input
+                )
 
-            response = await Runner.run(
-                agent,
-                user_input
+                while interactive and not (hasattr(response, 'complete') and response.complete):  # type: ignore
+                    elapsed = int(time.time() - start_time)
+                    print(f"\033[38;5;183mResponding\033[0m\033[38;5;240m ({elapsed}s waited, 0 tokens)\033[0m", end="\r")
+                    await asyncio.sleep(1)
+
+                if interactive:
+                    print("\033[K", end="\r")
+
+                llm_response = getattr(response, 'final_output', str(response))
+        except EOFError:
+            # Incomplete LLM/stream read (empty body / truncated tool JSON).
+            # Return an honest assistant reply instead of leaking HTTP 500.
+            yield self._assistant_chunk(
+                f"gawd could not finish reading the model stream for: '{query}'"
             )
-
-            # Update status while waiting
-            while not (hasattr(response, 'complete') and response.complete):  # type: ignore
-                elapsed = int(time.time() - start_time)
-                print(f"\033[38;5;183mResponding\033[0m\033[38;5;240m ({elapsed}s waited, {tokens_received} tokens)\033[0m", end="\r")
-                await asyncio.sleep(1)
-
-            # Clear status line
-            print("\033[K", end="\r")
-
-            llm_response = getattr(response, 'final_output', str(response))
-            [llm_response.strip() or "(No response from LLM)"]
+            return
         except Exception:
             pass
 
@@ -261,7 +268,7 @@ class GAWDBlueprint(BlueprintBase):
                     emoji=emoji,
                     border='╔'
                 )
-                await asyncio.sleep(0.05)
+                await ux_sleep(0.05)
             self.print_search_progress_box(
                 op_type=op_type,
                 results=[
@@ -290,7 +297,10 @@ class GAWDBlueprint(BlueprintBase):
                 emoji=emoji,
                 border='╔'
             )
-            yield {"messages": [{"role": "assistant", "content": f"{search_mode.title()} search complete. Found 70 results for '{query}'."}]}
+            reply = (llm_response or "").strip() or (
+                f"{search_mode.title()} search complete. Found 70 results for '{query}'."
+            )
+            yield {"messages": [{"role": "assistant", "content": reply}]}
             return
         self.print_search_progress_box(
             op_type="DivineCode Final Results",
@@ -312,6 +322,8 @@ class GAWDBlueprint(BlueprintBase):
             emoji="✨",  # Default emoji value
             border='╔'
         )
+        reply = (llm_response or "").strip() or f"Inspiration complete for: '{query}'"
+        yield self._assistant_chunk(reply)
 
     def format_diff_lines(self, lines: list[str]) -> list[str]:  # type: ignore
         """Add ANSI colors to diff lines"""
