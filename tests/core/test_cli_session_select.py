@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 import sys
 
 import pytest
@@ -607,3 +608,38 @@ def test_select_forwards_folder_into_resolve(tmp_path, monkeypatch):
     assert res["same_session"] is False
     assert captured.get("raw") == str(folder)
 
+
+
+def test_select_imports_grok_provider_transcript_real_reader(tmp_path, monkeypatch):
+    """Non-qwen reader path: grok chat_history.jsonl -> select import=full."""
+    monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+    monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "agent_settings.json"))
+    settings_store.reset_agent_settings_cache()
+
+    sid = "01a0849e-006a-70f1-ba75-603ac2aeb6d1"
+    store = tmp_path / "grok-sessions"
+    sess = store / quote("/home/dev/proj", safe="") / sid
+    sess.mkdir(parents=True)
+    lines = [
+        {"type": "user", "content": [{"type": "text", "text": "hydrate me"}], "prompt_index": 0},
+        {"type": "assistant", "content": "hydrated from grok"},
+    ]
+    (sess / "chat_history.jsonl").write_text(
+        "\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("SWARM_GROK_SESSIONS_DIR", str(store))
+
+    res = select_cli_session(
+        "u-grok",
+        "cli_agent",
+        "grok",
+        session_id=sid,
+        title="hydrate",
+        base_dir=tmp_path,
+    )
+    assert res["same_session"] is False
+    assert res["import"] == "full"
+    assert res["folder"] == "/home/dev/proj"
+    texts = [str(m.get("content") or "") for m in res.get("messages") or []]
+    assert any("hydrate me" in t for t in texts)
+    assert any("hydrated from grok" in t for t in texts)
