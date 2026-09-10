@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **`software_dev` workdir no longer skips Runner (Issue #150):** `params.workdir` / other workspace-context params no longer trip `bool(self._params)` into the deterministic seat router. Only `seat`/`action`, an explicit grammar verb (`status`/`quote`/`implement`/`review`/…), or `SWARM_TEST_MODE` select that path. Freeform and Issue-first user text reach `Runner.run(coordinator)` so CoS can call `consult_engineer` / `consult_skeptic`. Issue #136 e2e (`seat`+`action` under test mode) is unchanged. Prior tip quirk: any non-empty params (including workdir-only) skipped Runner; Chatty Commander #854 worked around that by omitting `workdir`. Fixes #150.
+
 ### Added
 - **Issue #136 kind-chat e2e:** Authenticated `/v1/chat/completions` path for legitimate clients — session cookie + CSRF token cycle, or Bearer / `X-API-Key` (CSRF-exempt, including when a leftover session cookie is present). Guest/anon stays 403 when API auth is on. Rail `api_agent` is listed on `/v1/models` and POSTs as the `chatbot` recipe (same mapping websocket already used). `urls.py` wraps both chat-completions routes with `csrf_exempt` so ASGI/Daphne keeps the flag (live Bearer-without-cookie was 403 CSRF when the callback lost it). Matrix evidence: CLI (`cli_agent` + local echo), API (`api_agent`), Blueprint (`support`), Team (`software_dev` CoS/engineer as-tool). Honest 404 / unconfigured-CLI errors. Tests + checklist in the private repo; no secrets / no paid providers. Fixes #136.
 

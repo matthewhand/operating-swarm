@@ -16,6 +16,19 @@ Deterministic grammar (no LLM — same idea as ``remote_harness``)::
 Structured params: ``seat``, ``action``, ``issue``, ``feasibility``,
 ``path``, ``content``, ``work``, ``tests``, ``visual``, ``deviations``.
 
+Workspace/context params (``workdir``, ``cwd``, ``issue``, ``feasibility``,
+…) do **not** force the deterministic seat router. Only ``seat`` /
+``action`` (or an explicit grammar verb / ``SWARM_TEST_MODE``) select that
+path. Freeform and Issue-first user text go to ``Runner.run(coordinator)``
+so CoS can call ``consult_engineer`` / ``consult_skeptic`` (as_tool) and
+handoffs. Structured multi-turn (``quote`` then a later freeform turn)
+remains supported.
+
+Tip quirk (Issue #150): ``bool(self._params)`` treated any non-empty
+params — including workdir-only — as deterministic and skipped Runner.
+Chatty Commander #854 worked around that by omitting ``params.workdir``.
+That workaround is no longer required.
+
 Config block ``software_dev`` (optional)::
 
     {"software_dev": {"talk_to": "cos"}}
@@ -51,6 +64,28 @@ from swarm.core.blueprint_base import BlueprintBase
 from swarm.core.classifier_verdict import attach_classifier_tools
 
 logger = logging.getLogger(__name__)
+
+# Params that select the deterministic seat/action router (Issue 136 e2e).
+# Workspace/context keys must not appear here — workdir-only used to skip
+# Runner via ``bool(self._params)`` (Issue #150 / Chatty Commander #854).
+_ROUTING_PARAM_KEYS: frozenset[str] = frozenset({"seat", "action"})
+
+# Grammar verbs that stay on the deterministic seat router (no LLM).
+_DETERMINISTIC_ACTIONS: frozenset[str] = frozenset(
+    ("status", "quote", "implement", "write", "review", "unblock", "verdict")
+)
+
+# Freeform / Issue-first: live CoS Runner (consult_engineer / consult_skeptic).
+ACTION_CHAT = "chat"
+
+
+def params_select_router(params: dict[str, Any] | None) -> bool:
+    """True only when params explicitly select seat/action routing.
+
+    ``workdir`` / other non-empty context params do not trip this gate.
+    """
+    blob = params or {}
+    return any(str(blob.get(key) or "").strip() for key in _ROUTING_PARAM_KEYS)
 
 
 class SoftwareDevBlueprint(BlueprintBase):
@@ -406,9 +441,9 @@ class SoftwareDevBlueprint(BlueprintBase):
             return SEAT_ENGINEER, "implement", rest
         if head in ("review", "verdict"):
             return SEAT_SKEPTIC, "review", rest
-        if extract_quoted_issue(text):
-            return SEAT_COS, "quote", text
-        return SEAT_COS, "status", text
+        # Issue-first bodies and other non-grammar prompts are live CoS turns.
+        # Mapping them to quote/status used to skip Runner.run (Issue #150).
+        return SEAT_COS, ACTION_CHAT, text
 
     def _status_text(self) -> str:
         agents = self._build_agents()
@@ -467,13 +502,10 @@ class SoftwareDevBlueprint(BlueprintBase):
         agents = self._build_agents()
         seat, action, text = self._parse(messages)
         test_mode = os.environ.get("SWARM_TEST_MODE", "").lower() in ("1", "true", "yes")
-        deterministic = test_mode or bool(self._params) or action in (
-            "status",
-            "quote",
-            "implement",
-            "write",
-            "review",
-            "unblock",
+        deterministic = (
+            test_mode
+            or params_select_router(self._params)
+            or action in _DETERMINISTIC_ACTIONS
         )
 
         if deterministic:
@@ -511,8 +543,10 @@ class SoftwareDevBlueprint(BlueprintBase):
 
 # Re-export for tests that import policy helpers via the blueprint package.
 __all__ = [
+    "ACTION_CHAT",
     "SoftwareDevBlueprint",
     "engineer_may_start",
     "extract_quoted_issue",
+    "params_select_router",
     "seat_tool_policy",
 ]

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from swarm.blueprints.software_dev.blueprint_software_dev import SoftwareDevBlueprint
+from swarm.blueprints.software_dev.blueprint_software_dev import (
+    ACTION_CHAT,
+    SoftwareDevBlueprint,
+    params_select_router,
+)
 from swarm.blueprints.software_dev.roles import (
     COS_INSTRUCTIONS,
     ENGINEER_INSTRUCTIONS,
@@ -388,3 +394,74 @@ async def test_run_skeptic_fails_on_leak_payload(bp):
     assert "hygiene" in out.lower()
     assert "abcd" not in out
     assert bp.context.writes == []
+
+
+# --- Issue #150: workdir/context params must not skip Runner ----------------- #
+
+
+def test_params_select_router_ignores_workspace_context():
+    """workdir-only (and other context keys) do not select the seat router."""
+    assert params_select_router(None) is False
+    assert params_select_router({}) is False
+    assert params_select_router({"workdir": "/tmp/ws"}) is False
+    assert params_select_router({"cwd": "/tmp/ws", "issue": QUOTED_ISSUE}) is False
+    assert params_select_router({"workdir": "/tmp/ws", "feasibility": FEASIBILITY}) is False
+    assert params_select_router({"seat": "cos"}) is True
+    assert params_select_router({"action": "status"}) is True
+    assert params_select_router({"seat": "", "action": "  ", "workdir": "/tmp/ws"}) is False
+
+
+@pytest.mark.asyncio
+async def test_workdir_only_non_grammar_enters_runner(bp, monkeypatch):
+    """workdir-only params + freeform prompt must hit Runner.run (Issue #150)."""
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+    fake = SimpleNamespace(final_output="CoS live turn via consult_engineer")
+    with patch("agents.Runner.run", new=AsyncMock(return_value=fake)) as mock_run:
+        out = await _ask(bp, "please coordinate the engineer on this workspace")
+    mock_run.assert_awaited()
+    assert "consult_engineer" in out
+    assert "software_dev team" not in out  # not the deterministic status dump
+
+
+@pytest.mark.asyncio
+async def test_issue_first_with_workdir_enters_runner(bp, monkeypatch):
+    """Issue-first user text + workdir still reaches a live CoS Runner turn."""
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+    fake = SimpleNamespace(final_output="quoted + consult_engineer after feasibility")
+    with patch("agents.Runner.run", new=AsyncMock(return_value=fake)) as mock_run:
+        out = await _ask(bp, QUOTED_ISSUE + "\n" + FEASIBILITY)
+    mock_run.assert_awaited()
+    assert "consult_engineer" in out
+    seat, action, _ = bp._parse([{"role": "user", "content": QUOTED_ISSUE}])
+    assert seat == SEAT_COS
+    assert action == ACTION_CHAT
+
+
+@pytest.mark.asyncio
+async def test_seat_action_path_stays_deterministic_with_workdir(bp, monkeypatch):
+    """Issue 136-style seat/action routing stays deterministic (no Runner)."""
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+    with patch("agents.Runner.run", new=AsyncMock(side_effect=AssertionError("Runner"))) as mock_run:
+        out = await _ask(
+            bp,
+            "status",
+            params={"seat": "cos", "action": "status"},
+        )
+    mock_run.assert_not_awaited()
+    assert "consult_engineer" in out
+    assert "software_dev team" in out
+
+
+@pytest.mark.asyncio
+async def test_grammar_verbs_stay_deterministic_with_workdir(bp, monkeypatch):
+    """Explicit grammar (status / quote / implement) is unchanged with workdir."""
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+    with patch("agents.Runner.run", new=AsyncMock(side_effect=AssertionError("Runner"))) as mock_run:
+        status = await _ask(bp, "status")
+        quoted = await _ask(bp, "quote " + QUOTED_ISSUE)
+        blocked = await _ask(bp, "implement add a helper")
+    mock_run.assert_not_awaited()
+    assert "software_dev team" in status
+    assert "Intent:" in quoted
+    assert "BLOCKED" in blocked
+    assert "quoted Issue" in blocked

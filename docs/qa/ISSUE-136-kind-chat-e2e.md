@@ -150,3 +150,13 @@ preview had already authenticated the caller.
 `CustomSessionAuthentication.enforce_csrf` now skips CSRF **only** when the
 request presents a **valid** configured static token. Session-only POSTs
 still require the CSRF cycle. Guests still fail closed.
+
+## Related — Issue #150 (live CoS Runner)
+
+This checklist locks the **deterministic** `software_dev` seat/action path
+(`SWARM_TEST_MODE` + `params.seat`/`action`). Workdir-only / freeform
+turns that must reach `Runner.run` so CoS can `consult_engineer` are
+Issue #150 — see [ISSUE-150-software-dev-runner.md](./ISSUE-150-software-dev-runner.md).
+Tip quirk: `bool(self._params)` used to skip Runner whenever any param
+(including `workdir`) was set; Chatty Commander #854 omitted `workdir` as
+a workaround. That workaround is no longer required.
