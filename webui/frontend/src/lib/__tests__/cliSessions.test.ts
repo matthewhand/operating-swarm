@@ -160,3 +160,37 @@ describe('latestCliActivityMs (#67)', () => {
     expect(latestCliActivityMs({ sessions: [{ updated_at: 'bogus' }] })).toBeNull()
   })
 })
+
+
+describe('cliSessions #139 folder on select', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.removeItem(AGENT_EDITS_KEY)
+  })
+
+  it('explicit folder option wins over agent edit (#139 hydrate)', async () => {
+    saveAgentEdit('cli_agent', { folder: '/home/dev/tool' })
+    const postSpy = vi.spyOn(api, 'apiPost').mockResolvedValue({
+      object: 'cli_session_select',
+      agent_id: 'cli_agent',
+      cli: 'qwen',
+      conversation_id: 'c1',
+      cli_session_id: 'sess-1',
+      messages: [],
+      status: 'ok',
+      collapsed_prior: false,
+      import: 'full',
+    } as any)
+    await selectCliSession({
+      agentId: 'cli_agent',
+      cli: 'qwen',
+      sessionId: 'sess-1',
+      folder: '/home/dev/from-row',
+    })
+    expect(postSpy).toHaveBeenCalledWith(
+      '/v1/cli-sessions/select/',
+      expect.objectContaining({ folder: '/home/dev/from-row', session_id: 'sess-1' }),
+    )
+  })
+})
+

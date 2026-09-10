@@ -533,3 +533,77 @@ def test_select_rejects_bad_folder(tmp_path):
             folder=str(tmp_path / "missing"),
             base_dir=tmp_path,
         )
+
+
+def test_select_explicit_sid_empty_chat_forces_reimport(tmp_path, monkeypatch):
+    """#139: bound sid + empty/notice-only chat must not same_session import=none."""
+    monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+    monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "agent_settings.json"))
+    settings_store.reset_agent_settings_cache()
+    # Notice-only: status chrome is not a visible model turn.
+    chat_store.save(
+        "u1",
+        "cli_agent",
+        [{"role": "status", "content": "Started a new echo session. No prior context."}],
+        conversation_id="cur",
+        cli_sessions={"echo": "sid-1"},
+        base_dir=tmp_path,
+    )
+
+    import swarm.core.cli_session_stores as stores
+
+    def fake_read(cli, sid):
+        assert cli == "echo" and sid == "sid-1"
+        return {
+            "turns": [
+                {"role": "user", "content": "hello from provider"},
+                {"role": "assistant", "content": "provider reply"},
+            ]
+        }
+
+    monkeypatch.setattr(stores, "read_provider_transcript", fake_read)
+    again = select_cli_session(
+        "u1",
+        "cli_agent",
+        "echo",
+        session_id="sid-1",
+        from_conversation_id="cur",
+        base_dir=tmp_path,
+    )
+    assert again["same_session"] is False
+    assert again["import"] == "full"
+    texts = [str(m.get("content") or "") for m in again.get("messages") or []]
+    assert any("hello from provider" in t for t in texts)
+    assert any("provider reply" in t for t in texts)
+
+
+def test_select_forwards_folder_into_resolve(tmp_path, monkeypatch):
+    """#139: row.folder from SPA must reach resolve_session_cwd on select."""
+    monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+    monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "agent_settings.json"))
+    settings_store.reset_agent_settings_cache()
+    folder = tmp_path / "ws"
+    folder.mkdir()
+    captured: dict = {}
+
+    import swarm.core.agent_folder as agent_folder
+
+    real = agent_folder.resolve_session_cwd
+
+    def wrap(*, agent_id, raw):
+        captured["agent_id"] = agent_id
+        captured["raw"] = raw
+        return real(agent_id=agent_id, raw=raw)
+
+    monkeypatch.setattr(agent_folder, "resolve_session_cwd", wrap)
+    res = select_cli_session(
+        "u1",
+        "cli_agent",
+        "echo",
+        session_id="sid-folder",
+        folder=str(folder),
+        base_dir=tmp_path,
+    )
+    assert res["same_session"] is False
+    assert captured.get("raw") == str(folder)
+

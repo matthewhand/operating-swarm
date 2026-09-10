@@ -580,6 +580,10 @@ def _same_bound_session(
         return False
     if imported:
         return False
+    # Issue #139: empty / notice-only chat must re-read provider transcript
+    # (explicit session_id + imported=None must not yield import=none).
+    if not prior_visible:
+        return False
     return True
 
 
