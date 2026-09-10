@@ -1,10 +1,12 @@
 # QA reports
 
 Look-only audits below are **no runtime product change**. Issue #136 is an
-implementation checklist (kind-chat e2e), not a look-only audit.
+implementation checklist (kind-chat e2e). Issue #157 is the shared fleet
+Success checklist (docs only), not a look-only audit.
 
 | Surface | REQ / Issue | Report |
 |---------|-------------|--------|
+| **Fleet patterns (shared Success: remote prove, same-origin, health, herdr, hide, infra CI)** | private #157 | [FLEET-PATTERNS.md](./FLEET-PATTERNS.md) |
 | **Kind-chat e2e (auth + CLI/API/Blueprint/Team)** | private #136 | [ISSUE-136-kind-chat-e2e.md](./ISSUE-136-kind-chat-e2e.md) |
 | **`software_dev` workdir / Runner path** | private #150 | [ISSUE-150-software-dev-runner.md](./ISSUE-150-software-dev-runner.md) |
 | **`software_dev` remote workdir (SSH)** | private #148 | [ISSUE-148-software-dev-remote-workdir.md](./ISSUE-148-software-dev-remote-workdir.md) |

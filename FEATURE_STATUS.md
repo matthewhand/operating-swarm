@@ -1,7 +1,7 @@
 # Feature Status
 
 > **Live status board** — per-feature evidence for what is shipped, partial, or
-> planned. Last updated: **2026-09-06**. Nested checklist:
+> planned. Last updated: **2026-09-10**. Nested checklist:
 > [ROADMAP.md](./ROADMAP.md); release notes: [CHANGELOG.md](./CHANGELOG.md).
 > The original 2026-06-10 point-in-time audit is archived at
 > [docs/archive/FEATURE_STATUS_2026-06-10.md](./docs/archive/FEATURE_STATUS_2026-06-10.md).
@@ -219,6 +219,8 @@ deferred to the release PR.
 ## 11b. Remote harnesses (Hermes / OMB / Rakazo / swarm) — ✅ config+health · 🟡 operate
 
 Open Swarm as a harness **for** other harnesses. Not a Grok-Bot chrome claim; not a concurrent Grok/OMB/Rakazo seat clone. Catalog is **opt-in** (REQ-59/61): Settings shows no kind cards until + Add remote.
+
+Shared fleet Success criteria (remote prove, same-origin hydrate, health JSON, herdr host runtime, hide vs archive, infra CI): [docs/qa/FLEET-PATTERNS.md](./docs/qa/FLEET-PATTERNS.md) (Issue #157). OMB / Rakazo drive gates reuse that checklist instead of inventing a second one.
 
 | Feature | Status | Evidence |
 |---|---|---|
