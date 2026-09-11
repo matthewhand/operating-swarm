@@ -54,8 +54,11 @@ cp .env.example .env          # set OPENAI_API_KEY, API_AUTH_TOKEN, DJANGO_SECRE
 cp swarm_config.example.json swarm_config.json   # optional local SoT; secrets stay ${VAR} in .env
 make frontend                 # builds webui/frontend/dist/
 docker compose up --build     # API + local Postgres (not Neon / not SQLite)
-# open http://localhost:8000
+# open http://localhost:8000   # greenfield compose/swarm-api default
 ```
+
+> **Ports (LAN honesty):** On a greenfield `docker compose` / `swarm-api` checkout the Open Swarm ASGI + WebUI listen on **`:8000`**. On some fleet hosts (e.g. ubuntu-max `10.0.0.30`) **`:8000` is LiteLLM** (OpenAI-compatible `/v1`), Open Swarm uvicorn is typically **`:8002`**, and a tip **vite** SPA preview may historically be on **`:8001`** (often absent). Do not curl LiteLLM for Django session/CSRF or `/v1/agents/` — use the swarm HTTP port. CSRF / login examples: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Tip vs dirty tree / `PYTHONPATH`: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#tip-vs-dirty-live-tree).
+
 
 Compose’s durable DB is the `postgres` service. Set `DATABASE_URL` for any
 cloud Postgres. Neon is test/CI only — [docs/DATABASE.md](docs/DATABASE.md).
@@ -142,11 +145,13 @@ uv run swarm-cli launch cli_agent --message "What CLIs can you see?"
 # Blueprint kind — same recipe as an OpenAI `model` id
 uv run swarm-cli launch codey --message "Explain this repo's structure"
 
-# Remote kind — catalog is empty until you add one (OpenMousBot / Hermes / Rakazo / Herdr)
+# Remote kind — fresh install catalog is empty until Settings +Add (OpenMousBot / Hermes / Rakazo / Herdr).
+# A populated live host may already list remotes; tip defaults stay empty-until-Add.
 uv run swarm-cli remotes
 # uv run swarm-cli remotes place <id>
 
-# OpenAI-compatible door (after the WebUI / compose steps above)
+# OpenAI-compatible door (after the WebUI / compose steps above).
+# Greenfield compose/swarm-api → :8000. Fleet hosts where LiteLLM owns :8000 → swarm is usually :8002.
 curl -sf http://localhost:8000/v1/models | jq .
 curl -sf http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -167,6 +172,11 @@ https://github.com/matthewhand/open-swarm.git
 Then **Install** → **Start** → **Open App**. Compose sets `SWARM_RUNTIME=sandbox-home` (REQ-45). Pinokio requires root `pinokio.js`; install/start/update scripts live under `pinokio/`.
 
 ---
+
+
+### Fleet dual trees (ubuntu-gtx / `.36`)
+
+Some fleet boxes keep **both** `~/open-swarm` (public clone path from this README) and `~/open-swarm-private` (private SoT mirror). On ubuntu-gtx (`10.0.0.36`) the listening `manage.py` / ASGI process has historically been **`~/open-swarm`**, while `~/open-swarm-private` may exist at a different tip and not be the running tree. **Deploy / docs SoT for this private repo is `open-swarm-private` (`*-private`).** Confirm which path the listening process `cwd` is before editing or restarting.
 
 ## Links
 

@@ -189,13 +189,13 @@ composer (their send is the SPA websocket path; TUI v1 has no cookie jar).
 
 ```bash
 # Textual is an optional [tui] extra (included by `uv sync --all-extras`).
-# Requires a running swarm-api (default http://127.0.0.1:8000 — not :8001)
+# Requires a running swarm-api (greenfield http://127.0.0.1:8000; fleet often :8002 when LiteLLM owns :8000 — not :8001)
 # and, when API auth is on, API_AUTH_TOKEN / SWARM_API_KEY (env values only).
 swarm-cli tui
 
 # Non-TTY / CI: the Wave 0 ASCII dump + JSON still work
 swarm-cli tui --once
-swarm-cli tui --once --base-url http://127.0.0.1:8000 --json
+swarm-cli tui --once --base-url http://127.0.0.1:8000 --json   # or :8002 on fleets where LiteLLM owns :8000
 ```
 
 `launch` / `install` stay available (dual entry).
@@ -323,7 +323,7 @@ Point named LLM **profiles** at that host with env vars (no secrets in JSON).
 
 ```bash
 # .env or shell — endpoint only; use any non-empty placeholder if the gateway is keyless
-export LITELLM_BASE_URL=http://127.0.0.1:4000/v1
+export LITELLM_BASE_URL=http://127.0.0.1:8000/v1   # LAN LiteLLM; stock LiteLLM docs often use :4000
 export LITELLM_API_KEY=sk-local-placeholder
 # Leave LITELLM_MODEL unset: a global model override defeats per-profile routing.
 export DEFAULT_LLM=orchestration
@@ -376,7 +376,7 @@ swarm-cli config add --section llm --name auxiliary --json \
   '{"provider":"openai","model":"auxiliary","base_url":"${LITELLM_BASE_URL}","api_key":"${LITELLM_API_KEY}","speed":0.9,"cost":0.9}'
 ```
 
-In the SPA, **Settings → LLM profiles** is the picker (not the Django operator dump). Default is any connected CLI / API / remote id — `gpt-5.6-terra` is fine. If you never pick, swarm auto-assigns auxiliary (cheap/fast), orchestration (mid/chat), and delegation (smart/expensive) from the connected catalog (REQ-44 `{cli, models}` when that helper is present; otherwise `/v1/models` + fixtures — no CLI `--help` scrape). **Override per task** off keeps every job on Default; on routes code summary to auxiliary and design/coding to delegation. Missing ids warn and fall back to Default.
+In the SPA, **Settings → LLM profiles** is the picker (not the Django operator dump). Default is any connected CLI / API / remote id — `gpt-5.6-terra` is fine. If you never pick, swarm auto-assigns auxiliary (cheap/fast), orchestration (mid/chat), and delegation (smart/expensive) from the connected catalog (REQ-44 `{cli, models}` when that helper is present; otherwise `/v1/models` + fixtures — no CLI `--help` scrape). **Override per task** off keeps every job on Default; on maps task classes `orchestration` / `auxiliary` / `delegation` via `settings.task_llm_profiles` (same keys as live LiteLLM role model ids — often identity-mapped to profiles of those names). Code summary (#356) uses the **auxiliary** mapping; design/coding uses **delegation**. Missing ids warn and fall back to Default.
 
 **Honest notes:**
 

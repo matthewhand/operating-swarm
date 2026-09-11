@@ -40,8 +40,11 @@ cp .env.example .env   # set DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS, API_AUTH_T
 # If the browser UI is served from a non-localhost origin (LAN IP, reverse
 # proxy hostname), add that exact origin to DJANGO_CSRF_TRUSTED_ORIGINS —
 # scheme + host + port, comma-separated. Defaults are only
-# http://localhost:8000 and http://127.0.0.1:8000. Example:
-#   DJANGO_CSRF_TRUSTED_ORIGINS=http://10.0.0.30:8000,https://swarm.example.com
+# http://localhost:8000 and http://127.0.0.1:8000 (greenfield swarm-api).
+# On fleets where LiteLLM owns :8000 and Open Swarm uvicorn is :8002, point
+# CSRF / login / Django session examples at the **swarm** port, e.g.:
+#   DJANGO_CSRF_TRUSTED_ORIGINS=http://10.0.0.30:8002,https://swarm.example.com
+# Do not put LiteLLM :8000 here — that is the LLM gateway, not Django CSRF chrome.
 # Also include the host in DJANGO_ALLOWED_HOSTS (hostname only, no scheme).
 
 # which CLIs are installed AND authenticated on this host?
@@ -65,9 +68,11 @@ for the full resolution rules.
 ## 3. Run
 
 ```bash
-swarm-api                 # ASGI server on :8000 (also powers websocket chat)
+swarm-api                 # ASGI server on :8000 greenfield (also powers websocket chat)
 # or:
 docker compose up -d
+# Fleet bare uvicorn (example): uvicorn swarm.asgi:application --port 8002
+# — when LiteLLM already owns host :8000.
 ```
 
 **SPA (`/` + `/chat`, ADR-001):** `webui/frontend/dist/` is gitignored. After
@@ -78,8 +83,10 @@ build bakes that `dist/` into the image, so `docker compose` / Fly deploys serve
 the SPA without a host-side Node install. CI (`python-pytest.yml` `frontend`
 job) runs the same script on PRs.
 
-Point any OpenAI client at `http://<host>:8000/v1` with
-`Authorization: Bearer $API_AUTH_TOKEN`.
+Point any OpenAI client at the **Open Swarm** base (`http://<host>:8000/v1`
+greenfield, or `http://<host>:8002/v1` when LiteLLM already owns `:8000`) with
+`Authorization: Bearer $API_AUTH_TOKEN`. Do not confuse swarm `/v1` with LiteLLM
+`/v1` on the same host.
 
 For multiple clients with separate ownership principals, set
 `API_AUTH_TOKENS=key-a,key-b` (or `SWARM_API_KEYS`) — comma-separated secrets
@@ -171,3 +178,19 @@ presets, per-request `params`, failover, workdir isolation, native best-of-N).
 - **gemini slow / stalls** → the free `oauth-personal` tier throttles the pro
   model heavily; the flash default answers in seconds. Use a paid `GEMINI_API_KEY`
   for the pro tier.
+
+
+## Tip vs dirty live tree
+
+Live traffic on a fleet host may be a **dirty** checkout (local branch / uncommitted WebUI mods) served by bare uvicorn — not clean `origin/main`. Tip proves and doc-aligned CLI runs need:
+
+1. A clean tip worktree (e.g. `git worktree add … origin/main`), **not** the dirty live tree under the listening uvicorn `cwd`.
+2. `PYTHONPATH=<tip>/src` (or `uv run` from that worktree) so imports resolve tip code.
+3. Curl / CSRF / session against the **swarm** port (`:8002` on ubuntu-max when LiteLLM holds `:8000`).
+
+Editing the listening dirty tree “to match tip” is out of scope for docs honesty; restarting live uvicorn is a separate ops decision.
+
+## Fleet dual trees (`.36` / ubuntu-gtx)
+
+`10.0.0.36` commonly has **both** `~/open-swarm` and `~/open-swarm-private`. The process listening on swarm ports has historically been **`~/open-swarm`** (public tree), while `~/open-swarm-private` may sit at a different tip and not be the running SoT. **Private-repo deploy / docs SoT is `open-swarm-private`.** Always `readlink` / `pwdx` the listening PID before assuming which tree you are patching.
+

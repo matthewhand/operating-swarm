@@ -111,7 +111,7 @@ curl -sf http://localhost:8000/v1/chat/completions \
 
 Notes:
 - docker-compose healthcheck probes `/health` (service name: `swarm`)
-- PORT defaults to 8000
+- **PORT / LAN honesty:** greenfield compose and `swarm-api` default to **`:8000`** for Open Swarm ASGI + WebUI. On some LAN hosts (ubuntu-max) **`:8000` is LiteLLM**, Open Swarm uvicorn is typically **`:8002`**, and tip **vite** preview may be on **`:8001`** (often absent / stale). Curl Django / CSRF / chat at the **swarm** port — not LiteLLM.
 - SPA `/` + `/chat` is baked into the Docker image; source checkouts need
   `make frontend` once (gitignored `dist/`) — [ADR-001](./ADR-001-primary-ui.md)
 - Auth is **not** “on by default”: it is on only when a token is configured.
@@ -120,6 +120,9 @@ Notes:
   Local `DJANGO_DEBUG=true` with no token leaves the API open (warns).
 - Browser Chat / Session Explorer: sign in at `/login/` (session cookie).
   Bearer does **not** authenticate websockets ([AUTH.md](./AUTH.md)).
+- **`GET /v1/agents/` hang:** Agent Router’s list-all can hang (herdr / `load_designed_agents` race). Designed agents may sit in `router_designs.json` but stay missing from the Grok sidebar until a full rail rehydrate/reload. Prefer design POST + send / UI chat WS over list-all for proves. Prefer `/v1/herdr-agents/`, `/v1/cli-agents/`, `/v1/blueprints/`, `/v1/remotes/` for catalogs.
+- **Remotes:** tip defaults stay empty until Settings **+Add**. A populated live host may already list remotes — that is host config, not tip defaults.
+- **Tip vs dirty live tree:** a bare uvicorn on `:8002` may be serving a dirty checkout, not clean `origin/main`. Tip proves need a tip worktree + `PYTHONPATH=<tip>/src` (or equivalent). See [DEPLOYMENT.md](./DEPLOYMENT.md#tip-vs-dirty-live-tree).
 
 ---
 
@@ -150,14 +153,14 @@ swarm-cli config add --section llm --name local --json \
 
 For a local OpenAI-compatible gateway that advertises role model slugs
 (`orchestration` / `delegation` / `auxiliary`) — for example
-`http://127.0.0.1:4000/v1` (adjust host/port) — put the host and a placeholder
+`http://127.0.0.1:8000/v1` on many LAN hosts (stock LiteLLM docs often show `:4000` — adjust host/port) — put the host and a placeholder
 key in the environment, then register one profile per slug. Full JSON example,
 trait tags for `inference_profile` routing, and the `hybrid_team` role vs
 gateway-slug distinction live in
 [USERGUIDE.md — Local OpenAI-compatible gateway](../USERGUIDE.md#local-openai-compatible-gateway-role-model-slugs):
 
 ```bash
-export LITELLM_BASE_URL=http://127.0.0.1:4000/v1
+export LITELLM_BASE_URL=http://127.0.0.1:8000/v1   # LAN LiteLLM; stock docs often use :4000
 export LITELLM_API_KEY=sk-local-placeholder   # any non-empty value if keyless
 # Do not set LITELLM_MODEL — that overrides every profile's model.
 
