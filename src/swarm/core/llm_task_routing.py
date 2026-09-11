@@ -140,8 +140,8 @@ VENDOR_PREFERRED: dict[str, dict[str, tuple[str, ...]]] = {
         TASK_CLASS_DELEGATION: ("o3", "codex-pro"),
     },
     "opencode": {
-        TASK_CLASS_AUXILIARY: ("opencode/big-pickle",),
-        TASK_CLASS_ORCHESTRATION: ("opencode",),
+        TASK_CLASS_AUXILIARY: ("litellm/orchestration",),
+        TASK_CLASS_ORCHESTRATION: ("litellm/orchestration",),
         TASK_CLASS_DELEGATION: ("opencode/pro",),
     },
 }

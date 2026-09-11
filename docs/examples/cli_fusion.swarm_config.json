@@ -40,7 +40,7 @@
       "env_allowlist": ["OPENAI_API_KEY"]
     },
     "opencode": {
-      "cmd": ["opencode", "run", "--model", "opencode/big-pickle", "--", "{prompt}"],
+      "cmd": ["opencode", "run", "--model", "litellm/orchestration", "--", "{prompt}"],
       "parse": "text",
       "mode": "write",
       "timeout": 240

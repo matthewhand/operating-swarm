@@ -157,10 +157,11 @@ CATALOG: dict[str, dict[str, Any]] = {
     },
     "opencode": {
         # --model: opencode's built-in default errors as "not supported"; an
-        # explicit model is required. This value is account/version-specific —
-        # run `opencode models` to pick one available to you.
+        # explicit model is required. Prefer LAN LiteLLM via host opencode
+        # provider (`litellm/orchestration` on .30:8000). Run `opencode models`
+        # to pick another available id if needed.
         # --model before `--` so a positional prompt cannot turn it into text.
-        "cmd": ["opencode", "run", "--model", "opencode/big-pickle", "--", "{prompt}"],
+        "cmd": ["opencode", "run", "--model", "litellm/orchestration", "--", "{prompt}"],
         "parse": "text",
         "mode": "write",
         "timeout": 240,
@@ -675,7 +676,7 @@ CLI_MODELS: dict[str, list[str]] = {
     ],
     "gemini": ["gemini-3-flash-preview", "gemini-3-pro-preview"],
     "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
-    "opencode": ["opencode/big-pickle"],
+    "opencode": ["litellm/orchestration"],
 }
 
 

@@ -377,7 +377,11 @@ class CliAdapter:
             cwd=raw.get("cwd"),
             env=dict(raw.get("env", {})),
             env_allowlist=raw.get("env_allowlist"),
-            timeout=float(raw.get("timeout", DEFAULT_TIMEOUT)),
+            timeout=(
+                None
+                if raw.get("timeout", DEFAULT_TIMEOUT) is None
+                else float(raw.get("timeout", DEFAULT_TIMEOUT))
+            ),
             mode=raw.get("mode", "default"),
             auth_check=raw.get("auth_check"),
             consensus=raw.get("consensus"),

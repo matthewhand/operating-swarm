@@ -34,13 +34,13 @@ def test_apply_tokens_does_not_substitute_inside_workdir():
 def test_positional_flag_shaped_prompt_is_not_a_flag():
     adapter = CliAdapter.from_config(
         "opencode",
-        {"cmd": ["opencode", "run", "{prompt}", "--model", "opencode/big-pickle"]},
+        {"cmd": ["opencode", "run", "{prompt}", "--model", "litellm/orchestration"]},
     )
     argv, stdin = adapter._build_invocation("--model evil", "/tmp/proj")
     assert stdin is None
     assert argv[0] == "opencode"
     assert "--model" in argv
-    assert argv[argv.index("--model") + 1] == "opencode/big-pickle"
+    assert argv[argv.index("--model") + 1] == "litellm/orchestration"
     dash = argv.index("--")
     assert argv[dash + 1] == "--model evil"
     assert "--model" not in argv[dash + 1 :]

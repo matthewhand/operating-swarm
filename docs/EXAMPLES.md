@@ -145,7 +145,7 @@ rule. The CLIs carry **their own** auth — Open Swarm passes no key.
     "gemini": {"cmd": ["gemini", "-m", "gemini-2.5-flash-lite", "-p", "{prompt}"], "parse": "text", "timeout": 90, "mode": "write"},
     "claude": {"cmd": ["claude", "-p", "{prompt}"], "parse": "text", "timeout": 120, "mode": "write"},
     "grok":   {"cmd": ["grok", "-p", "{prompt}", "--output-format", "plain"], "parse": "text", "timeout": 120, "mode": "write"},
-    "opencode": {"cmd": ["opencode", "run", "{prompt}", "-m", "opencode/big-pickle"], "parse": "text", "mode": "write"}
+    "opencode": {"cmd": ["opencode", "run", "{prompt}", "-m", "litellm/orchestration"], "parse": "text", "mode": "write"}
   }
 }
 ```

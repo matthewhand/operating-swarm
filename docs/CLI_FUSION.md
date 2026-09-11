@@ -318,7 +318,7 @@ transcript path (`{session_id}` substituted).
     "mode": "write"
   },
   "opencode": {
-    "cmd": ["opencode", "run", "--model", "opencode/big-pickle", "--", "{prompt}"],
+    "cmd": ["opencode", "run", "--model", "litellm/orchestration", "--", "{prompt}"],
     "parse": "text",
     "mode": "write"
   }
@@ -333,7 +333,7 @@ examples above already include the fixes (verified live 2026-06-16):
 | CLI | Gotcha | Fix (already applied) |
 |---|---|---|
 | `gemini` | refuses to run in an "untrusted" directory | `--skip-trust` (or `GEMINI_CLI_TRUST_WORKSPACE=true`) |
-| `opencode` | built-in default model errors as "not supported" | explicit `--model` (e.g. `opencode/big-pickle`) — run `opencode models` to pick one available to your account |
+| `opencode` | built-in default model errors as "not supported" | explicit `--model` (e.g. `litellm/orchestration`) — run `opencode models` to pick one available to your account |
 | `claude` | none for read/answer; writes need the auto-approve flag | `--dangerously-skip-permissions` (already in the write config) |
 
 The `--model` value for `opencode` is account/version-specific — it's the one

@@ -69,7 +69,7 @@ EXPECTED_RESUME_ARGV = {
         "--session",
         SID,
         "--model",
-        "opencode/big-pickle",
+        "litellm/orchestration",
         "--",
         PROMPT,
     ],
@@ -83,6 +83,15 @@ EXPECTED_RESUME_ARGV = {
         "--approve",
         "--",
         PROMPT,
+    ],
+    "qwen": [
+        "qwen",
+        "--resume",
+        SID,
+        "--output-format",
+        "json",
+        "--yolo",
+        f"-p={PROMPT}",
     ],
 }
 
