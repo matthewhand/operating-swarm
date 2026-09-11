@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Grok Bot workflow parity (Issue #162):** Named fleet seats (`<proj>-<cli>` or software_dev short names) list with a matching tool name and an assigned project/workdir (`swarm.core.fleet_seats`). Invoke is confined to that workdir (reuse `software_dev` local backend + `agent_settings.folder`). `software_dev` CoS as_tool aliases `engineer` / `skeptic` sit beside `consult_*`. Prove: `scripts/prove_grokbot_workflow_parity.py`. Does not implement CLI-first modes (#149 / #151). No LiteLLM catalog / no Neon / no secrets. Fixes #162.
 - **`software_dev` remote workdir (Issue #148, partial):** CoS / engineer / skeptic file tools stay API-host local by default (`status` states FS-locality). `params.remote_workdir` or a remote-shaped `params.workdir` (`user@host:path` / `ssh://user@host/path`, or `ssh_host`+`ssh_user` plus a path) hops via OpenSSH using the Herdr argv builder. Each remote argv element is shell-quoted so OpenSSH space-join + login-shell parse keeps a multiline `python3 -c` helper intact (list-only stubs hid this). Identity is an env-var name for a key path — never a private key. Local `..` / prefix-sibling escapes still refused. Success(1) is not claimed Met (quoted hop + join regression is not a live SSH hop). Live ubuntu-max `:8002` → ubuntu-gtx prove remains. Refs #148. OpenSSH argv fleet note: Refs #157.
 
 ### Fixed

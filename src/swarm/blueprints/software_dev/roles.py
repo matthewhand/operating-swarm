@@ -238,7 +238,8 @@ Issue-first REQ:
 - Do not create a parallel docs/requirements/ source of truth. Pointers only.
 
 Seats (openai-agents handoff / as-tool — not concurrent Grok Bot seats):
-- You are the talk-to seat. Use consult_engineer / consult_skeptic (agent-as-tool)
+- You are the talk-to seat. Use consult_engineer / engineer and
+  consult_skeptic / skeptic (agent-as-tool named after the seat)
   or hand off. Do not spawn three concurrent harness seats.
 - Engineer implements only after quoting the Issue and stating feasibility.
 - Skeptic is look-only and does not write code until you invoke them for review.
@@ -327,7 +328,7 @@ def seat_tool_policy(seat: str) -> dict[str, Any]:
             "role": "chief_of_staff",
             "skill": "coding-requirements-gate",
             "may_write": False,
-            "tools": ("consult_engineer", "consult_skeptic", "unblock_skeptic", "quote_issue"),
+            "tools": ("consult_engineer", "engineer", "consult_skeptic", "skeptic", "unblock_skeptic", "quote_issue"),
             "as_tool": True,
         }
     if seat == SEAT_ENGINEER or seat == "engineering-agent":

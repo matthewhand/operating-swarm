@@ -157,7 +157,9 @@ def test_as_tool_specialists_wired(bp):
     assert cos is not sk
     joined = _tool_names(cos)
     assert "consult_engineer" in joined
+    assert "engineer" in joined
     assert "consult_skeptic" in joined
+    assert "skeptic" in joined
     assert "write_file" not in joined
     assert "write_file" in _tool_names(eng)
     assert "write_file" not in _tool_names(sk)

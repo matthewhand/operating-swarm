@@ -370,25 +370,27 @@ class SoftwareDevBlueprint(BlueprintBase):
             )
             cos.tools = list(getattr(cos, "tools", None) or [])
             if hasattr(engineer, "as_tool"):
-                cos.tools.append(
-                    engineer.as_tool(
-                        tool_name="consult_engineer",
-                        tool_description=(
-                            "Use the engineer seat as a tool. Engineer is blocked "
-                            "without a quoted Issue + feasibility."
-                        ),
+                for tool_name in ("consult_engineer", "engineer"):
+                    cos.tools.append(
+                        engineer.as_tool(
+                            tool_name=tool_name,
+                            tool_description=(
+                                "Use the engineer seat as a tool. Engineer is blocked "
+                                "without a quoted Issue + feasibility."
+                            ),
+                        )
                     )
-                )
             if hasattr(skeptic, "as_tool"):
-                cos.tools.append(
-                    skeptic.as_tool(
-                        tool_name="consult_skeptic",
-                        tool_description=(
-                            "Use the skeptic seat as a tool for look-only "
-                            "PASS/FAIL review. Skeptic does not write code."
-                        ),
+                for tool_name in ("consult_skeptic", "skeptic"):
+                    cos.tools.append(
+                        skeptic.as_tool(
+                            tool_name=tool_name,
+                            tool_description=(
+                                "Use the skeptic seat as a tool for look-only "
+                                "PASS/FAIL review. Skeptic does not write code."
+                            ),
+                        )
                     )
-                )
             try:
                 from agents import handoff
 
