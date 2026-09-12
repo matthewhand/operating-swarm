@@ -9,7 +9,7 @@ from swarm.core.cli_adapter import CliAdapter
 def test_catalog_names_are_sorted_and_known():
     names = cli_catalog.catalog_names()
     assert names == sorted(names)
-    assert {"claude", "gemini", "codex", "opencode", "grok", "agy", "pi"} <= set(names)
+    assert {"claude", "gemini", "codex", "opencode", "omp", "grok", "agy", "pi"} <= set(names)
 
 
 def test_every_catalog_cli_documents_session_resume():
@@ -46,7 +46,7 @@ def test_catalog_list_capability_table():
     assert cli_catalog.can_list_sessions("grok") is True
     assert cli_catalog.can_list_sessions("agy") is True
     assert cli_catalog.can_list_sessions("opencode") is True
-    for name in ("claude", "gemini", "codex", "pi"):
+    for name in ("claude", "gemini", "codex", "pi", "omp"):
         assert cli_catalog.can_list_sessions(name) is False
         assert cli_catalog.list_capability(name) == cli_catalog.LIST_CAPABILITY_PASTE_ONLY
         assert cli_catalog.list_sessions_argv(name) is None

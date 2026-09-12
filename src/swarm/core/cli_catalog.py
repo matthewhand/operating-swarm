@@ -14,7 +14,7 @@ is ``which`` / ``stat`` only — never ``auth_check``, never a login probe,
 never a network call.
 
 Known catalog names (agy is the antigravity CLI): grok, agy, claude, gemini,
-codex, opencode, pi.
+codex, opencode, pi, omp, qwen.
 
 Each entry runs the CLI **one-shot, non-interactive, auto-approve** (full
 capability) — the flag that matters is the auto-approve one, without which the
@@ -32,6 +32,10 @@ Known per-CLI gotchas are encoded here so the defaults *just run* (verified live
 * **opencode** has no usable default model in ``run`` mode (its built-in default
   errors as "not supported"), so an explicit ``--model`` is required. The value
   below is account/version-specific — run ``opencode models`` to pick one.
+* **omp** (Oh My Pi) needs a durable ``~/.omp/agent/models.yml`` overlay to map
+  ``litellm/orchestration`` to the host LiteLLM OpenAI-compatible base (often
+  ``http://127.0.0.1:4010/v1``). Env ``OPENAI_BASE_URL`` alone is insufficient.
+  Stdin must stay closed in print mode (``CliAdapter`` uses ``DEVNULL``).
 * **agy** treats ``-p`` / ``--print`` as a flag that *consumes the next argv
   token as the prompt*. ``agy -p --output-format json 'hi'`` errors with
   ``-p took "--output-format" as its prompt``. Attach the prompt to the flag
@@ -162,6 +166,26 @@ CATALOG: dict[str, dict[str, Any]] = {
         # to pick another available id if needed.
         # --model before `--` so a positional prompt cannot turn it into text.
         "cmd": ["opencode", "run", "--model", "litellm/orchestration", "--", "{prompt}"],
+        "parse": "text",
+        "mode": "write",
+        "timeout": 240,
+    },
+    "omp": {
+        # Oh My Pi non-interactive print mode. -p/--print does not consume the
+        # prompt; the message is positional after `--`. Pin LiteLLM
+        # orchestration via ~/.omp/agent/models.yml (provider litellm ->
+        # OpenAI-compatible base, often :4010/v1). --auto-approve skips tool
+        # prompts. CliAdapter closes stdin (DEVNULL) — required to avoid
+        # readPipedInput hang.
+        "cmd": [
+            "omp",
+            "-p",
+            "--model",
+            "litellm/orchestration",
+            "--auto-approve",
+            "--",
+            "{prompt}",
+        ],
         "parse": "text",
         "mode": "write",
         "timeout": 240,
@@ -313,6 +337,19 @@ SESSION: dict[str, dict[str, Any]] = {
             "List: ``opencode session list --format json`` ({id, title, updated})."
         ),
     },
+    "omp": {
+        "resume_argv": ["--resume", "{session_id}"],
+        "resume_insert": 2,  # after `omp -p` → `omp -p --resume <id> …`
+        "resume_strip": ["--no-session", "--continue", "-c"],
+        "session_id_paths": [".session", ".id"],
+        "list_capability": LIST_CAPABILITY_PASTE_ONLY,
+        "notes": (
+            "omp -p --resume <id|path> (also -r). --continue/-c is last session — "
+            "do not use it here. Smoke/verify injects --no-session (ephemeral); "
+            "production cmd does not. List is paste-only — no verified "
+            "non-interactive list argv."
+        ),
+    },
     "agy": {
         "resume_argv": ["--conversation", "{session_id}"],
         "resume_insert": 1,
@@ -363,6 +400,7 @@ SESSION: dict[str, dict[str, Any]] = {
 # stay resumable (Pi --no-session would cancel --session).
 SMOKE_FLAGS: dict[str, list[str]] = {
     "pi": ["--no-session"],
+    "omp": ["--no-session"],
 }
 
 for _policy in SESSION.values():
@@ -532,6 +570,7 @@ CLI_TRAITS: dict[str, dict[str, float]] = {
     "gemini":   {"intelligence": 0.60, "speed": 0.92, "cost": 0.90},
     "codex":    {"intelligence": 0.75, "speed": 0.60, "cost": 0.50},
     "opencode": {"intelligence": 0.55, "speed": 0.65, "cost": 0.75},
+    "omp":      {"intelligence": 0.60, "speed": 0.70, "cost": 0.80},
     "pi":       {"intelligence": 0.70, "speed": 0.70, "cost": 0.70},
     "qwen":     {"intelligence": 0.62, "speed": 0.85, "cost": 0.85},
 }
@@ -540,7 +579,7 @@ CLI_TRAITS: dict[str, dict[str, float]] = {
 # even when the designer has not created a `kind=cli` record. Other catalog
 # CLIs stay available in the backend picker / designer.
 # Grok rail verify rows use ``{name}_agent`` ids (grok_agent, agy_agent, …).
-SIDEBAR_CLIS: tuple[str, ...] = ("grok", "agy", "opencode", "pi", "qwen")
+SIDEBAR_CLIS: tuple[str, ...] = ("grok", "agy", "opencode", "omp", "pi", "qwen")
 
 CLI_SIDEBAR: dict[str, dict[str, str]] = {
     "grok": {
@@ -563,6 +602,13 @@ CLI_SIDEBAR: dict[str, dict[str, str]] = {
         "description": "Host opencode CLI one-shot (run + explicit --model).",
         "color": "#a78bfa",
         "icon": "⌨️",
+    },
+    "omp": {
+        "name": "OMP",
+        "specialty": "Oh My Pi CLI",
+        "description": "Host omp CLI one-shot (-p + litellm/orchestration).",
+        "color": "#f472b6",
+        "icon": "◈",
     },
     "pi": {
         "name": "Pi",
@@ -656,6 +702,7 @@ MODEL_FLAG: dict[str, str] = {
     "gemini": "-m",        # verified live (gemini 0.45): -m gemini-3-pro-preview
     "claude": "--model",   # claude -p --model <name>
     "opencode": "--model", # opencode run --model <name>
+    "omp": "--model",      # omp -p --model <provider/id>
     "agy": "--model",      # agy --model <name>
     "grok": "-m",          # grok -m/--model <id> (verified: grok-4.6, grok-4.5)
     "qwen": "-m",          # qwen -m/--model <id> (verified live: gateway slug auxiliary)
@@ -677,6 +724,7 @@ CLI_MODELS: dict[str, list[str]] = {
     "gemini": ["gemini-3-flash-preview", "gemini-3-pro-preview"],
     "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
     "opencode": ["litellm/orchestration"],
+    "omp": ["litellm/orchestration"],
 }
 
 

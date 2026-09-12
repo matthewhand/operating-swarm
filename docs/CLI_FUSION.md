@@ -1,6 +1,6 @@
 # CLI Fusion — your installed agentic CLIs, behind one OpenAI endpoint
 
-Most agentic CLIs (`claude`, `gemini`, `codex`, `opencode`, …) are powerful but
+Most agentic CLIs (`claude`, `gemini`, `codex`, `opencode`, `omp`, …) are powerful but
 **not** OpenAI-compatible, and each only orchestrates its own model's subagents.
 Open Swarm's CLI-fusion blueprints turn whatever CLIs you already have installed
 into composable, API-addressable subagents:
@@ -36,7 +36,7 @@ swarm-cli cli-agents --smoke          # confirm they answer non-interactively
 **Opt-in catalog (REQ-157 / #565).** `cli_agents` starts **empty**. On startup
 (and `GET /v1/cli-agents/`) Open Swarm **discovers** known CLIs on PATH /
 user-local bins **without an auth check**: `grok`, `agy` (antigravity),
-`claude`, `gemini`, `codex`, `opencode`, `pi`. Those appear as **Suggested**
+`claude`, `gemini`, `codex`, `opencode`, `omp`, `pi`. Those appear as **Suggested**
 one-click add in Settings (same shape as remotes). Adding persists; removing
 clears the configured list (the binary may still be rediscovered as a
 candidate). The chat CLI dropdown lists configured names only.
@@ -102,7 +102,7 @@ opt-in for that reason.
 
 `--suggest` checks a built-in catalog of known-good adapter configs against your
 host and prints a ready-to-paste `cli_agents` block for every supported CLI
-(`claude`, `gemini`, `codex`, `opencode`) that is installed but not yet in your
+(`claude`, `gemini`, `codex`, `opencode`, `omp`) that is installed but not yet in your
 config — so getting started is "install the CLI, run `--suggest`, paste". The
 suggested flags track each CLI's non-interactive + auto-approve mode; verify them
 against the CLI's own `--help`, since flags drift by version.
@@ -162,6 +162,7 @@ get a panelist that actually *does work*, pin down two flags from its `--help`:
 | `gemini` | `-p` | `--yolo` | `-o json` → `json:.response` |
 | `codex` | `exec` | `--dangerously-bypass-approvals-and-sandbox` (or `--full-auto`) | text |
 | `opencode` | `run` | (none needed — `run` acts without an approval gate) | text |
+| `omp` | `-p` / `--print` | `--auto-approve` | text |
 
 ### CLI session resume (REQ-52)
 
@@ -181,6 +182,7 @@ started a new session — never a fake “restored”.
 | `gemini` | `--resume {session_id}` (`-r`) | UUID. `--session-id` starts a **new** session | JSON `session_id` / `sessionId` when present |
 | `codex` | `codex exec resume {session_id} …` (subcommand) | UUID / thread id | JSON `thread_id` when `--json`; default catalog parse is text |
 | `opencode` | `opencode run --session {session_id}` (`-s`) | `ses_…`. `--continue` is last-cwd, not thread-scoped | JSON when the CLI emits it; default parse is text |
+| `omp` | `omp -p --resume {session_id}` (`-r`) | session id/path; `--continue` is last-session — do not use | default parse is text |
 | `agy` | `--conversation {session_id}` | UUID. `--continue` is most-recent, not thread-scoped | JSON `conversation_id` |
 | `pi` | `pi -p --session {session_id}` | path or id. `--continue` is last session | JSON when present; smoke/verify uses `--no-session` |
 
@@ -229,6 +231,7 @@ relative activity stamp (`2m ago` / `Yesterday`). **Activity SoT:** provider
 | `grok` | `grok sessions list [--limit N]` (text table: id, created, updated, status, summary; cwd + sibling worktrees). JSON/JSONL also parsed. | `--resume {id}` (`-r`) | **works** |
 | `agy` | Provider store `~/.gemini/antigravity-cli/conversations/<uuid>.db` (filename stem = `--conversation` id, mtime = `updated_at`; sqlite never opened). No official `agy conversations list` yet ([antigravity-cli#602](https://github.com/google-antigravity/antigravity-cli/issues/602)). | `--conversation {id}` | **works** |
 | `opencode` | `opencode session list --format json` (`id`, `title`, `updated`) | `--session {id}` (`-s`) | **works** |
+| `omp` | *(none verified)* | `--resume {id}` (`-r`) | **paste-only** |
 | `claude` | none — `claude --resume` without an id is a TUI picker | `--resume {id}` (`-r`) | **paste-only** |
 | `gemini` | none verified | `--resume {id}` (`-r`) | **paste-only** |
 | `codex` | none verified (`codex resume` is a TUI) | `codex exec resume {id}` | **paste-only** |
@@ -285,6 +288,7 @@ when the source cannot export.
 | `grok` | works | `--resume` | none verified | summary (swarm thread) |
 | `agy` | works (store stems; sqlite never opened) | `--conversation` | none (store not read) | summary |
 | `opencode` | works | `--session` | none verified | summary |
+| `omp` | paste-only | `--resume` | none verified | summary |
 | `claude` / `gemini` / `codex` / `pi` | paste-only | resume argv | none | summary |
 | Fixture `export_argv` | — | — | **transcript** | native turns, then seed |
 
@@ -321,6 +325,11 @@ transcript path (`{session_id}` substituted).
     "cmd": ["opencode", "run", "--model", "litellm/orchestration", "--", "{prompt}"],
     "parse": "text",
     "mode": "write"
+  },
+  "omp": {
+    "cmd": ["omp", "-p", "--model", "litellm/orchestration", "--auto-approve", "--", "{prompt}"],
+    "parse": "text",
+    "mode": "write"
   }
 }
 ```
@@ -334,6 +343,7 @@ examples above already include the fixes (verified live 2026-06-16):
 |---|---|---|
 | `gemini` | refuses to run in an "untrusted" directory | `--skip-trust` (or `GEMINI_CLI_TRUST_WORKSPACE=true`) |
 | `opencode` | built-in default model errors as "not supported" | explicit `--model` (e.g. `litellm/orchestration`) — run `opencode models` to pick one available to your account |
+| `omp` | custom LiteLLM slug not in built-ins; stdin hang without DEVNULL | durable `~/.omp/agent/models.yml` mapping `litellm/orchestration`; catalog cmd pins `--model` + `--auto-approve` |
 | `claude` | none for read/answer; writes need the auto-approve flag | `--dangerously-skip-permissions` (already in the write config) |
 
 The `--model` value for `opencode` is account/version-specific — it's the one
@@ -386,6 +396,7 @@ model, the catalog rewrites the CLI's command using that CLI's model flag:
 | `gemini` | `-m` |
 | `claude` | `--model` |
 | `opencode` | `--model` |
+| `omp` | `--model` |
 | `agy` | `--model` |
 | `grok` | `-m` |
 
