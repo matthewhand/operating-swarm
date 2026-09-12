@@ -87,7 +87,18 @@ class CliPipelineBlueprint(BlueprintBase):
         raw = params.get("stages") or pc.get("stages")
         if not raw:
             preset = (fusion.get("presets") or {}).get(fusion.get("default_preset")) or {}
-            raw = preset.get("panel") or registry.available() or registry.names()
+            # Prefer an explicit panel / default_cli over "every CLI in series"
+            # (which routinely exceeds chat prove budgets on multi-CLI hosts).
+            default_cli = fusion.get("default_cli")
+            available = registry.available() or registry.names()
+            if preset.get("panel"):
+                raw = preset.get("panel")
+            elif default_cli and default_cli in set(registry.names()):
+                raw = [default_cli]
+            elif available:
+                raw = [available[0]]
+            else:
+                raw = []
 
         known = set(registry.names())
         stages: list[tuple[str, str | None]] = []

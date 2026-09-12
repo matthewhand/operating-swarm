@@ -392,6 +392,36 @@ def _apply_litellm_overrides(profile_data: dict) -> dict:
     return resolved
 
 
+def raw_llm_profile(full_config: dict, profile_name: str | None) -> dict:
+    """Named ``llm`` profile dict *before* LITELLM_MODEL / DEFAULT_LLM steal."""
+    if not profile_name:
+        return {}
+    llm_section = (full_config or {}).get("llm", {}) or {}
+    profile = llm_section.get(profile_name)
+    if not profile and isinstance(llm_section.get("profiles"), dict):
+        profile = llm_section["profiles"].get(profile_name)
+    return dict(profile) if isinstance(profile, dict) else {}
+
+
+def named_profile_model(
+    full_config: dict,
+    profile_name: str | None,
+    resolved: dict | None = None,
+) -> str | None:
+    """Model for a named profile.
+
+    Env ``LITELLM_MODEL`` / ``DEFAULT_LLM`` (applied by
+    ``_apply_litellm_overrides``) must not steal ``orchestration`` when tip
+    ``default_llm_profile=orchestration``. Gateway URL/key overrides stay.
+    """
+    raw = raw_llm_profile(full_config, profile_name)
+    for source in (raw, resolved or {}):
+        model = source.get("model") if isinstance(source, dict) else None
+        if isinstance(model, str) and model.strip():
+            return model.strip()
+    return None
+
+
 def get_resolved_llm_profile(
     full_config: dict,
     profile_name: str | None = None,

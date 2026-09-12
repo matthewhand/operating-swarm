@@ -524,3 +524,14 @@ async def test_stream_run_early_aclose_terminates_child(tmp_path):
     except ProcessLookupError:
         pass
     pytest.fail(f"child pid={pid} still alive after stream_run.aclose()")
+
+
+def test_null_timeout_coerces_to_default():
+    """JSON null timeout must not become None (float+NoneType on stream)."""
+    from swarm.core.cli_adapter import CliAdapter, DEFAULT_TIMEOUT
+
+    adapter = CliAdapter.from_config(
+        "qwenish",
+        {"cmd": [PY, "-c", "print(1)", "{prompt}"], "timeout": None},
+    )
+    assert adapter.config.timeout == float(DEFAULT_TIMEOUT)

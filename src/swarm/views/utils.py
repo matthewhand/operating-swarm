@@ -163,13 +163,23 @@ def _load_all_blueprint_metadata_sync():
     _blueprint_meta_cache = blueprint_classes
     return blueprint_classes
 
+def get_available_blueprints_sync():
+    """Sync blueprint metadata map — safe inside an already-running event loop.
+
+    Prefer this from sync helpers invoked by async chat turns. The
+    ``@sync_to_async`` wrapper below must be *awaited* (or driven via
+    ``async_to_sync`` only from a thread with no running loop).
+    """
+    global _blueprint_meta_cache
+    if _blueprint_meta_cache is None:
+        _load_all_blueprint_metadata_sync()
+    return _blueprint_meta_cache
+
+
 @sync_to_async
 def get_available_blueprints():
      """Asynchronously retrieves available blueprint classes."""
-     global _blueprint_meta_cache
-     if _blueprint_meta_cache is None:
-          _load_all_blueprint_metadata_sync()
-     return _blueprint_meta_cache
+     return get_available_blueprints_sync()
 
 # --- Blueprint Instance Loading ---
 # Removed _load_blueprint_class_sync
@@ -218,7 +228,10 @@ def validate_model_access(user, model_name):
      """Synchronous permission check."""
      logger.debug(f"Validating access for user '{user}' to model '{model_name}'...")
      try:
-         available = async_to_sync(get_available_blueprints)()
+         # Never async_to_sync(@sync_to_async) here: chat views already call this
+         # via sync_to_async, and nested thread_sensitive scheduling deadlocks
+         # the single ASGI worker (agent_router / poets prove hangs).
+         available = get_available_blueprints_sync()
          is_available = resolve_chat_blueprint_id(model_name) in available
          logger.debug(f"Model '{model_name}' availability: {is_available}")
          return is_available

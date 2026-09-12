@@ -642,8 +642,9 @@ class BlueprintBase(ABC):
         api_mode = os.getenv("SWARM_LLM_API_MODE", api_mode)
         model_name = os.getenv("LITELLM_MODEL") or os.getenv("DEFAULT_LLM") or profile_data.get("model")
         provider = profile_data.get("provider", "openai")
-        # LiteLLM is OpenAI-compatible; keep using the OpenAI client.
-        if provider == "litellm":
+        # OpenAI-compatible gateways (LiteLLM, Ollama, …) keep the OpenAI client.
+        from swarm.core.llm_provider import is_openai_chat_provider
+        if is_openai_chat_provider(provider):
             provider = "openai"
         client_kwargs = { "api_key": profile_data.get("api_key"), "base_url": profile_data.get("base_url") }
         filtered_kwargs = {k: v for k, v in client_kwargs.items() if v is not None}

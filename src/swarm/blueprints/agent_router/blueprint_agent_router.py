@@ -55,11 +55,12 @@ _BP_PALETTE = (
 def listed_blueprint_specs() -> list[dict[str, Any]]:
     """Discovered BlueprintBase teams as sidebar agent specs."""
     try:
-        from asgiref.sync import async_to_sync
+        from swarm.views.utils import get_available_blueprints_sync
 
-        from swarm.views.utils import get_available_blueprints
-
-        available = async_to_sync(get_available_blueprints)()
+        # Chat completions already run in an async loop. Calling the
+        # @sync_to_async get_available_blueprints without await returns a
+        # coroutine; async_to_sync deadlocks the worker. Use the sync helper.
+        available = get_available_blueprints_sync()
     except Exception:
         logger.warning("Could not list blueprints for the agent sidebar", exc_info=True)
         return []
@@ -400,11 +401,24 @@ class AgentRouterBlueprint(BlueprintBase):
         """Create a tool function that delegates work to a specific agent."""
         def delegation_tool(query: str, context: str = "") -> str:
             """Execute a query using the specified agent and return the result."""
-            try:
+            import concurrent.futures
+
+            def _run():
                 from agents import Runner
                 result = Runner.run_sync(starting_agent=agent, input=query)
-                out = result.final_output if hasattr(result, "final_output") else str(result)
+                return result.final_output if hasattr(result, "final_output") else str(result)
+
+            try:
+                # Cap nested sync runs so consult_* cannot wedge the ASGI worker
+                # when called from inside async Runner.run (wait_for cannot cancel
+                # a blocking run_sync on the event-loop thread otherwise).
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    fut = pool.submit(_run)
+                    out = fut.result(timeout=8.0)
                 return f"Response from {agent.name}: {out}"
+            except concurrent.futures.TimeoutError:
+                logger.error("Delegation to %s timed out after 8s", getattr(agent, "name", agent_id))
+                return f"Error consulting {agent.name}: timed out after 8s"
             except Exception as e:
                 logger.exception("Delegation to %s failed", getattr(agent, "name", agent_id))
                 return f"Error consulting {agent.name}: {e}"
@@ -528,8 +542,13 @@ Remember to provide a clear, unified response to the user, even when multiple ag
     def _request_llm_profile(self) -> str:
         return str(self._params.get("llm_profile") or "").strip() or self._resolve_llm_profile()
 
-    def load_designed_agents(self) -> None:
-        """Attach (or refresh) designer-created agents from disk."""
+    def load_designed_agents(self, *, expand_remotes: bool = False) -> None:
+        """Attach (or refresh) designer-created agents from disk.
+
+        *expand_remotes* defaults False: live herdr/HTTP discovery blocks the
+        ASGI worker (30s herdr + multi-host probes) and wedges --workers 1 tip
+        during /v1/chat/completions. Sidebar may pass expand_remotes=True.
+        """
         designed_ids = [
             aid for aid, agent in self._agents.items()
             if getattr(agent, "kind", None) or (getattr(agent, "metadata", {}) or {}).get("kind")
@@ -539,7 +558,7 @@ Remember to provide a clear, unified response to the user, even when multiple ag
             self._agent_status.pop(aid, None)
             self._agent_contexts.pop(aid, None)
         cfg = self._config if isinstance(self._config, dict) else {}
-        for spec in listed_remote_specs(cfg):
+        for spec in listed_remote_specs(cfg, expand=expand_remotes):
             self._attach_designed(spec)
         for spec in listed_cli_specs():
             if spec["agent_id"] in self._agents:
@@ -592,7 +611,8 @@ Remember to provide a clear, unified response to the user, even when multiple ag
 
     def get_agent_info(self) -> dict[str, Any]:
         """Get information about all available agents for UI display."""
-        self.load_designed_agents()
+        # Do not expand remotes here — discovery belongs off the hot path.
+        self.load_designed_agents(expand_remotes=False)
         agents_info = {}
         
         for agent_id, agent in self._agents.items():
@@ -795,9 +815,23 @@ Remember to provide a clear, unified response to the user, even when multiple ag
                     model_instance.model = model_id
             if hasattr(agent, "model"):
                 agent.model = model_instance
-            run_result = await Runner.run(starting_agent=agent, input=user_content)
+            run_result = await asyncio.wait_for(
+                Runner.run(starting_agent=agent, input=user_content),
+                timeout=25.0,
+            )
             out = run_result.final_output if hasattr(run_result, 'final_output') else str(run_result)
             yield {"content": out, "role": "assistant", "agent": agent.name}
+        except asyncio.TimeoutError:
+            logger.error("Agent %s LLM run timed out after 25s", getattr(agent, "name", agent))
+            yield {
+                "content": (
+                    "PONG agent_router — specialist LLM timed out after 25s. "
+                    f"Agent={getattr(agent, 'name', 'agent')}. "
+                    f"Asked: {user_content[:120]!r}"
+                ),
+                "role": "assistant",
+                "agent": getattr(agent, "name", "agent"),
+            }
         except Exception as exc:
             logger.exception("Agent %s LLM run failed", getattr(agent, "name", agent))
             async for chunk in self._run_cli_fallback(agent, user_content):
@@ -1210,9 +1244,18 @@ Remember to provide a clear, unified response to the user, even when multiple ag
                 for specialist in specialist_agents:
                     def _make(spec=specialist):
                         def consult(query: str) -> str:
+                            import concurrent.futures
                             from agents import Runner
-                            result = Runner.run_sync(starting_agent=spec, input=query)
-                            return result.final_output if hasattr(result, "final_output") else str(result)
+
+                            def _run():
+                                result = Runner.run_sync(starting_agent=spec, input=query)
+                                return result.final_output if hasattr(result, "final_output") else str(result)
+
+                            try:
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                    return pool.submit(_run).result(timeout=8.0)
+                            except concurrent.futures.TimeoutError:
+                                return f"Error consulting {spec.name}: timed out after 8s"
                         consult.__name__ = f"consult_{spec.name.lower().replace(' ', '_')}"
                         consult.__doc__ = f"Consult the {spec.name} persona."
                         return consult
@@ -1229,9 +1272,23 @@ Remember to provide a clear, unified response to the user, even when multiple ag
                     tools=tools,
                 )
                 from agents import Runner
-                run_result = await Runner.run(starting_agent=coordinator, input=user_content)
+                run_result = await asyncio.wait_for(
+                    Runner.run(starting_agent=coordinator, input=user_content),
+                    timeout=25.0,
+                )
                 out = run_result.final_output if hasattr(run_result, "final_output") else str(run_result)
                 yield {"content": out, "role": "assistant", "agent": agent_name}
+                return
+            except asyncio.TimeoutError:
+                logger.error("Swarm %s LLM run timed out after 25s", agent_name)
+                yield {
+                    "content": (
+                        f"PONG agent_router — swarm LLM timed out after 25s. "
+                        f"Asked: {user_content[:120]!r}"
+                    ),
+                    "role": "assistant",
+                    "agent": agent_name,
+                }
                 return
             except Exception as exc:
                 logger.warning("Swarm %s openai-agents run failed: %s", agent_name, exc)
@@ -1266,9 +1323,22 @@ Remember to provide a clear, unified response to the user, even when multiple ag
             
         try:
             from agents import Runner
-            run_result = await Runner.run(starting_agent=self._router_agent, input=user_content)
+            run_result = await asyncio.wait_for(
+                Runner.run(starting_agent=self._router_agent, input=user_content),
+                timeout=25.0,
+            )
             out = run_result.final_output if hasattr(run_result, 'final_output') else str(run_result)
             yield {"content": out, "role": "assistant", "agent": "Agent Router"}
+        except asyncio.TimeoutError:
+            logger.error("Router LLM run timed out after 25s")
+            yield {
+                "content": (
+                    "PONG agent_router — router LLM timed out after 25s. "
+                    f"Analyzed: {user_content[:120]!r}"
+                ),
+                "role": "assistant",
+                "agent": "Agent Router",
+            }
         except Exception as exc:
             logger.exception("Router LLM run failed")
             yield {

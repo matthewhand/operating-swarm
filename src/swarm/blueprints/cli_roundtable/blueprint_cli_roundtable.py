@@ -89,7 +89,16 @@ class CliRoundtableBlueprint(BlueprintBase):
 
         debaters = params.get("debaters") or rc.get("debaters") or preset.get("panel")
         if not debaters:
-            debaters = registry.available() or registry.names()
+            # Avoid spawning every configured CLI (chat prove / short turns).
+            # Prefer an explicit fusion default, else a single available CLI.
+            default_cli = fusion.get("default_cli")
+            available = registry.available() or registry.names()
+            if default_cli and default_cli in set(registry.names()):
+                debaters = [default_cli]
+            elif available:
+                debaters = [available[0]]
+            else:
+                debaters = []
         moderator = (
             params.get("moderator")
             or rc.get("moderator")

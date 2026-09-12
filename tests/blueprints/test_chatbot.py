@@ -100,3 +100,58 @@ async def test_does_not_leak_spinner_text():
     bp = ChatbotBlueprint(blueprint_id="chatbot")
     chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
     assert not _final_content(chunks).startswith("Generating")
+
+
+def test_create_starting_agent_uses_resolved_profile(monkeypatch):
+    """api_agent maps to chatbot; both must honor default_llm_profile."""
+    bp = ChatbotBlueprint(blueprint_id="chatbot")
+    bp._resolved_llm_profile = "orchestration"
+    seen = {}
+
+    def fake(profile_name):
+        seen["profile"] = profile_name
+        raise RuntimeError("stop-before-agent")
+
+    monkeypatch.setattr(bp, "_get_model_instance", fake)
+    try:
+        bp.create_starting_agent([])
+    except RuntimeError as exc:
+        assert "stop-before-agent" in str(exc)
+    assert seen.get("profile") == "orchestration"
+
+
+def test_get_model_instance_accepts_litellm_provider(monkeypatch):
+    bp = ChatbotBlueprint(blueprint_id="chatbot")
+    profile = {
+        "provider": "litellm",
+        "model": "orchestration",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "api_key": "sk-test",
+    }
+    monkeypatch.setattr(bp, "get_llm_profile", lambda _name: dict(profile))
+    monkeypatch.setattr(
+        "swarm.core.config_loader.named_profile_model",
+        lambda *_a, **_k: "orchestration",
+    )
+    captured = {}
+
+    class _Client:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+    class _Model:
+        def __init__(self, model, openai_client):
+            captured["model"] = model
+            captured["client"] = openai_client
+
+    monkeypatch.setattr(
+        "swarm.blueprints.chatbot.blueprint_chatbot.AsyncOpenAI",
+        _Client,
+    )
+    monkeypatch.setattr(
+        "swarm.blueprints.chatbot.blueprint_chatbot.OpenAIChatCompletionsModel",
+        _Model,
+    )
+    inst = bp._get_model_instance("orchestration")
+    assert captured["model"] == "orchestration"
+    assert isinstance(inst, _Model)

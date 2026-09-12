@@ -388,7 +388,8 @@ class PoetsBlueprint(BlueprintBase):
         model_name = profile_data.get("model")
         if not model_name:
             raise ValueError(f"Missing 'model' in profile '{profile_name}'.")
-        if provider != "openai":
+        from swarm.core.llm_provider import is_openai_chat_provider
+        if not is_openai_chat_provider(provider):
             raise ValueError(f"Unsupported provider: {provider}")
         client_cache_key = f"{provider}_{profile_data.get('base_url')}"
         if client_cache_key not in self._openai_client_cache:

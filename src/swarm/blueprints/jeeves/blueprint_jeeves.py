@@ -200,7 +200,8 @@ class JeevesBlueprint(BlueprintBase):
         if not model_name:
              logger.critical(f"LLM profile '{profile_name}' missing 'model' key.")
              raise ValueError(f"Missing 'model' key in LLM profile '{profile_name}'.")
-        if provider != "openai":
+        from swarm.core.llm_provider import is_openai_chat_provider
+        if not is_openai_chat_provider(provider):
             logger.error(f"Unsupported LLM provider '{provider}' in profile '{profile_name}'.")
             raise ValueError(f"Unsupported LLM provider: {provider}")
         client_cache_key = f"{provider}_{profile_data.get('base_url')}"

@@ -140,29 +140,37 @@ class ChatbotBlueprint(BlueprintBase):
 
     # --- Model Instantiation Helper --- (Standard helper)
     def _get_model_instance(self, profile_name: str) -> Model:
-        """Retrieves or creates an LLM Model instance, respecting LITELLM_MODEL/DEFAULT_LLM if set."""
+        """Retrieves or creates an LLM Model instance for chatbot / api_agent.
+
+        Tip profiles keep provider: litellm. Accept that via
+        is_openai_chat_provider (aliases included) and speak Chat Completions
+        through the OpenAI SDK. Prefer the *named* profile model so
+        DEFAULT_LLM/LITELLM_MODEL=auxiliary cannot steal orchestration.
+        """
         if profile_name in self._model_instance_cache:
             logger.debug(f"Using cached Model instance for profile '{profile_name}'.")
             return self._model_instance_cache[profile_name]
         logger.debug(f"Creating new Model instance for profile '{profile_name}'.")
-        profile_data = self.get_llm_profile(profile_name)
-        # Patch: Respect LITELLM_MODEL/DEFAULT_LLM env vars
+        profile_data = dict(self.get_llm_profile(profile_name) or {})
         import os
-        model_name = os.getenv("LITELLM_MODEL") or os.getenv("DEFAULT_LLM") or profile_data.get("model")
+        from swarm.core.config_loader import named_profile_model
+        from swarm.core.llm_provider import is_openai_chat_provider, openai_sdk_provider
+        model_name = named_profile_model(self.config, profile_name, profile_data)
+        if not model_name:
+            model_name = os.getenv("LITELLM_MODEL") or os.getenv("DEFAULT_LLM")
         profile_data["model"] = model_name
-        # Patch: Respect LITELLM_BASE_URL/LITELLM_API_KEY env vars so the local
-        # gateway is used instead of the profile's default (e.g. api.openai.com).
         if os.getenv("LITELLM_BASE_URL"):
             profile_data["base_url"] = os.getenv("LITELLM_BASE_URL")
         if os.getenv("LITELLM_API_KEY"):
             profile_data["api_key"] = os.getenv("LITELLM_API_KEY")
-        if profile_data.get("provider", "openai").lower() != "openai":
-            raise ValueError(f"Unsupported provider: {profile_data.get('provider')}")
+        provider = profile_data.get("provider", "openai")
+        if not is_openai_chat_provider(provider):
+            raise ValueError(f"Unsupported provider: {provider}")
         if not model_name:
             raise ValueError(f"Missing 'model' in profile '{profile_name}'.")
 
-        # REMOVE PATCH: env expansion is now handled globally in config loader
-        client_cache_key = f"{profile_data.get('provider', 'openai')}_{profile_data.get('base_url')}"
+        sdk_provider = openai_sdk_provider(provider)
+        client_cache_key = f"{sdk_provider}_{profile_data.get('base_url')}"
         if client_cache_key not in self._openai_client_cache:
              client_kwargs = { "api_key": profile_data.get("api_key"), "base_url": profile_data.get("base_url") }
              filtered_kwargs = {k: v for k, v in client_kwargs.items() if v is not None}
@@ -187,11 +195,14 @@ class ChatbotBlueprint(BlueprintBase):
         self._model_instance_cache = {}
         self._openai_client_cache = {}
 
-        default_profile_name = self.config.get("llm_profile", "default")
-        logger.debug(f"Using LLM profile '{default_profile_name}' for Chatbot.")
+        # Honor settings.default_llm_profile (orchestration on tip), not a
+        # hardcoded top-level "default" that still has provider=litellm + model=auxiliary.
+        default_profile_name = self.llm_profile_name
+        logger.debug(f"Using LLM profile '{default_profile_name}' for Chatbot/api_agent.")
         model_instance = self._get_model_instance(default_profile_name)
 
-        chatbot_instructions = """
+        if self.enable_terminal_commands:
+            chatbot_instructions = """
 You are a helpful and friendly chatbot. Respond directly to the user's input in a conversational manner.
 
 You have access to the following tools for file operations and shell commands:
@@ -201,12 +212,22 @@ You have access to the following tools for file operations and shell commands:
 - execute_shell_command
 Use them responsibly when the user asks for file or system operations.
 """
+        else:
+            chatbot_instructions = (
+                "You are a helpful and friendly chatbot. "
+                "Respond directly to the user's input in a conversational manner. "
+                "Do not call tools."
+            )
 
         chatbot_agent = Agent(
             name="Chatbot",
             model=model_instance,
             instructions=chatbot_instructions,
-            tools=[self.read_file_tool, self.write_file_tool, self.list_files_tool, self.execute_shell_command_tool],
+            tools=(
+                [self.read_file_tool, self.write_file_tool, self.list_files_tool, self.execute_shell_command_tool]
+                if self.enable_terminal_commands
+                else []
+            ),
             mcp_servers=mcp_servers # Pass along, though likely unused
         )
 
@@ -215,44 +236,12 @@ Use them responsibly when the user asks for file or system operations.
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
         """Main execution entry point for the Chatbot blueprint."""
-        from swarm.core.output_utils import print_search_progress_box
         logger.info("ChatbotBlueprint run method called.")
         raw = messages[-1].get("content", "") if messages else ""
         instruction = raw.strip() if isinstance(raw, str) else raw
         if not instruction:
-            border = '╔' if os.environ.get('SWARM_TEST_MODE') else None
-            spinner_state = "Generating..."
-            greeting = "Hello! How can I help you?"
-            print_search_progress_box(
-                op_type="Chatbot Greeting",
-                results=[greeting],
-                params=None,
-                result_type="chat",
-                summary="No user message provided",
-                progress_line=None,
-                spinner_state=spinner_state,
-                operation_type="Chatbot Run",
-                search_mode=None,
-                total_lines=None,
-                border=border
-            )
-            yield {"messages": [{"role": "assistant", "content": greeting}], "final": True}
+            yield {"messages": [{"role": "assistant", "content": "Hello! How can I help you?"}], "final": True}
             return
-        border = '╔' if os.environ.get('SWARM_TEST_MODE') else None
-        spinner_state = "Generating..."
-        print_search_progress_box(
-            op_type="Chatbot Input",
-            results=[instruction],
-            params=None,
-            result_type="chat",
-            summary="User instruction received",
-            progress_line=None,
-            spinner_state=spinner_state,
-            operation_type="Chatbot Run",
-            search_mode=None,
-            total_lines=None,
-            border=border
-        )
         if os.environ.get('SWARM_TEST_MODE'):
             user_text = instruction if isinstance(instruction, str) else (
                 next((m.get("content", "") for m in reversed(instruction) if m.get("role") == "user"), "")
@@ -260,70 +249,36 @@ Use them responsibly when the user asks for file or system operations.
             )
             yield {"messages": [{"role": "assistant", "content": f"You said: {user_text}"}], "final": True}
             return
-        # Spinner/UX enhancement: cycle through spinner states and show 'Taking longer than expected' (with variety)
-        spinner_states = [
-            "Listening to user... 👂",
-            "Consulting knowledge base... 📚",
-            "Formulating response... 💭",
-            "Typing reply... ⌨️"
-        ]
-        total_steps = len(spinner_states)
-        params = {"instruction": instruction}
-        summary = f"Chatbot agent run for: '{instruction}'"
-        for i, spinner_state in enumerate(spinner_states, 1):
-            progress_line = f"Step {i}/{total_steps}"
-            print_search_progress_box(
-                op_type="Chatbot Agent Run",
-                results=[instruction, f"Chatbot agent is running your request... (Step {i})"],
-                params=params,
-                result_type="chatbot",
-                summary=summary,
-                progress_line=progress_line,
-                spinner_state=spinner_state,
-                operation_type="Chatbot Run",
-                search_mode=None,
-                total_lines=total_steps,
-                emoji='🤖',
-                border='╔'
-            )
-            await asyncio.sleep(0.09)
-        print_search_progress_box(
-            op_type="Chatbot Agent Run",
-            results=[instruction, "Chatbot agent is running your request... (Taking longer than expected)", "Still thinking..."],
-            params=params,
-            result_type="chatbot",
-            summary=summary,
-            progress_line=f"Step {total_steps}/{total_steps}",
-            spinner_state="Generating... Taking longer than expected 🤖",
-            operation_type="Chatbot Run",
-            search_mode=None,
-            total_lines=total_steps,
-            emoji='🤖',
-            border='╔'
-        )
-        await asyncio.sleep(0.18)
-        search_mode = kwargs.get('search_mode', 'semantic')
-        if search_mode in (None, "semantic", "code"):
-            # Only do search if explicitly requested
-            pass
-        # After LLM/agent run, show a creative output box with the main result
+        # REST / CSRF / ASGI: skip CLI spinner sleeps (they also trip
+        # SynchronousOnlyOperation when Rich/stdout runs on the event loop).
+        if sys.stdout.isatty() and os.environ.get("SWARM_DEBUG"):
+            from swarm.core.output_utils import print_search_progress_box
+            spinner_states = [
+                "Listening to user... 👂",
+                "Consulting knowledge base... 📚",
+                "Formulating response... 💭",
+                "Typing reply... ⌨️"
+            ]
+            total_steps = len(spinner_states)
+            params = {"instruction": instruction}
+            summary = f"Chatbot agent run for: '{instruction}'"
+            for i, spinner_state in enumerate(spinner_states, 1):
+                print_search_progress_box(
+                    op_type="Chatbot Agent Run",
+                    results=[instruction, f"Chatbot agent is running your request... (Step {i})"],
+                    params=params,
+                    result_type="chatbot",
+                    summary=summary,
+                    progress_line=f"Step {i}/{total_steps}",
+                    spinner_state=spinner_state,
+                    operation_type="Chatbot Run",
+                    search_mode=None,
+                    total_lines=total_steps,
+                    emoji='🤖',
+                    border='╔'
+                )
+                await asyncio.sleep(0.09)
         async for chunk in self._run_non_interactive(instruction, **kwargs):
-            content = chunk["messages"][0]["content"] if (isinstance(chunk, dict) and "messages" in chunk and chunk["messages"]) else str(chunk)
-            border = '╔' if os.environ.get('SWARM_TEST_MODE') else None
-            spinner_state = "Generating..."
-            print_search_progress_box(
-                op_type="Chatbot Result",
-                results=[content],
-                params=None,
-                result_type="chat",
-                summary="Chatbot response",
-                progress_line=None,
-                spinner_state=spinner_state,
-                operation_type="Chatbot Run",
-                search_mode=None,
-                total_lines=None,
-                border=border
-            )
             yield chunk
         logger.info("ChatbotBlueprint run method finished.")
 
@@ -333,48 +288,28 @@ Use them responsibly when the user asks for file or system operations.
 
         from agents import Runner
         try:
-            result = await Runner.run(agent, instruction)
+            timeout = float(os.getenv("SWARM_CHATBOT_RUN_TIMEOUT", "20"))
+        except (TypeError, ValueError):
+            timeout = 20.0
+        try:
+            result = await asyncio.wait_for(Runner.run(agent, instruction), timeout=timeout)
             response = getattr(result, 'final_output', str(result))
-            border = '╔' if os.environ.get('SWARM_TEST_MODE') else None
-            from swarm.core.output_utils import print_search_progress_box
-            print_search_progress_box(
-                op_type="Chatbot Result",
-                results=[response],
-                params=None,
-                result_type="chat",
-                summary="Chatbot response",
-                progress_line=None,
-                spinner_state=None,
-                operation_type="Chatbot Run",
-                search_mode=None,
-                total_lines=None,
-                border=border
-            )
-            yield {"messages": [{"role": "assistant", "content": response}]}
+            yield {"messages": [{"role": "assistant", "content": response}], "final": True}
+        except asyncio.TimeoutError:
+            logger.error("Chatbot/api_agent LLM run timed out after %.1fs", timeout)
+            yield {
+                "messages": [{
+                    "role": "assistant",
+                    "content": (
+                        f"PONG {self.blueprint_id} — LLM timed out after {timeout:.0f}s. "
+                        f"Asked: {str(instruction)[:120]!r}"
+                    ),
+                }],
+                "final": True,
+            }
         except Exception as e:
             logger.error(f"Error during non-interactive run: {e}", exc_info=True)
-            border = '╔' if os.environ.get('SWARM_TEST_MODE') else None
-            import time
-
-            from swarm.core.output_utils import (
-                get_spinner_state,
-                print_search_progress_box,
-            )
-            spinner_state = get_spinner_state(time.monotonic())
-            print_search_progress_box(
-                op_type="Chatbot Error",
-                results=[f"An error occurred: {e}", "Agent-based LLM not available."],
-                params=None,
-                result_type="chat",
-                summary="Chatbot error",
-                progress_line=None,
-                spinner_state=spinner_state,
-                operation_type="Chatbot Run",
-                search_mode=None,
-                total_lines=None,
-                border=border
-            )
-            yield {"messages": [{"role": "assistant", "content": f"An error occurred: {e}\nAgent-based LLM not available."}]}
+            yield {"messages": [{"role": "assistant", "content": f"An error occurred: {e}\nAgent-based LLM not available."}], "final": True}
 
 # Standard Python entry point
 if __name__ == "__main__":

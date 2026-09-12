@@ -66,6 +66,11 @@ class DynamicTeamBlueprint(BlueprintBase):
                 # Non-streaming single-shot
                 resp = await client.chat.completions.create(model=model_name, messages=messages, stream=False)
                 text = (resp.choices[0].message.content or "").strip()
+                if not text:
+                    text = (
+                        f"[DynamicTeam] empty completion from model={model_name!r} "
+                        f"profile={profile_name!r}. Check Settings → LLM profiles / gateway."
+                    )
                 yield {"messages": [{"role": "assistant", "content": text}]}
         except Exception as e:
             logger.exception("Dynamic team LLM call failed: %s", e)
