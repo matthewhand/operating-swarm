@@ -1,4 +1,4 @@
-# REQ-847 — Stale hidden prefs reconciled against the live rail (private #170)
+# REQ-847 — Stale hidden prefs reconciled against the live rail (#170)
 
 > Hide ids (`agent:` / `team:` / `remote:`) that match **no live rail row** and
 > no pinned id are dropped each session, so old server prefs can't keep teams,
@@ -8,7 +8,7 @@
 **As-of:** branch `fix/149-cli-first-discovered-defaults` (dirty; feature shipped
 in-session under #170).
 
-**Issue:** [private #170](https://github.com/matthewhand/open-swarm-private/issues/170)
+**Issue:** [#170](https://github.com/matthewhand/open-swarm/issues/170)
 
 ## Requirement
 

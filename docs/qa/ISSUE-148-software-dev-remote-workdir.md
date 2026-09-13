@@ -1,6 +1,6 @@
 # Issue #148 — `software_dev` remote workdir (SSH)
 
-Private GitHub Issue: `matthewhand/open-swarm-private#148`.
+Issue: #`148`.
 
 **Intent:** Let open-swarm on ubuntu-max (`:8002`) run `software_dev` /
 `software_dev_team` (and similar) against a remote host path such as
@@ -34,7 +34,7 @@ private key in params, config, Issues, or the repo.
 {
   "model": "software_dev",
   "params": {
-    "remote_workdir": "engineer@ubuntu-gtx:~/chatty-commander",
+    "remote_workdir": "engineer@remote.example.com:~/project",
     "ssh_identity_env": "SWARM_SOFTWARE_DEV_SSH_IDENTITY"
   }
 }
@@ -42,9 +42,9 @@ private key in params, config, Issues, or the repo.
 
 Equivalents:
 
-- `params.workdir`: `engineer@ubuntu-gtx:~/chatty-commander` or
-  `ssh://engineer@ubuntu-gtx/home/engineer/chatty-commander`
-- Bare path + host: `params.workdir` = `/home/engineer/chatty-commander`
+- `params.workdir`: `engineer@remote.example.com:~/project` or
+  `ssh://engineer@remote.example.com/home/engineer/project`
+- Bare path + host: `params.workdir` = `/home/engineer/project`
   with `params.ssh_host` / `params.ssh_user`
 - Config block `software_dev.remote_workdir` / `software_dev.ssh_*`
 - Env: `SWARM_SOFTWARE_DEV_REMOTE_WORKDIR`, `SWARM_SOFTWARE_DEV_SSH_HOST`,

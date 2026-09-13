@@ -57,7 +57,7 @@ docker compose up --build     # API + local Postgres (not Neon / not SQLite)
 # open http://localhost:8000   # greenfield compose/swarm-api default
 ```
 
-> **Ports (LAN honesty):** On a greenfield `docker compose` / `swarm-api` checkout the Open Swarm ASGI + WebUI listen on **`:8000`**. On some fleet hosts (e.g. ubuntu-max `10.0.0.30`) **`:8000` is LiteLLM** (OpenAI-compatible `/v1`), Open Swarm uvicorn is typically **`:8002`**, and a tip **vite** SPA preview may historically be on **`:8001`** (often absent). Do not curl LiteLLM for Django session/CSRF or `/v1/agents/` — use the swarm HTTP port. CSRF / login examples: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Tip vs dirty tree / `PYTHONPATH`: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#tip-vs-dirty-live-tree).
+> **Ports:** On a standard `docker compose` / `swarm-api` setup, the Open Swarm ASGI + WebUI listen on **`:8000`**. If an upstream LLM gateway or proxy already binds **`:8000`**, Open Swarm can be run on an alternate port (such as **`:8002`**). Ensure client API and session calls target the Open Swarm server port. For configuration details, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 
 Compose’s durable DB is the `postgres` service. Set `DATABASE_URL` for any
@@ -151,7 +151,7 @@ uv run swarm-cli remotes
 # uv run swarm-cli remotes place <id>
 
 # OpenAI-compatible door (after the WebUI / compose steps above).
-# Greenfield compose/swarm-api → :8000. Fleet hosts where LiteLLM owns :8000 → swarm is usually :8002.
+# Standard compose/swarm-api listens on :8000.
 curl -sf http://localhost:8000/v1/models | jq .
 curl -sf http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -172,11 +172,6 @@ https://github.com/matthewhand/open-swarm.git
 Then **Install** → **Start** → **Open App**. Compose sets `SWARM_RUNTIME=sandbox-home` (REQ-45). Pinokio requires root `pinokio.js`; install/start/update scripts live under `pinokio/`.
 
 ---
-
-
-### Fleet dual trees (ubuntu-gtx / `.36`)
-
-Some fleet boxes keep **both** `~/open-swarm` (public clone path from this README) and `~/open-swarm-private` (private SoT mirror). On ubuntu-gtx (`10.0.0.36`) the listening `manage.py` / ASGI process has historically been **`~/open-swarm`**, while `~/open-swarm-private` may exist at a different tip and not be the running tree. **Deploy / docs SoT for this private repo is `open-swarm-private` (`*-private`).** Confirm which path the listening process `cwd` is before editing or restarting.
 
 ## Links
 

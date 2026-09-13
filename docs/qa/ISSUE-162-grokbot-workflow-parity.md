@@ -1,6 +1,6 @@
 # Issue #162 — Grok Bot workflow parity (named agents → named tools → assigned project)
 
-Private GitHub Issue: `matthewhand/open-swarm-private#162`.
+Issue: #`162`.
 
 **Intent:** Keep Grok Bot / CLI-proxy fleet shape inside open-swarm: many
 named seats, each reachable via a tool named after that agent, bound to an

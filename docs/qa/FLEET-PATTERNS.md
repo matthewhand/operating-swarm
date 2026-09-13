@@ -1,6 +1,6 @@
 # Fleet patterns — shared Success criteria
 
-Private GitHub Issue: `matthewhand/open-swarm-private#157`.
+Issue: #`157`.
 
 Locked 2026-09-10 (Taskmaster + Matthew). **Docs / checklist only** — this
 file does not change runtime, catalog, Neon, or CI workflows.
@@ -25,7 +25,6 @@ child Issue. Do not treat this file as a license to ship feature code.
 - No secrets, tokens, `.env` values, or live key material in docs or PRs.
 - No LiteLLM catalog change.
 - No Neon.
-- No `hass-config` master push.
 - No `git add -A`.
 - No Reachy `POST /wake`.
 - Hailo off.
@@ -65,7 +64,7 @@ while live OpenSSH FAILS on the joined string (spaces split, flags
 appear as extra options).
 
 Evidence: private
-[#148](https://github.com/matthewhand/open-swarm-private/issues/148)
+[#148](https://github.com/matthewhand/open-swarm/issues/148)
 FAIL — stub list vs OpenSSH space-join.
 
 This note is **not** a Success checkbox. Do not fail fleet §1–6 for it.
@@ -79,7 +78,7 @@ on this checklist PR.
 **Rule:** `vite` or `vite preview` **without** a same-origin proxy to the
 API is **not** a hydrate prove target.
 
-Lesson: private [#139](https://github.com/matthewhand/open-swarm-private/issues/139).
+Lesson: private [#139](https://github.com/matthewhand/open-swarm/issues/139).
 CSRF cycle: [AUTH.md §7](../AUTH.md#7-csrf-cookies-headers-prod-csp).
 Hydrate honesty: [REQ-171A](../requirements/REQ-171A.md) / kind-chat
 [Issue #136](./ISSUE-136-kind-chat-e2e.md).
@@ -193,7 +192,7 @@ hide on Rakazo or open-swarm.
 **Empty-runner / fake-red GitHub Actions ≠ Success fail.**
 
 Class: Chatty `#853` / `#849`; open-swarm
-[#152](https://github.com/matthewhand/open-swarm-private/issues/152).
+[#152](https://github.com/matthewhand/open-swarm/issues/152).
 Same judgment already noted on kind-chat
 ([Issue #136](./ISSUE-136-kind-chat-e2e.md) — “Private CI may be
 fake-red on unrelated jobs”).

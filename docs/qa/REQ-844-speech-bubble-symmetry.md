@@ -1,4 +1,4 @@
-# REQ-844 — Speech-bubble tails stay visible and symmetric (private #166)
+# REQ-844 — Speech-bubble tails stay visible and symmetric (#166)
 
 > Default chat transcript keeps the DaisyUI speech-bubble tail on **both**
 > sides — assistant bottom-left, user bottom-right — with **equal inline
@@ -8,7 +8,7 @@
 **As-of:** branch `fix/149-cli-first-discovered-defaults` (dirty; feature shipped
 in-session under #166).
 
-**Issue:** [private #166](https://github.com/matthewhand/open-swarm-private/issues/166)
+**Issue:** [#166](https://github.com/matthewhand/open-swarm/issues/166)
 
 ## Requirement
 

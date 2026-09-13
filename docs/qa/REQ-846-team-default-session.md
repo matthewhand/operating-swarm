@@ -1,4 +1,4 @@
-# REQ-846 — Team dropdown defaults to CoS / first member (private #169)
+# REQ-846 — Team dropdown defaults to CoS / first member (#169)
 
 > When a team is selected, the talk-to-member dropdown **defaults** to the
 > configured Chief of Staff (`cos` / `chief_of_staff`) and otherwise to the
@@ -9,7 +9,7 @@
 **As-of:** branch `fix/149-cli-first-discovered-defaults` (dirty; feature shipped
 in-session under #169).
 
-**Issue:** [private #169](https://github.com/matthewhand/open-swarm-private/issues/169)
+**Issue:** [#169](https://github.com/matthewhand/open-swarm/issues/169)
 
 ## Requirement
 

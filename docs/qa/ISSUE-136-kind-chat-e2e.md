@@ -1,6 +1,6 @@
 # Issue #136 — Kind-chat end-to-end (private SoT)
 
-Private GitHub Issue: `matthewhand/open-swarm-private#136`.
+Issue: #`136`.
 
 **Intent:** Prove the claimed agent kinds can chat end-to-end so Grok seats
 can retire onto open-swarm.

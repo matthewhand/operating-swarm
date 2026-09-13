@@ -1,6 +1,6 @@
 # Issue #157 — Fleet patterns (pointer)
 
-Private GitHub Issue: `matthewhand/open-swarm-private#157` (FLEET-PATTERNS).
+Issue: #`157` (FLEET-PATTERNS).
 
 This file is a **pointer / note only** (`Refs #157`). It does **not**
 land or close the fleet Success checklist.

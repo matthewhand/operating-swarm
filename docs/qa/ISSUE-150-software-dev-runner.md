@@ -1,6 +1,6 @@
 # Issue #150 — `software_dev` workdir must not skip Runner
 
-Private GitHub Issue: `matthewhand/open-swarm-private#150`.
+Issue: #`150`.
 
 **Intent:** When callers pass `params.workdir` (or other non-empty
 workspace/context params) to `software_dev` / `software_dev_team`, the

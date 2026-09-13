@@ -31,7 +31,7 @@ def test_ascii_renders_model_path_without_git(tmp_path):
 
 def test_minimal_omits_model():
     line = render_status_line(
-        workdir="/home/user/open-swarm-private",
+        workdir="/home/user/open-swarm",
         cli="grok",
         preset="minimal",
         hostname="box",
@@ -39,7 +39,7 @@ def test_minimal_omits_model():
     )
     assert "grok" not in line
     assert "main" in line
-    assert "open-swarm-private" in line
+    assert "open-swarm" in line
 
 
 def test_git_dirty_counts():

@@ -41,10 +41,9 @@ cp .env.example .env   # set DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS, API_AUTH_T
 # proxy hostname), add that exact origin to DJANGO_CSRF_TRUSTED_ORIGINS —
 # scheme + host + port, comma-separated. Defaults are only
 # http://localhost:8000 and http://127.0.0.1:8000 (greenfield swarm-api).
-# On fleets where LiteLLM owns :8000 and Open Swarm uvicorn is :8002, point
-# CSRF / login / Django session examples at the **swarm** port, e.g.:
-#   DJANGO_CSRF_TRUSTED_ORIGINS=http://10.0.0.30:8002,https://swarm.example.com
-# Do not put LiteLLM :8000 here — that is the LLM gateway, not Django CSRF chrome.
+# When running Open Swarm on an alternate port (such as :8002), ensure trusted
+# origins match that port, e.g.:
+#   DJANGO_CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8002,https://swarm.example.com
 # Also include the host in DJANGO_ALLOWED_HOSTS (hostname only, no scheme).
 
 # which CLIs are installed AND authenticated on this host?
@@ -178,19 +177,4 @@ presets, per-request `params`, failover, workdir isolation, native best-of-N).
 - **gemini slow / stalls** → the free `oauth-personal` tier throttles the pro
   model heavily; the flash default answers in seconds. Use a paid `GEMINI_API_KEY`
   for the pro tier.
-
-
-## Tip vs dirty live tree
-
-Live traffic on a fleet host may be a **dirty** checkout (local branch / uncommitted WebUI mods) served by bare uvicorn — not clean `origin/main`. Tip proves and doc-aligned CLI runs need:
-
-1. A clean tip worktree (e.g. `git worktree add … origin/main`), **not** the dirty live tree under the listening uvicorn `cwd`.
-2. `PYTHONPATH=<tip>/src` (or `uv run` from that worktree) so imports resolve tip code.
-3. Curl / CSRF / session against the **swarm** port (`:8002` on ubuntu-max when LiteLLM holds `:8000`).
-
-Editing the listening dirty tree “to match tip” is out of scope for docs honesty; restarting live uvicorn is a separate ops decision.
-
-## Fleet dual trees (`.36` / ubuntu-gtx)
-
-`10.0.0.36` commonly has **both** `~/open-swarm` and `~/open-swarm-private`. The process listening on swarm ports has historically been **`~/open-swarm`** (public tree), while `~/open-swarm-private` may sit at a different tip and not be the running SoT. **Private-repo deploy / docs SoT is `open-swarm-private`.** Always `readlink` / `pwdx` the listening PID before assuming which tree you are patching.
 

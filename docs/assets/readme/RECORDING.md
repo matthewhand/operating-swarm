@@ -86,10 +86,10 @@ Source captures live in open-swarm repo at:
 To regenerate:
 ```bash
 cd /path/to/open-swarm
-python scripts/render_demo_gif.py --input docs/demo/captures/scene1.txt --output /path/to/open-swarm-private/assets/readme/cli-agents.gif
-python scripts/render_demo_gif.py --input docs/demo/captures/scene2.txt --output /path/to/open-swarm-private/assets/readme/api-agents.gif
-python scripts/render_demo_gif.py --input docs/demo/captures/scene3.txt --output /path/to/open-swarm-private/assets/readme/remote-agents.gif
-python scripts/render_demo_gif.py --input docs/demo/captures/scene4.txt --output /path/to/open-swarm-private/assets/readme/combined-team.gif
+python scripts/render_demo_gif.py --input docs/demo/captures/scene1.txt --output /path/to/open-swarm/assets/readme/cli-agents.gif
+python scripts/render_demo_gif.py --input docs/demo/captures/scene2.txt --output /path/to/open-swarm/assets/readme/api-agents.gif
+python scripts/render_demo_gif.py --input docs/demo/captures/scene3.txt --output /path/to/open-swarm/assets/readme/remote-agents.gif
+python scripts/render_demo_gif.py --input docs/demo/captures/scene4.txt --output /path/to/open-swarm/assets/readme/combined-team.gif
 ```
 
 ---

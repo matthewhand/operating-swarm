@@ -1,4 +1,4 @@
-# REQ-845 — Composer never locks; offline sends queue (private #167)
+# REQ-845 — Composer never locks; offline sends queue (#167)
 
 > The chat composer stays **typeable and sendable** even when the websocket is
 > closed or still connecting. Sends are queued per-conversation and drain on
@@ -8,7 +8,7 @@
 **As-of:** branch `fix/149-cli-first-discovered-defaults` (dirty; feature shipped
 in-session under #167).
 
-**Issue:** [private #167](https://github.com/matthewhand/open-swarm-private/issues/167)
+**Issue:** [#167](https://github.com/matthewhand/open-swarm/issues/167)
 
 ## Requirement
 

@@ -1,4 +1,4 @@
-# REQ-848 — Right-click rail background to create a section (private #173)
+# REQ-848 — Right-click rail background to create a section (#173)
 
 > Right-clicking **empty rail space** offers **New section**; the new section is
 > created empty and opens in inline rename. The section-header menu also gains
@@ -10,7 +10,7 @@
 **As-of:** branch `fix/149-cli-first-discovered-defaults` (dirty; feature shipped
 in-session under #173).
 
-**Issue:** [private #173](https://github.com/matthewhand/open-swarm-private/issues/173)
+**Issue:** [#173](https://github.com/matthewhand/open-swarm/issues/173)
 
 ## Requirement
 

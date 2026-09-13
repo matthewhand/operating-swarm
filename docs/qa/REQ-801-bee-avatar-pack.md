@@ -5,13 +5,13 @@
 > All geometry reuses the shipped geometric WebUI mark (`assets/brand/webui-geometric.svg`,
 > #778) — no third art style, no marketing fanfare marks in the rail.
 
-**Extension (private #171):** the original pack shipped **2 variants × 3 gold
+**Extension (#171):** the original pack shipped **2 variants × 3 gold
 accents** with no accessories; it looked samey across a roster. This spec
 extends it to **6 variants × 6 accents + a 4-option accessory layer** so a rail
 of bees is visibly distinct per agent while staying on-brand.
 
-**Issues:** [#801](https://github.com/matthewhand/open-swarm-private/issues/801) (original),
-[#171](https://github.com/matthewhand/open-swarm-private/issues/171) (extension).
+**Issues:** [#801](https://github.com/matthewhand/open-swarm/issues/801) (original),
+[#171](https://github.com/matthewhand/open-swarm/issues/171) (extension).
 
 **Note (2026-09-10):** the `restore/runtime` rebase had clobbered #820's factory
 default (`blobs`) with `bee` in `avatarTheme.ts`. Restored #820: `defaultAvatarTheme()`

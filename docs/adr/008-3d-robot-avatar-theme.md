@@ -16,7 +16,7 @@
 4. **Mix-and-match** (Phase 2) = `MiniPose` + head **attach offsets**, not bone-name swap.
 5. Custom uploaded 2D `avatar_path` still wins. No Neon. No secrets.
 
-This ADR + the Reachy report are **Phase 0** of REQ-194. Phase 0 is complete here. **Phases 1–3 are implemented** on the private mirror (`matthewhand/open-swarm-private`):
+This ADR + the Reachy report are **Phase 0** of REQ-194. Phase 0 is complete here. **Phases 1–3 are implemented** in `open-swarm`:
 
 1. **Phase 1 — one mesh:** `robot3d` is now a selectable theme on the one Rail key; the chat header lazily `import()`s a WebGL pose-player (`webui/frontend/src/lib/robot3d/posePlayer.ts`) that poses an **original procedural robot** (primitives, MIT) from baked `MiniPose` clips (`clips.ts`) — idle/working required, listen/error/dance shared. WebGL-less environments render a static SVG robot; chat never blocks. `three` is code-split out of the main chat graph (ADR-008 §2 decision 2).
 2. **Phase 2 — combos:** `catalog.ts` ships 2 bodies × 2 heads on one pose family (attach offsets, `headAttachment`); the combo sub-key (`swarm_robot3d_combo`) is active only while the theme is `robot3d` (§2.4 rules 1–5).
