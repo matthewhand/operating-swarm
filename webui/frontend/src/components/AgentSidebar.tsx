@@ -2130,6 +2130,8 @@ export default function AgentSidebar({
           src={agent.avatar_path}
           agentId={agent.id}
           size="sm"
+          active={cliRunningIds.has(agent.id) || peekCliRunning(agent.id)}
+          status={cliRunningIds.has(agent.id) || peekCliRunning(agent.id) ? 'working' : 'idle'}
         />
       )
     )
