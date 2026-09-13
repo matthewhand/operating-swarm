@@ -62,6 +62,13 @@ async function startStream(id = 'message-response-work1') {
         data: `<div id="message-list" hx-swap-oob="beforeend"><div id="${id}" class="assistant-message"></div></div>`,
       }),
     )
+    // The parity sweep gates the indicator on non-empty text for non-CLI
+    // seats, so follow assistant_start with a first-stream chunk.
+    ws.onmessage?.(
+      new MessageEvent('message', {
+        data: `<div hx-swap-oob="beforeend:#${id}">…</div>`,
+      }),
+    )
   })
 }
 

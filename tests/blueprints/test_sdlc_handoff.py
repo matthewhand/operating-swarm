@@ -83,3 +83,89 @@ async def test_run_variant_switch_prints_skeptic_edge(monkeypatch):
     out = await _ask(bp, "variant skeptic_loop")
     assert "skeptic -> engineer" in out
     assert "circular-skeptic" in out
+
+
+def _profile_config():
+    return {
+        "llm": {
+            "local": {
+                "provider": "openai",
+                "model": "auxiliary",
+                "base_url": "http://10.0.0.30:8000/v1",
+                "api_key": "test-key",
+            }
+        },
+        "settings": {"default_llm_profile": "local"},
+    }
+
+
+class _FakeCompletions:
+    def __init__(self, content=None, error=None):
+        self.content = content
+        self.error = error
+        self.kwargs = None
+
+    async def create(self, **kwargs):
+        self.kwargs = kwargs
+        if self.error:
+            raise self.error
+        class _Msg:
+            content = self.content
+
+        class _Choice:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Choice()]
+
+        return _Resp()
+
+
+class _FakeClient:
+    last_kwargs = None
+    completions = None
+
+    def __init__(self, **kwargs):
+        type(self).last_kwargs = kwargs
+        self.chat = type("Chat", (), {"completions": type(self).completions})()
+
+
+@pytest.mark.asyncio
+async def test_ba_chat_calls_saved_profile_not_echo(monkeypatch):
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+    fake = _FakeCompletions(content="Acceptance criteria: user can log in.")
+    _FakeClient.completions = fake
+    monkeypatch.setattr(
+        "swarm.blueprints.sdlc_handoff.blueprint_sdlc_handoff.AsyncOpenAI",
+        _FakeClient,
+    )
+    bp = SdlcHandoffBlueprint(config=_profile_config())
+    bp.set_params({"target": "ba"})
+    user = "Write a user story for login unique-ba-echo-probe"
+    out = await _ask(bp, user)
+    assert out == "Acceptance criteria: user can log in."
+    assert user not in out
+    assert "falling back to echo" not in out
+    assert fake.kwargs["model"] == "auxiliary"
+    assert _FakeClient.last_kwargs["base_url"] == "http://10.0.0.30:8000/v1"
+    roles = [m["role"] for m in fake.kwargs["messages"]]
+    assert "system" in roles
+    assert "user" in roles
+
+
+@pytest.mark.asyncio
+async def test_ba_chat_unreachable_llm_is_honest_error_not_echo(monkeypatch):
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+    fake = _FakeCompletions(error=RuntimeError("connection refused"))
+    _FakeClient.completions = fake
+    monkeypatch.setattr(
+        "swarm.blueprints.sdlc_handoff.blueprint_sdlc_handoff.AsyncOpenAI",
+        _FakeClient,
+    )
+    bp = SdlcHandoffBlueprint(config=_profile_config())
+    probe = "unique-ba-echo-probe-unreachable"
+    out = await _ask(bp, probe)
+    assert probe not in out
+    assert "falling back to echo" not in out.lower()
+    assert "Error: LLM call failed" in out
+    assert "connection refused" in out

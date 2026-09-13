@@ -52,10 +52,49 @@ class CliAgentBlueprint(BlueprintBase):
     def __init__(self, blueprint_id: str = "cli_agent", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id, config=config, config_path=config_path, **kwargs)
         self._params: dict[str, Any] = {}
+        from swarm.blueprints.common.tool_utils import PatchedFunctionTool
+
+        self.status_line_tool = PatchedFunctionTool(self.status_line, "status_line")
 
     def set_params(self, params: dict[str, Any] | None) -> None:
         """Capture per-request params forwarded by the API view."""
         self._params = dict(params or {})
+
+    def status_line(
+        self,
+        workdir: str | None = None,
+        cli: str | None = None,
+        preset: str | None = None,
+        session: str | None = None,
+    ) -> str:
+        """REQ-843: omp-inspired status line for this CLI turn. Never raises."""
+        from swarm.core.omp_status_line import render_status_line
+
+        params = dict(self._params)
+        return render_status_line(
+            workdir=workdir or params.get(support.PARAM_WORKDIR) or params.get(support.PARAM_CWD),
+            cli=cli or params.get(support.PARAM_CLI),
+            preset=preset or params.get("status_line_preset") or "ascii",
+            session=session,
+        )
+
+    def _status_line_chunk(
+        self,
+        *,
+        workdir: str | None,
+        cli: str,
+        params: dict[str, Any],
+        session: str | None = None,
+    ) -> dict[str, Any] | None:
+        line = self.status_line(
+            workdir=workdir,
+            cli=cli,
+            preset=params.get("status_line_preset"),
+            session=session,
+        )
+        if not line:
+            return None
+        return support.progress_chunk(line)
 
     def _thread_ref(self, params: dict[str, Any]) -> tuple[str, str] | None:
         return resolve_thread(params, default_agent=self.blueprint_id)
@@ -388,6 +427,14 @@ class CliAgentBlueprint(BlueprintBase):
                 prepared = self._prepare_cli_turn(adapter, messages, prompt, params, workdir)
                 stored = prepared.get("resume_id")
                 can_resume = bool(stored)
+                status = self._status_line_chunk(
+                    workdir=workdir,
+                    cli=target,
+                    params=params,
+                    session=str(stored) if stored else None,
+                )
+                if status:
+                    yield status
                 if prepared.get("notice"):
                     yield support.context_carried_chunk(str(prepared["notice"]))
                 # REQ-92: new-session status is context for the reply — emit first.
@@ -448,6 +495,14 @@ class CliAgentBlueprint(BlueprintBase):
             yield support.progress_chunk(f"_Running CLI agent `{name}`…_")
             prepared = self._prepare_cli_turn(adapter, messages, prompt, params, workdir)
             announce_new = not bool(prepared.get("resume_id"))
+            status = self._status_line_chunk(
+                workdir=workdir,
+                cli=name,
+                params=params,
+                session=str(prepared.get("resume_id") or "") or None,
+            )
+            if status:
+                yield status
             if prepared.get("notice"):
                 yield support.context_carried_chunk(str(prepared["notice"]))
             # REQ-92: new-session line before the CLI runs so it precedes the reply.

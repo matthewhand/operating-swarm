@@ -193,9 +193,10 @@ describe('railMenuItems Move to (REQ-209)', () => {
 })
 
 describe('sectionMenuItems (REQ-209)', () => {
-  it('lists Rename, Move up/down, and danger Delete last', () => {
+  it('lists New section, Rename, Move up/down, and danger Delete last', () => {
     const items = sectionMenuItems({ canMoveUp: false, canMoveDown: true })
     expect(items.map((item) => item.id)).toEqual([
+      'section-create',
       'section-rename',
       'section-move-up',
       'section-move-down',

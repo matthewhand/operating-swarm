@@ -72,3 +72,26 @@ Each create / archive / restore appends a status transcript line on the **caller
 ## Code
 
 `swarm.core.agent_lifecycle`. Wired next to the peer mailbox on Chat WS + completions. Tests: `tests/core/test_agent_lifecycle.py`, `tests/unit/test_req154_lifecycle.py`. Own-diff CI: `.github/workflows/req154-lifecycle.yml`.
+
+---
+
+## Execution Lifecycle (State Machine)
+
+Beyond roster CRUD, each agent turn traverses a state machine from idle standby to routing, active streaming, tool calls, and handoffs:
+
+*Interactive diagram:* [docs/diagrams/agent-lifecycle-state-diagram.html](diagrams/agent-lifecycle-state-diagram.html) · Visual gallery: [docs/diagrams/](diagrams/README.md)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: Initialize
+    Idle --> Routing: User Request
+    Routing --> Running: Resolve Seat & Model
+    Running --> Tool_Execution: Agent-as-tool Call
+    Tool_Execution --> Running: Tool Result Loop
+    Running --> Handoff: Delegate (Team Swarm)
+    Handoff --> Completed: Resolve Turn
+    Running --> Completed: Stream Finished
+    Running --> Failed: Exception / Timeout
+    Failed --> [*]: Error Event
+    Completed --> [*]: Session Stored
+```

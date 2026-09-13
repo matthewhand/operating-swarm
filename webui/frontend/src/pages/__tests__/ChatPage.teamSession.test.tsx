@@ -75,6 +75,7 @@ function renderTeamChat(initialEntry = '/chat?team=demo-team') {
 function stubTeamFetch(options?: {
   threadMessages?: { role: string; content: string }[]
   onThreadGet?: () => void
+  roster?: unknown
 }) {
   vi.stubGlobal(
     'fetch',
@@ -84,7 +85,7 @@ function stubTeamFetch(options?: {
         return {
           ok: true,
           status: 200,
-          json: async () => DEMO_ROSTER,
+          json: async () => options?.roster ?? DEMO_ROSTER,
         } as Response
       }
       if (url.includes('/chat/thread/')) {
@@ -142,22 +143,22 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     await openSocket()
 
     const select = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(select).toHaveValue('all')
-    fireEvent.change(select, { target: { value: 'codey' } })
+    expect(select).toHaveValue('codey') // #169: seat default = first member
+    fireEvent.change(select, { target: { value: 'stewie' } })
 
     await waitFor(() => {
       expect(screen.getByTestId('search-probe')).toHaveTextContent('team=demo-team')
-      expect(screen.getByTestId('search-probe')).toHaveTextContent('session=codey')
+      expect(screen.getByTestId('search-probe')).toHaveTextContent('session=stewie')
     })
-    expect(screen.getByRole('combobox', { name: 'Team members' })).toHaveValue('codey')
+    expect(screen.getByRole('combobox', { name: 'Team members' })).toHaveValue('stewie')
 
     first.unmount()
-    renderTeamChat('/chat?team=demo-team&session=codey')
+    renderTeamChat('/chat?team=demo-team&session=stewie')
     const ws = await openSocket()
 
     const restored = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(restored).toHaveValue('codey')
-    expect(screen.getByTestId('search-probe')).toHaveTextContent('session=codey')
+    expect(restored).toHaveValue('stewie')
+    expect(screen.getByTestId('search-probe')).toHaveTextContent('session=stewie')
 
     fireEvent.change(await screen.findByRole('textbox', { name: 'Chat message' }), {
       target: { value: 'after reload' },
@@ -167,7 +168,7 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     await waitFor(() => {
       expect(lastUserFrame(ws)).toEqual({
         message: 'after reload',
-        params: { team: 'demo-team', target: 'codey', enabled_tools: [] },
+        params: { team: 'demo-team', target: 'stewie', enabled_tools: [] },
       })
     })
   })
@@ -190,7 +191,13 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     renderTeamChat('/chat?team=demo-team')
     const ws = await openSocket()
 
-    expect(await screen.findByRole('combobox', { name: 'Team members' })).toHaveValue('all')
+    // #169: a fresh team chat re-defaults to the seat (first member); the
+    // explicit "All members" pick is what sends to everyone.
+    expect(await screen.findByRole('combobox', { name: 'Team members' })).toHaveValue('codey')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
+      target: { value: 'all' },
+    })
+    expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Chat message' }), {
       target: { value: 'everyone' },
     })
@@ -237,7 +244,18 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     const getsAfterHydrate = threadGets
     expect(getsAfterHydrate).toBeGreaterThan(0)
 
+    // #169: the default seat is the first member; an explicit "All members"
+    // clears the session without refetching, then picking Codey writes
+    // ?session=codey — still no thread refetch.
     fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
+      target: { value: 'all' },
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
+    })
+    expect(threadGets).toBe(getsAfterHydrate)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
       target: { value: 'codey' },
     })
 
@@ -247,5 +265,31 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     expect(screen.getByText('from disk')).toBeInTheDocument()
     expect(screen.getByText('Team target: All members → Codey (agent/coder)')).toBeInTheDocument()
     expect(threadGets).toBe(getsAfterHydrate)
+  })
+
+  it('defaults the member dropdown to the Chief of Staff, else the first member (#169)', async () => {
+    stubTeamFetch({
+      roster: {
+        object: 'list',
+        data: [
+          {
+            id: 'demo-team',
+            object: 'team_roster',
+            name: 'Demo Team',
+            members: [
+              { id: 'zed', name: 'Zed', kind: 'agent', role: 'ops' },
+              { id: 'cosmo', name: 'Cosmo', kind: 'agent', role: 'chief_of_staff' },
+              { id: 'arc', name: 'Arc', kind: 'agent', role: 'coder' },
+            ],
+          },
+        ],
+      },
+    })
+    renderTeamChat('/chat?team=demo-team')
+    await openSocket()
+    expect(await screen.findByRole('combobox', { name: 'Team members' })).toHaveValue('cosmo')
+
+    // The seat default is a send-target default; no ?session= is written.
+    expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
   })
 })

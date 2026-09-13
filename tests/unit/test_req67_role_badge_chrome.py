@@ -42,11 +42,14 @@ def test_spa_rows_do_not_apply_role_fill_classes():
     assert "os-agent-row--cos" not in tsx
     assert "roleCssClass(role)" in tsx
     assert "os-agent-role-badge" in tsx
-    # Badge still carries the role class; the row className does not.
-    assert re.search(
-        r"className=\{`os-agent-role-badge \$\{roleCssClass\(role\)\}`\}",
+    # Badge still carries the role class (shrink-0 was added for the name-row
+    # pill); the row className does not.
+    badge = re.search(
+        r"className=\{`os-agent-role-badge([^`]*)\$\{roleCssClass\(role\)\}`\}",
         tsx,
     )
+    assert badge, "expected role badge className template with roleCssClass"
+    assert badge.group(1).strip() == "shrink-0"
     row_class = re.search(r"const className = `os-agent-row[^`]+`", tsx)
     assert row_class, "expected agent row className template"
     assert not ROLE_ROW_CLASS.search(row_class.group(0))

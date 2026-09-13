@@ -85,6 +85,7 @@ function routeRequest(
   }
 }
 import { AVATAR_THEMES, AVATAR_EYES } from '../types/agent'
+import { useSearchParams } from 'react-router-dom'
 import { useAgentStore } from '../lib/agent-store'
 import { 
   fetchAgents, 
@@ -221,6 +222,20 @@ export default function AgentRouterPage() {
       return res
     }
   })
+
+  // Rail deep link: /agents?agent=<id> selects that agent once loaded.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLinkApplied = useRef(false)
+  useEffect(() => {
+    if (deepLinkApplied.current) return
+    if (agents.length === 0) return
+    const wanted = searchParams.get('agent')
+    if (wanted && agents.some((a) => a.agent_id === wanted)) {
+      selectAgent(wanted)
+      deepLinkApplied.current = true
+      setSearchParams({}, { replace: true })
+    }
+  }, [agents, searchParams, selectAgent, setSearchParams])
 
   // Fetch routing strategies and delegations
   useQuery({

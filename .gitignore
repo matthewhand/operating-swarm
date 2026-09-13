@@ -56,6 +56,10 @@ cover/
 *.mo
 *.pot
 
+# Worktrees and ephemeral scripts
+.worktrees/
+*shots*.mjs
+
 # Django stuff:
 *.log
 local_settings.py
@@ -227,6 +231,9 @@ webui/frontend/build/
 
 # Pinokio local install marker (created by pinokio/install.js; not a catalog listing)
 .pinokio/
+
+# Vitest/Playwright output at repo root (webui/frontend has its own).
+/test-results/
 
 # Local swarm config (copy swarm_config.example.json). Only the repo-root
 # file is ignored so tests/swarm_config.json stays tracked.

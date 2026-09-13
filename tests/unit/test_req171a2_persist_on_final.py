@@ -127,6 +127,11 @@ async def test_default_model_final_persists_before_disconnect(test_user, monkeyp
     """Default-model assistant_final also writes JSON + DB before disconnect."""
     monkeypatch.setenv("OPENAI_MODEL", "test-model")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    # Hermeticity: a developer shell often exports a real LiteLLM gateway URL
+    # (e.g. LITELLM_BASE_URL=http://10.x.x.x:8000/v1). The default-model path
+    # must run against the mocked client, never the LAN gateway.
+    monkeypatch.delenv("LITELLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("LITELLM_MODEL", raising=False)
     conv_id = chat_store.conversation_id_for(test_user, None)
     consumer = _consumer(test_user, conv_id, None)

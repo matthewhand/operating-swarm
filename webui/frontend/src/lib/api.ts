@@ -361,6 +361,7 @@ export interface LlmProfile {
   owned_by: string
   name?: string
   model?: string
+  base_url?: string
   intelligence?: number
   speed?: number
   cost?: number
@@ -378,7 +379,7 @@ export interface LlmTaskRoute {
   source: string
 }
 
-/** GET/PATCH /v1/llm-profiles/ — settings.default_llm_profile SoT. */
+/** GET/POST/PUT/PATCH /v1/llm-profiles/ — named profiles + settings.default_llm_profile SoT. */
 export interface LlmProfilesSettings {
   object: 'llm_profiles'
   profiles: LlmProfile[]
@@ -415,6 +416,27 @@ export function patchLlmProfiles(
   body: PatchLlmProfilesRequest,
 ): Promise<LlmProfilesSettings> {
   return apiPatch<LlmProfilesSettings>('/v1/llm-profiles/', body)
+}
+
+export interface UpsertLlmProfileRequest {
+  id: string
+  model: string
+  base_url?: string
+  provider?: string
+  api_key?: string
+  set_default?: boolean
+}
+
+export function upsertLlmProfile(
+  body: UpsertLlmProfileRequest,
+): Promise<LlmProfilesSettings> {
+  return apiPost<LlmProfilesSettings>('/v1/llm-profiles/', body)
+}
+
+export function putLlmProfile(
+  body: UpsertLlmProfileRequest,
+): Promise<LlmProfilesSettings> {
+  return apiPut<LlmProfilesSettings>('/v1/llm-profiles/', body)
 }
 
 /** GET/PATCH /v1/rate-limits/ — user-defined provider caps (local config, not Neon). */
@@ -485,6 +507,20 @@ export interface TeamRosterRecord {
   personas?: Array<{ name: string }>
   chief_of_staff_id?: string | null
   chief_of_staff_instructions?: string
+}
+
+export interface RoleDescriptor {
+  name: string
+  label: string
+  aliases: string[]
+  allow_all: boolean
+  mechanism: string
+  mechanism_detail: string
+  css_class: string
+}
+
+export async function fetchRoles(): Promise<{ object: string; data: RoleDescriptor[] }> {
+  return apiGet<{ object: string; data: RoleDescriptor[] }>('/v1/roles/')
 }
 
 export function fetchTeamRosters(): Promise<ListResponse<TeamRosterRecord>> {
@@ -1207,6 +1243,26 @@ export interface CliAgentsInfo {
 
 export function fetchCliAgents(): Promise<CliAgentsInfo> {
   return apiGet<CliAgentsInfo>('/v1/cli-agents/')
+}
+
+/** One designer-created agent (Agent Router design, router_designs.json). */
+export interface RouterDesign {
+  agent_id: string
+  name: string
+  kind: string
+  agent_type?: string
+  specialty?: string
+  description?: string
+  color?: string
+  icon?: string
+  group?: string
+  cli?: string
+  framework?: string
+}
+
+/** GET /v1/agents/designs/ — fast rail feed (no blueprint init). */
+export function fetchDesignedAgents(): Promise<{ object: 'list'; data: RouterDesign[] }> {
+  return apiGet<{ object: 'list'; data: RouterDesign[] }>('/v1/agents/designs/')
 }
 
 export interface CliRunStatus {

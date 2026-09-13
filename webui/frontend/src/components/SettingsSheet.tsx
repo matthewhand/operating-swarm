@@ -11,6 +11,7 @@ import CliAgentsSettingsPane from './CliAgentsSettingsPane'
 import ProviderRateLimitFields from './ProviderRateLimitFields'
 import ImageGenPane from './ImageGenSettings'
 import SpeechPane from './SpeechSettings'
+import RolesSettingsPane from './RolesSettingsPane'
 import {
   EMPTY_LOCAL_STORE,
   createRemote,
@@ -24,6 +25,7 @@ import {
   fetchRemotes,
   patchConfigSection,
   patchLlmProfiles,
+  upsertLlmProfile,
   updateBlueprintSource,
   type Blueprint,
   type BlueprintSource,
@@ -41,7 +43,14 @@ import {
   remoteKinds,
   unusedRemoteKinds,
 } from '../lib/remotes'
-import { TASK_CLASS_LABELS, missingProfileWarning, uiStatusWarnings } from '../lib/llmProfiles'
+import {
+  LLM_PROFILE_PROVIDERS,
+  TASK_CLASS_LABELS,
+  buildLlmProfileEntry,
+  missingProfileWarning,
+  uiStatusWarnings,
+} from '../lib/llmProfiles'
+import { OVERLAY_CHROME_CLASSES } from '../lib/chromeOverlay'
 import {
   agentRole,
   assignableBlueprints,
@@ -101,6 +110,7 @@ export type SettingsSection =
   | 'llm-profiles'
   | 'mcp'
   | 'cli-agents'
+  | 'roles'
   | 'rail'
   | 'image-gen'
   | 'speech'
@@ -244,7 +254,7 @@ export default function SettingsSheet({
       title="Settings"
       placement="end"
       size="sheet"
-      className="flex min-h-0 flex-col"
+      className={`flex min-h-0 flex-col ${OVERLAY_CHROME_CLASSES} overflow-hidden`}
     >
       <div className="flex min-h-[24rem] flex-1 flex-col gap-0 overflow-hidden rounded-box border border-base-300 md:flex-row">
         <nav aria-label="Settings sections" className="w-full shrink-0 border-b border-base-300 bg-base-200 md:w-52 md:border-b-0 md:border-r">
@@ -347,6 +357,16 @@ export default function SettingsSheet({
                 onClick={() => setSection('cli-agents')}
               >
                 CLI agents
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                className={section === 'roles' ? 'menu-active' : undefined}
+                aria-current={section === 'roles' ? 'page' : undefined}
+                onClick={() => setSection('roles')}
+              >
+                Roles
               </button>
             </li>
             <li>
@@ -465,6 +485,7 @@ export default function SettingsSheet({
           {section === 'cli-agents' && (
             <CliAgentsSettingsPane focusProviderId={focusRateLimits ? initialProviderId : null} />
           )}
+          {section === 'roles' && <RolesSettingsPane />}
           {section === 'rail' && (
             <RailPane
               bumpCompleted={bumpCompleted}
@@ -1659,10 +1680,28 @@ function LlmProfilesPane({
   const [taskMap, setTaskMap] = useState<Partial<Record<LlmTaskClass, string>>>({})
   const [saving, setSaving] = useState(false)
   const [profileName, setProfileName] = useState('')
+  const [profileProvider, setProfileProvider] = useState('openai')
   const [profileModel, setProfileModel] = useState('')
   const [profileBaseUrl, setProfileBaseUrl] = useState('')
   const [profileKeyEnv, setProfileKeyEnv] = useState('OPENAI_API_KEY')
+  const [profileTemperature, setProfileTemperature] = useState('')
+  const [profileMaxTokens, setProfileMaxTokens] = useState('')
+  const [profileTimeout, setProfileTimeout] = useState('')
   const [addingProfile, setAddingProfile] = useState(false)
+  const [addAdvancedOpen, setAddAdvancedOpen] = useState(false)
+
+  const resetAddForm = () => {
+    setAddingProfile(false)
+    setAddAdvancedOpen(false)
+    setProfileName('')
+    setProfileProvider('openai')
+    setProfileModel('')
+    setProfileBaseUrl('')
+    setProfileKeyEnv('OPENAI_API_KEY')
+    setProfileTemperature('')
+    setProfileMaxTokens('')
+    setProfileTimeout('')
+  }
   const hydrated = useRef(false)
   const defaultBadge = remote?.provenance?.default_llm_profile
   const defaultForced = Boolean(defaultBadge?.forced)
@@ -1775,16 +1814,12 @@ function LlmProfilesPane({
               <span className="ml-2 text-xs text-base-content/60">
                 {profile.source}
                 {profile.owned_by ? ` · ${profile.owned_by}` : ''}
+                {profile.model ? ` · ${profile.model}` : ''}
+                {profile.base_url ? ` · ${profile.base_url}` : ''}
               </span>
-              <ProviderRateLimitFields
-                providerKey={
-                  profile.source === 'cli'
-                    ? `cli:${profile.id}`
-                    : profile.source === 'remote'
-                      ? `remote:${profile.owned_by || profile.id}`
-                      : `llm:${profile.id}`
-                }
-                autoFocus={
+              <details
+                className="mt-2"
+                open={
                   focusProviderId ===
                   (profile.source === 'cli'
                     ? `cli:${profile.id}`
@@ -1792,7 +1827,31 @@ function LlmProfilesPane({
                       ? `remote:${profile.owned_by || profile.id}`
                       : `llm:${profile.id}`)
                 }
-              />
+              >
+                <summary
+                  className="cursor-pointer text-sm font-medium"
+                  aria-label={`Advanced ${profile.id}`}
+                >
+                  Advanced
+                </summary>
+                <ProviderRateLimitFields
+                  providerKey={
+                    profile.source === 'cli'
+                      ? `cli:${profile.id}`
+                      : profile.source === 'remote'
+                        ? `remote:${profile.owned_by || profile.id}`
+                        : `llm:${profile.id}`
+                  }
+                  autoFocus={
+                    focusProviderId ===
+                    (profile.source === 'cli'
+                      ? `cli:${profile.id}`
+                      : profile.source === 'remote'
+                        ? `remote:${profile.owned_by || profile.id}`
+                        : `llm:${profile.id}`)
+                  }
+                />
+              </details>
             </li>
           ))}
         </ul>
@@ -1825,10 +1884,13 @@ function LlmProfilesPane({
       <EnvOverrideBadge badge={defaultBadge} />
 
       {addingProfile ? (
-        <div className="space-y-3 rounded-box border border-base-300 p-3">
+        <div
+          data-testid="llm-profile-add-overlay"
+          className={`max-h-[min(70vh,36rem)] space-y-3 overflow-y-auto rounded-box p-4 ${OVERLAY_CHROME_CLASSES}`}
+        >
           <p className="text-sm font-medium">Add LLM profile</p>
           <Input
-            label="Profile id"
+            label="Name"
             name="llm-profile-id"
             value={profileName}
             onChange={(event) => setProfileName(event.target.value)}
@@ -1836,21 +1898,25 @@ function LlmProfilesPane({
             autoComplete="off"
             spellCheck={false}
           />
+          <Select
+            label="Provider"
+            name="llm-profile-provider"
+            value={profileProvider}
+            onChange={(event) => setProfileProvider(event.target.value)}
+            size="sm"
+          >
+            {LLM_PROFILE_PROVIDERS.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </Select>
           <Input
             label="Model"
             name="llm-profile-model"
             value={profileModel}
             onChange={(event) => setProfileModel(event.target.value)}
             placeholder="gpt-4o-mini"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Input
-            label="Base URL"
-            name="llm-profile-base"
-            value={profileBaseUrl}
-            onChange={(event) => setProfileBaseUrl(event.target.value)}
-            placeholder="https://api.openai.com/v1"
             autoComplete="off"
             spellCheck={false}
           />
@@ -1863,6 +1929,55 @@ function LlmProfilesPane({
             autoComplete="off"
             spellCheck={false}
           />
+          <Input
+            label="Base URL"
+            name="llm-profile-base"
+            value={profileBaseUrl}
+            onChange={(event) => setProfileBaseUrl(event.target.value)}
+            placeholder="https://api.openai.com/v1"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            className="text-sm font-medium underline-offset-2 hover:underline"
+            aria-expanded={addAdvancedOpen}
+            aria-controls="llm-profile-add-advanced"
+            onClick={() => setAddAdvancedOpen((open) => !open)}
+          >
+            Advanced
+          </button>
+          {addAdvancedOpen ? (
+            <div id="llm-profile-add-advanced" data-testid="llm-profile-add-advanced" className="space-y-3">
+              <Input
+                label="Temperature"
+                name="llm-profile-temperature"
+                value={profileTemperature}
+                onChange={(event) => setProfileTemperature(event.target.value)}
+                placeholder="0.2"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Input
+                label="Max tokens"
+                name="llm-profile-max-tokens"
+                value={profileMaxTokens}
+                onChange={(event) => setProfileMaxTokens(event.target.value)}
+                placeholder="4096"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Input
+                label="Timeout (sec)"
+                name="llm-profile-timeout"
+                value={profileTimeout}
+                onChange={(event) => setProfileTimeout(event.target.value)}
+                placeholder="60"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
@@ -1871,21 +1986,20 @@ function LlmProfilesPane({
               disabled={!profileName.trim() || !profileModel.trim()}
               onClick={async () => {
                 try {
-                  const envName = profileKeyEnv.trim() || 'OPENAI_API_KEY'
                   await patchConfigSection('llm', {
                     upsert: {
-                      [profileName.trim()]: {
-                        provider: 'openai',
-                        model: profileModel.trim(),
-                        ...(profileBaseUrl.trim() ? { base_url: profileBaseUrl.trim() } : {}),
-                        api_key: `\${${envName}}`,
-                      },
+                      [profileName.trim()]: buildLlmProfileEntry({
+                        provider: profileProvider,
+                        model: profileModel,
+                        apiKeyEnv: profileKeyEnv,
+                        baseUrl: profileBaseUrl,
+                        temperature: profileTemperature,
+                        maxTokens: profileMaxTokens,
+                        timeoutSec: profileTimeout,
+                      }),
                     },
                   })
-                  setAddingProfile(false)
-                  setProfileName('')
-                  setProfileModel('')
-                  setProfileBaseUrl('')
+                  resetAddForm()
                   success('LLM profile saved', 'Named profile stored in swarm_config.json llm.')
                   hydrated.current = false
                   await profilesQuery.refetch()
@@ -1899,7 +2013,7 @@ function LlmProfilesPane({
             >
               Save profile
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setAddingProfile(false)}>
+            <Button type="button" variant="ghost" size="sm" onClick={resetAddForm}>
               Cancel
             </Button>
           </div>

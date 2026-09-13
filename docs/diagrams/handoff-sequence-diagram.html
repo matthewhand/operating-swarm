@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Agent Handoff &amp; Delegation · Sequence</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Sequence · Open Swarm</p>
+    <h1>Multi-Agent Handoff &amp; Delegation Flow</h1>
+
+    <svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="handoff-seq-title handoff-seq-desc">
+      <title id="handoff-seq-title">Multi-Agent Handoff &amp; Delegation Flow</title>
+      <desc id="handoff-seq-desc">Sequence diagram showing a user request routed from WebUI through the Orchestrator to a Specialist Blueprint and Remote Hermes Agent, returning streaming tokens.</desc>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+      <!-- Lifelines -->
+      <line x1="128" y1="112" x2="128" y2="512" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="368" y1="112" x2="368" y2="512" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="616" y1="112" x2="616" y2="512" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="856" y1="112" x2="856" y2="512" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <!-- Activation Bars -->
+      <rect x="124" y="152" width="8" height="344" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="364" y="160" width="8" height="320" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="612" y="216" width="8" height="208" fill="rgba(240,138,89,0.12)" stroke="#f08a59" stroke-width="1"/>
+      <rect x="852" y="280" width="8" height="96" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+
+      <!-- Message 1: Client -> Orchestrator -->
+      <line x1="132" y1="168" x2="364" y2="168" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="168" y="152" width="160" height="14" rx="2" fill="#2d3142"/>
+      <text x="248" y="163" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">POST /v1/chat/completions</text>
+
+      <!-- Message 2: Orchestrator -> Specialist Handoff -->
+      <line x1="372" y1="220" x2="612" y2="220" stroke="#f08a59" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+      <rect x="424" y="204" width="136" height="14" rx="2" fill="#2d3142"/>
+      <text x="492" y="215" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">handoff_to_agent(code)</text>
+
+      <!-- Message 3: Specialist Self Loop: Inspect code -->
+      <path d="M 620 248 L 656 248 L 656 272 L 620 272" fill="none" stroke="#f08a59" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="664" y="252" width="112" height="14" rx="2" fill="#2d3142"/>
+      <text x="720" y="263" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">synthesize plan</text>
+
+      <!-- Message 4: Specialist -> Remote Agent (Hermes) -->
+      <line x1="620" y1="300" x2="852" y2="300" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="672" y="284" width="124" height="14" rx="2" fill="#2d3142"/>
+      <text x="734" y="295" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">agent_as_tool: exec</text>
+
+      <!-- Message 5: Remote Agent -> Specialist Result -->
+      <line x1="852" y1="364" x2="620" y2="364" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+      <rect x="684" y="348" width="104" height="14" rx="2" fill="#2d3142"/>
+      <text x="736" y="359" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">sandbox execution ok</text>
+
+      <!-- Message 6: Specialist -> Orchestrator Return -->
+      <line x1="612" y1="416" x2="372" y2="416" stroke="#f08a59" stroke-width="1.6" stroke-dasharray="4,4" marker-end="url(#arrow-accent)"/>
+      <rect x="428" y="400" width="124" height="14" rx="2" fill="#2d3142"/>
+      <text x="490" y="411" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">handoff response</text>
+
+      <!-- Message 7: Orchestrator -> Client Stream -->
+      <line x1="364" y1="480" x2="132" y2="480" stroke="#f08a59" stroke-width="1.6" stroke-dasharray="4,4" marker-end="url(#arrow-accent)"/>
+      <rect x="180" y="464" width="136" height="14" rx="2" fill="#2d3142"/>
+      <text x="248" y="475" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SSE token stream (200 OK)</text>
+
+      <!-- Actor Boxes (Drawn on top) -->
+      <!-- Actor 1: Client -->
+      <g transform="translate(48, 48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Client / WebUI</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Browser / CLI</text>
+      </g>
+
+      <!-- Actor 2: Orchestrator -->
+      <g transform="translate(288, 48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Swarm Router</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">FastAPI Gateway</text>
+      </g>
+
+      <!-- Actor 3: Specialist Agent -->
+      <g transform="translate(536, 48)">
+        <rect width="160" height="52" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Specialist Agent</text>
+        <text x="80" y="40" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Blueprint Recipe</text>
+      </g>
+
+      <!-- Actor 4: Remote Harness -->
+      <g transform="translate(776, 48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Remote Agent</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Hermes / OpenMousBot</text>
+      </g>
+
+      <!-- Legend -->
+      <g transform="translate(48, 548)">
+        <line x1="8" y1="12" x2="36" y2="12" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-accent)"/>
+        <text x="48" y="16" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="500">Critical handoff path</text>
+
+        <line x1="240" y1="12" x2="268" y2="12" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="280" y="16" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="11">Tool calls &amp; transport</text>
+
+        <rect x="470" y="4" width="14" height="14" rx="2" fill="rgba(240,138,89,0.12)" stroke="#f08a59" stroke-width="1"/>
+        <text x="494" y="16" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">Active agent execution</text>
+
+        <rect x="680" y="4" width="14" height="14" rx="2" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+        <text x="704" y="16" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Routing lifeline</text>
+      </g>
+    </svg>
+  </div>
+</body>
+</html>

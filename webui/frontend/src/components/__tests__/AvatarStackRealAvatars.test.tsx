@@ -68,9 +68,10 @@ describe('REQ-181: AvatarStack real member avatars', () => {
       />,
     )
 
-    const img = screen.getByRole('img', { hidden: true })
-    expect(img.getAttribute('src')).toContain('data:image/svg+xml')
-    expect(img).toHaveAttribute('data-agent-avatar', 'default')
+    // Restored track renders the bland face as an inline SVG, not a data-URI img.
+    const bland = screen.getByRole('img', { hidden: true })
+    expect(bland).toHaveClass('os-bland-avatar')
+    expect(bland).toHaveAttribute('data-avatar-theme', 'bland')
   })
 
   it('limits visible faces to maxFaces (default 3) and shows remainder chip for large rosters', () => {

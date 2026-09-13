@@ -128,6 +128,23 @@ export function unhideAllAgentIds(): string[] {
   return []
 }
 
+/**
+ * #170: Drop hide ids that no longer match a live rail row (agent, team,
+ * remote) so stale entries — e.g. `team:<id>` for a roster that was removed,
+ * or agents dropped from the catalog — can't keep rows hidden forever.
+ * Pinned ids stay hideable even when their row is not currently listed.
+ */
+/** REQ-847 / #170: drop hide ids that match no live rail row nor pinned id. */
+export function reconcileHiddenAgentIds(
+  hidden: readonly string[],
+  liveIds: Iterable<string>,
+  pinnedIds: readonly string[] = [],
+): string[] {
+  const live = new Set(liveIds)
+  const pinned = new Set(pinnedIds)
+  return hidden.filter((id) => live.has(id) || pinned.has(id))
+}
+
 /** Small muted accents for agent marks — not category-flooded buttons. */
 const AGENT_MARK_COLORS = [
   '#c45c5c',

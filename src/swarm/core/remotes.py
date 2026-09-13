@@ -513,6 +513,39 @@ def _opt_in_not_configured_message(remote_id: str) -> str:
     return f"Remote '{remote_id}' is not configured"
 
 
+# Shared marker so renderers (chat replies, health lines) can detect the
+# never-added case and present it as a sentence instead of an op result.
+NOT_ADDED_MARKER = "not added as a remote"
+
+
+def _not_added_message(remote_id: str) -> str:
+    """Actionable text when a catalog seat exists but the remote was never added.
+
+    Non-opt-in remotes (hermes / omb / rakazo / swarm) carry LAN defaults, so
+    ``load_remote`` succeeds while ``is_configured`` is False — the sidebar can
+    show a seat (``remote:<id>``) that cannot be operated. The bare
+    ``remote not added`` detail previously told the operator nothing about why
+    or how to fix it (issue #129). The text contains ``NOT_ADDED_MARKER`` so
+    renderers can drop the ``{remote} {op}: FAIL —`` prefix in chat replies.
+    """
+    rid = _require_kind_id(remote_id)
+    label = kind_label(rid)
+    env_base = _ENV_BASE.get(rid, "")
+    env_key = _ENV_KEY.get(rid, "") or "API_KEY"
+    key_hint = f" [--api-key-env {env_key}]" if env_key else ""
+    env_hint = ""
+    if env_base:
+        env_hint = f", or set the {env_base} env var"
+        if env_key and env_key != env_base:
+            env_hint += f" (add {env_key} only if the endpoint requires a key)"
+    return (
+        f"{label} is {NOT_ADDED_MARKER} — the sidebar seat is a catalog "
+        f"placeholder. Add it in Settings → Remotes or run "
+        f"`swarm-cli remotes set {rid} --base-url <url>{key_hint}`"
+        f"{env_hint}."
+    )
+
+
 def default_spec(remote_id: str) -> RemoteSpec:
     rid = _require_kind_id(remote_id)
     raw = dict(_DEFAULTS[rid])
@@ -1285,7 +1318,7 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
         return HealthResult(remote=remote_id, ok=False, state="UNKNOWN", detail=str(exc))
 
     if not is_configured(spec.id, config):
-        return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="remote not added")
+        return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail=_not_added_message(spec.id))
 
     if spec.id == "herdr":
         herdr_health = _herdr_health(spec, timeout, config)
@@ -1959,7 +1992,7 @@ def operate(
         if action not in ("list", "send", "interrogate"):
             return OperateResult(remote=rid, op=action, ok=False, detail=f"Unknown op '{op}'. Use list or send.")
         if not is_configured(rid, config):
-            return OperateResult(remote=rid, op=action, ok=False, detail="remote not added")
+            return OperateResult(remote=rid, op=action, ok=False, detail=_not_added_message(rid))
         if rid == "herdr":
             if action == "list":
                 return _herdr_list(spec, timeout, config)
@@ -1990,6 +2023,14 @@ def operate(
             op=action,
             ok=False,
             detail=f"{kind_label(rid)} list/send is not implemented here",
+        )
+    except RemoteError as exc:  # opt-in not configured / bad id: surface as-is
+        logger.warning("remotes.operate failed for %s %s: %s", remote_id, op, exc)
+        return OperateResult(
+            remote=str(remote_id),
+            op=str(op),
+            ok=False,
+            detail=str(exc),
         )
     except Exception as exc:  # never let operate take down the process
         logger.warning("remotes.operate failed for %s %s: %s", remote_id, op, exc)

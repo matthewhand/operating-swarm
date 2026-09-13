@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from swarm.core.cli_adapter import CliAdapter, _extract_json_path
 from swarm.core.cli_catalog import (
     CLI_TRAITS,
@@ -63,3 +65,56 @@ def test_qwen_executable_resolvable_when_installed():
     if which_cli("qwen"):
         adapter = CliAdapter.from_config("qwen", catalog_entry("qwen"))
         assert adapter.is_available()
+
+
+def test_qwen_overlay_cmd_restores_yolo_and_model_flag():
+    from swarm.core.cli_adapter import normalize_cli_cmd
+
+    cmd = normalize_cli_cmd(
+        "qwen",
+        ["qwen", "--output-format", "json", "orchestration", "-p={prompt}"],
+    )
+    assert cmd == [
+        "qwen",
+        "--output-format",
+        "json",
+        "--yolo",
+        "-m",
+        "orchestration",
+        "-p={prompt}",
+    ]
+
+
+def test_qwen_normalize_keeps_openai_value_flags():
+    """--auth-type/--openai-* take values; their values are NOT bare model tokens."""
+    from swarm.core.cli_adapter import normalize_cli_cmd
+
+    cmd = normalize_cli_cmd(
+        "qwen",
+        [
+            "qwen", "--output-format", "json", "--yolo",
+            "--auth-type", "openai",
+            "--openai-base-url", "http://127.0.0.1:1234/v1",
+            "--openai-api-key", "lm-studio",
+            "-m", "qwen/qwen3.8-27b", "-p={prompt}",
+        ],
+    )
+    assert cmd == [
+        "qwen", "--output-format", "json", "--yolo",
+        "--auth-type", "openai",
+        "--openai-base-url", "http://127.0.0.1:1234/v1",
+        "--openai-api-key", "lm-studio",
+        "-m", "qwen/qwen3.8-27b", "-p={prompt}",
+    ]
+
+
+def test_qwen_api_error_result_is_not_ok():
+    from swarm.core.cli_adapter import gateway_error_from_cli_json, gateway_error_from_cli_text
+
+    err = gateway_error_from_cli_text(
+        "[API Error: Connection error. (cause: fetch failed)]"
+    )
+    assert err == "Connection error. (cause: fetch failed)"
+    data = json.loads(QWEN_STDOUT)
+    data[-1]["result"] = "[API Error: Connection error. (cause: fetch failed)]"
+    assert gateway_error_from_cli_json(data) == "Connection error. (cause: fetch failed)"

@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 560" role="img" aria-label="Open Swarm — CLI, API, Remote, Team, Blueprint">
+  <title>Open Swarm</title>
+  <desc>Geometric Open Swarm mark surrounded by worker bees. Speech bubbles: CLI, API, Remote, Team, Blueprint.</desc>
+  <defs>
+    <pattern id="os-honey" width="6" height="5.2" patternUnits="userSpaceOnUse">
+      <path d="M3 0.35 L5.7 1.9 V4.3 L3 5.85 L0.3 4.3 V1.9 Z" fill="none" stroke="#C48A1C" stroke-width="0.45"/>
+    </pattern>
+    <pattern id="os-hive" width="56" height="64" patternUnits="userSpaceOnUse">
+      <path d="M28 4 L48 16 V40 L28 52 L8 40 V16 Z" fill="none" stroke="#EFAB22" stroke-width="1.1" opacity="0.14"/>
+    </pattern>
+    <clipPath id="os-geo-abdomen">
+      <ellipse cx="32" cy="38.2" rx="10.4" ry="15.6"/>
+    </clipPath>
+    <filter id="os-soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <symbol id="os-worker" viewBox="0 0 64 64">
+      <g transform="rotate(-38 32 33)">
+        <g fill="#1D2226" stroke="#EFAB22" stroke-width="1.7" stroke-linejoin="round">
+          <path d="M18 18 C8 8 4 22 16 28 C20 24 22 20 18 18 Z"/>
+          <path d="M22 14 C16 2 6 10 18 22 C24 18 26 16 22 14 Z"/>
+          <path d="M12.5 16 L16 22" fill="none"/>
+          <path d="M10 20 L17 24" fill="none"/>
+          <path d="M18 8 L20 16" fill="none"/>
+        </g>
+        <path d="M32 55.6 L28.6 50.2 H35.4 Z" fill="#EFAB22"/>
+        <ellipse cx="32" cy="38.2" rx="10.4" ry="15.6" fill="#EFAB22" stroke="#1D2226" stroke-width="1.5"/>
+        <g clip-path="url(#os-geo-abdomen)">
+          <rect x="20" y="28.6" width="24" height="4.4" fill="#1D2226"/>
+          <rect x="20" y="37.4" width="24" height="4.4" fill="#1D2226"/>
+          <rect x="20" y="46.2" width="24" height="3.6" fill="#1D2226"/>
+          <rect x="21.6" y="22.4" width="20.8" height="6.2" fill="url(#os-honey)"/>
+          <rect x="21.6" y="33" width="20.8" height="4.4" fill="url(#os-honey)"/>
+          <rect x="21.6" y="41.8" width="20.8" height="4.4" fill="url(#os-honey)"/>
+        </g>
+        <ellipse cx="32" cy="38.2" rx="10.4" ry="15.6" fill="none" stroke="#1D2226" stroke-width="1.5"/>
+        <ellipse cx="32" cy="22.2" rx="7.6" ry="7.1" fill="#EFAB22" stroke="#1D2226" stroke-width="1.5"/>
+        <circle cx="32" cy="12.6" r="5.4" fill="#1D2226" stroke="#EFAB22" stroke-width="1.7"/>
+        <path d="M29.4 11.2 A3.4 3.4 0 0 1 34.8 12.4" fill="none" stroke="#EFAB22" stroke-width="1.3" stroke-linecap="round"/>
+        <g fill="none" stroke="#EFAB22" stroke-width="1.5" stroke-linecap="round">
+          <path d="M29.6 8.2 C27.2 3.6 23.6 1.8 20.4 2.4"/>
+          <path d="M34.4 8.2 C36.8 3.6 40.4 1.8 43.6 2.4"/>
+        </g>
+        <circle cx="20.4" cy="2.4" r="1.35" fill="#EFAB22"/>
+        <circle cx="43.6" cy="2.4" r="1.35" fill="#EFAB22"/>
+        <circle cx="30.4" cy="12.2" r="1.7" fill="#FFF8EC"/>
+        <circle cx="33.8" cy="12.2" r="1.7" fill="#FFF8EC"/>
+        <circle cx="30.85" cy="12.35" r="0.85" fill="#1D2226"/>
+        <circle cx="34.25" cy="12.35" r="0.85" fill="#1D2226"/>
+      </g>
+    </symbol>
+  </defs>
+
+  <rect width="1280" height="560" fill="#1D2226"/>
+  <rect width="1280" height="560" fill="url(#os-hive)"/>
+  <rect width="1280" height="560" fill="url(#os-honey)" opacity="0.08"/>
+
+  <!-- Center product mark -->
+  <g transform="translate(640 278)" filter="url(#os-soft)">
+    <rect x="-118" y="-118" width="236" height="236" rx="52" fill="#1D2226" stroke="#EFAB22" stroke-width="5"/>
+    <use href="#os-worker" x="-96" y="-96" width="192" height="192"/>
+  </g>
+
+  <!-- Worker: CLI (upper left) -->
+  <g transform="translate(236 168)">
+    <use href="#os-worker" x="-52" y="-8" width="104" height="104" transform="translate(0 8)"/>
+    <g transform="translate(-18 -78)">
+      <rect x="-46" y="-28" width="92" height="48" rx="18" fill="#FFF8EC"/>
+      <path d="M-6 20 L8 20 L0 34 Z" fill="#FFF8EC"/>
+      <text x="0" y="6" text-anchor="middle" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="22" font-weight="700" fill="#1D2226">CLI</text>
+    </g>
+  </g>
+
+  <!-- Worker: API (upper right) -->
+  <g transform="translate(1044 168)">
+    <use href="#os-worker" x="-52" y="-8" width="104" height="104" transform="translate(104 8) scale(-1 1)"/>
+    <g transform="translate(18 -78)">
+      <rect x="-48" y="-28" width="96" height="48" rx="18" fill="#FFF8EC"/>
+      <path d="M-6 20 L8 20 L0 34 Z" fill="#FFF8EC"/>
+      <text x="0" y="6" text-anchor="middle" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="22" font-weight="700" fill="#1D2226">API</text>
+    </g>
+  </g>
+
+  <!-- Worker: Remote (mid left) -->
+  <g transform="translate(168 360)">
+    <use href="#os-worker" x="-56" y="-10" width="112" height="112"/>
+    <g transform="translate(-92 -12)">
+      <rect x="-78" y="-28" width="156" height="48" rx="18" fill="#FFF8EC"/>
+      <path d="M62 -4 L78 0 L62 12 Z" fill="#FFF8EC"/>
+      <text x="0" y="6" text-anchor="middle" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="22" font-weight="700" fill="#1D2226">Remote</text>
+    </g>
+  </g>
+
+  <!-- Worker: Team (mid right) -->
+  <g transform="translate(1112 360)">
+    <use href="#os-worker" x="-56" y="-10" width="112" height="112" transform="translate(112 0) scale(-1 1)"/>
+    <g transform="translate(86 -12)">
+      <rect x="-62" y="-28" width="124" height="48" rx="18" fill="#FFF8EC"/>
+      <path d="M-62 -4 L-78 0 L-62 12 Z" fill="#FFF8EC"/>
+      <text x="0" y="6" text-anchor="middle" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="22" font-weight="700" fill="#1D2226">Team</text>
+    </g>
+  </g>
+
+  <!-- Worker: Blueprint (bottom) -->
+  <g transform="translate(640 478)">
+    <use href="#os-worker" x="-48" y="-72" width="96" height="96"/>
+    <g transform="translate(118 -36)">
+      <rect x="-92" y="-28" width="184" height="48" rx="18" fill="#FFF8EC"/>
+      <path d="M-92 -4 L-108 8 L-76 12 Z" fill="#FFF8EC"/>
+      <text x="0" y="6" text-anchor="middle" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="22" font-weight="700" fill="#1D2226">Blueprint</text>
+    </g>
+  </g>
+</svg>

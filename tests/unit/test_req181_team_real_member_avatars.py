@@ -6,7 +6,7 @@ def test_avatar_stack_renders_agent_avatar():
     src = Path("webui/frontend/src/components/AvatarStack.tsx").read_text(encoding="utf-8")
     assert "import AgentAvatar from './AgentAvatar'" in src
     assert "<AgentAvatar" in src
-    assert "agentId={face.id}" in src
+    assert "agentId={face.agentId || face.id}" in src
     assert "src={face.avatarSrc || face.src}" in src
 
 

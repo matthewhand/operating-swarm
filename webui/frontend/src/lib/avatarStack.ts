@@ -13,11 +13,34 @@
 /** Rail stack shows this many faces; extras become a +N remainder. */
 export const STACK_FACE_LIMIT = 3
 
+/** Team rail stacks show this many faces; extras become a +N remainder. */
+export const TEAM_STACK_FACE_LIMIT = 2
+
+/** Team stacks show every member up to this count — no +N chip. */
+export const TEAM_STACK_ALL_MAX = 4
+
+/**
+ * Team sidepane stack plan (Matthew's rule): a roster of 4 or fewer shows
+ * every member with no remainder; a crowded roster (>4) collapses to the
+ * first 2 members plus a +N chip. Roster order is preserved — unlike
+ * {@link selectStackedFaces} this does not re-sort by recency, because a
+ * team roster is a stable list, not an activity feed.
+ */
+export function teamSidepaneStack<T extends StackFace>(
+  faces: readonly T[],
+): { faces: T[]; remainder: number } {
+  const all = [...faces]
+  if (all.length <= TEAM_STACK_ALL_MAX) return { faces: all, remainder: 0 }
+  return { faces: all.slice(0, TEAM_STACK_FACE_LIMIT), remainder: all.length - TEAM_STACK_FACE_LIMIT }
+}
+
 /** Matches `.os-scale-out-pulse` / `.os-stacked-avatar--pulse` (1.4s). */
 export const STACK_PULSE_MS = 1400
 
 export interface StackFace {
   id: string
+  /** Agent to theme when this face is clicked (REQ-840). Defaults to `id`. */
+  agentId?: string
   name?: string
   /** Epoch ms used to stagger animation-delay. */
   startedAt: number

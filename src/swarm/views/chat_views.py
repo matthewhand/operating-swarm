@@ -252,6 +252,26 @@ class ChatCompletionsView(APIView):
                  logger.error(f"[ReqID: {request_id}] Blueprint '{model_name}' did not yield any valid message chunk.")
                  raise APIException("Blueprint did not return valid data.", code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+            from swarm.core.model_text import error_body_message, sanitize_model_text
+
+            raw_content = final_message.get("content")
+            if not isinstance(raw_content, str):
+                raw_content = "" if raw_content is None else str(raw_content)
+            content = sanitize_model_text(raw_content)
+            if not content:
+                raise APIException(
+                    "the model returned no usable text (empty or tokenizer leftovers).",
+                    code=status.HTTP_502_BAD_GATEWAY,
+                )
+            error_text = error_body_message(content)
+            if error_text:
+                raise APIException(
+                    error_text
+                    + ". Check the profile's model/base_url in Settings → LLM profiles.",
+                    code=status.HTTP_502_BAD_GATEWAY,
+                )
+            final_message = {**final_message, "content": content}
+
             p_tok, c_tok, t_tok = usage_counts(messages, final_message.get("content"), model_name)
             response_payload = { "id": f"chatcmpl-{request_id}", "object": "chat.completion", "created": int(time.time()), "model": model_name, "choices": [{"index": 0, "message": final_message, "logprobs": None, "finish_reason": "stop"}], "usage": {"prompt_tokens": p_tok, "completion_tokens": c_tok, "total_tokens": t_tok}, "system_fingerprint": backend_fingerprint(model_name, backend_meta) }
             if rate_limit_wait:

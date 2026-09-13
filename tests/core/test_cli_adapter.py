@@ -71,6 +71,11 @@ def test_bad_prompt_mode_rejected():
         CliAgentConfig(name="x", cmd=["cat", "{prompt}"], prompt_mode="bogus")
 
 
+def test_from_config_treats_null_timeout_as_default():
+    adapter = CliAdapter.from_config("echo", _echo_cfg(timeout=None))
+    assert adapter.config.timeout == 180.0
+
+
 # --------------------------------------------------------------------------- #
 # Run: happy paths
 # --------------------------------------------------------------------------- #

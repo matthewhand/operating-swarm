@@ -163,6 +163,25 @@ function mockFetch(extraBlueprints = blueprints, extraRosters = rosters) {
         }),
       } as Response
     }
+    if (url.includes('/v1/agents/designs')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          object: 'list',
+          data: [
+            {
+              agent_id: 'waveshare-opencode',
+              name: 'Waveshare OpenCode',
+              kind: 'cli',
+              cli: 'opencode',
+              specialty: 'opencode CLI',
+              description: 'Waveshare rover driver',
+            },
+          ],
+        }),
+      } as Response
+    }
     if (url.includes('api.github.com')) {
       return { ok: false, status: 404, json: async () => ({}) } as Response
     }
@@ -365,6 +384,14 @@ describe('AgentSidebar Grok rail', () => {
     expect(onOpenSearch).toHaveBeenCalled()
     expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Stewie/ })).toBeInTheDocument()
+  })
+
+  it('designed router agents appear in the rail and link to the router page', async () => {
+    renderSidebar('/chat')
+
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const row = await within(list).findByRole('link', { name: /Waveshare OpenCode/ })
+    expect(row).toHaveAttribute('href', '/agents?agent=waveshare-opencode')
   })
 
   it('REQ-170: catalog recipes without rail stay off the AGENTS rail', async () => {
@@ -657,6 +684,18 @@ describe('AgentSidebar Grok rail', () => {
     await waitFor(() => {
       expect(screen.getByTestId('os-test-search')).toHaveTextContent('session=sess-new-1')
     })
+  })
+
+  it('#182: rail footer shows Teams directly above Plugins', async () => {
+    renderSidebar('/chat')
+
+    await screen.findByRole('navigation', { name: 'Agent list' })
+    const teams = screen.getByTestId('os-teams-button')
+    const plugins = screen.getByTestId('os-plugins-button')
+    expect(teams).toHaveAttribute('aria-label', 'Teams')
+    expect(plugins).toHaveAttribute('aria-label', 'Plugins')
+    // DOM order: Teams precedes Plugins within the footer stack.
+    expect(teams.compareDocumentPosition(plugins) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('exposes Plugins and an editable hostname after the conversation list', async () => {
@@ -2103,23 +2142,24 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     localStorage.clear()
   })
 
-  it('stacks 3 most recent team faces + remainder on one rail row', async () => {
+  it('shows every team face at 4 or fewer members, 2 + N above that', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
-    expect(team).toHaveAttribute('data-stack-count', '3')
-    expect(team).toHaveAttribute('data-remainder', '2')
+    // 5-member roster: crowded — first 2 roster faces plus a +3 chip.
+    expect(team).toHaveAttribute('data-stack-count', '2')
+    expect(team).toHaveAttribute('data-remainder', '3')
     const stack = within(team).getByLabelText('Scale Out members')
     expect(stack).toHaveAttribute('data-avatar-stack', 'true')
-    expect(stack).toHaveAttribute('data-stack-count', '3')
-    expect(within(stack).getByText('+2')).toBeInTheDocument()
+    expect(stack).toHaveAttribute('data-stack-count', '2')
+    expect(within(stack).getByText('+3')).toBeInTheDocument()
     const faces = team.querySelectorAll('.os-avatar-stack__face')
-    expect(faces).toHaveLength(3)
-    expect(
-      [...faces].every((face) => face.classList.contains('os-avatar-stack__face--working')),
-    ).toBe(true)
+    expect(faces).toHaveLength(2)
+    // Roster order: Pat (CoS, running) then Ada (finished) — working class follows status.
+    expect(faces[0]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
+    expect(faces[1]!.classList.contains('os-avatar-stack__face--working')).toBe(false)
     const delays = [...faces].map((face) => (face as HTMLElement).style.animationDelay)
-    expect(new Set(delays).size).toBe(3)
+    expect(new Set(delays).size).toBe(2)
     expect(delays).toContain('0ms')
   })
 
@@ -2141,8 +2181,8 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     const omb = await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ })
     expect(omb).toHaveTextContent('OpenMousBot')
     expect(omb).not.toHaveTextContent(/\bOMB\b/)
-    expect(omb).toHaveAttribute('data-stack-count', '3')
-    expect(omb).toHaveAttribute('data-remainder', '2')
+    expect(omb).toHaveAttribute('data-stack-count', '2')
+    expect(omb).toHaveAttribute('data-remainder', '3')
     expect(within(list).getByRole('link', { name: /Rakazo \(remote\)/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Lab swarm \(remote\)/ })).toBeInTheDocument()
 

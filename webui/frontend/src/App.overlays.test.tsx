@@ -127,7 +127,8 @@ describe('REQ-48 chat stays mounted under overlays', () => {
   it('keeps the fixture message in the DOM while Teams is open, then restores the composer', async () => {
     const composer = await mountChatWithFixture()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Compose team' }))
+    // #182: the Teams affordance lives in the rail footer, not the navbar.
+    fireEvent.click(screen.getByRole('button', { name: 'Teams' }))
 
     const teams = await screen.findByRole('dialog', { name: 'New team', hidden: true })
     expect(teams).toHaveClass('modal-open')
@@ -181,6 +182,12 @@ describe('REQ-48 chat stays mounted under overlays', () => {
       'page',
     )
     expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
+    const chrome = within(settings).getByTestId('os-overlay-chrome')
+    expect(chrome).toHaveClass('bg-base-100')
+    expect(chrome).toHaveClass('border')
+    expect(chrome).toHaveClass('shadow-xl')
+    expect(chrome.className).toMatch(/overflow/)
+    expect(chrome.className).toMatch(/max-h/)
   })
 
   it('does not add a /settings React route that unmounts Chat', async () => {
@@ -189,5 +196,17 @@ describe('REQ-48 chat stays mounted under overlays', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
     expect(window.location.pathname).toBe('/chat')
     expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
+  })
+
+  it('keeps chat mounted when Settings → Roles hits a malformed /v1/roles/ payload', async () => {
+    await mountChatWithFixture()
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+    const settings = await screen.findByRole('dialog', { name: 'Settings', hidden: true })
+    fireEvent.click(within(settings).getByRole('button', { name: 'Roles' }))
+    expect(await screen.findByTestId('settings-roles-pane')).toBeInTheDocument()
+    expect(settings).toHaveClass('modal-open')
+    expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
+    expect(screen.queryByText(/Something went wrong/i)).not.toBeInTheDocument()
   })
 })

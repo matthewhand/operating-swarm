@@ -302,7 +302,8 @@ class SuggestionBlueprint(BlueprintBase):
         model_name = profile_data.get("model")
         if not model_name: raise ValueError(f"Missing 'model' in profile '{profile_name}'.")
         from swarm.core.llm_provider import is_openai_chat_provider
-        if not is_openai_chat_provider(provider): raise ValueError(f"Unsupported provider: {provider}")
+        if not is_openai_chat_provider(provider):
+            raise ValueError(f"Unsupported provider: {provider}")
         # Remove redundant client instantiation; rely on framework-level default client
         # All blueprints now use the default client set at framework init
         logger.debug(f"Instantiating OpenAIChatCompletionsModel(model='{model_name}') for '{profile_name}'.")

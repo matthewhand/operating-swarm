@@ -715,6 +715,19 @@ def list_cli_catalog(request):
     return JsonResponse({"status": "success", "clis": clis})
 
 
+@require_http_methods(["GET"])
+def list_designed_agents(request):
+    """Fast rail feed of designer-created agents.
+
+    Reads the designs file directly (no blueprint init), so the sidebar can
+    list designed agents without paying the slow /v1/agents/ startup.
+    """
+    from swarm.core.router_designs import load_designs
+
+    designs = load_designs()
+    return JsonResponse({"object": "list", "data": designs})
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def create_designed_agent(request):

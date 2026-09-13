@@ -1,4 +1,8 @@
-from swarm.core.model_text import is_usable_model_text, sanitize_model_text
+from swarm.core.model_text import (
+    error_body_message,
+    is_usable_model_text,
+    sanitize_model_text,
+)
 
 
 def test_strips_unused50_spam():
@@ -25,3 +29,29 @@ def test_strips_ansi_and_esc_stripped_csi():
     assert "no CLI agents configured" in cleaned
     assert not is_usable_model_text("anlı[13;28;13;1;0;1_")
     assert is_usable_model_text("[rest-plan] solo")
+
+
+def test_error_body_message_full_body_extracts_message():
+    raw = '{"error": {"message": "Invalid model name passed in model=auxiliary."}}'
+    assert error_body_message(raw) == "Invalid model name passed in model=auxiliary."
+
+
+def test_error_body_message_string_error():
+    assert error_body_message('{"error": "boom"}') == "boom"
+
+
+def test_error_body_message_heads_flagged():
+    # Truncated heads a dying upstream leaks; never a real reply.
+    assert error_body_message("{") is not None
+    assert error_body_message('{"') is not None
+    assert error_body_message('{"error') is not None
+    assert error_body_message("{}") is not None
+
+
+def test_error_body_message_ignores_real_replies():
+    assert error_body_message("ok") is None
+    assert error_body_message("BP reply") is None
+    assert error_body_message('{"answer": 42}') is None
+    assert error_body_message("") is None
+    assert error_body_message(None) is None
+    assert error_body_message(123) is None

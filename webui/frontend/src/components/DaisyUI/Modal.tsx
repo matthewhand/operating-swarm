@@ -86,12 +86,12 @@ export const Modal = ({
   };
 
   const sizeClasses = {
-    sm: 'max-w-sm',
-    md: 'max-w-md',
-    lg: 'max-w-lg',
-    xl: 'max-w-xl',
-    '2xl': 'max-w-5xl w-11/12',
-    sheet: 'h-full max-h-full w-full max-w-4xl rounded-none rounded-s-box',
+    sm: 'max-w-sm max-h-[90vh] overflow-y-auto',
+    md: 'max-w-md max-h-[90vh] overflow-y-auto',
+    lg: 'max-w-lg max-h-[90vh] overflow-y-auto',
+    xl: 'max-w-xl max-h-[90vh] overflow-y-auto',
+    '2xl': 'max-w-5xl w-11/12 max-h-[90vh] overflow-y-auto',
+    sheet: 'h-full max-h-full w-full max-w-4xl rounded-none rounded-s-box overflow-hidden',
   };
 
   const placementClass = placement === 'middle' ? '' : `modal-${placement}`;
@@ -116,7 +116,8 @@ export const Modal = ({
         aria-modal={isOpen ? true : undefined}
       >
         <div
-          className={`modal-box ${sizeClasses[size]} ${className}`}
+          className={`modal-box bg-base-100 border border-base-300 shadow-xl ${sizeClasses[size]} ${className}`}
+          data-testid="os-overlay-chrome"
           onClick={(e) => e.stopPropagation()}
         >
           {title && (

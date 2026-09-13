@@ -1,8 +1,8 @@
 # Open Swarm
 
-<div align="center">
-<img src="assets/brand/bee-mark.svg" alt="Open Swarm bee mark" width="96"/>
-</div>
+<p align="center">
+  <img src="assets/brand/project-banner.svg" alt="Open Swarm — CLI, API, Remote, Team, and Blueprint worker bees" width="920"/>
+</p>
 
 <div align="center">
 <img src="assets/readme/cli-agents.svg" alt="CLI agents — Grok / OpenCode / agy poster" width="320"/>
@@ -188,6 +188,7 @@ Some fleet boxes keep **both** `~/open-swarm` (public clone path from this READM
 - [docs/AUTH.md](docs/AUTH.md) · [CONFIGURATION.md](./CONFIGURATION.md) (`swarm_config.example.json`)
 - [FEATURE_STATUS.md](./FEATURE_STATUS.md) · [ROADMAP.md](./ROADMAP.md)
 - [docs/DEVELOPER.md](docs/DEVELOPER.md) — gateway, `/v1/responses`, dated history, contribution pointers
+- [docs/diagrams/](docs/diagrams/README.md) — visual architecture stack, taxonomy tree, lifecycle state machine, and delegation sequence diagrams
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 Recipes and pattern diagrams stay in [docs/EXAMPLES.md](docs/EXAMPLES.md) and [docs/ORCHESTRATION_PATTERNS.md](docs/ORCHESTRATION_PATTERNS.md) — they are not the front door.

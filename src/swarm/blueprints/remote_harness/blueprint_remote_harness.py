@@ -46,6 +46,11 @@ def _health_tool(name: str = "") -> str:
             lines.append(f"{rid}: UNKNOWN — {exc}")
             continue
         extra = f" version={result.version}" if result.version else ""
+        if not result.ok and remotes_core.NOT_ADDED_MARKER in result.detail:
+            # Never-added seat: the detail is a complete sentence — no
+            # "hermes: UNKNOWN —" prefix (issue #129).
+            lines.append(result.detail)
+            continue
         lines.append(f"{result.remote}: {result.state} — {result.detail}{extra}")
     return "\n".join(lines)
 
@@ -72,6 +77,10 @@ def _send_tool(name: str, prompt: str, target: str = "") -> str:
 
 
 def _render_operate(result: remotes_core.OperateResult) -> str:
+    if not result.ok and remotes_core.NOT_ADDED_MARKER in result.detail:
+        # Never-added catalog seat: the detail is already a complete, actionable
+        # sentence — do not wrap it in "{remote} {op}: FAIL —" (issue #129).
+        return result.detail
     gap = f"\nGAP: {result.gap}" if result.gap else ""
     data = ""
     if result.data is not None:
@@ -309,7 +318,17 @@ class RemoteHarnessBlueprint(BlueprintBase):
             content = getattr(result, "final_output", None) or str(result)
         except Exception as exc:
             logger.warning("remote_harness Runner failed; falling back to health: %s", exc)
-            content = _health_tool("") + f"\n(coordinator unavailable: {exc})"
+            # Short, honest fallback — never dump the whole multi-remote health
+            # report or raw exception text into the chat (issue #131).
+            if name.strip():
+                content = f"{_health_tool(name)}\n\n"
+            else:
+                content = ""
+            from swarm.utils.env_utils import client_safe_error_message
+
+            content += client_safe_error_message(
+                exc, public="The remote coordinator is unavailable right now."
+            )
         yield support.message_chunk(
             str(content),
             final=True,

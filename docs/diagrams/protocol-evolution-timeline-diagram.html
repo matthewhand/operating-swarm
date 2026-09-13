@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Swarm · Protocol Evolution Timeline</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #2d3142;
+      --color-ink:     #f5f5f5;
+      --color-muted:   #bfc0c0;
+      --color-accent:  #f08a59;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1200px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.6rem, 2.5vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Timeline · Open Swarm</p>
+    <h1>Autonomous coordination protocol roadmap</h1>
+
+    <svg viewBox="0 0 1000 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="swarm-tl-title swarm-tl-desc">
+      <title id="swarm-tl-title">Open Swarm Autonomous Coordination Protocol Roadmap</title>
+      <desc id="swarm-tl-desc">Timeline tracking the architectural progression of Open Swarm from early static topology to autonomous multi-model swarm consensus.</desc>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.08)"/>
+        </pattern>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots)"/>
+
+      <!-- Year markers background watermark -->
+      <text x="60" y="340" fill="rgba(245,245,245,0.04)" font-size="80" font-weight="600" font-family="'Geist Mono', monospace">2024</text>
+      <text x="560" y="340" fill="rgba(245,245,245,0.04)" font-size="80" font-weight="600" font-family="'Geist Mono', monospace">2025</text>
+
+      <!-- Baseline axis -->
+      <line x1="80" y1="240" x2="920" y2="240" stroke="rgba(191,192,192,0.4)" stroke-width="1.2"/>
+
+      <!-- Year boundary tick (between 2024 and 2025) -->
+      <line x1="420" y1="230" x2="420" y2="250" stroke="rgba(245,245,245,0.3)" stroke-width="1.2"/>
+      <text x="420" y="266" fill="#bfc0c0" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">JAN '25</text>
+
+      <!-- Start / end boundary ticks -->
+      <line x1="80" y1="232" x2="80" y2="248" stroke="rgba(245,245,245,0.3)" stroke-width="1"/>
+      <line x1="920" y1="232" x2="920" y2="248" stroke="rgba(245,245,245,0.3)" stroke-width="1"/>
+
+      <!-- Milestone 1: OCT 2024 · Static Topology (below) -->
+      <line x1="120" y1="240" x2="120" y2="300" stroke="rgba(245,245,245,0.35)" stroke-width="1"/>
+      <circle cx="120" cy="240" r="4.5" fill="#f5f5f5"/>
+      <text x="120" y="316" fill="#bfc0c0" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">OCT 2024</text>
+      <text x="120" y="334" fill="#f5f5f5" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">v0.1 Static Mesh</text>
+      <text x="120" y="349" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">hardcoded socket pipes</text>
+
+      <!-- Milestone 2: DEC 2024 · Gossip Discovery (above) -->
+      <line x1="300" y1="180" x2="300" y2="240" stroke="rgba(245,245,245,0.35)" stroke-width="1"/>
+      <circle cx="300" cy="240" r="4.5" fill="#f5f5f5"/>
+      <text x="300" y="152" fill="#bfc0c0" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">DEC 2024</text>
+      <text x="300" y="169" fill="#f5f5f5" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">v0.4 Peer Discovery</text>
+      <text x="300" y="184" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">mDNS heartbeats</text>
+
+      <!-- Milestone 3: APR 2025 · Dynamic Auctions (below) -->
+      <line x1="530" y1="240" x2="530" y2="300" stroke="rgba(245,245,245,0.35)" stroke-width="1"/>
+      <circle cx="530" cy="240" r="4.5" fill="#f5f5f5"/>
+      <text x="530" y="316" fill="#bfc0c0" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">APR 2025</text>
+      <text x="530" y="334" fill="#f5f5f5" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">v1.0 Task Bidding</text>
+      <text x="530" y="349" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">utility &amp; capacity auctions</text>
+
+      <!-- Milestone 4: AUG 2025 · Self-Healing (above, focal accent) -->
+      <line x1="720" y1="150" x2="720" y2="240" stroke="#f08a59" stroke-width="1.2"/>
+      <circle cx="720" cy="240" r="6.5" fill="#f08a59"/>
+      <text x="720" y="122" fill="#f08a59" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">AUG 2025 · MAJOR</text>
+      <text x="720" y="142" fill="#f5f5f5" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">v1.8 Autonomous Consensus</text>
+      <text x="720" y="158" fill="#bfc0c0" font-size="9.5" font-family="'Geist Mono', monospace" text-anchor="middle">byzantine fault election &amp; self-heal</text>
+
+      <!-- Milestone 5: NOV 2025 · Polyglot Models (below, accent milestone) -->
+      <line x1="880" y1="240" x2="880" y2="300" stroke="#f08a59" stroke-width="1.2"/>
+      <circle cx="880" cy="240" r="6.5" fill="#f08a59"/>
+      <text x="880" y="316" fill="#f08a59" font-size="8.5" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">NOV 2025 · CURRENT</text>
+      <text x="880" y="334" fill="#f5f5f5" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">v2.0 Polyglot Runtimes</text>
+      <text x="880" y="349" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">unified cross-model orchestration</text>
+
+      <!-- Legend Footer -->
+      <line x1="40" y1="390" x2="960" y2="390" stroke="rgba(245,245,245,0.12)" stroke-width="0.8"/>
+      <text x="40" y="408" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+
+      <circle cx="52" cy="422" r="4.5" fill="#f5f5f5"/>
+      <text x="66" y="426" fill="#bfc0c0" font-size="8.5" font-family="'Geist', sans-serif">Standard Protocol Release</text>
+
+      <circle cx="212" cy="422" r="6" fill="#f08a59"/>
+      <text x="226" y="426" fill="#bfc0c0" font-size="8.5" font-family="'Geist', sans-serif">Major Consensus Architecture Shift</text>
+
+      <text x="440" y="426" fill="#bfc0c0" font-size="8.5" font-family="'Geist', sans-serif" font-style="italic">Spacing corresponds to protocol milestones.</text>
+    </svg>
+  </div>
+</body>
+</html>

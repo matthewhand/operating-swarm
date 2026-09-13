@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 # Qwen/Gemma-style special tokens that leak when the gateway slug is a bad fit.
@@ -47,3 +48,48 @@ def is_usable_model_text(text: str | None, *, min_alnum: int = 8) -> bool:
         return False
     alnum = "".join(_ALNUM.findall(cleaned))
     return len(alnum) >= min_alnum
+
+
+# OpenAI-compatible gateways answer error cases with ``{"error": ...}`` — and
+# an upstream that dies mid-stream can leak just the head (``{``, ``{"``,
+# ``{"error``). ``{`` / ``{"`` / ``{}`` alone are never a legitimate reply.
+_JUST_OPEN_BRACE = re.compile(r'^\s*\{\s*"?\s*$')
+_ERROR_KEY_HEAD = re.compile(r'^\s*\{\s*"err', re.IGNORECASE)
+
+
+def error_body_message(text: str | None) -> str | None:
+    """Return a client-safe message when ``text`` is (or starts like) an
+    OpenAI-compatible JSON error body; ``None`` otherwise.
+
+    Some gateways answer HTTP 200 with ``{"error": {"message": ...}}`` instead
+    of raising, and a dying upstream can leak only the head (``{``, ``{"``,
+    ``{"error``). Such output must never be persisted as a successful assistant
+    reply. Plain short text (``ok``, ``ka``) is left alone — it is
+    indistinguishable from a terse but real reply.
+    """
+    if not isinstance(text, str) or not text:
+        return None
+    stripped = text.strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        data = json.loads(stripped)
+    except (ValueError, TypeError):
+        data = None
+    if isinstance(data, dict) and "error" in data:
+        err = data["error"]
+        if isinstance(err, dict):
+            message = err.get("message")
+        elif isinstance(err, str):
+            message = err
+        else:
+            message = None
+        if isinstance(message, str) and message.strip():
+            return message.strip()[:300]
+        return "the model returned a JSON error body instead of a reply"
+    # Truncated head: ``{``, ``{"``, ``{"error`` — nothing else meaningful.
+    if _JUST_OPEN_BRACE.match(stripped) or _ERROR_KEY_HEAD.match(stripped):
+        return "the model returned the start of a JSON error body instead of a reply"
+    if not _ALNUM.search(stripped[1:]):
+        return "the model returned an empty JSON object instead of a reply"
+    return None

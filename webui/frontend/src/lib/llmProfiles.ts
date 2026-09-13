@@ -75,3 +75,54 @@ export function effectiveTaskProfile(
   if (!settings?.override_per_task) return fallback
   return settings.task_llm_profiles?.[taskClass] || fallback
 }
+
+/** Short add-profile form. Advanced (temperature / max tokens / timeout) stays collapsed. */
+export const LLM_PROFILE_PROVIDERS = [
+  'openai',
+  'azure',
+  'anthropic',
+  'groq',
+  'ollama',
+  'openrouter',
+] as const
+
+export interface LlmProfileDraft {
+  name: string
+  provider: string
+  model: string
+  apiKeyEnv?: string
+  baseUrl?: string
+  temperature?: string
+  maxTokens?: string
+  timeoutSec?: string
+}
+
+function optionalNumber(raw: string | undefined): number | undefined {
+  const text = (raw || '').trim()
+  if (!text) return undefined
+  const n = Number(text)
+  return Number.isFinite(n) ? n : undefined
+}
+
+/** Persist payload for `PATCH /v1/config/sections/llm/` upsert. Never stores a raw key. */
+export function buildLlmProfileEntry(
+  draft: Omit<LlmProfileDraft, 'name'>,
+): Record<string, unknown> {
+  const provider = (draft.provider || 'openai').trim() || 'openai'
+  const model = (draft.model || '').trim()
+  const envName = (draft.apiKeyEnv || 'OPENAI_API_KEY').trim() || 'OPENAI_API_KEY'
+  const entry: Record<string, unknown> = {
+    provider,
+    model,
+    api_key: `\${${envName}}`,
+  }
+  const base = (draft.baseUrl || '').trim()
+  if (base) entry.base_url = base
+  const temperature = optionalNumber(draft.temperature)
+  if (temperature !== undefined) entry.temperature = temperature
+  const maxTokens = optionalNumber(draft.maxTokens)
+  if (maxTokens !== undefined) entry.max_tokens = Math.floor(maxTokens)
+  const timeout = optionalNumber(draft.timeoutSec)
+  if (timeout !== undefined) entry.timeout = timeout
+  return entry
+}

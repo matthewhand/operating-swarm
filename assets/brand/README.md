@@ -25,6 +25,8 @@ wired.
 | `favicon-minimal-mono-on-dark.svg` | White bee on `#111111`. Dark chrome. |
 | `webui-geometric.svg` | Geometric honeycomb bee on charcoal `#1D2226`. Operator navbar, login splash, Settings sheet. |
 | `webui-geometric-mono.svg` | `currentColor` silhouette of the geometric bee. |
+| `project-banner.svg` | README / project banner: logo surrounded by worker bees with CLI, API, Remote, Team, Blueprint bubbles. |
+| `project-banner.png` | Raster of the project banner (1280×560). |
 | `marketing-cyber-swarm.svg` | Faceted amber fanfare mark. Website / launch art. |
 | `marketing-cyber-swarm.png` | Raster companion (SVG export). Photoreal taster stays in `tasters/`. |
 

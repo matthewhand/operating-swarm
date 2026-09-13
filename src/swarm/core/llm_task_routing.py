@@ -203,6 +203,7 @@ class CatalogEntry:
     source: str
     owned_by: str
     model: str | None = None
+    base_url: str | None = None
     traits: dict[str, float] = field(default_factory=dict)
     context_length: int | None = None
 
@@ -215,6 +216,8 @@ class CatalogEntry:
         }
         if self.model:
             payload["model"] = self.model
+        if self.base_url:
+            payload["base_url"] = self.base_url
         if self.context_length:
             payload["context_length"] = self.context_length
         for axis in inference_profile.TRAITS:
@@ -599,12 +602,15 @@ def collect_catalog(
         if model_id and model_id.startswith("${"):
             model_id = None
         window = context_length_from_mapping(profile)
+        raw_base = profile.get("base_url")
+        base_url = raw_base.strip() if isinstance(raw_base, str) and raw_base.strip() else None
         _add(
             CatalogEntry(
                 id=name,
                 source="config",
                 owned_by=str(profile.get("provider") or vendor),
                 model=model_id,
+                base_url=base_url,
                 traits=traits,
                 context_length=window,
             )
@@ -616,6 +622,7 @@ def collect_catalog(
                     source="config",
                     owned_by=str(profile.get("provider") or vendor),
                     model=model_id,
+                    base_url=base_url,
                     traits=resolve_traits(model_id, profile, owned_by=vendor),
                     context_length=window,
                 )
@@ -898,6 +905,43 @@ def persist_llm_settings(
     refresh_app_config(cfg)
     logger.info("Persisted settings.default_llm_profile to %s", path)
     return cfg, path
+
+
+def persist_named_llm_profile(
+    *,
+    profile_id: str,
+    spec: dict[str, Any],
+    set_default: bool = False,
+    config_path: str | Path | None = None,
+) -> tuple[dict[str, Any], Path]:
+    """Upsert one named ``llm.<id>`` profile (model + optional base_url). No secrets plaintext."""
+    from swarm.core import config_ownership as ownership
+    from swarm.core.remotes import load_raw_config
+
+    pid = str(profile_id or "").strip()
+    if not pid:
+        raise ownership.ConfigOwnershipError(
+            "profile id is required.", status=400, code="bad_payload"
+        )
+    if not isinstance(spec, dict):
+        raise ownership.ConfigOwnershipError(
+            "profile must be an object.", status=400, code="bad_payload"
+        )
+    model = str(spec.get("model") or "").strip()
+    if not model:
+        raise ownership.ConfigOwnershipError(
+            "profile model is required.", status=400, code="bad_payload"
+        )
+    cleaned = public_profile_fields(spec)
+    cleaned["model"] = model
+    provider = str(spec.get("provider") or cleaned.get("provider") or "openai").strip()
+    cleaned["provider"] = provider or "openai"
+    if "api_key" in spec:
+        cleaned["api_key"] = spec.get("api_key")
+    ownership.persist_webui_section("llm", upsert={pid: cleaned}, config_path=config_path)
+    if set_default:
+        return persist_llm_settings(default_llm_profile=pid, config_path=config_path)
+    return load_raw_config(config_path)
 
 
 def settings_public_payload(config: dict[str, Any] | None = None) -> dict[str, Any]:

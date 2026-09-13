@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LlmProfilesSettings } from '../api'
 import {
+  buildLlmProfileEntry,
   effectiveTaskProfile,
   isKnownProfile,
   missingProfileWarning,
@@ -56,6 +57,41 @@ describe('llmProfiles helpers', () => {
     expect(warning).toMatch(/missing-slug/)
     expect(warning).toMatch(/gpt-5.6-terra/)
     expect(missingProfileWarning('gpt-4o-mini', settings, 'gpt-5.6-terra')).toBeNull()
+  })
+
+  it('builds a persistable llm upsert from the short add form', () => {
+    expect(
+      buildLlmProfileEntry({
+        provider: 'groq',
+        model: 'llama-3.1-8b',
+        apiKeyEnv: 'GROQ_API_KEY',
+        baseUrl: 'https://api.groq.com/openai/v1',
+      }),
+    ).toEqual({
+      provider: 'groq',
+      model: 'llama-3.1-8b',
+      api_key: '${GROQ_API_KEY}',
+      base_url: 'https://api.groq.com/openai/v1',
+    })
+  })
+
+  it('omits collapsed advanced fields until they have values', () => {
+    const core = buildLlmProfileEntry({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+    })
+    expect(core).not.toHaveProperty('temperature')
+    expect(core).not.toHaveProperty('max_tokens')
+    expect(core).not.toHaveProperty('timeout')
+    expect(
+      buildLlmProfileEntry({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        temperature: '0.2',
+        maxTokens: '4096',
+        timeoutSec: '60',
+      }),
+    ).toMatchObject({ temperature: 0.2, max_tokens: 4096, timeout: 60 })
   })
 
   it('strips REQ and Issue numbers from UI status copy', () => {

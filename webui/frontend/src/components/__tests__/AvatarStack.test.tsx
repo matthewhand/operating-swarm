@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import AvatarStack from '../AvatarStack'
 import { stackAnimationDelayMs, type StackFace } from '../../lib/avatarStack'
+import { saveEnabledAvatarThemes } from '../../lib/avatarTheme'
 
 function face(id: string, startedAt: number): StackFace {
   return { id, name: id, startedAt }
@@ -49,5 +50,18 @@ describe('AvatarStack', () => {
     )
     expect(screen.getAllByTestId('os-stacked-avatar')).toHaveLength(3)
     expect(screen.getByTestId('os-stacked-remainder')).toHaveTextContent('+1')
+  })
+
+  it('does not steal left-click from a stacked rail face (REQ-840)', () => {
+    saveEnabledAvatarThemes(['blobs', 'bee'])
+    render(
+      <AvatarStack
+        faces={[{ id: 'sess-1', agentId: 'alpha', name: 'Alpha', startedAt: 1 }]}
+        maxFaces={1}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /choose theme/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('os-stacked-avatar'))
+    expect(screen.queryByTestId('agent-theme-preview')).not.toBeInTheDocument()
   })
 })

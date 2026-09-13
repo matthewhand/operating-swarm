@@ -116,7 +116,7 @@ export function stackFacesForRemote(remote: RemoteEntry): StackFace[] {
 }
 
 /**
- * REQ-130: Default talk-to session for a team.
+ * REQ-130 / REQ-846: Default talk-to session for a team.
  * Prefers configured Chief of Staff (cos / chief_of_staff), falls back to first member.
  */
 export function defaultSessionForTeam(team: TeamRoster): MemberSession | null {

@@ -107,16 +107,18 @@ def extract_session_id(stdout: str, paths: list[str] | None = None) -> str | Non
             ordered.append(path)
     found: str | None = None
     for blob in _iter_json_blobs(stdout):
-        if not isinstance(blob, dict):
-            continue
-        for path in ordered:
-            try:
-                value = _extract_json_path(blob, path)
-            except (KeyError, IndexError, TypeError, ValueError):
+        items = blob if isinstance(blob, list) else [blob]
+        for item in items:
+            if not isinstance(item, dict):
                 continue
-            sid = sanitize_cli_session_id(value)
-            if sid:
-                found = sid
+            for path in ordered:
+                try:
+                    value = _extract_json_path(item, path)
+                except (KeyError, IndexError, TypeError, ValueError):
+                    continue
+                sid = sanitize_cli_session_id(value)
+                if sid:
+                    found = sid
     return found
 
 

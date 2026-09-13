@@ -119,6 +119,34 @@ async def test_blueprint_respects_cli_param():
     assert _final_content(chunks) == "TWO: ping"
 
 
+def test_status_line_is_a_named_function():
+    bp = CliAgentBlueprint(blueprint_id="cli_agent", config=_echo_config())
+    assert bp.status_line_tool.name == "status_line"
+    line = bp.status_line(
+        workdir="/tmp/demo-proj", cli="echo", preset="ascii", session="sess-abcdef12"
+    )
+    assert "echo" in line
+    assert "demo-proj" in line
+    assert "abcdef12" in line
+
+
+async def test_blueprint_emits_status_line_progress():
+    bp = CliAgentBlueprint(blueprint_id="cli_agent", config=_echo_config())
+    chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
+    progress = [
+        c for c in chunks if isinstance(c, dict) and c.get("type") == "fusion_progress"
+    ]
+    assert any("_Running CLI agent `echo`" in (c.get("content") or "") for c in progress)
+    status_lines = [
+        c.get("content") or ""
+        for c in progress
+        if "_Running CLI agent" not in (c.get("content") or "")
+    ]
+    assert any("echo" in line for line in status_lines)
+    assert _final_content(chunks) == "ECHO: ping"
+    assert all("messages" not in c for c in progress)
+
+
 def test_apply_skill_to_prompt_helper():
     # No skill → unchanged. Known bundled skill → instructions prepended.
     assert support.apply_skill_to_prompt("do x", {}) == ("do x", None)

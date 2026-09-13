@@ -133,7 +133,8 @@ def test_wrappers_expose_contract_methods_without_lan():
     empty = {"llm": {}, "remotes": {}}
     health = harness.health(spec, timeout=0.2, config=empty)
     assert health.ok is False
-    assert health.detail == "remote not added"
+    assert "not added as a remote" in health.detail
+    assert "swarm-cli remotes set hermes" in health.detail
 
 
 def test_implementation_catalog_helper_matches_settings_kinds():

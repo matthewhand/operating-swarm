@@ -10,22 +10,26 @@ SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSi
 def test_sidebar_role_badge_overlays_avatar():
     content = SIDEBAR_TSX.read_text(encoding="utf-8")
 
-    # Verify role badge has avatar overlay indicator / styling
-    assert 'data-avatar-overlay="true"' in content
+    # REQ-175 contract. Updated twice by later deliberate redesigns: the Sep-2026
+    # UI parity sweep moved the agent role badge OFF the avatar overlay onto the
+    # name row's timestamp slot (behavioral spec: AgentRolePillOverlay.test.tsx);
+    # #849 then aligned the Team/Remote pills right in that same slot too. No
+    # avatar-overlay badges remain in the sidebar.
+    assert 'data-avatar-overlay="true"' not in content
     assert "roleBadgeNode" in content
-
-    # REQ-67 contract preserved: className exact template literal
-    assert re.search(
-        r"className=\{`os-agent-role-badge \$\{roleCssClass\(role\)\}`\}",
-        content,
+    assert 'data-avatar-overlay="true"' not in "".join(
+        line for line in content.splitlines() if "roleBadgeNode" in line or "roleCssClass(role)" in line
     )
 
-    # Avatar slot (relative) wraps mark + role badge so the pill overlays the avatar
+    # REQ-67 contract: badge className carries roleCssClass (shrink-0 for the
+    # name-row pill) and the badge competes with unread/timestamp, not the avatar.
     assert re.search(
-        r'<span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">\s*\{mark\}\s*\{roleBadgeNode\}\s*</span>',
+        r"className=\{`os-agent-role-badge shrink-0 \$\{roleCssClass\(role\)\}`\}",
         content,
     )
-    assert "position: 'absolute'" in content
+    assert re.search(
+        r"roleBadgeNode\s*\)\s*:\s*timestampLabel", content
+    ) or re.search(r"\) : roleBadgeNode \? \(\s*roleBadgeNode\s*\) : timestampLabel", content)
 
 
 def test_second_row_does_not_contain_role_badge_chip():

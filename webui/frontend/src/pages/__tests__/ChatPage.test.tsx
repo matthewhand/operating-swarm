@@ -163,7 +163,7 @@ describe('ChatPage Unavailable / Sign-in CTA + connection status', () => {
     resetConversationThreads()
   })
 
-  it('disables send while connecting and stays silent when healthy', async () => {
+  it('keeps the composer typeable while connecting and stays silent when healthy', async () => {
     renderChat()
 
     const statusRegion = screen.getByRole('status', { name: 'Connection status' })
@@ -171,19 +171,27 @@ describe('ChatPage Unavailable / Sign-in CTA + connection status', () => {
     expect(statusRegion).toHaveTextContent(/Connecting/i)
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
-    expect(composer).toBeDisabled()
+    // #167: a connecting/closed socket must never block typing.
+    expect(composer).not.toBeDisabled()
     expect(composer).toHaveAttribute('placeholder', 'Message …')
     expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
+    expect(screen.getByTestId('chat-conn-status')).toBeInTheDocument()
     expect(screen.queryByText(/^Connected$/)).not.toBeInTheDocument()
+
+    fireEvent.change(composer, { target: { value: 'typed while connecting' } })
+    expect(composer).toHaveValue('typed while connecting')
+    // A draft reveals Send; offline it queues instead of being disabled away.
+    expect(screen.getByRole('button', { name: /^Send$/i })).toBeInTheDocument()
 
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
     await waitFor(() => {
-      expect(composer).not.toBeDisabled()
+      expect(screen.queryByTestId('chat-conn-status')).not.toBeInTheDocument()
     })
+    expect(composer).not.toBeDisabled()
     expect(screen.queryByText(/^Connected$/)).not.toBeInTheDocument()
     expect(statusRegion).toHaveTextContent('')
   })
@@ -2074,7 +2082,7 @@ describe('ChatPage team member dropdown', () => {
       'Stewie (agent/ops)',
       'Manage Team',
     ])
-    expect(select).toHaveValue('all')
+    expect(select).toHaveValue('codey') // #169: seat default = first roster member
     expect(screen.queryByText('Blueprint')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Demo Team' })).toBeInTheDocument()
   })
@@ -2136,6 +2144,10 @@ describe('ChatPage team member dropdown', () => {
     })
 
     const composer = await screen.findByRole('textbox', { name: 'Chat message' })
+    // #169: the dropdown now defaults to the first member; go explicit for the all-members frame.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
+      target: { value: 'all' },
+    })
     fireEvent.change(composer, { target: { value: 'hello team' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
@@ -2204,7 +2216,7 @@ describe('ChatPage team member dropdown', () => {
     expect(options[options.length - 1]).toHaveTextContent('Manage Team')
     const allOptions = Array.from(select.querySelectorAll('option'))
     expect(allOptions[allOptions.length - 2]).toBeDisabled()
-    expect(select).toHaveValue('all')
+    expect(select).toHaveValue('codey') // #169: seat default = first roster member
     expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
   })
 
@@ -3401,11 +3413,11 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     })
 
     fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'codey' },
+      target: { value: 'stewie' },
     })
 
     const status = await screen.findByTestId('chat-status')
-    expect(status).toHaveTextContent('Team target: All members → Codey (agent/coder)')
+    expect(status).toHaveTextContent('Team target: Codey (agent/coder) → Stewie (agent/ops)')
     expect(status).toHaveClass('os-chat-status')
     expect(status.className).not.toMatch(/chat-start|chat-end/)
     expect(status.querySelector('.chat-bubble')).toBeNull()
@@ -3413,7 +3425,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     expect(store.messages).toHaveLength(1)
     expect(store.messages[0]).toEqual({
       role: 'status',
-      content: 'Team target: All members → Codey (agent/coder)',
+      content: 'Team target: Codey (agent/coder) → Stewie (agent/ops)',
     })
 
     first.unmount()
@@ -3423,7 +3435,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     })
 
     const restored = await screen.findByTestId('chat-status')
-    expect(restored).toHaveTextContent('Team target: All members → Codey (agent/coder)')
+    expect(restored).toHaveTextContent('Team target: Codey (agent/coder) → Stewie (agent/ops)')
     expect(restored.className).not.toMatch(/chat-start|chat-end/)
     expect(screen.getAllByTestId('chat-status')).toHaveLength(1)
   })

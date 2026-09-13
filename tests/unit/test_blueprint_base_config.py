@@ -1,5 +1,6 @@
 import os
-from unittest.mock import MagicMock
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -97,7 +98,7 @@ class TestBlueprintBaseConfigLoading:
         blueprint4 = _TestableBlueprint(blueprint_id="bp4", config=config4)
         assert blueprint4.should_output_markdown is False, "Blueprint setting (False) should override global (True)"
 
-    def test_llm_profile_resolution_priority(self):
+    def test_llm_profile_resolution_priority(self, monkeypatch):
         """Test LLM profile/model resolution order: programmatic > blueprint > global default_llm > env > fallback."""
         # --- Case 1: Explicit override (programmatic)
         config = {
@@ -125,22 +126,28 @@ class TestBlueprintBaseConfigLoading:
         assert bp3._resolve_llm_profile() == "baz"
 
         # --- Case 4: Environment variable DEFAULT_LLM
-        os.environ["DEFAULT_LLM"] = "env_model"
+        # Hermeticity: steps 5–6 of _resolve_llm_profile fall back to the real
+        # global config file (cwd / ~/.config), which must not leak developer
+        # settings into this unit case. Point Path.home/cwd at nowhere.
+        monkeypatch.setenv("DEFAULT_LLM", "env_model")
         bp4 = _TestableBlueprint(blueprint_id="bp4", config={
             "llm": {"env_model": {"provider": "mock"}},
             "settings": {},
             "blueprints": {}})
-        # Simulate missing everything except env
-        bp4._config["settings"].pop("default_llm", None)
-        assert bp4._resolve_llm_profile() == "env_model"
-        del os.environ["DEFAULT_LLM"]
+        with patch("pathlib.Path.cwd", return_value=Path("/nonexistent-cwd")), patch(
+            "pathlib.Path.home", return_value=Path("/nonexistent-home")
+        ):
+            assert bp4._resolve_llm_profile() == "env_model"
 
         # --- Case 5: Fallback to 'default' if nothing else
         bp5 = _TestableBlueprint(blueprint_id="bp5", config={
             "llm": {"default": {"provider": "mock"}},
             "settings": {},
             "blueprints": {}})
-        assert bp5._resolve_llm_profile() == "default"
+        with patch("pathlib.Path.cwd", return_value=Path("/nonexistent-cwd")), patch(
+            "pathlib.Path.home", return_value=Path("/nonexistent-home")
+        ):
+            assert bp5._resolve_llm_profile() == "default"
 
     def test_missing_llm_profile_raises(self):
         """Test that missing LLM profile raises a clear error."""

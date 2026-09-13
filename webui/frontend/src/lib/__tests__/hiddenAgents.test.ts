@@ -9,6 +9,7 @@ import {
   hideAllAgentIds,
   loadHiddenAgentIds,
   loadOrSeedHiddenAgentIds,
+  reconcileHiddenAgentIds,
   saveHiddenAgentIds,
   unhideAgentId,
   unhideAllAgentIds,
@@ -91,5 +92,41 @@ describe('hiddenAgents persistence', () => {
       expect(canHideAgent(id)).toBe(true)
       expect(hideAgentId(id, [])).toEqual([id])
     }
+  })
+
+  describe('reconcileHiddenAgentIds (#170)', () => {
+    it('keeps hide ids that match a live rail row', () => {
+      const live = ['codey', 'stewie', 'team:research-squad', 'remote:hermes']
+      const hidden = ['codey', 'team:research-squad', 'remote:hermes']
+      expect(reconcileHiddenAgentIds(hidden, live)).toEqual([
+        'codey',
+        'team:research-squad',
+        'remote:hermes',
+      ])
+    })
+
+    it('drops stale team hide ids whose roster no longer exists (#170)', () => {
+      const live = ['codey', 'team:research-squad']
+      const hidden = ['team:demo-team', 'gate', 'team:old-harness', 'codey']
+      // gate is stale here too (not a live row) — only live ids survive.
+      expect(reconcileHiddenAgentIds(hidden, live)).toEqual(['codey'])
+    })
+
+    it('keeps pinned ids hideable even when their row is not listed', () => {
+      const hidden = ['codey', 'team:demo-harness-kinds']
+      const live = ['codey']
+      const pinned = ['team:demo-harness-kinds']
+      expect(reconcileHiddenAgentIds(hidden, live, pinned)).toEqual([
+        'codey',
+        'team:demo-harness-kinds',
+      ])
+    })
+
+    it('is idempotent and never invents ids', () => {
+      const live = ['codey']
+      const once = reconcileHiddenAgentIds(['gate', 'team:gone'], live)
+      expect(reconcileHiddenAgentIds(once, live)).toEqual(once)
+      expect(once).not.toContain('team:gone')
+    })
   })
 })

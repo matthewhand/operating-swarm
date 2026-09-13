@@ -8,9 +8,14 @@ export function ChatGapLabel({ label }: { label: string }) {
 
 export function ChatNewRule() {
   return (
-    <div className="os-chat-new" role="separator" aria-label="New messages">
+    <div
+      className="os-chat-new"
+      role="separator"
+      aria-label="New"
+      data-testid="chat-new-divider"
+    >
       <span className="os-chat-new__rule" aria-hidden="true" />
-      <span className="os-chat-new__label">NEW</span>
+      <span className="os-chat-new__label">New</span>
       <span className="os-chat-new__rule" aria-hidden="true" />
     </div>
   )

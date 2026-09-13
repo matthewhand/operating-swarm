@@ -517,7 +517,17 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=system_message_html)
 
             if params and params.get("team"):
-                await self.respond_with_team_stub(params, message_text, contents_div_id)
+                from swarm.core.team_rosters import blueprint_id_for_team_target
+
+                team_blueprint = blueprint_id_for_team_target(
+                    params.get("team"), params.get("target")
+                )
+                if team_blueprint:
+                    await self.respond_with_blueprint(
+                        team_blueprint, contents_div_id, params=params
+                    )
+                else:
+                    await self.respond_with_team_stub(params, message_text, contents_div_id)
             elif blueprint_id:
                 await self.respond_with_blueprint(blueprint_id, contents_div_id, params=params)
             else:
@@ -679,23 +689,31 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 inference_seats = [chosen] if chosen else []
             from swarm.core.agent_kind import API_AGENT_RAIL_ID, resolve_chat_blueprint_id
 
+            profile = None
+            if isinstance(params, dict):
+                raw_model = params.get("model") or params.get("llm_profile")
+                if isinstance(raw_model, str) and raw_model.strip() and raw_model.strip() != "default":
+                    profile = raw_model.strip()
+            # An explicit dropdown pick (params.model / params.cli) wins over
+            # the inference list (#849 regression: a scale-out seat list cycled
+            # claude → codex → gemini even when the user pinned agy/qwen in
+            # the chat dropdown). Seats only fill values the user left open.
+            explicit_model = bool(profile)
+            explicit_cli = bool(cli_name)
+            if inference_seats and not explicit_model:
+                first = inference_seats[0]
+                if seat_kind(first) == "llm":
+                    profile = seat_id(first)
             if str(blueprint_id).strip().lower() == API_AGENT_RAIL_ID:
                 run_id = resolve_chat_blueprint_id(blueprint_id)
                 blueprint_instance = await get_blueprint_instance(run_id)
-                profile = None
-                if isinstance(params, dict):
-                    raw_model = params.get("model") or params.get("llm_profile")
-                    if isinstance(raw_model, str) and raw_model.strip() and raw_model.strip() != "default":
-                        profile = raw_model.strip()
-                if inference_seats:
-                    first = inference_seats[0]
-                    if seat_kind(first) == "llm":
-                        profile = seat_id(first)
-                if blueprint_instance is not None and profile:
-                    blueprint_instance.llm_profile_name = profile
             else:
                 run_id = "cli_agent" if cli_name else blueprint_id
-                if inference_seats and seat_kind(inference_seats[0]) == "cli":
+                if (
+                    inference_seats
+                    and not explicit_cli
+                    and seat_kind(inference_seats[0]) == "cli"
+                ):
                     cli_name = seat_id(inference_seats[0])
                     run_id = "cli_agent"
                 blueprint_instance = await get_blueprint_instance(run_id)
@@ -703,6 +721,8 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     blueprint_instance, "set_params"
                 ):
                     blueprint_instance.set_params({"cli": cli_name})
+            if blueprint_instance is not None and profile:
+                blueprint_instance.llm_profile_name = profile
         except Exception:
             logger.error(
                 f"Error loading blueprint '{blueprint_id}'", exc_info=True
@@ -885,9 +905,14 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 notice = failover_notice(seats[0], None, exhausted=True)
                 await self.send(text_data=_status_line_html(notice))
                 _record_status(self, notice, ts=_message_ts())
+            from swarm.utils.env_utils import client_safe_error_message
+
             await self.send_error_message(
                 contents_div_id,
-                f"Error: blueprint '{blueprint_id}' failed while generating a reply.",
+                client_safe_error_message(
+                    e,
+                    public=f"Error: blueprint '{blueprint_id}' failed while generating a reply.",
+                ),
             )
             return
         finally:
@@ -903,13 +928,37 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             )
             return
 
-        from swarm.core.model_text import sanitize_model_text
+        from swarm.core.model_text import (
+            error_body_message,
+            sanitize_model_text,
+        )
 
         full_message = sanitize_model_text(final_message["content"])
         if not full_message:
             await self.send_error_message(
                 contents_div_id,
                 "Error: the model returned no usable text (empty or tokenizer leftovers).",
+            )
+            return
+
+        # #133: gateways answer HTTP 200 with an OpenAI-compatible JSON error
+        # body (or its head) instead of raising; never persist that as a
+        # "successful" assistant reply. Name the LLM profile so the user knows
+        # which profile's model/base_url to check in Settings. Check the
+        # sanitized text so ANSI/special-token-prefixed bodies are caught too.
+        error_text = error_body_message(full_message)
+        if error_text:
+            profile_hint = ""
+            if isinstance(params, dict):
+                raw = params.get("model") or params.get("llm_profile")
+                if isinstance(raw, str) and raw.strip():
+                    profile_hint = f" (LLM profile '{raw.strip()}')"
+            await self.send_error_message(
+                contents_div_id,
+                "Error: "
+                + error_text
+                + profile_hint
+                + ". Check the profile's model/base_url in Settings → LLM profiles.",
             )
             return
         await self.send(text_data=_oob_append_html(contents_div_id, full_message))

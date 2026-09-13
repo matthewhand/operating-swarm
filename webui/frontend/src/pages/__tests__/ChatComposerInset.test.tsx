@@ -196,6 +196,12 @@ describe('REQ #743: chat history never scrolls under floating composer', () => {
           data: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-work-inset" class="assistant-message"></div></div>',
         }),
       )
+      // Sweep gate: the working band needs a non-empty streaming text.
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: '<div hx-swap-oob="beforeend:#message-response-work-inset">…</div>',
+        }),
+      )
     })
 
     expect(screen.getByTestId('composer-working-indicator')).toBeInTheDocument()

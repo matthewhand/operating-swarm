@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 import pytest
 
-from swarm.blueprints.remote_harness.blueprint_remote_harness import RemoteHarnessBlueprint
+from swarm.blueprints.remote_harness.blueprint_remote_harness import (
+    RemoteHarnessBlueprint,
+    _render_operate,
+)
+from swarm.core import remotes as remotes_core
 from swarm.core.blueprint_discovery import discover_blueprints
 from swarm.core.remotes import HealthResult, OperateResult
 
@@ -69,6 +73,68 @@ async def test_send_params(bp):
         out = await _ask(bp, "", params={"op": "send", "name": "hermes", "prompt": "hi"})
     assert "OK" in out
     op.assert_called_once()
+
+
+def test_render_operate_not_added_is_natural_sentence(monkeypatch):
+    monkeypatch.delenv("HERMES_BASE_URL", raising=False)
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    result = remotes_core.operate(
+        "hermes", "send", prompt="hey there", config={"llm": {}, "remotes": {}}
+    )
+    assert result.ok is False
+    out = _render_operate(result)
+    assert out.startswith("Hermes is not added as a remote")
+    assert "send: FAIL" not in out
+    assert "swarm-cli remotes set hermes" in out
+
+
+@pytest.mark.asyncio
+async def test_health_not_added_rendered_natural(bp):
+    detail = "Hermes is not added as a remote — the sidebar seat is a catalog placeholder."
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.check_health",
+        return_value=HealthResult(remote="hermes", ok=False, state="UNKNOWN", detail=detail),
+    ) as probe:
+        out = await _ask(bp, "health hermes")
+    assert out.startswith("Hermes is not added as a remote")
+    assert "UNKNOWN —" not in out
+    assert "hermes:" not in out
+    probe.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_runner_failure_fallback_is_short(bp, monkeypatch):
+    """Coordinator LLM failure yields a short honest fallback, not a dump (issue #131)."""
+    async def boom(*args, **kwargs):
+        raise RuntimeError("coordinator exploded with a very long detail string" * 40)
+
+    monkeypatch.setattr("agents.Runner.run", boom)
+    out = await _ask(bp, "tell me something interesting")
+    # No bound remote ⇒ just the short honest line — never the full
+    # multi-remote health dump or a raw stack dump (DEBUG may append the
+    # bounded exception detail via client_safe_error_message).
+    assert "unavailable" in out
+    assert "hermes:" not in out and "omb:" not in out and "rakazo" not in out
+    assert len(out) < 700
+
+
+@pytest.mark.asyncio
+async def test_runner_failure_fallback_bound_shows_only_bound_health(bp, monkeypatch):
+    """A bound seat keeps one health line + the honest failure, nothing else."""
+    async def boom(*args, **kwargs):
+        raise RuntimeError("boom detail " * 60)
+
+    monkeypatch.setattr("agents.Runner.run", boom)
+    monkeypatch.setattr(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness._health_tool",
+        lambda name="": "hermes: DOWN — tcp timeout",
+    )
+    monkeypatch.setattr(bp, "_parse", lambda messages: ("health", "hermes", "", ""))
+    out = await _ask(bp, "tell me something interesting")
+    assert out.startswith("hermes: DOWN")
+    assert "unavailable" in out
+    assert "rakazo" not in out and "swarm:" not in out
+    assert len(out) < 700
 
 
 @pytest.mark.asyncio

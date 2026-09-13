@@ -4,6 +4,7 @@ import {
   NEW_SECTION_PLACEHOLDER,
   RAIL_SECTIONS_STORAGE_KEY,
   UNASSIGNED_SECTION_ID,
+  createSection,
   createSectionWithAgent,
   deleteSection,
   isSectionCollapsed,
@@ -63,6 +64,19 @@ describe('railSections (REQ-209)', () => {
       { id: UNASSIGNED_SECTION_ID, name: 'Unassigned', members: ['reachy'] },
     ])
     expect(EMPTY_SECTION_HINT).toBe('Drag agents here')
+  })
+
+  it('creates an empty section that agents can be dragged into (#173)', () => {
+    const created = createSection({ sections: [], membership: {}, unassignedCollapsed: false })
+    expect(created.section.name).toBe('')
+    expect(created.state.sections.map((section) => section.id)).toEqual([created.section.id])
+    expect(created.state.membership).toEqual({})
+    expect(sectionIdForAgent('codey', created.state)).toBe(UNASSIGNED_SECTION_ID)
+    const moved = moveAgentToSection(created.state, 'codey', created.section.id)
+    expect(sectionIdForAgent('codey', moved)).toBe(created.section.id)
+    expect(partitionRowsBySection([{ id: 'codey' }], moved)[0].rows.map((row) => row.id)).toEqual([
+      'codey',
+    ])
   })
 
   it('moves between existing sections and Unassigned', () => {

@@ -25,7 +25,7 @@ from typing import Any
 
 from swarm.core.agent_roles import CANONICAL_ROLES, normalize_agent_role
 from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
-from swarm.core.team_cos import apply_cos_fields
+from swarm.core.team_cos import apply_cos_fields, find_member
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +241,82 @@ def reset_team_rosters(initial: dict[str, dict[str, Any]] | None = None) -> None
     global _roster_registry
     with _roster_lock:
         _roster_registry = None if initial is None else dict(initial)
+
+
+def static_team_rosters_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "static" / "team_rosters.json"
+
+
+def load_static_demo_rosters() -> dict[str, dict[str, Any]]:
+    """Demo rosters shipped in ``src/swarm/static/team_rosters.json`` (list or map)."""
+    path = static_team_rosters_path()
+    if not path.is_file():
+        return {}
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Failed to load static team_rosters.json")
+        return {}
+    rows: list[Any]
+    if isinstance(parsed, dict) and isinstance(parsed.get("data"), list):
+        rows = parsed["data"]
+    elif isinstance(parsed, dict):
+        rows = list(parsed.values())
+    elif isinstance(parsed, list):
+        rows = parsed
+    else:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rid = str(row.get("id") or "").strip()
+        if rid:
+            out[rid] = row
+    return out
+
+
+def resolve_roster(roster_id: str) -> dict[str, Any] | None:
+    """User store first, then shipped demo rosters (demo SDLC / BA)."""
+    want = str(roster_id or "").strip()
+    if not want:
+        return None
+    found = get_roster(want)
+    if found:
+        return found
+    return load_static_demo_rosters().get(want)
+
+
+def blueprint_id_from_source(source: Any) -> str | None:
+    text = str(source or "").strip()
+    if not text.lower().startswith("blueprint:"):
+        return None
+    blueprint_id = text.split(":", 1)[1].strip()
+    return blueprint_id or None
+
+
+def blueprint_id_for_team_target(team_id: Any, target: Any = None) -> str | None:
+    """Blueprint id for a team send, or None (stub / CLI / remote)."""
+    roster = resolve_roster(str(team_id or "").strip())
+    if not isinstance(roster, dict):
+        return None
+    members = roster.get("members")
+    dest = str(target or "").strip() or "all"
+    member = None
+    if dest not in {"all", "*"}:
+        member = find_member(members, dest)
+    if member is None:
+        cos_id = str(roster.get("chief_of_staff_id") or "").strip()
+        if dest in {"all", "*", cos_id}:
+            member = find_member(members, cos_id) if cos_id else None
+    if member is None and isinstance(members, list):
+        for row in members:
+            if blueprint_id_from_source((row or {}).get("source") if isinstance(row, dict) else None):
+                member = row
+                break
+    if not isinstance(member, dict):
+        return None
+    return blueprint_id_from_source(member.get("source"))
 
 
 def iter_normalized_rosters(

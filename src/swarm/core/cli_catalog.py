@@ -671,13 +671,19 @@ def with_native_consensus(name: str, n: int = 2) -> dict[str, Any] | None:
 #   gemini    ``gemini --list-models``  (JSON; early-exit, no REPL)
 #   codex     ``codex debug models``    (raw catalog JSON)
 #   opencode  ``opencode models``       (already documented in this catalog)
+#   agy       ``agy models``            (tab-separated id<TAB>label lines; a
+#                                       spinner banner goes to stderr, stdout
+#                                       parses as plain lines)
+# qwen: deliberately absent — its current build rejects ``--list-models``
+# ("Unknown arguments") and has no models subcommand, so there is nothing
+# honest to probe; dropdown falls back to the empty + warning path.
 LIST_MODELS: dict[str, list[str]] = {
     "grok": ["grok", "models"],
     "claude": ["claude", "models"],
     "gemini": ["gemini", "--list-models"],
     "codex": ["codex", "debug", "models"],
     "opencode": ["opencode", "models"],
-    "qwen": ["qwen", "--list-models"],
+    "agy": ["agy", "models"],
 }
 
 # List-models probes must stay cheap and never hang a Settings / #358 caller.

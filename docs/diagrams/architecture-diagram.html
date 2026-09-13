@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Swarm · High-Level Architecture Stack</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1040px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Open Swarm</p>
+    <h1>Open Swarm · High-Level Architecture Stack</h1>
+
+    <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="open-swarm-architecture-title open-swarm-architecture-desc">
+      <title id="open-swarm-architecture-title">Open Swarm · High-Level Architecture Stack</title>
+      <desc id="open-swarm-architecture-desc">Architecture diagram of Open Swarm showing WebUI client, OpenAI-compatible edge gateway, four agent seats with handoff engine, and Django SQLite persistence.</desc>
+      <defs>
+        <pattern id="grid-dots-os" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.08)"/>
+        </pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#grid-dots-os)" opacity="0.6"/>
+
+      <!-- Layer 1: Client -->
+      <rect x="20" y="16" width="960" height="112" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+      <text x="36" y="36" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">CLIENT &amp; CONSUMER INTERFACES</text>
+
+      <g transform="translate(56, 44)">
+        <rect width="268" height="68" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">Grok-like React WebUI</text>
+        <text x="16" y="48" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="11">Left rail &amp; agent workspace</text>
+      </g>
+
+      <g transform="translate(366, 44)">
+        <rect width="268" height="68" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="500">Swarm CLI Terminal</text>
+        <text x="16" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Interactive terminal sessions</text>
+      </g>
+
+      <g transform="translate(676, 44)">
+        <rect width="268" height="68" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="500">External API Clients</text>
+        <text x="16" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Open WebUI, SDK &amp; cURL</text>
+      </g>
+
+      <!-- Layer 2: Edge -->
+      <rect x="20" y="152" width="960" height="112" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+      <text x="36" y="172" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">EDGE API &amp; PROTOCOL GATEWAY</text>
+
+      <g transform="translate(56, 180)">
+        <rect width="268" height="68" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">OpenAI REST Gateway</text>
+        <text x="16" y="48" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="11">/v1/chat/completions &amp; /v1/responses</text>
+      </g>
+
+      <g transform="translate(366, 180)">
+        <rect width="268" height="68" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="500">Django Channels WebSocket</text>
+        <text x="16" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Token streaming &amp; async events</text>
+      </g>
+
+      <g transform="translate(676, 180)">
+        <rect width="268" height="68" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="500">Egress Governance &amp; Auth</text>
+        <text x="16" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Bearer token &amp; LLM routing</text>
+      </g>
+
+      <!-- Layer 3: Services -->
+      <rect x="20" y="288" width="960" height="116" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+      <text x="36" y="308" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">SERVICES &amp; AGENT EXECUTION SEATS</text>
+
+      <g transform="translate(56, 320)">
+        <rect width="268" height="68" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">Four Agent Seats Router</text>
+        <text x="16" y="48" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="11">CLI | API | Blueprint | Remote</text>
+      </g>
+
+      <g transform="translate(366, 320)">
+        <rect width="268" height="68" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">Handoff &amp; Agent-as-Tool</text>
+        <text x="16" y="48" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="11">openai-agents orchestration</text>
+      </g>
+
+      <g transform="translate(676, 320)">
+        <rect width="268" height="68" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="500">Team Blueprint Engine</text>
+        <text x="16" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Roster delegation &amp; MoA</text>
+      </g>
+
+      <!-- Layer 4: Data -->
+      <rect x="20" y="428" width="960" height="112" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+      <text x="36" y="448" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">DATA &amp; STATE PERSISTENCE</text>
+
+      <g transform="translate(56, 456)">
+        <rect width="268" height="68" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">Django ORM &amp; Database</text>
+        <text x="16" y="48" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="11">db.sqlite3 agent configs &amp; state</text>
+      </g>
+
+      <g transform="translate(366, 456)">
+        <rect width="268" height="68" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="500">Agent &amp; Blueprint YAML</text>
+        <text x="16" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Rosters &amp; prompt manifests</text>
+      </g>
+
+      <g transform="translate(676, 456)">
+        <rect width="268" height="68" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="28" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="500">Swarm Memory &amp; Audit</text>
+        <text x="16" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Conversation turns &amp; tool logs</text>
+      </g>
+
+      <!-- Connectors / Critical Paths -->
+      <!-- Critical path: WebUI -> OpenAI API -> 4 Agent Seats -> Handoff -> Database -->
+      <line x1="190" y1="112" x2="190" y2="176" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-accent)"/>
+      <line x1="190" y1="248" x2="190" y2="316" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-accent)"/>
+      <line x1="324" y1="354" x2="362" y2="354" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-accent)"/>
+      <line x1="190" y1="388" x2="190" y2="452" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-accent)"/>
+
+      <!-- Secondary paths -->
+      <line x1="500" y1="112" x2="500" y2="176" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+      <line x1="810" y1="112" x2="810" y2="176" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+      <line x1="634" y1="354" x2="672" y2="354" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+      <line x1="500" y1="388" x2="500" y2="452" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+
+      <!-- Legend -->
+      <g transform="translate(20, 572)">
+        <line x1="16" y1="16" x2="52" y2="16" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-accent)"/>
+        <text x="64" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">Critical Path (WebUI to Swarm Execution)</text>
+
+        <line x1="340" y1="16" x2="376" y2="16" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+        <text x="388" y="20" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Secondary channels &amp; manifests</text>
+
+        <rect x="620" y="8" width="16" height="16" rx="3" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="646" y="20" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">Core agent components</text>
+
+        <rect x="800" y="8" width="16" height="16" rx="3" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="826" y="20" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Standard subsystems</text>
+      </g>
+    </svg>
+  </div>
+</body>
+</html>

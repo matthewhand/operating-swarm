@@ -124,3 +124,95 @@ class TestLlmProfilesPatch:
         finally:
             app.config = orig_config
 
+
+def _load_from_disk(path: Path):
+    def _load(_config_path=None):
+        return json.loads(path.read_text(encoding="utf-8")), path
+
+    return _load
+
+
+class TestLlmProfilesUpsertRoundTrip:
+    def test_post_then_get_returns_model_and_base_url(self, api_client, tmp_path: Path):
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps({"llm": {}, "settings": {}}), encoding="utf-8")
+        loader = _load_from_disk(path)
+        with patch("swarm.core.remotes.load_raw_config", side_effect=loader):
+            created = api_client.post(
+                "/v1/llm-profiles/",
+                {
+                    "id": "local",
+                    "model": "auxiliary",
+                    "base_url": "http://10.0.0.30:8000/v1",
+                    "provider": "openai",
+                    "api_key": "${LITELLM_API_KEY}",
+                    "set_default": True,
+                },
+                format="json",
+            )
+            assert created.status_code == 200
+            listed = api_client.get("/v1/llm-profiles/")
+        assert listed.status_code == 200
+        data = listed.json()
+        by_id = {row["id"]: row for row in data["profiles"]}
+        assert "local" in by_id
+        assert by_id["local"]["model"] == "auxiliary"
+        assert by_id["local"]["base_url"] == "http://10.0.0.30:8000/v1"
+        assert data["default_llm_profile"] == "local"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        assert raw["llm"]["local"]["model"] == "auxiliary"
+        assert raw["llm"]["local"]["base_url"] == "http://10.0.0.30:8000/v1"
+        assert raw["llm"]["local"]["api_key"] == "${LITELLM_API_KEY}"
+        assert "sk-" not in path.read_text(encoding="utf-8")
+
+    def test_put_updates_existing_profile(self, api_client, tmp_path: Path):
+        path = tmp_path / "swarm_config.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "llm": {
+                        "local": {
+                            "provider": "openai",
+                            "model": "old",
+                            "base_url": "http://127.0.0.1:8000/v1",
+                        }
+                    },
+                    "settings": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            resp = api_client.put(
+                "/v1/llm-profiles/",
+                {
+                    "id": "local",
+                    "model": "auxiliary",
+                    "base_url": "http://10.0.0.30:8000/v1",
+                    "api_key": "${OPENAI_API_KEY}",
+                },
+                format="json",
+            )
+            listed = api_client.get("/v1/llm-profiles/")
+        assert resp.status_code == 200
+        by_id = {row["id"]: row for row in listed.json()["profiles"]}
+        assert by_id["local"]["model"] == "auxiliary"
+        assert by_id["local"]["base_url"] == "http://10.0.0.30:8000/v1"
+
+    def test_post_plaintext_secret_is_400(self, api_client, tmp_path: Path):
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps({"llm": {}}), encoding="utf-8")
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            resp = api_client.post(
+                "/v1/llm-profiles/",
+                {
+                    "id": "leaky",
+                    "model": "gpt-4o-mini",
+                    "api_key": "sk-live-token",
+                },
+                format="json",
+            )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "plaintext_secret"
+        assert "sk-live" not in path.read_text(encoding="utf-8")
+

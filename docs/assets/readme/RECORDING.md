@@ -19,11 +19,12 @@
 
 ### General
 - **Duration:** 15–20 seconds each
+- **Resolution:** 1280×800 minimum (clean browser window, no OS chrome)
 - **Format:** GIF (preferred) or mp4 + GIF fallback
 - **Size target:** ≤500 KB per asset
 - **No secrets** in frame (API keys, tokens, hostnames)
-- **No live LAN** traffic visible
-- **No `:8001`** — use local compose at `localhost:8000` unless capture host is explicitly approved
+- **No live LAN** traffic visible — no private-range hosts (`192.168.*.*`, `10.*.*.*`, `172.16–31.*.*`) in address bars, terminals, or window titles
+- **No `:8001`** — use local `docker compose` at `localhost:8000` unless capture host is explicitly approved. Do not show Neon or any cloud DB in frame
 
 ### Slot 1: CLI agents
 **Command:** `uv run swarm-cli cli-agents --init --write --check-auth`
@@ -41,7 +42,7 @@
 ### Slot 4: Combined team
 **Prerequisite:** Demo roster seeded (`scripts/seed_demo_agents.py --reset`)
 **Command:** `/chat?team=demo` → send a task that triggers CLI → API → Remote handoff
-**Show:** Multi-agent coordination across kinds
+**Show:** Multi-agent coordination across kinds — the API agent delegates to the CLI agent via agent-as-tool, then hands off to the remote OpenMousBot seat
 
 ---
 

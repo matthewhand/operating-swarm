@@ -10,6 +10,41 @@ export type ConversationRow =
   | { type: 'gap'; key: string; label: string }
   | { type: 'new'; key: string }
 
+export function isCountableChatRole(role: string): boolean {
+  return role === 'user' || role === 'assistant'
+}
+
+export function countableChatCount(messages: { role: string }[]): number {
+  return messages.filter((row) => isCountableChatRole(row.role)).length
+}
+
+/** Watermark for the New divider. Null when the thread is not unread. */
+export function effectiveUnreadWatermark(
+  unread: boolean,
+  storedCount: number | null,
+  currentCount: number,
+): number | null {
+  if (!unread || currentCount <= 0) return null
+  if (storedCount == null || storedCount >= currentCount) {
+    return Math.max(0, currentCount - 1)
+  }
+  return storedCount
+}
+
+export function firstUnreadMessageKey(
+  messages: { key: string; role: string }[],
+  lastReadMessageCount: number | null,
+): string | null {
+  if (lastReadMessageCount == null || lastReadMessageCount < 0) return null
+  let index = 0
+  for (const message of messages) {
+    if (!isCountableChatRole(message.role)) continue
+    if (index === lastReadMessageCount) return message.key
+    index += 1
+  }
+  return null
+}
+
 /**
  * Insert gap timestamps and a NEW rule around grouped hops + bubbles.
  * Messaged / progress stay after the previous bubble; Message from waits
@@ -53,7 +88,7 @@ export function decorateConversationRows(
     const message = row.message
     if (
       lastReadCount != null &&
-      lastReadCount > 0 &&
+      lastReadCount >= 0 &&
       messageIndex === lastReadCount
     ) {
       rows.push({ type: 'new', key: `new-${message.key}` })

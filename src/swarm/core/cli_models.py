@@ -52,6 +52,11 @@ _HEADER_WORDS = frozenset(
         "provider",
         "type",
         "tier",
+        # Spinner/banner words some CLIs print before the list (agy prints
+        # ``Fetching available models...``). Real model ids never look like
+        # these, and a banner on stdout must not become a dropdown option.
+        "fetching",
+        "loading",
     }
 )
 

@@ -124,6 +124,13 @@ def chat_thread(request):
 
     agent_raw = request.GET.get("agent")
     agent = chat_store.normalize_agent_id(agent_raw)
+    if agent_raw and str(agent_raw).startswith(("remote:", "remote-")):
+        # Remote rail seats ('remote:<kind>' from hydrate, 'remote-<kind>' from
+        # SPA status appends) persist their transcripts under the remote_harness
+        # blueprint agent — the id the chat websocket send frame uses — not the
+        # rail id. Map here so GET hydrate / POST append land on the same thread
+        # file the websocket reads and writes (issue #131).
+        agent = "remote_harness"
     user_key = _user_key(request.user)
     default_cid = chat_store.conversation_id_for(request.user, agent)
     conversation_id = default_cid
@@ -316,6 +323,40 @@ def chat_thread(request):
             {"error": "Could not persist the edit. See server logs."},
             status=500,
         )
+    # REQ-808: CLI-thread edit → clear cli_sessions + settings mirror + watch
+    from swarm.core.cli_sessions import clear_cli_session, put_cli_session
+    from swarm.core import chat_store as cs
+
+    # Clear any stored CLI session ids for the edited thread
+    user_key_local = _user_key(request.user)
+    # Determine which CLIs were involved in the thread (from turns)
+    involved_clis: set[str] = set()
+    for turn in current_turns:
+        role = turn.get("role", "")
+        # Check for cli_name in turn metadata or content
+        if isinstance(turn.get("content"), dict):
+            cli = turn["content"].get("cli_name") or turn["content"].get("name")
+            if cli:
+                involved_clis.add(cli)
+        # Also check top-level cli_name
+        cli = turn.get("cli_name")
+        if cli:
+            involved_clis.add(cli)
+
+    # Clear cli_sessions for each involved CLI
+    for cli_name in involved_clis:
+        clear_cli_session(
+            user_key=user_key_local,
+            agent_id=agent,
+            cli_name=cli_name,
+        )
+
+    # Mirror: also clear any session-level flags that should reset on edit
+    # (e.g. session_reset status line, cli_session_reset toast)
+    # The frontend will read these from the response payload
+    payload["session_reset"] = True
+    payload["cli_session_reset"] = True
+
     _sync_django_and_memory(
         request.user,
         current_turns,

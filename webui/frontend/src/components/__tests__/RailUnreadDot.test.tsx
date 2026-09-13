@@ -111,6 +111,19 @@ describe('REQ-210: Unread blue dot (replaces timestamp) + Mark as unread', () =>
     expect(localStorage.getItem(UNREAD_AGENTS_STORAGE_KEY)).toContain('stewie')
   })
 
+  it('keeps the unread dot when that seat is the open chat', async () => {
+    markAgentUnread('codey')
+    renderRail('/chat?blueprint=codey')
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+
+    const codeyRow = screen.getByRole('link', { name: /codey/i })
+    expect(codeyRow.querySelector('[data-testid="rail-unread-dot"]')).toBeInTheDocument()
+    expect(localStorage.getItem(UNREAD_AGENTS_STORAGE_KEY)).toContain('codey')
+  })
+
   it('new inbound activity via generation complete sets unread on unselected agent', async () => {
     renderRail('/chat?blueprint=codey')
 

@@ -289,11 +289,17 @@ def test_health_not_added_does_not_probe(monkeypatch):
     result = remotes_core.check_health("hermes", config={"llm": {}, "remotes": {}}, timeout=0.2)
     assert result.ok is False
     assert result.state == "UNKNOWN"
-    assert result.detail == "remote not added"
+    assert "not added as a remote" in result.detail
+    assert "swarm-cli remotes set hermes" in result.detail
     assert probed == []
     listed = remotes_core.operate("hermes", "list", config={"llm": {}, "remotes": {}})
     assert listed.ok is False
-    assert listed.detail == "remote not added"
+    assert "not added as a remote" in listed.detail
+    assert "HERMES_BASE_URL" in listed.detail
+    sent = remotes_core.operate("hermes", "send", prompt="hey", config={"llm": {}, "remotes": {}})
+    assert sent.ok is False
+    assert "swarm-cli remotes set hermes" in sent.detail
+    assert "HERMES_API_KEY" in sent.detail
 
 
 def test_health_down_closed_port():

@@ -38,7 +38,8 @@ def test_wizard_sends_kind_command_rail_and_chatpage_untouched_for_this_req():
     assert "kind: 'cli'" in wizard
     assert "command," in wizard
     assert "rail: true" in wizard
-    assert "kind: 'api'" in wizard
+    # API vs custom blueprint kind is decided by the isBp branch.
+    assert "kind: isBp ? 'blueprint' : 'api'" in wizard
     chat = CHAT.read_text(encoding="utf-8")
     assert "createCustomBlueprint" not in chat
 

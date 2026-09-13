@@ -4,9 +4,10 @@ Exposes the ``application`` referenced by ``settings.ASGI_APPLICATION``:
 
 - ``http``      -> the regular Django ASGI application
 - ``websocket`` -> Channels routing for the chat consumer, wrapped in
-  ``AllowedHostsOriginValidator`` (Origin header must match ALLOWED_HOSTS)
-  and ``AuthMiddlewareStack`` (the consumer requires an authenticated
-  Django session).
+  ``SwarmWebsocketOriginValidator`` (same-origin LAN Host/Origin, plus
+  concrete ALLOWED_HOSTS; cross-site Origins are denied even when ``*``
+  is listed) and ``AuthMiddlewareStack`` (the consumer requires an
+  authenticated Django session).
 
 Run it with any ASGI server, e.g.::
 
@@ -30,14 +31,14 @@ django_asgi_app = get_asgi_application()
 
 from channels.auth import AuthMiddlewareStack  # noqa: E402
 from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
-from channels.security.websocket import AllowedHostsOriginValidator  # noqa: E402
 
 from swarm.routing import websocket_urlpatterns  # noqa: E402
+from swarm.ws_origin import SwarmWebsocketOriginValidator  # noqa: E402
 
 application = ProtocolTypeRouter(
     {
         "http": django_asgi_app,
-        "websocket": AllowedHostsOriginValidator(
+        "websocket": SwarmWebsocketOriginValidator(
             AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
         ),
     }

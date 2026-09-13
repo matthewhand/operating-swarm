@@ -40,6 +40,10 @@ export interface RolePaneDetail {
   roleId?: string
 }
 
+/** Opaque floating pane — page must not bleed through (Settings / add-profile). */
+export const OVERLAY_CHROME_CLASSES =
+  'bg-base-100 border border-base-300 shadow-xl'
+
 export function openChromeOverlay(overlay: ChromeOverlay, detail?: RolePaneDetail): void {
   window.dispatchEvent(new CustomEvent(EVENT_BY_OVERLAY[overlay], { detail }))
 }

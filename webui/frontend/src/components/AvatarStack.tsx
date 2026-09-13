@@ -62,7 +62,6 @@ export default function AvatarStack({
       data-face-count={String(shown.length)}
       data-remainder={String(extra)}
       aria-label={label}
-      aria-hidden={label ? undefined : 'true'}
     >
       {shown.map((face) => (
         <span
@@ -86,11 +85,13 @@ export default function AvatarStack({
           }}
         >
           <AgentAvatar
-            agentId={face.id}
+            agentId={face.agentId || face.id}
             src={face.avatarSrc || face.src}
             alt={face.name || face.id}
             size="xs"
-            className="w-full h-full flex items-center justify-center pointer-events-none"
+            status={face.working ? 'working' : 'idle'}
+            active={Boolean(face.working)}
+            className="w-full h-full flex items-center justify-center"
             style={{ background: 'transparent' }}
           />
         </span>

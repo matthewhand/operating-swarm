@@ -436,6 +436,27 @@ describe('REQ-212 inline skill chips', () => {
     )
     expect(screen.getByTestId('skill-chip')).toHaveAttribute('data-skill-missing', 'true')
   })
+
+  it('exposes speaker for transcript-wide bubble themes (REQ-810)', () => {
+    render(
+      <ChatMessageBubble
+        role="assistant"
+        agentName="Codey"
+        text="hello"
+        streaming={false}
+        canEdit={false}
+        editing={false}
+        onStartEdit={() => {}}
+        onCancelEdit={() => {}}
+        onSaveEdit={() => {}}
+        ts="2026-09-03T06:54:00Z"
+      />,
+    )
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-speaker', 'Codey')
+    expect(row).toHaveAttribute('data-ts', '2026-09-03T06:54:00Z')
+    expect(screen.getByTestId('bubble-time')).toBeInTheDocument()
+  })
 })
 
 

@@ -13,7 +13,6 @@ GEOMETRIC_SVG = REPO_ROOT / "assets" / "brand" / "webui-geometric.svg"
 def test_req801_theme_enum_includes_bee():
     content = THEME_TS.read_text(encoding="utf-8")
     assert "'blobs', 'bland', 'default', 'bee'" in content
-    assert "value === 'bee'" in content
     assert "return 'blobs'" in content
     assert "defaultAvatarTheme" in content
 
@@ -25,13 +24,16 @@ def test_req801_bee_is_opt_in_not_forced_default():
     picker = (
         REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AvatarThemePicker.tsx"
     ).read_text(encoding="utf-8")
-    assert 'value="blobs"' in picker
-    assert 'value="bland"' in picker
-    assert 'value="bee"' in picker
-    assert ">Default<" in picker
-    assert ">Blobs<" in picker
-    assert ">Bee<" in picker
-    assert "optional choices" in picker
+    # REQ-828 picker: Bee/Blobs are installable families rendered as checkboxes.
+    assert "{ id: 'bee', label: 'Bee' }" in content
+    assert "{ id: 'blobs', label: 'Blobs' }" in content
+    picker = (
+        REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AvatarThemePicker.tsx"
+    ).read_text(encoding="utf-8")
+    assert "AVATAR_THEME_FAMILIES.map" in picker
+    assert "aria-label={theme.label}" in picker
+    assert "toggleEnabledAvatarTheme(theme.id, event.target.checked)" in picker
+    assert "optional installs" in picker
     assert "never auto-applied" in picker
 
 

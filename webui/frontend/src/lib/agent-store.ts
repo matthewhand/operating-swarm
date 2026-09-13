@@ -37,7 +37,9 @@ import { cycleSessionMode as nextSessionMode, normalizeSessionMode, type Session
 import {
   AVATAR_THEME_STORAGE_KEY,
   AVATAR_THEME_SET_EVENT,
+  AVATAR_THEMES_ENABLED_EVENT,
   dispatchAvatarTheme,
+  stripDisabledAvatarThemes,
 } from './avatarTheme'
 
 interface AgentStoreState {
@@ -858,7 +860,18 @@ if (typeof window !== 'undefined') {
       }
     }
   }
+  /** REQ-841: rewrite per-agent packs that are no longer installed. */
+  const onEnabledThemesSet = (event: Event) => {
+    const detail = (event as CustomEvent<AvatarTheme[]>).detail
+    if (!Array.isArray(detail) || detail.length === 0) return
+    const byAgent = useAgentStore.getState().avatarThemeByAgent
+    const next = stripDisabledAvatarThemes(byAgent, detail)
+    if (next === byAgent) return
+    saveStored('agent_avatar_theme_by_agent', next)
+    useAgentStore.setState({ avatarThemeByAgent: next })
+  }
   window.addEventListener(AVATAR_THEME_SET_EVENT, onAvatarThemeSet)
+  window.addEventListener(AVATAR_THEMES_ENABLED_EVENT, onEnabledThemesSet)
   window.addEventListener('storage', onStorage)
 }
 

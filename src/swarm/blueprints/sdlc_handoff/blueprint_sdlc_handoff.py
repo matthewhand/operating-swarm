@@ -26,6 +26,8 @@ import logging
 import os
 from typing import Any, ClassVar
 
+from openai import AsyncOpenAI
+
 from swarm.blueprints.common import cli_fusion_support as support
 from swarm.core.blueprint_base import BlueprintBase
 from swarm.core.handoff_graph import (
@@ -130,10 +132,15 @@ class SdlcHandoffBlueprint(BlueprintBase):
         params = dict(self._params)
         action = str(params.get("action") or "").strip().lower()
         text = self._last_user_text(messages)
+        if action in ("status", "graph", "edges", "who", "variant"):
+            if action == "variant" and text:
+                self._params["variant"] = text.strip()
+                self._agents = {}
+            return "graph", text
         if action:
-            return action, text
+            return "chat", text
         parts = text.split(None, 1)
-        head = (parts[0].lower() if parts else "status").rstrip(":")
+        head = (parts[0].lower() if parts else "").rstrip(":")
         rest = parts[1] if len(parts) > 1 else ""
         if head in ("status", "graph", "edges", "who"):
             return "graph", rest
@@ -141,7 +148,7 @@ class SdlcHandoffBlueprint(BlueprintBase):
             self._params["variant"] = rest.strip()
             self._agents = {}
             return "graph", rest
-        return "graph", text
+        return "chat", text
 
     def _status_text(self) -> str:
         graph = self.graph()
@@ -150,22 +157,126 @@ class SdlcHandoffBlueprint(BlueprintBase):
         assert_edges_match(graph, agents)
         return format_graph(graph, live=live)
 
+    def _seat_id(self) -> str:
+        graph = self.graph()
+        known = set(graph.node_ids())
+        params = dict(self._params)
+        for key in ("seat", "target", "agent"):
+            raw = str(params.get(key) or "").strip()
+            if raw and raw not in {"all", "*"} and raw in known:
+                return raw
+        return graph.entry
+
+    def _seat_instructions(self, seat: str) -> str:
+        graph = self.graph()
+        node = graph.node_map().get(seat)
+        name = node.name if node else seat
+        role = node.role if node else "default"
+        extra = (node.instructions if node else "") or ""
+        dest = ", ".join(graph.outgoing(seat)) or "nobody (finish this seat)"
+        return (
+            f"You are {name} (seat {seat}, role {role}) on the SDLC handoff graph. "
+            f"When this seat is done, hand off only to: {dest}. "
+            "Do not skip seats or invent others. Reply as this persona."
+            + (f" {extra}" if extra else "")
+        )
+
+    def _llm_messages(self, messages: list[dict[str, Any]], seat: str) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = [
+            {"role": "system", "content": self._seat_instructions(seat)}
+        ]
+        for item in messages or []:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "user")
+            if role not in {"user", "assistant", "system", "developer"}:
+                continue
+            content = item.get("content")
+            if content is None or content == "":
+                continue
+            mapped = "system" if role == "developer" else role
+            out.append({"role": mapped, "content": str(content)})
+        if len(out) == 1:
+            out.append({"role": "user", "content": self._last_user_text(messages)})
+        return out
+
+    def _llm_client_kwargs(self) -> tuple[str, dict[str, Any]]:
+        profile = self.get_llm_profile(self.llm_profile_name)
+        base_url = (
+            (profile or {}).get("base_url")
+            or os.getenv("LITELLM_BASE_URL")
+            or os.getenv("OPENAI_BASE_URL")
+        )
+        api_key = (
+            (profile or {}).get("api_key")
+            or os.getenv("LITELLM_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+            or "ollama"
+        )
+        model_name = (
+            (profile or {}).get("model")
+            or os.getenv("LITELLM_MODEL")
+            or os.getenv("DEFAULT_LLM")
+            or os.getenv("OPENAI_MODEL")
+        )
+        if not model_name:
+            raise RuntimeError(
+                "No LLM model configured. Save an LLM profile (model + base URL) "
+                "in Settings, or set LITELLM_MODEL/DEFAULT_LLM."
+            )
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        return str(model_name), client_kwargs
+
+    async def _chat_llm(self, messages: list[dict[str, Any]]) -> str:
+        seat = self._seat_id()
+        model_name, client_kwargs = self._llm_client_kwargs()
+        client = AsyncOpenAI(**client_kwargs)
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=self._llm_messages(messages, seat),
+        )
+        choices = getattr(response, "choices", None) or []
+        if not choices:
+            raise RuntimeError("LLM returned no choices")
+        message = getattr(choices[0], "message", None)
+        content = getattr(message, "content", None) if message is not None else None
+        if not content:
+            raise RuntimeError("LLM returned empty content")
+        return str(content)
+
     async def run(self, messages: list[dict[str, Any]], **_kwargs) -> Any:
-        _action, _text = self._parse(messages)
+        action, _text = self._parse(messages)
         test_mode = os.environ.get("SWARM_TEST_MODE", "").lower() in ("1", "true", "yes")
-        # This blueprint's job is the graph, not a live Runner conversation.
-        # Always return the enforced edges (LLM freestyle is the anti-pattern).
+        if action == "graph":
+            try:
+                body = self._status_text()
+            except Exception as exc:
+                logger.warning("sdlc_handoff graph status failed: %s", exc)
+                body = f"sdlc_handoff: could not load example graph ({exc})"
+                if not test_mode:
+                    body += "\nCLI/remote harnesses stay native; only API gets this graph."
+            yield support.message_chunk(
+                body,
+                final=True,
+                meta=support.backend_meta(["sdlc_handoff", self._graph_id]),
+            )
+            return
+
         try:
-            body = self._status_text()
+            body = await self._chat_llm(messages)
         except Exception as exc:
-            logger.warning("sdlc_handoff graph status failed: %s", exc)
-            body = f"sdlc_handoff: could not load example graph ({exc})"
-            if not test_mode:
-                body += "\nCLI/remote harnesses stay native; only API gets this graph."
+            logger.warning("sdlc_handoff LLM call failed: %s", exc)
+            body = (
+                f"Error: LLM call failed ({exc}). "
+                "Check the saved LLM profile (base URL + model). "
+                "This seat does not echo the user message."
+            )
         yield support.message_chunk(
             body,
             final=True,
-            meta=support.backend_meta(["sdlc_handoff", self._graph_id]),
+            meta=support.backend_meta(["sdlc_handoff", self._seat_id()]),
         )
 
 

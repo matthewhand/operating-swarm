@@ -196,7 +196,8 @@ def test_optional_catalog_auth_required_without_token_is_fatal():
             return _response(200, {"object": "list", "data": []})
         return _response(403, {"detail": "nope"})
 
-    with pytest.raises(SwarmApiError, match="auth required"):
+    # Named-error contract: missing token is fatal with actionable copy.
+    with pytest.raises(SwarmApiError, match="not accepted"):
         list_rail_agents(getter=getter)
 
 

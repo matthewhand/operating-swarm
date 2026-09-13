@@ -1,11 +1,27 @@
-import { useEffect, useState } from 'react'
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react'
 import { useGeneratedAvatar } from '../lib/agentAvatars'
+import { hashAgentId } from '../lib/blobAvatar'
 import { isGeneratedStillSrc } from '../lib/imageGenSettings'
-import { useAvatarTheme } from '../lib/useAvatarTheme'
-import type { AgentStatus } from '../types/agent'
+import { useAgentStore } from '../lib/agent-store'
+import {
+  isRobotPackTheme,
+  resolveAvatarTheme,
+} from '../lib/avatarTheme'
+import { useAvatarTheme, useEnabledAvatarThemes } from '../lib/useAvatarTheme'
+import type { AgentStatus, AvatarEyes, AvatarTheme } from '../types/agent'
 import BlobAvatar from './BlobAvatar'
 import BeeAvatar from './BeeAvatar'
 import { Robot3DAvatar } from './Robot3DAvatar'
+import { RobotAvatar } from './AgentSidebar/RobotAvatar'
+import AgentThemePreviewDialog from './AgentThemePreviewDialog'
+import { chooseThemeLabel } from './AgentThemeChooser'
 
 /**
  * Bland circular fallback — not the Bert-like default owned by REQ-6 (#309).
@@ -23,6 +39,14 @@ export const DEFAULT_AGENT_AVATAR_SRC =
 
 export type AgentAvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
+const AVATAR_SIZE_PX: Record<AgentAvatarSize, number> = {
+  xs: 24,
+  sm: 32,
+  md: 40,
+  lg: 48,
+  xl: 56,
+}
+
 export interface AgentAvatarProps {
   /** Custom face URL. Blank / missing / broken uses the themed default (or bland if selected in settings). */
   src?: string | null
@@ -35,7 +59,11 @@ export interface AgentAvatarProps {
   status?: AgentStatus
   /** ADR-008 §2: enable the WebGL pose-player (chat header only — one GL context). */
   gl?: boolean
-  style?: React.CSSProperties
+  style?: CSSProperties
+  /** Forced look (preview tiles). Skips per-agent / global resolve. */
+  theme?: AvatarTheme
+  /** Opt-in click-to-choose. Rail/pins stay false so left-click selects chat. */
+  interactive?: boolean
 }
 
 export function resolveAgentAvatarSrc(src?: string | null): string {
@@ -49,12 +77,12 @@ export function agentAvatarKind(src?: string | null): 'custom' | 'default' {
 
 /**
  * Shared agent face for the rail tile, favourites large tiles, and the chat header.
- * Display-only: no click handler. Sizes: rail sm, header/favs lg.
- * Unset or broken avatars resolve to Blobs-with-eyes by default (REQ-155),
- * Bee geometric brand marks when that theme is chosen (#801),
- * or bland static circles when opt-in chosen in Settings. Uploaded custom
- * faces always win. Generated stills (REQ-83) apply on Bland/Default and
- * stay unused while Blobs or Bee is selected.
+ * Header may opt into click-to-choose (REQ-840). Rail and pins use the right-click
+ * Choose theme item so left-click still selects and chats.
+ * Unset or broken avatars resolve per-agent theme, then the sole enabled
+ * theme, then the global default (REQ-828). Uploaded custom faces always win.
+ * Generated stills (REQ-83) apply on Bland/Default and stay unused while
+ * Blobs or Bee is selected.
  */
 export default function AgentAvatar({
   src,
@@ -66,10 +94,34 @@ export default function AgentAvatar({
   status = 'idle',
   gl = false,
   style,
+  theme: forcedTheme,
+  interactive,
 }: AgentAvatarProps) {
   const [broken, setBroken] = useState(false)
-  const theme = useAvatarTheme()
+  const [open, setOpen] = useState(false)
+  const globalTheme = useAvatarTheme()
+  const enabled = useEnabledAvatarThemes()
+  const perAgentTheme = useAgentStore((s) =>
+    agentId ? s.avatarThemeByAgent[agentId] : undefined,
+  )
+  const packColor = useAgentStore((s) => {
+    if (!agentId) return '#6366f1'
+    return s.agents.find((agent) => agent.agent_id === agentId)?.color || '#6366f1'
+  })
+  const packEyes = useAgentStore(
+    (s) => (agentId && s.avatarEyesByAgent[agentId]) || s.avatarEyes,
+  )
+  const theme = forcedTheme ?? resolveAvatarTheme(perAgentTheme, enabled, globalTheme)
   const generatedSrc = useGeneratedAvatar(agentId)
+  const choosable = Boolean(agentId) && interactive === true
+  const chooseLabel = chooseThemeLabel(alt || agentId)
+  const motionHash = hashAgentId(agentId || alt || 'agent')
+  const motionStyle: CSSProperties = {
+    ['--ew' as string]: `${((motionHash % 23) / 10).toFixed(2)}s`,
+    ['--ed' as string]: `${(6 + (motionHash % 50) / 10).toFixed(2)}s`,
+    ['--wd' as string]: `${(((motionHash >>> 8) % 14) / 10).toFixed(2)}s`,
+    ['--wt' as string]: `${(0.72 + ((motionHash >>> 4) % 10) / 10).toFixed(2)}s`,
+  }
 
   useEffect(() => {
     setBroken(false)
@@ -88,105 +140,218 @@ export default function AgentAvatar({
   const showUploaded = Boolean(uploadedSrc && !broken)
   const isCustom = showUploaded || (showGeneratedStill && !broken)
 
+  const shell = (attrs: Record<string, unknown>, children: ReactNode) => (
+    <>
+      <AvatarRoot
+        choosable={choosable}
+        chooseLabel={chooseLabel}
+        open={open}
+        onOpen={() => setOpen(true)}
+        className={`avatar ${className}`.trim()}
+        style={{ ...motionStyle, ...style }}
+        aria-hidden={choosable || alt ? undefined : true}
+        {...attrs}
+      >
+        {children}
+      </AvatarRoot>
+      {choosable && open && agentId ? (
+        <AgentThemePreviewDialog
+          agentId={agentId}
+          isOpen={open}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  )
+
   if (isCustom) {
     const faceSrc = uploadedSrc || stillSrc
-    return (
-      <div
-        className={`avatar ${className}`.trim()}
-        data-agent-avatar="custom"
-        data-avatar-size={size}
-        data-avatar-still={showGeneratedStill ? 'generated' : undefined}
-        aria-hidden={alt ? undefined : true}
-        style={style}
-      >
-        <div className={`os-agent-avatar os-agent-avatar--${size} rounded-full`}>
-          <img
-            src={faceSrc}
-            alt={alt}
-            draggable={false}
-            data-agent-avatar="custom"
-            onError={() => setBroken(true)}
-          />
-        </div>
-      </div>
+    return shell(
+      {
+        'data-agent-avatar': 'custom',
+        'data-avatar-size': size,
+        'data-avatar-still': showGeneratedStill ? 'generated' : undefined,
+      },
+      <div className={`os-agent-avatar os-agent-avatar--${size} rounded-full`}>
+        <img
+          src={faceSrc}
+          alt={alt}
+          draggable={false}
+          data-agent-avatar="custom"
+          onError={() => setBroken(true)}
+        />
+      </div>,
     )
   }
 
-  // Unset or broken face -> resolve via avatar theme
+  const eyeState = active || status === 'working' || status === 'waiting' ? 'active' : 'idle'
+
+  if (isRobotPackTheme(theme)) {
+    return shell(
+      {
+        'data-agent-avatar': 'default',
+        'data-avatar-theme': theme,
+        'data-avatar-size': size,
+        'data-eye-state': eyeState,
+      },
+      <RobotAvatar
+        color={packColor}
+        status={status}
+        size={AVATAR_SIZE_PX[size]}
+        theme={theme as AvatarTheme}
+        eyes={packEyes as AvatarEyes}
+        active={eyeState === 'active'}
+        trackPointer={size === 'lg' || size === 'xl'}
+        label={alt || undefined}
+      />,
+    )
+  }
+
   if (theme === 'robot3d') {
-    return (
-      <div
-        className={`avatar ${className}`.trim()}
-        data-agent-avatar="default"
-        data-avatar-theme="robot3d"
-        data-avatar-size={size}
-        aria-hidden={alt ? undefined : true}
-        style={style}
-      >
-        <Robot3DAvatar agentId={agentId} status={status} size={size} gl={gl} />
-      </div>
+    return shell(
+      {
+        'data-agent-avatar': 'default',
+        'data-avatar-theme': 'robot3d',
+        'data-avatar-size': size,
+        'data-eye-state': eyeState,
+      },
+      <Robot3DAvatar
+        agentId={agentId}
+        status={status}
+        size={size}
+        gl={gl}
+        active={active}
+      />,
     )
   }
 
   if (theme === 'bee') {
-    return (
-      <div
-        className={`avatar ${className}`.trim()}
-        data-agent-avatar="default"
-        data-avatar-theme="bee"
-        data-avatar-size={size}
-        data-eye-state={active ? 'active' : 'idle'}
-        aria-hidden={alt ? undefined : true}
-        style={style}
-      >
-        <BeeAvatar
-          agentId={agentId || 'agent'}
-          active={active}
-          size={size}
-          className=""
-        />
-      </div>
+    return shell(
+      {
+        'data-agent-avatar': 'default',
+        'data-avatar-theme': 'bee',
+        'data-avatar-size': size,
+        'data-eye-state': eyeState,
+      },
+      <BeeAvatar
+        agentId={agentId || 'agent'}
+        active={eyeState === 'active'}
+        size={size}
+        className=""
+      />,
     )
   }
 
   if (theme === 'blobs') {
-    return (
-      <div
-        className={`avatar ${className}`.trim()}
-        data-agent-avatar="default"
-        data-avatar-theme="blobs"
-        data-avatar-size={size}
-        data-eye-state={active ? 'active' : 'idle'}
-        aria-hidden={alt ? undefined : true}
-        style={style}
-      >
-        <BlobAvatar
-          agentId={agentId || 'agent'}
-          active={active}
-          size={size}
-          className=""
-        />
-      </div>
+    return shell(
+      {
+        'data-agent-avatar': 'default',
+        'data-avatar-theme': 'blobs',
+        'data-avatar-size': size,
+        'data-eye-state': eyeState,
+      },
+      <BlobAvatar
+        agentId={agentId || 'agent'}
+        active={eyeState === 'active'}
+        size={size}
+        className=""
+      />,
     )
   }
 
-  // Bland static fallback
+  return shell(
+    {
+      'data-agent-avatar': 'default',
+      'data-avatar-theme': 'bland',
+      'data-avatar-size': size,
+      'data-eye-state': eyeState,
+    },
+    <BlandAvatar size={size} active={eyeState === 'active'} alt={alt} />,
+  )
+}
+
+function AvatarRoot({
+  choosable,
+  chooseLabel,
+  open,
+  onOpen,
+  children,
+  className,
+  style,
+  ...rest
+}: {
+  choosable: boolean
+  chooseLabel: string
+  open: boolean
+  onOpen: () => void
+  children: ReactNode
+  className?: string
+  style?: CSSProperties
+  [key: string]: unknown
+}) {
+  if (choosable) {
+    return (
+      <span
+        role="button"
+        tabIndex={0}
+        data-theme-chooser=""
+        className={`${className || ''} inline-flex cursor-pointer border-0 bg-transparent p-0`.trim()}
+        style={style}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={chooseLabel}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event: MouseEvent<HTMLElement>) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onOpen()
+        }}
+        onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          event.stopPropagation()
+          onOpen()
+        }}
+        {...rest}
+      >
+        {children}
+      </span>
+    )
+  }
   return (
-    <div
-      className={`avatar ${className}`.trim()}
-      data-agent-avatar="default"
-      data-avatar-size={size}
-      aria-hidden={alt ? undefined : true}
-      style={style}
-    >
-      <div className={`os-agent-avatar os-agent-avatar--${size} rounded-full`}>
-        <img
-          src={DEFAULT_AGENT_AVATAR_SRC}
-          alt={alt}
-          draggable={false}
-          data-agent-avatar="default"
-        />
-      </div>
+    <div className={className} style={style} {...rest}>
+      {children}
     </div>
+  )
+}
+
+function BlandAvatar({
+  size,
+  active,
+  alt,
+}: {
+  size: AgentAvatarSize
+  active: boolean
+  alt: string
+}) {
+  return (
+    <svg
+      className={`os-bland-avatar os-bland-avatar--${size} os-agent-avatar os-agent-avatar--${size}`}
+      viewBox="0 0 40 40"
+      role="img"
+      aria-hidden={alt ? undefined : true}
+      aria-label={alt || undefined}
+      data-agent-avatar="default"
+      data-avatar-theme="bland"
+      data-eye-state={active ? 'active' : 'idle'}
+    >
+      <circle cx="20" cy="20" r="20" fill="#2a2a2a" />
+      <circle cx="20" cy="16" r="7" fill="#8a8a8a" />
+      <ellipse cx="20" cy="36" rx="12" ry="10" fill="#8a8a8a" />
+      <g className="os-bland-eyes">
+        <circle cx="-3.15" cy="0" r="1.55" fill="#111111" />
+        <circle cx="3.15" cy="0" r="1.55" fill="#111111" />
+      </g>
+    </svg>
   )
 }

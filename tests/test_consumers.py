@@ -794,6 +794,27 @@ class TestBlueprintSelection:
                             mock_default.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_receive_demo_sdlc_ba_uses_blueprint_not_stub(self, consumer):
+        """#113: BA on demo SDLC must run sdlc_handoff, not the team echo stub."""
+        consumer.messages = []
+        text_data = json.dumps({
+            "message": "Write a story for login",
+            "params": {"team": "demo-sdlc-pipeline", "target": "ba"},
+        })
+
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(consumer, "respond_with_team_stub", new_callable=AsyncMock) as mock_team:
+                    with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock) as mock_bp:
+                        with patch.object(consumer, "respond_with_default_model", new_callable=AsyncMock) as mock_default:
+                            await consumer.receive(text_data)
+
+                            mock_bp.assert_awaited_once()
+                            assert mock_bp.await_args.args[0] == "sdlc_handoff"
+                            mock_team.assert_not_awaited()
+                            mock_default.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_receive_status_frame_appends_without_llm(self, consumer):
         """REQ-46: type=status persists a transcript line and skips the model."""
         consumer.messages = []
@@ -965,6 +986,71 @@ class TestBlueprintSelection:
                 assert consumer.messages[-1]["role"] == "assistant"
                 assert consumer.messages[-1]["content"] == "BP reply"
                 assert consumer.messages[-1]["ts"]
+
+    @pytest.mark.asyncio
+    async def test_blueprint_error_body_reply_is_meaningful_error(self, consumer, monkeypatch):
+        """#133: a gateway JSON error body (or its head) must surface as a
+        meaningful error naming the LLM profile — never as a successful
+        assistant reply appended to the conversation."""
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        consumer.messages = [{"role": "user", "content": "Hello"}]
+
+        async def fake_run(messages, **kwargs):
+            yield {"messages": [{"role": "assistant", "content": "{"}]}
+
+        instance = MagicMock()
+        instance.run = fake_run
+        instance._params = {}
+
+        with patch("swarm.views.utils.get_blueprint_instance", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = instance
+            with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                await consumer.respond_with_blueprint(
+                    "api_agent", "message-response-err", params={"model": "auxiliary"}
+                )
+
+                frames = [
+                    call.kwargs.get("text_data") or call.args[0]
+                    for call in mock_send.await_args_list
+                ]
+                error_html = "".join(frames)
+                assert "Error:" in error_html
+                assert "JSON error body" in error_html
+                assert "auxiliary" in error_html
+                # Never persisted as an assistant turn.
+                assert all(m.get("role") != "assistant" for m in consumer.messages)
+
+    @pytest.mark.asyncio
+    async def test_blueprint_error_body_extracts_gateway_message(self, consumer, monkeypatch):
+        """#133: a full {"error": {...}} body surfaces the gateway message."""
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        consumer.messages = [{"role": "user", "content": "Hello"}]
+
+        async def fake_run(messages, **kwargs):
+            yield {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": '{"error": {"message": "Invalid model name passed in model=test-probe."}}',
+                    }
+                ]
+            }
+
+        instance = MagicMock()
+        instance.run = fake_run
+        instance._params = {}
+
+        with patch("swarm.views.utils.get_blueprint_instance", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = instance
+            with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                await consumer.respond_with_blueprint("api_agent", "message-response-err")
+
+                frames = [
+                    call.kwargs.get("text_data") or call.args[0]
+                    for call in mock_send.await_args_list
+                ]
+                assert "Invalid model name passed in model=test-probe." in "".join(frames)
+                assert all(m.get("role") != "assistant" for m in consumer.messages)
 
     @pytest.mark.asyncio
     async def test_blueprint_session_notice_is_bubbleless_status(self, consumer, monkeypatch):

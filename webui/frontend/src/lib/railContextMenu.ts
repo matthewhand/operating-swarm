@@ -36,6 +36,7 @@ export type RailMenuItemId =
   | 'unhide'
   | 'notify'
   | 'delete'
+  | 'section-create'
   | 'section-rename'
   | 'section-move-up'
   | 'section-move-down'
@@ -199,6 +200,7 @@ export function sectionMenuItems(opts: {
   canMoveDown: boolean
 }): RailMenuItemSpec[] {
   return [
+    { id: 'section-create', label: 'New section', group: 0 },
     { id: 'section-rename', label: 'Rename', group: 0 },
     {
       id: 'section-move-up',
@@ -216,6 +218,15 @@ export function sectionMenuItems(opts: {
     },
     { id: 'section-delete', label: 'Delete', group: 2, danger: true },
   ]
+}
+
+/**
+ * REQ-848 / #173: right-click on the rail background — create a fresh empty section.
+ * Drag any agent/pin onto its header to move it in (dropOnSection already
+ * accepts rows and pinned ids).
+ */
+export function paneMenuItems(): RailMenuItemSpec[] {
+  return [{ id: 'section-create', label: 'New section', group: 0 }]
 }
 
 /** CLI-only reasons exported for tests / disabled titles if a caller shows them. */

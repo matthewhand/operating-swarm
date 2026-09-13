@@ -106,14 +106,30 @@ def test_get_csv_env_strips_whitespace_and_drops_empties():
 
 
 def test_get_django_csrf_trusted_origins():
-    with patch.dict(os.environ, {"DJANGO_CSRF_TRUSTED_ORIGINS": "https://a.com, https://b.com ,"}):
+    with patch.dict(
+        os.environ,
+        {"DJANGO_CSRF_TRUSTED_ORIGINS": "https://a.com, https://b.com ,", "DJANGO_DEBUG": "false"},
+    ):
         assert get_django_csrf_trusted_origins() == ["https://a.com", "https://b.com"]
-    # Default applies when unset.
-    with patch.dict(os.environ, {}, clear=True):
+    # Default applies when unset (non-debug: no LAN port extras).
+    with patch.dict(os.environ, {"DJANGO_DEBUG": "false"}, clear=True):
         assert get_django_csrf_trusted_origins() == [
             "http://localhost:8000",
             "http://127.0.0.1:8000",
         ]
+
+
+def test_get_django_csrf_trusted_origins_debug_includes_listen_port():
+    env = {
+        "DJANGO_DEBUG": "true",
+        "DJANGO_ALLOWED_HOSTS": "10.0.0.30",
+        "DJANGO_CSRF_TRUSTED_ORIGINS": "http://localhost:8000",
+        "PORT": "8002",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        origins = get_django_csrf_trusted_origins()
+    assert "http://localhost:8000" in origins
+    assert "http://10.0.0.30:8002" in origins
 
 
 def test_build_mcp_stdio_env_does_not_leak_parent_secrets():

@@ -69,6 +69,24 @@ def test_parse_codex_models_wrapper_and_slug():
     assert parse_models_stdout(raw) == ["gpt-5.6-terra", "gpt-5.4-mini"]
 
 
+def test_parse_agy_models_fixture():
+    # agy models: tab-separated ``id<TAB>label`` lines; parser takes the first
+    # token. The "Fetching available models..." spinner banner goes to stderr
+    # and must never appear on stdout; if a banner ever leaks, the header
+    # filter drops it instead of listing it as a model.
+    raw = (
+        "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n"
+        "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n"
+        "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
+        "Fetching available models...\n"
+    )
+    assert parse_models_stdout(raw) == [
+        "gemini-3.8-flash-high",
+        "gemini-3.8-flash-medium",
+        "claude-sonnet-4-6",
+    ]
+
+
 def test_parse_drops_secrets_and_headers():
     raw = (
         "ID NAME\n"

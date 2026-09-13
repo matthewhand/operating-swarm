@@ -90,7 +90,9 @@ export default function BlobAvatar({
       data-agent-id={agentId}
       style={style}
     >
-      <BlobShapePath shape={spec.shape} color={spec.color} />
+      <g className="os-blob-body">
+        <BlobShapePath shape={spec.shape} color={spec.color} />
+      </g>
       <g
         className="os-blob-eyes"
         style={{

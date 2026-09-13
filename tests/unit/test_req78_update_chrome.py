@@ -50,7 +50,10 @@ def test_github_call_home_is_public_and_tokenless():
     src = GITHUB.read_text(encoding="utf-8")
     assert "api.github.com/repos/" in src
     assert "releases/latest" in src
-    assert "GITHUB_REPO = 'matthewhand/open-swarm'" in src
+    # REQ-78: public repo default; VITE_SWARM_GITHUB_REPO may override the
+    # repo name but the call-home stays unauthenticated either way.
+    assert "GITHUB_REPO =" in src
+    assert "matthewhand/open-swarm" in src
     assert "Authorization" not in src
     assert "GITHUB_TOKEN" not in src
     assert "Bearer" not in src

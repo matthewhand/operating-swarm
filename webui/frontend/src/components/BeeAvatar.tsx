@@ -47,6 +47,7 @@ export default function BeeAvatar({
         ['--py' as string]: `${spec.rest.y.toFixed(2)}px`,
         ['--ew' as string]: `${spec.wanderPhase[1].toFixed(2)}s`,
         ['--ed' as string]: `${duration.toFixed(2)}s`,
+        ['--bh' as string]: `${(1.05 + spec.wanderPhase[2] * 0.35).toFixed(2)}s`,
       }}
     >
       <circle cx="32" cy="32" r="32" fill="#1D2226" />
@@ -64,7 +65,7 @@ function SideOnBee({ spec, uid }: { spec: BeeSpec; uid: string }) {
   const clipId = `os-bee-abdomen-${uid}`
   const flip = spec.flip ? 'translate(64 0) scale(-1 1)' : undefined
   return (
-    <g transform={flip}>
+    <g className="os-bee-body" transform={flip}>
       <defs>
         <pattern id={honeyId} width="6" height="5.2" patternUnits="userSpaceOnUse">
           <path

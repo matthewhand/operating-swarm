@@ -376,44 +376,38 @@ class CodeyBlueprint(BlueprintBase):
     ) -> "Agent":
         # If SWARM_TEST_MODE or no_tools is set, don't attach tools (for compatibility with ChatCompletions API)
         test_mode = os.environ.get("SWARM_TEST_MODE", "0") == "1" or no_tools
-        tools_lin = (
-            []
-            if test_mode
-            else [
-                git_status_tool,
-                git_diff_tool,
-                read_file_tool,
-                write_file_tool,
-                list_files_tool,
-                execute_shell_command_tool,
-            ]
+
+        def _chat_tools(*tools):
+            if test_mode:
+                return []
+            return [tool for tool in tools if not isinstance(tool, DummyTool)]
+
+        tools_lin = _chat_tools(
+            git_status_tool,
+            git_diff_tool,
+            read_file_tool,
+            write_file_tool,
+            list_files_tool,
+            execute_shell_command_tool,
         )
-        tools_fiona = (
-            []
-            if test_mode
-            else [
-                git_status_tool,
-                git_diff_tool,
-                git_add_tool,
-                git_commit_tool,
-                git_push_tool,
-                read_file_tool,
-                write_file_tool,
-                list_files_tool,
-                execute_shell_command_tool,
-            ]
+        tools_fiona = _chat_tools(
+            git_status_tool,
+            git_diff_tool,
+            git_add_tool,
+            git_commit_tool,
+            git_push_tool,
+            read_file_tool,
+            write_file_tool,
+            list_files_tool,
+            execute_shell_command_tool,
         )
-        tools_sammy = (
-            []
-            if test_mode
-            else [
-                run_npm_test_tool,
-                run_pytest_tool,
-                read_file_tool,
-                write_file_tool,
-                list_files_tool,
-                execute_shell_command_tool,
-            ]
+        tools_sammy = _chat_tools(
+            run_npm_test_tool,
+            run_pytest_tool,
+            read_file_tool,
+            write_file_tool,
+            list_files_tool,
+            execute_shell_command_tool,
         )
         linus_corvalds = self.make_agent(
             name="Linus_Corvalds",
@@ -944,11 +938,16 @@ class CodeyBlueprint(BlueprintBase):
                     )
                     yield result
             elif result is not None:
+                result_content = getattr(result, "final_output", None)
+                if result_content is None:
+                    result_content = str(result)
+                elif not isinstance(result_content, str):
+                    result_content = str(result_content)
                 border = "╔" if os.environ.get("SWARM_TEST_MODE") else None
                 spinner_state = get_spinner_state(op_start)
                 print_operation_box(
                     op_type="Codey Result",
-                    results=[str(result)],
+                    results=[result_content],
                     params=None,
                     result_type="codey",
                     summary="Codey agent response",
@@ -964,11 +963,11 @@ class CodeyBlueprint(BlueprintBase):
                     "agent_action",
                     {
                         "event": "agent_action",
-                        "content": str(result),
+                        "content": result_content,
                         "instruction": instruction,
                     },
                 )
-                yield {"messages": [{"role": "assistant", "content": str(result)}]}
+                yield {"messages": [{"role": "assistant", "content": result_content}]}
         except Exception as e:
             logger.error(f"Error during non-interactive run: {e}", exc_info=True)
             border = "╔" if os.environ.get("SWARM_TEST_MODE") else None

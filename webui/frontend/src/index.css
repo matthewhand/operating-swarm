@@ -288,8 +288,15 @@ html:not([data-theme="light"]) .os-composer,
 .os-agent-sidebar {
   background: var(--os-chrome-sidebar);
   border-right: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
-  position: relative;
   container-type: inline-size;
+}
+
+/* Relative positioning only on desktop: on mobile the rail is a fixed
+   drawer (Tailwind `fixed`), and an in-flow 16rem rail squeezes chat. */
+@media (min-width: 1024px) {
+  .os-agent-sidebar {
+    position: relative;
+  }
 }
 
 /* REQ-116: Left rail resizer affordance */
@@ -462,8 +469,35 @@ html:not([data-theme="light"]) .os-composer,
       rotate(calc(var(--ea, 0deg) - 10deg)) scale(0.96);
   }
 }
+.os-blob-body {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.os-blob-avatar[data-eye-state="active"] .os-blob-body {
+  animation: os-blob-jiggle var(--wt, 1.35s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-blob-jiggle {
+  0%, 100% { transform: scale(1, 1) rotate(0deg); }
+  35% { transform: scale(1.07, 0.93) rotate(-4deg); }
+  70% { transform: scale(0.94, 1.06) rotate(4deg); }
+}
+.os-blob-avatar[data-blob-shape="teardrop"][data-eye-state="active"] .os-blob-body {
+  animation-name: os-blob-jiggle-drop;
+}
+@keyframes os-blob-jiggle-drop {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  50% { transform: translateY(-1.6px) scale(0.96, 1.08); }
+}
+.os-blob-avatar[data-blob-shape="pill"][data-eye-state="active"] .os-blob-body {
+  animation-name: os-blob-jiggle-pill;
+}
+@keyframes os-blob-jiggle-pill {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(8deg); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .os-blob-avatar[data-eye-state="active"] .os-blob-eyes {
+  .os-blob-avatar[data-eye-state="active"] .os-blob-eyes,
+  .os-blob-avatar[data-eye-state="active"] .os-blob-body {
     animation: none;
   }
 }
@@ -513,22 +547,54 @@ html:not([data-theme="light"]) .os-composer,
   transform: translate(var(--px, 0px), var(--py, 0px));
 }
 .os-bee-avatar[data-eye-state="active"] .os-bee-pupils {
-  animation: os-bee-wander var(--ed, 9s) ease-in-out var(--ew, 0s) infinite;
+  animation: os-bee-wander var(--ed, 5.4s) ease-in-out var(--ew, 0s) infinite;
 }
 @keyframes os-bee-wander {
   0%,
   100% {
     transform: translate(var(--px, 0px), var(--py, 0px));
   }
-  28% {
-    transform: translate(calc(var(--px, 0px) + 1.15px), calc(var(--py, 0px) - 0.85px));
+  10% {
+    transform: translate(calc(var(--px, 0px) + 1.45px), calc(var(--py, 0px) - 0.35px));
   }
-  62% {
-    transform: translate(calc(var(--px, 0px) - 1.05px), calc(var(--py, 0px) + 0.95px));
+  16% {
+    transform: translate(calc(var(--px, 0px) + 1.45px), calc(var(--py, 0px) - 0.35px));
+  }
+  38% {
+    transform: translate(calc(var(--px, 0px) - 1.2px), calc(var(--py, 0px) + 1.05px));
+  }
+  52% {
+    transform: translate(calc(var(--px, 0px) + 0.25px), calc(var(--py, 0px) + 0.15px));
+  }
+  74% {
+    transform: translate(calc(var(--px, 0px) - 0.95px), calc(var(--py, 0px) - 1.15px));
   }
 }
+.os-bee-avatar[data-bee-variant="side-on"][data-eye-state="active"] .os-bee-body {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: os-bee-hover var(--bh, 1.15s) ease-in-out infinite;
+}
+@keyframes os-bee-hover {
+  0%,
+  100% {
+    transform: translateY(1.1px);
+  }
+  50% {
+    transform: translateY(-2.6px);
+  }
+}
+.os-bee-avatar[data-bee-variant="face-only"][data-eye-state="active"] {
+  animation: os-bee-face-bob var(--bh, 1.05s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-bee-face-bob {
+  0%, 100% { transform: rotate(-3deg) translateY(0); }
+  50% { transform: rotate(3deg) translateY(-1.2px); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .os-bee-avatar[data-eye-state="active"] .os-bee-pupils {
+  .os-bee-avatar[data-eye-state="active"] .os-bee-pupils,
+  .os-bee-avatar[data-bee-variant="side-on"][data-eye-state="active"] .os-bee-body,
+  .os-bee-avatar[data-bee-variant="face-only"][data-eye-state="active"] {
     animation: none;
   }
 }
@@ -538,6 +604,201 @@ html:not([data-theme="light"]) .os-composer,
 }
 .os-agent-row .os-bee-avatar {
   margin-top: 0;
+}
+
+.os-bland-avatar {
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+  border-radius: 999px;
+}
+.os-bland-avatar--xs {
+  width: 1.5rem;
+  height: 1.5rem;
+  max-width: 1.5rem;
+  max-height: 1.5rem;
+}
+.os-bland-avatar--sm {
+  width: 2.15rem;
+  height: 2.15rem;
+}
+.os-bland-avatar--md {
+  width: 2.35rem;
+  height: 2.35rem;
+}
+.os-bland-avatar--lg {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+.os-bland-avatar--xl {
+  width: 3.5rem;
+  height: 3.5rem;
+}
+.os-bland-eyes {
+  transform-box: fill-box;
+  transform-origin: 0 0;
+  transform: translate(20px, 15px);
+}
+.os-bland-avatar[data-eye-state="active"] .os-bland-eyes {
+  animation: os-bland-wander var(--ed, 9s) ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-bland-wander {
+  0%,
+  100% {
+    transform: translate(20px, 15px);
+  }
+  28% {
+    transform: translate(23.2px, 13.2px);
+  }
+  62% {
+    transform: translate(17.4px, 16.8px);
+  }
+}
+.os-bland-avatar[data-eye-state="active"] {
+  animation: os-bland-pulse var(--wt, 1.6s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-bland-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-bland-avatar[data-eye-state="active"] .os-bland-eyes,
+  .os-bland-avatar[data-eye-state="active"] {
+    animation: none;
+  }
+}
+.os-fav-tile .os-bland-avatar {
+  width: 3rem;
+  height: 3rem;
+}
+.os-agent-row .os-bland-avatar {
+  margin-top: 0;
+}
+
+.os-robot-avatar[data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander var(--ed, 9s) ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  28% {
+    transform: translate(1.4px, -1.1px);
+  }
+  62% {
+    transform: translate(-1.2px, 1.15px);
+  }
+}
+[data-avatar-theme="pixel"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-pixel 2.2s steps(2, end) var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-pixel {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(2px, -1px); }
+}
+[data-avatar-theme="glyph"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-glyph 3.4s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-glyph {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  55% { transform: scale(0.9); }
+}
+[data-avatar-theme="orb"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-orb 7s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-orb {
+  0%, 100% { transform: rotate(0deg) translate(0, 0); }
+  50% { transform: rotate(18deg) translate(0.6px, 0.4px); }
+}
+[data-avatar-theme="antenna"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-antenna 1.8s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-antenna {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(0, 1.8px); }
+}
+[data-avatar-theme="cube"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-cube 4s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-cube {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(1.6px, 0); }
+  75% { transform: translate(-1.6px, 0); }
+}
+[data-avatar-theme="mask"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-mask 5.2s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-mask {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-2.2px, 0.4px); }
+}
+[data-avatar-theme="beetle"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-beetle 1.1s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-beetle {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(1.1px, 1.1px); }
+}
+[data-avatar-theme="ghost"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-ghost 6.4s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-ghost {
+  0%, 100% { transform: translate(0, 0); opacity: 1; }
+  50% { transform: translate(0, -1.4px); opacity: 0.55; }
+}
+[data-avatar-theme="crystal"][data-eye-state="active"] .os-robot-pupils {
+  animation: os-robot-wander-crystal 2.8s ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-robot-wander-crystal {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(0.8px, -0.8px) scale(1.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-robot-avatar[data-eye-state="active"] .os-robot-pupils {
+    animation: none;
+  }
+}
+
+.os-robot3d-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: translate(32px, 27.5px);
+}
+.os-robot3d-pupils {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+[data-avatar-theme="robot3d"][data-eye-state="active"] .os-robot3d-pupils,
+.os-robot3d-fallback[data-eye-state="active"] .os-robot3d-pupils {
+  animation: os-robot3d-wander 9s ease-in-out infinite;
+}
+[data-avatar-theme="robot3d"][data-robot3d-status="working"] .os-robot3d-fallback {
+  animation: os-work-robot3d var(--wt, 1.15s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-robot3d {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-2px) rotate(2deg); }
+}
+@keyframes os-robot3d-wander {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  28% {
+    transform: translate(1.2px, -0.8px);
+  }
+  62% {
+    transform: translate(-1.1px, 0.9px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-avatar-theme="robot3d"][data-eye-state="active"] .os-robot3d-pupils,
+  .os-robot3d-fallback[data-eye-state="active"] .os-robot3d-pupils,
+  [data-avatar-theme="robot3d"][data-robot3d-status="working"] .os-robot3d-fallback {
+    animation: none;
+  }
 }
 
 .os-rail-search {
@@ -739,19 +1000,6 @@ html:not([data-theme="light"]) .os-composer,
   align-self: flex-start;
   margin-top: 0.125rem;
 }
-.os-agent-row__avatar-slot .os-agent-role-badge {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  font-size: 0.55rem;
-  padding: 0 0.25rem;
-  line-height: 1.2;
-  height: 0.9rem;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  white-space: nowrap;
-}
 .os-agent-row__label-col {
   min-width: 0;
   flex: 1 1 0%;
@@ -925,6 +1173,9 @@ button.os-agent-row {
   display: none;
 }
 .os-agent-sidebar--avatar-only .os-rail-hostname {
+  display: none;
+}
+.os-agent-sidebar--avatar-only .os-teams-label {
   display: none;
 }
 .os-agent-sidebar--avatar-only .os-plugins-label {
@@ -1676,10 +1927,12 @@ html:not([data-theme="light"]) .os-composer__send,
   opacity: 0.5;
 }
 
-/* REQ-192: Tighter chat bubble margins — less wasted side gap (Grok transcript layout) */
+/* REQ-192: Tighter chat bubble margins — less wasted side gap (Grok transcript layout).
+   #166: speech-bubble tails stay visible — DaisyUI draws them 0.75rem outside the
+   bubble, so the transcript reserves that same width on BOTH sides. */
 .os-chat-transcript {
-  padding-left: 0.25rem;
-  padding-right: 0.5rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
   /* #743: last-message clearance tracks live sticky composer height */
   scroll-padding-bottom: var(--os-chat-composer-inset, 0px);
 }
@@ -1688,6 +1941,28 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 .os-chat-bottom-dock {
   margin-top: calc(-1 * var(--os-chat-composer-inset, 0px));
+}
+
+/* #167: visible chat-connection state above the composer. The input stays
+   typeable; this explains why a send is queued instead of dropped. */
+.os-conn-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 1rem 0;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--color-base-content) 85%, transparent);
+}
+.os-conn-status__dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--color-warning);
 }
 
 /* REQ-90: queued sends sit below in-flight assistant, cap ~1/3 of transcript. */
@@ -1746,8 +2021,8 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 @media (min-width: 640px) {
   .os-chat-transcript {
-    padding-left: 0.5rem;
-    padding-right: 0.75rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 }
 .os-chat-transcript .chat {
@@ -1766,6 +2041,197 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-chat-transcript .chat-start .chat-bubble {
   grid-column-start: 1;
   justify-self: start;
+}
+
+/* REQ-810: transcript-wide bubble themes (data-bubble-theme on .os-chat-transcript). */
+.os-bubble-meta .os-bubble-time {
+  display: none;
+}
+.os-chat-transcript:not([data-bubble-theme="simple"]):not([data-bubble-theme="feed"])
+  .os-bubble-meta:not(:has([data-testid="edited-hint"])) {
+  display: none;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .os-bubble-meta,
+.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  opacity: 0.85;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .os-bubble-meta::before,
+.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-meta::before {
+  content: attr(data-speaker);
+}
+.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-meta::before {
+  font-weight: 600;
+  opacity: 1;
+}
+.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-time {
+  display: inline;
+  color: color-mix(in srgb, var(--color-base-content) 48%, transparent);
+  opacity: 1;
+  font-weight: 400;
+}
+
+.os-chat-transcript[data-bubble-theme="simple"] .chat-bubble {
+  background-image: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  border-radius: 1.15rem !important;
+  min-height: 0;
+  padding: 0.55rem 0.95rem;
+  max-width: min(36rem, 92%);
+}
+.os-chat-transcript[data-bubble-theme="simple"] .chat-start .chat-bubble {
+  background-color: color-mix(in srgb, var(--color-base-200) 88%, var(--color-base-content) 12%) !important;
+  color: var(--color-base-content) !important;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .chat-end .chat-bubble {
+  background-color: color-mix(in srgb, var(--color-neutral) 86%, var(--color-base-100) 14%) !important;
+  color: var(--color-neutral-content) !important;
+}
+.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble,
+.os-chat-transcript[data-bubble-theme="feed"] .chat-bubble {
+  background-color: transparent !important;
+  background-image: none !important;
+  color: inherit !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  min-height: 0;
+  padding-inline: 0;
+  padding-block: 0.1rem;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .chat-bubble::before,
+.os-chat-transcript[data-bubble-theme="simple"] .chat-bubble::after,
+.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble::before,
+.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble::after,
+.os-chat-transcript[data-bubble-theme="feed"] .chat-bubble::before,
+.os-chat-transcript[data-bubble-theme="feed"] .chat-bubble::after {
+  content: none !important;
+  display: none !important;
+}
+
+.os-chat-transcript[data-bubble-theme="irc"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.8125rem;
+}
+.os-chat-transcript[data-bubble-theme="irc"] .os-chat-messages > * + * {
+  margin-top: 0.05rem;
+}
+.os-chat-transcript[data-bubble-theme="irc"] .chat {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  justify-content: flex-start;
+  width: 100%;
+  padding-block: 0;
+  column-gap: 0.35rem;
+}
+.os-chat-transcript[data-bubble-theme="irc"] .chat[data-speaker]::before {
+  content: "<" attr(data-speaker) ">";
+  flex: 0 0 auto;
+  opacity: 0.8;
+  margin-right: 0.35em;
+}
+.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100% !important;
+  justify-self: start;
+}
+
+.os-chat-transcript[data-bubble-theme="feed"] .chat,
+.os-chat-transcript[data-bubble-theme="feed"] .chat-start,
+.os-chat-transcript[data-bubble-theme="feed"] .chat-end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+}
+.os-chat-transcript[data-bubble-theme="feed"] .chat-end .chat-bubble,
+.os-chat-transcript[data-bubble-theme="feed"] .chat-start .chat-bubble,
+.os-chat-transcript[data-bubble-theme="irc"] .chat-end .chat-bubble,
+.os-chat-transcript[data-bubble-theme="irc"] .chat-start .chat-bubble {
+  grid-column-start: 1;
+  justify-self: start;
+  max-width: 100%;
+}
+
+.os-bubble-theme-submenu {
+  position: absolute;
+  left: calc(100% + 0.25rem);
+  top: 0;
+  z-index: 60;
+  min-width: 9.5rem;
+  margin: 0;
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-base-300);
+  background: var(--color-base-100);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--color-base-content) 16%, transparent);
+}
+@media (max-width: 40rem) {
+  .os-bubble-theme-submenu {
+    left: 0.5rem;
+    right: 0.5rem;
+    top: 100%;
+    min-width: 0;
+  }
+}
+
+.os-chat-transcript[data-bubble-theme="irc"] .chat-header {
+  display: none;
+}
+.os-chat-transcript[data-bubble-theme="feed"] .chat-end,
+.os-chat-transcript[data-bubble-theme="irc"] .chat-end {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+.os-chat-transcript[data-bubble-theme="feed"] .chat-end .chat-bubble {
+  justify-self: start;
+  margin-inline-start: 0;
+}
+
+/* #166: mirror the speech-bubble tail on both sides. DaisyUI draws it as
+   `.chat-bubble::before` (0.75rem `--mask-chat`); pin the geometry so neither
+   side is neutralized or clipped. */
+.os-chat-transcript .chat-start .chat-bubble::before,
+.os-chat-transcript .chat-end .chat-bubble::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  background-color: inherit;
+  -webkit-mask-image: var(--mask-chat);
+  mask-image: var(--mask-chat);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: 0 -1px;
+  mask-position: 0 -1px;
+  -webkit-mask-size: 0.8125rem;
+  mask-size: 0.8125rem;
+}
+.os-chat-transcript .chat-start .chat-bubble::before {
+  inset-inline-start: -0.75rem;
+  transform: rotateY(0);
+}
+.os-chat-transcript .chat-end .chat-bubble::before {
+  inset-inline-start: 100%;
+  transform: rotateY(180deg);
+}
+[dir="rtl"] .os-chat-transcript .chat-start .chat-bubble::before {
+  transform: rotateY(180deg);
+}
+[dir="rtl"] .os-chat-transcript .chat-end .chat-bubble::before {
+  transform: rotateY(0);
 }
 
 .os-chat-footer {
@@ -2229,6 +2695,8 @@ html:not([data-theme="light"]) .os-composer__send,
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+  width: 100%;
+  padding: 0.25rem 0.4rem 0;
 }
 
 .os-skill-chip {
@@ -2283,6 +2751,27 @@ html:not([data-theme="light"]) .os-composer__send,
   font-size: 0.75rem;
 }
 
+.os-attach-chip__thumb {
+  width: 2.25rem;
+  height: 2.25rem;
+  object-fit: cover;
+  border-radius: 0.35rem;
+}
+
+.os-attach-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.os-attach-chip__remove:hover {
+  opacity: 1;
+}
+
 .os-chat-gap,
 .os-chat-new {
   display: flex;
@@ -2295,10 +2784,19 @@ html:not([data-theme="light"]) .os-composer__send,
   letter-spacing: 0.04em;
 }
 
+.os-chat-new {
+  color: color-mix(in srgb, var(--color-info, #0ea5e9) 82%, var(--color-base-content));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.os-chat-new__label {
+  flex: 0 0 auto;
+}
+
 .os-chat-new__rule {
   flex: 1 1 2rem;
-  max-width: 4rem;
-  border-top: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--color-info, #0ea5e9) 72%, transparent);
 }
 
 /* REQ-194: 3D robot avatar theme — status chrome for the fallback SVG
@@ -2314,7 +2812,7 @@ html:not([data-theme="light"]) .os-composer__send,
   animation: os-robot-listen 1.6s ease-in-out infinite;
 }
 .robot-working {
-  animation: os-robot-work 0.9s ease-in-out infinite;
+  animation: os-work-chassis var(--wt, 0.9s) ease-in-out var(--wd, 0s) infinite;
 }
 .robot-error {
   animation: os-robot-error 2.4s ease-in-out infinite;
@@ -2322,6 +2820,80 @@ html:not([data-theme="light"]) .os-composer__send,
 @keyframes os-robot-work {
   0%, 100% { transform: rotate(-3deg); }
   50% { transform: rotate(3deg); }
+}
+@keyframes os-work-chassis {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+[data-avatar-theme="pixel"] .robot-working {
+  animation: os-work-pixel var(--wt, 0.55s) steps(2, end) var(--wd, 0s) infinite;
+}
+@keyframes os-work-pixel {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(1.4px, -1.6px); }
+}
+[data-avatar-theme="glyph"] .robot-working {
+  animation: os-work-glyph var(--wt, 0.85s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-glyph {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.1); }
+  55% { transform: scale(0.94); }
+}
+[data-avatar-theme="orb"] .robot-working {
+  animation: os-work-orb var(--wt, 1.35s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-orb {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-2.8px) rotate(6deg); }
+}
+[data-avatar-theme="antenna"] .robot-working {
+  transform-origin: 50% 12%;
+  animation: os-work-antenna var(--wt, 0.7s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-antenna {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(8deg); }
+}
+[data-avatar-theme="cube"] .robot-working {
+  animation: os-work-cube var(--wt, 1.1s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-cube {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  30% { transform: rotate(7deg) translateX(1px); }
+  70% { transform: rotate(-6deg) translateX(-1px); }
+}
+[data-avatar-theme="mask"] .robot-working {
+  animation: os-work-mask var(--wt, 1.2s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-mask {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  50% { transform: rotate(-9deg) translateX(-1.5px); }
+}
+[data-avatar-theme="beetle"] .robot-working {
+  animation: os-work-beetle var(--wt, 0.48s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-beetle {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(1.6px, 1.2px) rotate(5deg); }
+  75% { transform: translate(-1.6px, 1.2px) rotate(-5deg); }
+}
+[data-avatar-theme="ghost"] .robot-working {
+  animation: os-work-ghost var(--wt, 1.7s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-ghost {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(-3.4px); opacity: 0.78; }
+}
+[data-avatar-theme="crystal"] .robot-working {
+  animation: os-work-crystal var(--wt, 1.05s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-work-crystal {
+  0%, 100% { transform: rotate(-2deg) scale(1); }
+  50% { transform: rotate(3deg) scale(1.07); }
+}
+[data-avatar-theme="chassis"] .robot-working {
+  animation-name: os-work-chassis;
 }
 @keyframes os-robot-listen {
   0%, 100% { transform: rotate(0deg); }
@@ -2342,7 +2914,10 @@ html:not([data-theme="light"]) .os-composer__send,
   .robot-waiting,
   .robot-working,
   .robot-error,
-  .os-robot-glow-ring {
+  [data-avatar-theme] .robot-working,
+  .os-robot-glow-ring,
+  .os-robot-avatar[data-eye-state="active"] .os-robot-pupils,
+  [data-avatar-theme][data-eye-state="active"] .os-robot-pupils {
     animation: none;
   }
 }

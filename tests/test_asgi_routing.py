@@ -6,7 +6,7 @@ directly and hand-crafts the scope — these tests exercise the real
 ``swarm.asgi.application`` stack:
 
     ProtocolTypeRouter
-      -> AllowedHostsOriginValidator
+      -> SwarmWebsocketOriginValidator
         -> AuthMiddlewareStack (session cookie -> scope["user"])
           -> URLRouter (ws/ai-demo/<conversation_id>/)
             -> DjangoChatConsumer
@@ -41,9 +41,7 @@ from swarm.asgi import application
 from swarm.consumers import SPA_HELLO_TYPE
 
 WS_PATH = "/ws/ai-demo/asgi-test-conv/"
-# The dev/test default ALLOWED_HOSTS is ['localhost', '127.0.0.1'] (see
-# swarm.utils.env_utils.get_django_allowed_hosts). The origin validator in
-# swarm.asgi captures that list at import time, so use localhost here.
+# Loopback Origin/Host; REQ-849 also allows same-origin LAN IPs.
 VALID_ORIGIN_HEADERS = [
     (b"origin", b"http://localhost"),
     (b"host", b"localhost"),
@@ -138,29 +136,31 @@ class TestWebsocketGating:
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_disallowed_origin_rejected(self, settings):
-        """Origin outside ALLOWED_HOSTS is denied by the origin validator.
-
-        Debug defaults include ``*`` so a LAN phone can connect. Pin a
-        restricted list and wrap a fresh validator so this contract stays real.
-        """
-        from channels.auth import AuthMiddlewareStack
-        from channels.routing import URLRouter
-        from channels.security.websocket import AllowedHostsOriginValidator
-
-        from swarm.routing import websocket_urlpatterns
-
-        settings.ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
-        restricted = AllowedHostsOriginValidator(
-            AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
-        )
+    async def test_disallowed_origin_rejected(self):
+        """Cross-site Origin is denied even when debug ALLOWED_HOSTS has ``*``."""
         communicator = WebsocketCommunicator(
-            restricted,
+            application,
             WS_PATH,
             headers=[(b"origin", b"http://evil.example.com"), (b"host", b"localhost")],
         )
         connected, _ = await communicator.connect()
         assert not connected
+        await communicator.disconnect()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_lan_same_origin_connects(self):
+        """Phone on http://10.x.x.x:port is same-origin; handshake is not denied."""
+        communicator = WebsocketCommunicator(
+            application,
+            WS_PATH,
+            headers=[
+                (b"origin", b"http://10.0.0.30:8002"),
+                (b"host", b"10.0.0.30:8002"),
+            ],
+        )
+        connected, _ = await communicator.connect()
+        assert connected
         await communicator.disconnect()
 
     @pytest.mark.django_db

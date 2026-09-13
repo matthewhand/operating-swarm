@@ -53,8 +53,8 @@ def get_django_allowed_hosts() -> list[str]:
             return ['*'] + parsed
         return parsed
     if debug:
-        # '*' so a LAN phone hitting http://10.x.x.x:8001/ is not DisallowedHost
-        # (HTTP + AllowedHostsOriginValidator for websockets).
+        # '*' so a LAN phone hitting http://10.x.x.x:8001/ is not DisallowedHost.
+        # Websocket Origin is same-origin LAN (REQ-849), not this wildcard.
         return ['*', 'localhost', '127.0.0.1']
     from django.core.exceptions import ImproperlyConfigured
     raise ImproperlyConfigured(
@@ -74,9 +74,36 @@ def get_django_log_level() -> str:
 
 
 def get_django_csrf_trusted_origins() -> list[str]:
-    """Get CSRF trusted origins."""
+    """Get CSRF trusted origins.
+
+    In debug, also synthesize http://<host>:<port> for each concrete allowed
+    host at common UI ports plus ``PORT`` so a LAN phone on :8002 is not
+    stuck with a CSRF list that only names :8000/:8001 (REQ-849).
+    """
     val = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000')
-    return [v.strip() for v in val.split(',') if v.strip()]
+    parsed = [v.strip() for v in val.split(',') if v.strip()]
+    if not is_django_debug():
+        return parsed
+    ports = {8000, 8001, 8002, 3000}
+    try:
+        ports.add(int(get_port()))
+    except (TypeError, ValueError):
+        pass
+    extra: list[str] = []
+    for host in get_django_allowed_hosts():
+        if not host or host == '*' or host.startswith('.'):
+            continue
+        if ':' in host and not host.startswith('['):
+            continue
+        for port in sorted(ports):
+            extra.append(f'http://{host}:{port}')
+    out: list[str] = []
+    seen: set[str] = set()
+    for origin in parsed + extra:
+        if origin not in seen:
+            out.append(origin)
+            seen.add(origin)
+    return out
 
 
 # Swarm Core Settings

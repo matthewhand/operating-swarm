@@ -1,43 +1,82 @@
-import { ROBOT3D_ADR_HREF, ROBOT3D_THEME_RESERVED, saveAvatarTheme } from '../lib/avatarTheme'
-import { useAvatarTheme } from '../lib/useAvatarTheme'
+import { useAgentStore } from '../lib/agent-store'
+import {
+  AVATAR_THEME_FAMILIES,
+  ROBOT3D_ADR_HREF,
+  ROBOT3D_THEME_RESERVED,
+  uniqueAvatarFamilies,
+  toggleEnabledAvatarTheme,
+} from '../lib/avatarTheme'
+import { useEnabledAvatarThemes } from '../lib/useAvatarTheme'
 import Robot3dComboPicker from './Robot3dComboPicker'
 
 export interface AvatarThemePickerProps {
   id?: string
 }
 
-/** Settings catalog: Default, Blobs, Bee, plus the 3D robot family (REQ-194 / ADR-008). */
+/** Confirm before restamping a large roster (REQ-842). */
+export const APPLY_LOOKS_CONFIRM_MIN = 8
+
+function applyLooksToAllAgents(): void {
+  const { agents, shuffleLooks } = useAgentStore.getState()
+  const n = agents.length
+  if (
+    n >= APPLY_LOOKS_CONFIRM_MIN &&
+    !window.confirm(`Reassign unique looks to ${n} agents from the installed set?`)
+  ) {
+    return
+  }
+  shuffleLooks()
+}
+
+/** Settings catalog: enable/disable installed themes (REQ-828). */
 export default function AvatarThemePicker({ id = 'os-avatar-theme' }: AvatarThemePickerProps) {
-  const theme = useAvatarTheme()
-  const selectValue = theme === 'default' ? 'bland' : theme
+  const enabled = useEnabledAvatarThemes()
+  const families = uniqueAvatarFamilies(enabled)
+  const robot3dOn = enabled.includes(ROBOT3D_THEME_RESERVED)
 
   return (
     <div className="flex w-full flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-medium">
-        Avatar theme
-      </label>
-      <select
-        id={id}
-        className="select select-bordered select-sm w-full"
-        value={selectValue}
-        onChange={(event) => {
-          saveAvatarTheme(event.target.value)
-        }}
-      >
-        <option value="bland">Default</option>
-        <option value="blobs">Blobs</option>
-        <option value="bee">Bee</option>
-        <option value={ROBOT3D_THEME_RESERVED}>3D robot</option>
-      </select>
-      {theme === 'robot3d' && <Robot3dComboPicker />}
+      <fieldset id={id} className="flex w-full flex-col gap-2" data-testid="installed-avatar-themes">
+        <legend className="text-sm font-medium">Installed themes</legend>
+        <ul className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {AVATAR_THEME_FAMILIES.map((theme) => {
+            const checked = families.includes(theme.id)
+            const lockedOn = checked && families.length === 1
+            return (
+              <li key={theme.id}>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-sm"
+                    checked={checked}
+                    disabled={lockedOn}
+                    aria-label={theme.label}
+                    onChange={(event) => {
+                      toggleEnabledAvatarTheme(theme.id, event.target.checked)
+                    }}
+                  />
+                  {theme.label}
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+        <button
+          type="button"
+          className="btn btn-sm btn-outline self-start"
+          onClick={applyLooksToAllAgents}
+        >
+          Apply to all agents
+        </button>
+      </fieldset>
+      {robot3dOn && <Robot3dComboPicker />}
       <p className="text-xs text-base-content/55">
-        Themes are optional choices — not a forced house look. Default is the static grey
-        circle. Blobs are per-agent shapes with slit eyes. Bee is geometric WebUI brand
-        marks — side-on and face-only, with googly eyes — assigned per agent. 3D robot is a
-        WebGL Reachy-like bot (original stylised mesh, MIT) on the chat header; it falls
-        back to a static robot where WebGL is unavailable and chat never blocks on it.
-        Existing users keep their current theme; Bee is never auto-applied. Custom uploaded
-        faces always win.{' '}
+        Blobs are the factory default look (#820); Bee and the other packs are optional installs —
+        never auto-applied. Agents mix any enabled
+        theme, then pick an avatar in that theme. Robots is one theme with ten bodies
+        (chassis–crystal). One theme: skip the per-agent theme dropdown. Blobs are per-agent shapes
+        with slit eyes. 3D robot is a WebGL bot on the chat header (static SVG if WebGL is
+        unavailable). Custom uploaded faces always win.{' '}
         <a
           href={ROBOT3D_ADR_HREF}
           className="link link-hover"

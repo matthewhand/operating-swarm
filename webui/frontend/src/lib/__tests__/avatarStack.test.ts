@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   STACK_FACE_LIMIT,
+  TEAM_STACK_ALL_MAX,
+  TEAM_STACK_FACE_LIMIT,
   STACK_PULSE_MS,
   isAvatarStack,
   parseStartedAt,
   selectStackedFaces,
   stackAnimationDelayMs,
+  teamSidepaneStack,
   type StackFace,
 } from '../avatarStack'
 
@@ -21,6 +24,36 @@ describe('avatarStack', () => {
     expect(plan.faces).toHaveLength(3)
     expect(plan.remainder).toBe(2)
     expect(plan.faces.map((row) => row.id)).toEqual(['m5', 'm4', 'm3'])
+  })
+
+  it('caps team stacks at TEAM_STACK_FACE_LIMIT (2) with remainder for extras', () => {
+    const four = [1, 2, 3, 4].map((n) => face(`m${n}`, n * 100))
+    expect(TEAM_STACK_FACE_LIMIT).toBe(2)
+    const plan = selectStackedFaces(four, TEAM_STACK_FACE_LIMIT)
+    expect(plan.faces).toHaveLength(2)
+    expect(plan.remainder).toBe(2)
+    expect(plan.faces.map((row) => row.id)).toEqual(['m4', 'm3'])
+  })
+
+  it('teamSidepaneStack: shows every member at 4 or fewer, 2 + N above that', () => {
+    expect(TEAM_STACK_ALL_MAX).toBe(4)
+    expect(TEAM_STACK_FACE_LIMIT).toBe(2)
+
+    const three = [1, 2, 3].map((n) => face(`m${n}`, n * 100))
+    const small = teamSidepaneStack(three)
+    expect(small.faces.map((f) => f.id)).toEqual(['m1', 'm2', 'm3'])
+    expect(small.remainder).toBe(0)
+
+    const four = [1, 2, 3, 4].map((n) => face(`m${n}`, n * 100))
+    const exact = teamSidepaneStack(four)
+    expect(exact.faces).toHaveLength(4)
+    expect(exact.remainder).toBe(0)
+
+    const five = [1, 2, 3, 4, 5].map((n) => face(`m${n}`, n * 100))
+    const crowded = teamSidepaneStack(five)
+    // Roster order preserved — first 2 members, not most-recent.
+    expect(crowded.faces.map((f) => f.id)).toEqual(['m1', 'm2'])
+    expect(crowded.remainder).toBe(3)
   })
 
   it('staggers animation delay by startedAt so four faces do not lockstep', () => {

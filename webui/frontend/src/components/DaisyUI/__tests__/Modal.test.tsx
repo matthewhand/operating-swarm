@@ -95,6 +95,10 @@ describe('Modal Accessibility and Focus Restoration', () => {
     // eslint-disable-next-line testing-library/no-node-access
     const box = dialog.querySelector('.modal-box');
     expect(box).toHaveClass('max-w-4xl');
+    expect(box).toHaveClass('bg-base-100');
+    expect(box).toHaveClass('border');
+    expect(box).toHaveClass('shadow-xl');
+    expect(box).toHaveClass('overflow-hidden');
   });
 
   it('closes when the click lands outside modal-box (sheet gutter)', () => {

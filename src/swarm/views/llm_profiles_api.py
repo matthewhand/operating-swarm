@@ -1,6 +1,8 @@
 """REST surface for REQ-43 Settings default LLM + per-task override.
 
 GET    /v1/llm-profiles/     configured profiles + effective default / map
+POST   /v1/llm-profiles/     upsert a named profile (id + model + optional base_url)
+PUT    /v1/llm-profiles/     same as POST
 PATCH  /v1/llm-profiles/     persist settings.default_llm_profile (+ override)
 
 Permissions follow ``api_permission_classes()`` — never guest-only. Responses
@@ -25,6 +27,51 @@ logger = logging.getLogger(__name__)
 
 def _payload(config=None) -> dict:
     return routing.settings_public_payload(config)
+
+
+def _truthy(raw) -> bool:
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(raw)
+
+
+def _upsert_named_profile(body: dict):
+    nested = body.get("profile") if isinstance(body.get("profile"), dict) else None
+    src = nested if nested is not None else body
+    profile_id = str(src.get("id") or src.get("name") or body.get("id") or "").strip()
+    skip = {
+        "id",
+        "name",
+        "object",
+        "set_default",
+        "default_llm_profile",
+        "override_per_task",
+        "task_llm_profiles",
+        "profile",
+    }
+    spec = {key: value for key, value in src.items() if key not in skip}
+    set_default = _truthy(src.get("set_default") if "set_default" in src else body.get("set_default"))
+    if str(body.get("default_llm_profile") or "").strip() == profile_id:
+        set_default = True
+    return routing.persist_named_llm_profile(
+        profile_id=profile_id,
+        spec=spec,
+        set_default=set_default,
+    )
+
+
+def _ownership_error_response(exc):
+    from swarm.core.config_ownership import ConfigOwnershipError
+
+    if isinstance(exc, ConfigOwnershipError):
+        return Response({"error": str(exc), "code": exc.code}, status=exc.status)
+    if isinstance(exc, OSError):
+        logger.exception("Failed to persist LLM profile")
+        return Response(
+            {"error": f"failed to persist: {exc}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    raise exc
 
 
 class LlmProfilesView(APIView):
@@ -58,6 +105,35 @@ class LlmProfilesView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
+    @extend_schema(
+        operation_id="v1_llm_profiles_post",
+        summary="Create or replace a named LLM profile (model + optional base URL)",
+        request=inline_serializer(
+            name="LlmProfilesUpsertRequest",
+            fields={
+                "id": serializers.CharField(),
+                "model": serializers.CharField(),
+                "base_url": serializers.CharField(required=False, allow_blank=True),
+                "provider": serializers.CharField(required=False, allow_blank=True),
+                "api_key": serializers.CharField(required=False, allow_blank=True),
+                "set_default": serializers.BooleanField(required=False),
+            },
+        ),
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, *_args, **_kwargs):
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            cfg, path = _upsert_named_profile(body)
+        except Exception as exc:
+            return _ownership_error_response(exc)
+        payload = _payload(cfg)
+        payload["persisted_to"] = str(path)
+        return Response(payload)
+
+    def put(self, request, *_args, **_kwargs):
+        return self.post(request, *_args, **_kwargs)
 
     @extend_schema(
         operation_id="v1_llm_profiles_patch",

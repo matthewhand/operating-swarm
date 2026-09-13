@@ -334,4 +334,37 @@ sequenceDiagram
            yield { 'messages': [{ 'role': 'assistant', 'content': "Task completed and TODO updated." }] }
    ```
 
-   *This document is a work in progress. Contributions and corrections are welcome.*
+---
+
+## Sequence Diagrams
+
+### Multi-Agent Handoff & Delegation Flow
+
+End-to-end request sequence showing an edge request routed through the Swarm Router to a specialist blueprint, invoking a remote containerized agent as a tool, and streaming response tokens back to the WebUI.
+
+*Interactive diagram:* [docs/diagrams/handoff-sequence-diagram.html](docs/diagrams/handoff-sequence-diagram.html) · Complete diagram gallery: [docs/diagrams/](docs/diagrams/README.md)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Client / WebUI
+    participant Router as Swarm Router (API Gateway)
+    participant Specialist as Specialist Agent (Blueprint)
+    participant Remote as Remote Agent (Hermes / OpenMousBot)
+
+    User->>Router: POST /v1/chat/completions
+    activate Router
+    Router->>Specialist: handoff_to_agent(code)
+    activate Specialist
+    Specialist->>Specialist: synthesize plan
+    Specialist->>Remote: agent_as_tool: exec
+    activate Remote
+    Remote-->>Specialist: sandbox execution ok
+    deactivate Remote
+    Specialist-->>Router: handoff response
+    deactivate Specialist
+    Router-->>User: SSE token stream (200 OK)
+    deactivate Router
+```
+
+*This document is a work in progress. Contributions and corrections are welcome.*

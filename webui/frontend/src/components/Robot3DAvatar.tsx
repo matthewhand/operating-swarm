@@ -34,6 +34,8 @@ export interface Robot3DAvatarProps {
   status?: AgentStatus
   size?: Robot3dAvatarSize
   className?: string
+  /** Chat working/streaming — pupils glance on the SVG fallback. */
+  active?: boolean
   /**
    * ADR-008 §2: ONE WebGL context, on the chat hero. Only the header site
    * passes `gl`; every other AgentAvatar render site (rail, fav tiles,
@@ -62,6 +64,7 @@ export const Robot3DAvatar = memo(function Robot3DAvatar({
   size = 'sm',
   className = '',
   gl = false,
+  active = false,
 }: Robot3DAvatarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const playerRef = useRef<{ play(id: string): void; dispose(): void } | null>(null)
@@ -128,6 +131,8 @@ export const Robot3DAvatar = memo(function Robot3DAvatar({
   }, [status])
 
   const px = SIZE_PX[size]
+  const eyeState =
+    active || status === 'working' || status === 'waiting' ? 'active' : 'idle'
 
   return (
     <span
@@ -136,6 +141,7 @@ export const Robot3DAvatar = memo(function Robot3DAvatar({
       data-avatar-theme="robot3d"
       data-robot3d-mode={mode}
       data-robot3d-status={status}
+      data-eye-state={eyeState}
       data-agent-id={agentId ?? undefined}
       aria-hidden="true"
     >
@@ -144,7 +150,7 @@ export const Robot3DAvatar = memo(function Robot3DAvatar({
         className="absolute inset-0 h-full w-full"
         style={{ display: mode === 'gl' ? 'block' : 'none' }}
       />
-      {mode !== 'gl' && <Robot3dStaticSvg status={status} />}
+      {mode !== 'gl' && <Robot3dStaticSvg status={status} eyeState={eyeState} />}
     </span>
   )
 })
@@ -153,7 +159,13 @@ export const Robot3DAvatar = memo(function Robot3DAvatar({
  * Original stylised SVG robot — the non-blocking fallback while the GL
  * module loads and on WebGL-less environments. Status still animates it.
  */
-function Robot3dStaticSvg({ status }: { status: AgentStatus }) {
+function Robot3dStaticSvg({
+  status,
+  eyeState,
+}: {
+  status: AgentStatus
+  eyeState: 'idle' | 'active'
+}) {
   const working = status === 'working'
   const error = status === 'error'
   const listen = status === 'waiting'
@@ -162,8 +174,9 @@ function Robot3dStaticSvg({ status }: { status: AgentStatus }) {
   return (
     <svg
       viewBox="0 0 64 64"
-      className="absolute inset-0 h-full w-full"
+      className="os-robot3d-fallback absolute inset-0 h-full w-full"
       data-robot3d-static="true"
+      data-eye-state={eyeState}
       role="img"
       aria-hidden="true"
     >
@@ -179,9 +192,13 @@ function Robot3dStaticSvg({ status }: { status: AgentStatus }) {
         <g transform={`translate(0 ${headDy})`}>
           <rect x="29" y="33" width="6" height="6" rx="1.5" fill="#475569" />
           <rect x="20" y="18" width="24" height="15" rx="5" fill="#818cf8" />
-          <rect x="22" y="24" width="20" height="5" rx="2.5" fill="#0f172a" />
-          <circle cx="24.5" cy="21.5" r="1.3" fill="#0f172a" />
-          <circle cx="39.5" cy="21.5" r="1.3" fill="#0f172a" />
+          <rect x="22" y="24" width="20" height="7" rx="3" fill="#0f172a" />
+          <g className="os-robot3d-eyes">
+            <g className="os-robot3d-pupils">
+              <circle cx="-3.2" cy="0" r="1.55" fill="#e2e8f0" />
+              <circle cx="3.2" cy="0" r="1.55" fill="#e2e8f0" />
+            </g>
+          </g>
           {/* antennas */}
           <line x1="25" y1="18" x2="22" y2="10" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round">
             {listen && <animateTransform attributeName="transform" type="rotate" values="-2 25 18;2 25 18;-2 25 18" dur="1.6s" repeatCount="indefinite" />}

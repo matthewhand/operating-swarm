@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { decorateConversationRows } from '../chatLog'
+import {
+  countableChatCount,
+  decorateConversationRows,
+  effectiveUnreadWatermark,
+  firstUnreadMessageKey,
+} from '../chatLog'
 import { hopFromAssistantName, type ChatItem } from '../interBot'
 
 const THU_721 = Date.parse('2026-09-02T21:21:00.000Z')
@@ -115,5 +120,34 @@ describe('decorateConversationRows', () => {
     expect(
       decorateConversationRows(items, { lastReadMessageCount: 2 }).map((row) => row.type),
     ).toEqual(['message', 'message'])
+  })
+
+  it('places NEW before the first message when the watermark is 0', () => {
+    const rows = decorateConversationRows(
+      [message('a', 'unread', THU_721), message('b', 'also', THU_735)],
+      { lastReadMessageCount: 0, nowMs: FRI_NOON },
+    )
+    expect(rows.map((row) => row.type)).toEqual(['new', 'message', 'message'])
+  })
+})
+
+describe('unread New divider helpers', () => {
+  it('skips status rows when locating the first unread message', () => {
+    const rows = [
+      { key: 'u1', role: 'user' },
+      { key: 's1', role: 'status' },
+      { key: 'a1', role: 'assistant' },
+      { key: 'a2', role: 'assistant' },
+    ]
+    expect(countableChatCount(rows)).toBe(3)
+    expect(firstUnreadMessageKey(rows, 2)).toBe('a2')
+    expect(firstUnreadMessageKey(rows, null)).toBeNull()
+  })
+
+  it('falls back to the last message when marked unread without a cursor', () => {
+    expect(effectiveUnreadWatermark(false, 1, 3)).toBeNull()
+    expect(effectiveUnreadWatermark(true, null, 3)).toBe(2)
+    expect(effectiveUnreadWatermark(true, 3, 3)).toBe(2)
+    expect(effectiveUnreadWatermark(true, 1, 3)).toBe(1)
   })
 })

@@ -207,6 +207,30 @@ describe('REQ-209 sidepane agent sections', () => {
     expect(within(list).getAllByTestId('spill-hotkey').length).toBeGreaterThan(0)
   })
 
+  it('#173: right-clicking the rail background creates an empty section and focuses its title', async () => {
+    renderRail()
+    const list = await loadedList()
+    fireEvent.contextMenu(list)
+    const menu = await screen.findByRole('menu', { name: 'Actions for Side pane' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'New section' }))
+    const rename = await screen.findByTestId('rail-section-rename')
+    expect(rename).toHaveFocus()
+    expect(rename).toHaveValue('')
+    fireEvent.change(rename, { target: { value: 'locked comms' } })
+    fireEvent.blur(rename)
+    await waitFor(() => {
+      expect(screen.queryByTestId('rail-section-rename')).not.toBeInTheDocument()
+    })
+    const custom = screen
+      .getAllByTestId('rail-section')
+      .find((node) => node.getAttribute('data-section-custom') === 'true')
+    expect(custom).toBeTruthy()
+    expect(within(custom!).getByTestId('rail-section-name')).toHaveTextContent('locked comms')
+    // Empty until an agent is dragged in — the drop hint is the move path.
+    expect(within(custom!).getByTestId('rail-section-empty')).toHaveTextContent('Drag agents here')
+    expect(within(sectionById(UNASSIGNED_SECTION_ID)!).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
+  })
+
   it('collapses like Hidden Bots (name + count, hover toggle) and persists', async () => {
     localStorage.setItem(
       RAIL_SECTIONS_STORAGE_KEY,

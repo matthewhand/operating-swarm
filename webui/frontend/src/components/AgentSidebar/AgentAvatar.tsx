@@ -11,7 +11,9 @@ import {
 import type { Agent, AgentStatus, AvatarState, AvatarMotion, AvatarTheme, AvatarEyes } from '../../types/agent'
 import { getInitials, getReadableTextColor } from '../../lib/agent-utils'
 import { useAgentStore } from '../../lib/agent-store'
-import { useAvatarTheme } from '../../lib/useAvatarTheme'
+import { isRobotPackTheme, resolveAvatarTheme } from '../../lib/avatarTheme'
+import { useAvatarTheme, useEnabledAvatarThemes } from '../../lib/useAvatarTheme'
+import ChatAgentAvatar from '../AgentAvatar'
 import { RobotAvatar } from './RobotAvatar'
 
 export interface AgentAvatarProps {
@@ -50,29 +52,48 @@ export const AgentAvatar = memo(function AgentAvatar({
 }: AgentAvatarProps) {
   const effectiveState: AvatarState = state || status || 'idle'
   const isAnimated = animated !== false
-  const storeTheme = useAgentStore((s) => s.avatarThemeByAgent[agent.agent_id] || s.avatarTheme)
+  const perAgentTheme = useAgentStore((s) => s.avatarThemeByAgent[agent.agent_id])
   const storeEyes = useAgentStore((s) => s.avatarEyesByAgent[agent.agent_id] || s.avatarEyes)
-  const resolvedTheme = theme || storeTheme
-  const resolvedEyes = eyes || storeEyes
-
+  const enabled = useEnabledAvatarThemes()
   const globalAvatarTheme = useAvatarTheme()
-  const isBland = globalAvatarTheme === 'bland' || resolvedTheme === 'bland'
+  const resolvedTheme = theme || resolveAvatarTheme(perAgentTheme, enabled, globalAvatarTheme)
+  const resolvedEyes = eyes || storeEyes
+  const isBland = resolvedTheme === 'bland' || resolvedTheme === 'default'
+  const eyesActive =
+    effectiveState === 'working' || effectiveState === 'waiting'
   // Use RobotAvatar if animated and not bland; fall back to plain circle for bland or very small sizes
-  const useRobot = isAnimated && size >= 32 && !isBland
+  const useRobot = isAnimated && size >= 32 && !isBland && isRobotPackTheme(resolvedTheme)
+  const useChatFace =
+    isAnimated && size >= 32 && !isBland && !isRobotPackTheme(resolvedTheme)
+
+  if (useChatFace) {
+    const token = size >= 56 ? 'xl' : size >= 44 ? 'lg' : size >= 40 ? 'md' : 'sm'
+    return (
+      <ChatAgentAvatar
+        agentId={agent.agent_id}
+        size={token}
+        active={effectiveState === 'working' || effectiveState === 'waiting'}
+        status={status}
+        className={className}
+      />
+    )
+  }
 
   if (useRobot) {
     return (
-      <RobotAvatar
-        color={agent.color || '#6366f1'}
-        isChiefOfStaff={isChiefOfStaff || agent.chiefOfStaff}
-        status={effectiveState as AgentStatus}
-        size={size}
-        label={`${agent.customName || agent.name} (${agent.specialty})`}
-        trackPointer={size >= 44}
-        theme={resolvedTheme}
-        eyes={resolvedEyes}
-        className={className}
-      />
+      <span className={className}>
+        <RobotAvatar
+          color={agent.color || '#6366f1'}
+          isChiefOfStaff={isChiefOfStaff || agent.chiefOfStaff}
+          status={effectiveState as AgentStatus}
+          size={size}
+          label={`${agent.customName || agent.name} (${agent.specialty})`}
+          trackPointer={size >= 44}
+          theme={resolvedTheme}
+          eyes={resolvedEyes}
+          active={eyesActive}
+        />
+      </span>
     )
   }
 
@@ -94,11 +115,13 @@ export const AgentAvatar = memo(function AgentAvatar({
     'h-5 w-5'
   return (
     <div className={`relative inline-flex items-center justify-center flex-shrink-0 ${className}`}>
+      <div className="relative inline-flex items-center justify-center flex-shrink-0">
       <div
         className={`${sizeClass} rounded-full flex items-center justify-center font-bold shadow-sm overflow-hidden select-none`}
         style={{ backgroundColor: bgColor, color: textColor }}
         title={`${agent.customName || agent.name}`}
         data-avatar-theme={isBland ? 'bland' : undefined}
+        data-eye-state={eyesActive ? 'active' : 'idle'}
       >
         {IconComponent ? (
           <IconComponent className={iconSizeClass} />
@@ -108,11 +131,12 @@ export const AgentAvatar = memo(function AgentAvatar({
           <span>{getInitials(agent.customName || agent.name)}</span>
         )}
       </div>
-      {(isChiefOfStaff || agent.chiefOfStaff) && (
-        <span className="absolute -top-1.5 -right-1.5 bg-amber-400 text-amber-950 rounded-full p-0.5 shadow border border-amber-200 z-10">
-          <Crown className="w-3.5 h-3.5 fill-amber-900" />
-        </span>
-      )}
+        {(isChiefOfStaff || agent.chiefOfStaff) && (
+          <span className="absolute -top-1.5 -right-1.5 bg-amber-400 text-amber-950 rounded-full p-0.5 shadow border border-amber-200 z-10">
+            <Crown className="w-3.5 h-3.5 fill-amber-900" />
+          </span>
+        )}
+      </div>
     </div>
   )
 })

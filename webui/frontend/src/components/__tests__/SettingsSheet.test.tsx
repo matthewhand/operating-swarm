@@ -76,6 +76,7 @@ describe('SettingsSheet', () => {
     expect(screen.getByRole('button', { name: 'Show LLM profiles' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'MCP servers' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'CLI agents' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Roles' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Rail' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Image generation' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Speech' })).toBeInTheDocument()
@@ -223,6 +224,35 @@ describe('SettingsSheet', () => {
     expect(
       await screen.findByText(/Could not load configured profiles/i, undefined, { timeout: 4000 }),
     ).toBeInTheDocument()
+  })
+
+  it('opens Roles without unmounting the settings sheet when /v1/roles/ is malformed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/roles')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [{ id: 'support', name: 'Support', description: 'Helper' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: [] }),
+        } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Roles' }))
+    expect(await screen.findByTestId('settings-roles-pane')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { hidden: true })).toHaveClass('modal-open')
+    expect(screen.queryByText(/Something went wrong/i)).not.toBeInTheDocument()
   })
 
   it('adds an OpenMousBot remote then lists it in Settings and the dropdown', async () => {

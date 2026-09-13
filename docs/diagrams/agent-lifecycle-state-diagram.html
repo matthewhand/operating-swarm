@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Execution Lifecycle · State Machine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">State Machine · Open Swarm</p>
+    <h1>Agent Execution Lifecycle</h1>
+
+    <svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="agent-state-title agent-state-desc">
+      <title id="agent-state-title">Agent Execution Lifecycle</title>
+      <desc id="agent-state-desc">State machine diagram showing agent transitions from Idle through Routing and Running to Tool Execution, Handoff, Completed, or Failed states.</desc>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+      <!-- Transitions -->
+      <!-- Start -> Idle -->
+      <line x1="56" y1="180" x2="108" y2="180" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+      <!-- Idle -> Routing -->
+      <line x1="248" y1="180" x2="296" y2="180" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+      <!-- Routing -> Running (Happy path accent) -->
+      <line x1="436" y1="180" x2="484" y2="180" stroke="#f08a59" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+
+      <!-- Running -> Tool Call (Down-right) -->
+      <path d="M 552 220 L 552 280 L 372 280 L 372 320" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+      <!-- Tool Call -> Running (Loop back) -->
+      <path d="M 436 360 L 576 360 L 576 220" fill="none" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+
+      <!-- Running -> Handoff -->
+      <line x1="624" y1="180" x2="672" y2="180" stroke="#f08a59" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+
+      <!-- Handoff -> Completed -->
+      <line x1="812" y1="180" x2="860" y2="180" stroke="#f08a59" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+
+      <!-- Running -> Failed (Down) -->
+      <line x1="552" y1="220" x2="552" y2="380 L 672 380" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+
+      <!-- Transition Labels -->
+      <rect x="252" y="166" width="40" height="12" rx="2" fill="#2d3142"/>
+      <text x="272" y="175" fill="#bfc0c0" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">REQUEST</text>
+
+      <rect x="440" y="166" width="40" height="12" rx="2" fill="#2d3142"/>
+      <text x="460" y="175" fill="#f08a59" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">RESOLVE</text>
+
+      <rect x="628" y="166" width="40" height="12" rx="2" fill="#2d3142"/>
+      <text x="648" y="175" fill="#f08a59" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">DELEGATE</text>
+
+      <rect x="816" y="166" width="40" height="12" rx="2" fill="#2d3142"/>
+      <text x="836" y="175" fill="#f08a59" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">RESOLVE</text>
+
+      <!-- Start Dot -->
+      <circle cx="48" cy="180" r="6" fill="#f5f5f5"/>
+
+      <!-- State: Idle -->
+      <g transform="translate(112, 140)">
+        <rect width="136" height="80" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="12" y="24" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.1em">STATE</text>
+        <text x="68" y="48" fill="#f5f5f5" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Idle</text>
+        <text x="68" y="66" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">awaiting turn</text>
+      </g>
+
+      <!-- State: Routing -->
+      <g transform="translate(300, 140)">
+        <rect width="136" height="80" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="12" y="24" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.1em">STATE</text>
+        <text x="68" y="48" fill="#f5f5f5" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Routing</text>
+        <text x="68" y="66" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">seat &amp; model select</text>
+      </g>
+
+      <!-- State: Running (Focal) -->
+      <g transform="translate(488, 140)">
+        <rect width="136" height="80" rx="8" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="24" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.1em">ACTIVE</text>
+        <text x="68" y="48" fill="#f5f5f5" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Running</text>
+        <text x="68" y="66" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">inference streaming</text>
+      </g>
+
+      <!-- State: Handoff -->
+      <g transform="translate(676, 140)">
+        <rect width="136" height="80" rx="8" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="24" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.1em">SWARM</text>
+        <text x="68" y="48" fill="#f5f5f5" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Handoff</text>
+        <text x="68" y="66" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">team delegation</text>
+      </g>
+
+      <!-- State: Completed -->
+      <g transform="translate(864, 140)">
+        <rect width="112" height="80" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="12" y="24" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.1em">TERMINAL</text>
+        <text x="56" y="48" fill="#f5f5f5" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Completed</text>
+        <text x="56" y="66" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">session stored</text>
+      </g>
+
+      <!-- State: Tool Call (Bottom left) -->
+      <g transform="translate(300, 320)">
+        <rect width="136" height="80" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="12" y="24" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.1em">STATE</text>
+        <text x="68" y="48" fill="#f5f5f5" font-size="14" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Tool Execution</text>
+        <text x="68" y="66" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">agent-as-tool call</text>
+      </g>
+
+      <!-- State: Failed (Bottom right) -->
+      <g transform="translate(676, 340)">
+        <rect width="136" height="72" rx="8" fill="rgba(245,245,245,0.04)" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="12" y="22" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.1em">FAULT</text>
+        <text x="68" y="42" fill="#f5f5f5" font-size="13" font-weight="500" font-family="'Geist', sans-serif" text-anchor="middle">Failed / Fallback</text>
+        <text x="68" y="58" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">retry or error event</text>
+      </g>
+
+      <!-- Legend -->
+      <g transform="translate(112, 464)">
+        <line x1="8" y1="12" x2="36" y2="12" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-accent)"/>
+        <text x="48" y="16" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="500">Happy execution path</text>
+
+        <line x1="240" y1="12" x2="268" y2="12" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="280" y="16" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="11">Standard transitions &amp; tool loops</text>
+
+        <rect x="520" y="4" width="14" height="14" rx="2" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="544" y="16" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">Active streaming states</text>
+      </g>
+    </svg>
+  </div>
+</body>
+</html>

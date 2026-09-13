@@ -6,6 +6,7 @@ pitch and kinds stay in [README.md](../README.md) and [VISION.md](./VISION.md)
 
 - Setup, tests, PR checklist: [CONTRIBUTING.md](../CONTRIBUTING.md)
 - Tech stack: [DEVELOPMENT.md](../DEVELOPMENT.md)
+- Visual architecture diagrams: [docs/diagrams/](diagrams/README.md)
 - Blueprint authoring: [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md)
 - Async `/v1/responses`: [ASYNC_RESPONSES.md](./ASYNC_RESPONSES.md)
 
@@ -59,6 +60,7 @@ Worked configs, Mode A/B demo names, tests that lock the edges, and
 (REQ-156 / [#564](https://github.com/matthewhand/open-swarm/issues/564)).
 Showoff naming SoT: [SHOWOFF_DEMO_AGENTS.md](./SHOWOFF_DEMO_AGENTS.md)
 (REQ-135 / [#526](https://github.com/matthewhand/open-swarm/issues/526)).
+Visual taxonomy & architecture stack: [docs/diagrams/](diagrams/README.md) ([taxonomy tree](diagrams/agent-taxonomy-tree-diagram.html) · [architecture stack](diagrams/architecture-diagram.html)).
 
 ---
 
@@ -248,3 +250,25 @@ User-facing kinds are **CLI | API | Blueprint | Remote**
 `BlueprintBase`. Until Phase 1/2, classifiers still say `api` for recipes.
 Today vs target + diagram: [ADR-005](./adr/005-kind-bases.md)
 (REQ-159 / [#570](https://github.com/matthewhand/open-swarm/issues/570)).
+
+## SPA preview listener (visual QA / :8001)
+
+For LAN sign-off when you need the built SPA (`#root` + hashed assets) without
+relying on django `runserver` alone, serve `webui/frontend/dist` with Vite
+preview. On ubuntu-max the agreed port is **8001** (LAN `0.0.0.0`). **Do not**
+bind **8000** (LiteLLM / other host services).
+
+```bash
+./scripts/build_frontend.sh          # Node >= 22
+./scripts/start_spa_preview.sh       # default 0.0.0.0:8001
+# override: SPA_PREVIEW_HOST=127.0.0.1 SPA_PREVIEW_PORT=8001 ./scripts/start_spa_preview.sh
+```
+
+Prove:
+
+```bash
+curl -sS http://127.0.0.1:8001/ | grep -E 'id="root"|Open Swarm|/assets/'
+```
+
+Logs/PID default under `~/grok-logs/spa-preview-8001.{log,pid}`. Record the
+served git SHA (`webui/frontend/dist/.preview-sha`) when tip does not build.

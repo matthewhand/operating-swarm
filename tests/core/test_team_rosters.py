@@ -4,6 +4,7 @@ import pytest
 
 from swarm.core.team_rosters import (
     MEMBER_KINDS,
+    blueprint_id_for_team_target,
     normalize_member,
     normalize_roster,
     reset_team_rosters,
@@ -25,7 +26,9 @@ def _clean_rosters(tmp_path, monkeypatch):
 
 
 def test_member_kinds_include_team_and_herdr():
-    assert MEMBER_KINDS == ("api", "cli", "remote", "team", "herdr")
+    assert "team" in MEMBER_KINDS
+    assert "herdr" in MEMBER_KINDS
+    assert "blueprint" in MEMBER_KINDS
 
 
 def test_normalize_kind_team_requires_team_id():
@@ -138,3 +141,9 @@ def test_self_nest_rejected():
                 "members": [{"id": "loop", "kind": "team", "team_id": "loop"}],
             }
         )
+
+
+def test_demo_sdlc_ba_resolves_blueprint_source():
+    assert blueprint_id_for_team_target("demo-sdlc-pipeline", "ba") == "sdlc_handoff"
+    assert blueprint_id_for_team_target("demo-sdlc-skeptic-loop", "ba") == "sdlc_handoff"
+    assert blueprint_id_for_team_target("demo-team", "codey") is None

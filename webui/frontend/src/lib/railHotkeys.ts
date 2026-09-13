@@ -75,7 +75,9 @@ export function computeRailHotkeyTargets({
         isHerdr: herdr,
         href: herdr
           ? '/teams/#herdr-members'
-          : `/chat?blueprint=${encodeURIComponent(row.agent.id)}`,
+          : row.agent.kind === 'design'
+            ? `/agents?agent=${encodeURIComponent(row.agent.id)}`
+            : `/chat?blueprint=${encodeURIComponent(row.agent.id)}`,
       })
     }
   }

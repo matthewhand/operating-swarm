@@ -34,6 +34,7 @@ import codecs
 import json
 import logging
 import os
+import re
 import signal
 import time
 from collections.abc import AsyncIterator
@@ -351,6 +352,73 @@ def _extract_json_path(data: Any, dotpath: str) -> Any:
     return cur
 
 
+_API_ERROR_RESULT = re.compile(r"^\[API Error:\s*(.*)\]\s*$", re.DOTALL | re.IGNORECASE)
+_TAKES_VALUE = frozenset({
+    "-m", "--model", "-o", "--output-format", "--approval-mode",
+    "--resume", "-r", "--session", "--session-id",
+    # qwen value flags: their values must not be mistaken for bare model tokens.
+    "--auth-type", "--openai-base-url", "--openai-api-key", "--openai-logging-dir",
+})
+
+
+def gateway_error_from_cli_text(text: str | None) -> str | None:
+    """Qwen/gemini-style CLIs exit 0 with ``[API Error: ...]`` as the result."""
+    if not isinstance(text, str):
+        return None
+    match = _API_ERROR_RESULT.match(text.strip())
+    if not match:
+        return None
+    return match.group(1).strip() or text.strip()
+
+
+def gateway_error_from_cli_json(data: Any) -> str | None:
+    """Read the last event of a claude/qwen JSON array for a gateway error."""
+    if not isinstance(data, list) or not data or not isinstance(data[-1], dict):
+        return None
+    last = data[-1]
+    result = last.get("result")
+    found = gateway_error_from_cli_text(result if isinstance(result, str) else None)
+    if found:
+        return found
+    if last.get("is_error") is True:
+        if isinstance(result, str) and result.strip():
+            return result.strip()
+        err = last.get("error")
+        if isinstance(err, str) and err.strip():
+            return err.strip()
+        return "CLI reported an error"
+    return None
+
+
+def normalize_cli_cmd(name: str, cmd: list[str]) -> list[str]:
+    """Restore catalog one-shot flags and turn a stray model token into ``-m``."""
+    out = list(cmd)
+    if name != "qwen" or not out:
+        return out
+    if "--output-format" not in out and "-o" not in out:
+        out[1:1] = ["--output-format", "json"]
+    if "--yolo" not in out and "-y" not in out:
+        insert = 1
+        for flag in ("--output-format", "-o"):
+            if flag in out:
+                insert = out.index(flag) + 2
+                break
+        out.insert(insert, "--yolo")
+    i = 1
+    while i < len(out):
+        tok = out[i]
+        if tok.startswith("-") or PROMPT_TOKEN in tok:
+            i += 1
+            continue
+        prev = out[i - 1]
+        if prev in _TAKES_VALUE or prev.startswith("-p="):
+            i += 1
+            continue
+        out[i:i + 1] = ["-m", tok]
+        i += 2
+    return out
+
+
 class CliAdapter:
     """Runs one configured agentic CLI as an awaitable one-shot subagent."""
 
@@ -371,7 +439,7 @@ class CliAdapter:
             raise CliAdapterError(f"CLI adapter '{name}': 'cmd' must be a list of strings")
         cfg = CliAgentConfig(
             name=name,
-            cmd=list(cmd),
+            cmd=normalize_cli_cmd(name, list(cmd)),
             prompt_mode=raw.get("prompt_mode", "arg"),
             parse=raw.get("parse", "text"),
             cwd=raw.get("cwd"),
@@ -751,11 +819,23 @@ class CliAdapter:
                 return
 
             text, parse_error, parsed_session = self._parse_output(stdout)
+            gateway_error = gateway_error_from_cli_text(text)
+            if gateway_error is None:
+                try:
+                    gateway_error = gateway_error_from_cli_json(json.loads(stdout))
+                except json.JSONDecodeError:
+                    gateway_error = None
             yield CliStreamChunk(
                 final=True,
                 result=CliResult(
-                    name=cfg.name, ok=True, text=text, returncode=0, duration=duration,
-                    parse_error=parse_error, stderr=stderr.strip(),
+                    name=cfg.name,
+                    ok=gateway_error is None,
+                    text=text,
+                    returncode=0,
+                    duration=duration,
+                    parse_error=parse_error,
+                    stderr=stderr.strip(),
+                    error=gateway_error,
                     session_id=parsed_session or captured_session,
                 ),
             )

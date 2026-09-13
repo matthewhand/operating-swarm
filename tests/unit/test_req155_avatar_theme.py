@@ -47,11 +47,9 @@ def test_req155_avatar_theme_picker_labels():
     assert picker_path.exists()
     content = picker_path.read_text(encoding="utf-8")
 
-    assert ">Default<" in content
-    assert ">Blobs<" in content
-    assert ">Bee<" in content
-    assert ">3D robot<" in content
+    # REQ-828 picker: labels render from AVATAR_THEME_FAMILIES data, not literal JSX.
+    assert "AVATAR_THEME_FAMILIES.map" in content
     assert "Robot3dComboPicker" in content
     assert "ADR-008" in content
-    assert "optional choices" in content
+    assert "optional installs" in content
     assert "never auto-applied" in content

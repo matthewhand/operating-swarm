@@ -25,6 +25,7 @@ export type AvatarTheme =
   | 'bland'
   | 'default'
   | 'bee'
+  | 'robot3d'
 
 export type AvatarEyes = 'lens' | 'googly' | 'mismatched' | 'crazy' | 'sleepy' | 'spiral'
 
