@@ -2794,6 +2794,31 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     expect(await screen.findByTestId('token-diagnostics-modal')).toBeInTheDocument()
     expect(screen.getByText('Session Token Diagnostics')).toBeInTheDocument()
   })
+
+  it('displays token meter button for API agents and not for CLI or remote agents', async () => {
+    const { unmount: unmountApi } = renderChat('/chat?blueprint=support')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    expect(screen.getByTestId('token-meter-button')).toBeInTheDocument()
+    unmountApi()
+
+    MockWebSocket.instances = []
+    const { unmount: unmountCli } = renderChat('/chat?blueprint=cli_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    unmountCli()
+
+    MockWebSocket.instances = []
+    const { unmount: unmountRemote } = renderChat('/chat?remote=hermes')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    unmountRemote()
+  })
 })
 
 const REMOTE_ROSTER = {

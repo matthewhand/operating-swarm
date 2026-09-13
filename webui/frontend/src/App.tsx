@@ -7,12 +7,13 @@ import SearchPalette, { type SearchPaletteOptions } from './components/SearchPal
 import AgentEditor, { OPEN_AGENT_EDITOR_EVENT, type OpenAgentEditorDetail } from './components/AgentEditor'
 import TeamEditor, { OPEN_TEAM_EDITOR_EVENT, type OpenTeamEditorDetail } from './components/TeamEditor'
 import TeamComposer, { OPEN_TEAM_COMPOSER_EVENT } from './components/TeamComposer'
+import TeamsSheet from './components/overlays/TeamsSheet'
 import SettingsSheet, {
   OPEN_SETTINGS_EVENT,
   type OpenSettingsDetail,
   type SettingsSection,
 } from './components/SettingsSheet'
-import { OPEN_LLM_PROFILES_EVENT, OPEN_HIDDEN_EVENT } from './lib/chromeOverlay'
+import { OPEN_LLM_PROFILES_EVENT, OPEN_HIDDEN_EVENT, OPEN_TEAMS_EVENT } from './lib/chromeOverlay' 
 import { RailChromeProvider, SwipeHint } from './components/RailChrome'
 import { ToastProvider } from './components/DaisyUI'
 import CommandPalette from './experimental/CommandPalette'
@@ -79,6 +80,7 @@ function App() {
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null)
   const [editingTeamName, setEditingTeamName] = useState<string | null>(null)
   const [teamComposerOpen, setTeamComposerOpen] = useState(false)
+  const [teamsSheetOpen, setTeamsSheetOpen] = useState(false)
 
   const openRail = useCallback(() => setRailOpen(true), [])
   const closeRail = useCallback(() => {
@@ -163,6 +165,7 @@ function App() {
       setTeamEditorOpen(true)
     }
     const onOpenTeamComposer = () => setTeamComposerOpen(true)
+    const onOpenTeams = () => setTeamsSheetOpen(true)
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -179,6 +182,7 @@ function App() {
     window.addEventListener(OPEN_AGENT_EDITOR_EVENT, onOpenAgentEditor)
     window.addEventListener(OPEN_TEAM_EDITOR_EVENT, onOpenTeamEditor)
     window.addEventListener(OPEN_TEAM_COMPOSER_EVENT, onOpenTeamComposer)
+    window.addEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener(THEME_TOGGLE_EVENT, onToggle)
@@ -190,6 +194,7 @@ function App() {
       window.removeEventListener(OPEN_AGENT_EDITOR_EVENT, onOpenAgentEditor)
       window.removeEventListener(OPEN_TEAM_EDITOR_EVENT, onOpenTeamEditor)
       window.removeEventListener(OPEN_TEAM_COMPOSER_EVENT, onOpenTeamComposer)
+      window.removeEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
     }
   }, [])
 
@@ -231,6 +236,10 @@ function App() {
         <TeamComposer
           isOpen={teamComposerOpen}
           onClose={() => setTeamComposerOpen(false)}
+        />
+        <TeamsSheet
+          isOpen={teamsSheetOpen}
+          onClose={() => setTeamsSheetOpen(false)}
         />
         <RailChromeProvider value={{ narrow, railOpen, openRail, closeRail }}>
           <div

@@ -74,7 +74,12 @@ class ChatbotBlueprint(BlueprintBase):
         "tags": ["chatbot", "conversation", "simple"],
         "required_mcp_servers": [],
         "env_vars": [],
+        "navbar_items": [{"id": "token_counter", "kind": "token_counter", "label": "Tokens"}],
     }
+
+    def get_navbar_items(self=None) -> list[dict]:
+        """Returns metadata for navbar items contributed by this blueprint."""
+        return [{"id": "token_counter", "kind": "token_counter", "label": "Tokens"}]
 
     # Caches
     _openai_client_cache: dict[str, AsyncOpenAI] = {}

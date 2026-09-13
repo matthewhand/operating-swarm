@@ -33,6 +33,7 @@ interface AgentSidebarProps {
   onRefresh?: () => void
   onConsensusClick?: () => void
   onCreateAgent?: () => void
+  onTeamsClick?: () => void
   onReorderAgents?: (sourceAgentId: string, targetAgentId: string) => void
   favouriteIds?: string[]
   hiddenAgentIds?: string[]
@@ -77,6 +78,7 @@ export const AgentSidebar = memo(function AgentSidebar({
   onRefresh,
   onConsensusClick,
   onCreateAgent,
+  onTeamsClick,
   onReorderAgents,
   favouriteIds = [],
   hiddenAgentIds = [],
@@ -522,6 +524,7 @@ export const AgentSidebar = memo(function AgentSidebar({
           onRefresh={onRefresh}
           onConsensusClick={onConsensusClick}
           onCreateAgent={onCreateAgent}
+          onTeamsClick={onTeamsClick}
           onHideAll={onHideAll}
           onUnhideAll={onUnhideAll}
         />

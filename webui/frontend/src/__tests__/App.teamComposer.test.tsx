@@ -41,7 +41,7 @@ describe('SPA + team composer entry', () => {
       screen.queryByRole('link', { name: 'Teams' }),
     ).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: /compose team/i }))
+    fireEvent.click(screen.getByTestId('os-teams-button'))
     expect(await screen.findByRole('heading', { name: /new team/i })).toBeInTheDocument()
     expect(screen.getByTestId('team-drop-zone')).toHaveTextContent(/drop agents here/i)
     expect(screen.getByTestId('team-cos-select')).toBeDisabled()

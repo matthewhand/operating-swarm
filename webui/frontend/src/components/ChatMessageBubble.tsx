@@ -40,6 +40,7 @@ export interface ChatMessageBubbleProps {
   onRemoveCard?: () => void
   /** ISO timestamp for feed-theme meta; omitted when unknown. */
   ts?: string
+  avatar?: ReactNode
 }
 
 function selectionIsActive(): boolean {
@@ -164,6 +165,7 @@ export function ChatMessageBubble({
   onOpenSkill,
   onRemoveCard,
   ts,
+  avatar,
 }: ChatMessageBubbleProps) {
   const startFromHere = contextStrategy === 'cull'
   const contextActionLabel = startFromHere ? 'Start context from here' : 'Compress to here'
@@ -219,6 +221,11 @@ export function ChatMessageBubble({
       data-ts={ts || undefined}
       aria-label={`${speaker} message`}
     >
+      {avatar ? (
+        <div className="chat-image avatar shrink-0" data-testid="chat-avatar">
+          {avatar}
+        </div>
+      ) : null}
       <div className="chat-header os-bubble-meta text-xs opacity-60" data-speaker={speaker}>
         {timeLabel ? (
           <time className="os-bubble-time" dateTime={ts} data-testid="bubble-time">

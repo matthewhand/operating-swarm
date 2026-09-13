@@ -26,4 +26,10 @@ describe('ChatMessageActions', () => {
     expect(screen.queryByRole('button', { name: /reply/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /more/i })).not.toBeInTheDocument()
   })
+
+  it('renders nothing when onRetry is not provided', () => {
+    const { container } = renderActions('hi')
+    expect(container.firstChild).toBeNull()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
 })

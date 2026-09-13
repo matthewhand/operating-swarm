@@ -262,6 +262,8 @@ export interface Blueprint {
   /** Declared openai-agents personas from a static source parse (REQ-81). */
   persona_count?: number
   personas?: Array<{ name: string }>
+  /** Navbar items contributed by this blueprint (e.g. token counter for API agents). */
+  navbar_items?: Array<{ id: string; kind: string; label?: string; [key: string]: any }> | null
 }
 
 /** GET /v1/support/context/ — live agents + inference for the System → Support pill. */

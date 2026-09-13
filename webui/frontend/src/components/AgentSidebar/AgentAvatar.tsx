@@ -61,23 +61,9 @@ export const AgentAvatar = memo(function AgentAvatar({
   const isBland = resolvedTheme === 'bland' || resolvedTheme === 'default'
   const eyesActive =
     effectiveState === 'working' || effectiveState === 'waiting'
-  // Use RobotAvatar if animated and not bland; fall back to plain circle for bland or very small sizes
-  const useRobot = isAnimated && size >= 32 && !isBland && isRobotPackTheme(resolvedTheme)
-  const useChatFace =
-    isAnimated && size >= 32 && !isBland && !isRobotPackTheme(resolvedTheme)
-
-  if (useChatFace) {
-    const token = size >= 56 ? 'xl' : size >= 44 ? 'lg' : size >= 40 ? 'md' : 'sm'
-    return (
-      <ChatAgentAvatar
-        agentId={agent.agent_id}
-        size={token}
-        active={effectiveState === 'working' || effectiveState === 'waiting'}
-        status={status}
-        className={className}
-      />
-    )
-  }
+  // Use RobotAvatar mascot if animated and not bland; fall back to plain circle for bland or very small sizes
+  const useRobot = isAnimated && size >= 32 && !isBland
+  const robotTheme = isRobotPackTheme(resolvedTheme) ? resolvedTheme : 'chassis'
 
   if (useRobot) {
     return (
@@ -89,7 +75,7 @@ export const AgentAvatar = memo(function AgentAvatar({
           size={size}
           label={`${agent.customName || agent.name} (${agent.specialty})`}
           trackPointer={size >= 44}
-          theme={resolvedTheme}
+          theme={robotTheme}
           eyes={resolvedEyes}
           active={eyesActive}
         />

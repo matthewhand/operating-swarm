@@ -9,7 +9,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from swarm.auth import api_permission_classes
+from swarm.core.agent_kind import API_AGENT_BLUEPRINT_ID, API_AGENT_RAIL_ID
 from swarm.core.agent_roles import blueprint_role_fields, is_webui_blueprint
+from swarm.core.kind_bases import ApiKindBase
 from swarm.core.blueprint_source import (
     ALLOWED_SOURCE_SUFFIXES,
     load_blueprint_source,
@@ -235,6 +237,28 @@ class BlueprintsListView(APIView):
                         continue
 
                     parsed = personas_for_blueprint(blueprint_id)
+                    cls_type = info.get("class_type") if isinstance(info, dict) else None
+                    navbar_items = None
+                    if cls_type is not None and hasattr(cls_type, "get_navbar_items"):
+                        try:
+                            navbar_items = cls_type.get_navbar_items()
+                        except TypeError:
+                            try:
+                                navbar_items = cls_type.get_navbar_items(None)
+                            except Exception:
+                                pass
+                    if (navbar_items is None or navbar_items == []) and isinstance(meta, dict):
+                        meta_items = meta.get("navbar_items")
+                        if meta_items:
+                            navbar_items = meta_items
+                    if navbar_items is None:
+                        if blueprint_id in (API_AGENT_RAIL_ID, API_AGENT_BLUEPRINT_ID) or (
+                            cls_type is not None and issubclass(cls_type, ApiKindBase)
+                        ):
+                            navbar_items = [{"id": "token_counter", "kind": "token_counter", "label": "Tokens"}]
+                        else:
+                            navbar_items = []
+
                     data.append({
                         "id": blueprint_id,
                         "object": "blueprint",
@@ -252,6 +276,7 @@ class BlueprintsListView(APIView):
                         "webui": is_webui_blueprint(blueprint_id, meta),
                         # REQ-170: missing/false = catalog-only (not an AGENTS rail seat).
                         "rail": metadata_rail(meta),
+                        "navbar_items": navbar_items,
                         **blueprint_role_fields(meta),
                     })
             else:

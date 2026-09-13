@@ -115,7 +115,7 @@ describe('REQ-41 / #736: composer working indicator', () => {
     expect(dock.querySelector('form')?.nextElementSibling).toBeNull()
   })
 
-  it('places a small avatar-only indicator above the composer while streaming', async () => {
+  it('places a small avatar-only indicator inline in the chat pane while streaming', async () => {
     renderChat()
     await openSocket()
     await screen.findByRole('button', { name: /Open Codey definition/i })
@@ -124,8 +124,10 @@ describe('REQ-41 / #736: composer working indicator', () => {
     const indicator = screen.getByTestId('composer-working-indicator')
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     const dock = screen.getByTestId('chat-bottom-dock')
+    const log = screen.getByRole('log', { name: 'Conversation' })
 
-    expect(dock).toContainElement(indicator)
+    expect(log).toContainElement(indicator)
+    expect(dock).not.toContainElement(indicator)
     expect(dock).toContainElement(composer)
     expect(indicator.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(dock.querySelector('.os-chat-footer')).toBeNull()

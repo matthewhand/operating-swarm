@@ -386,12 +386,23 @@ describe('AgentSidebar Grok rail', () => {
     expect(within(list).getByRole('link', { name: /Stewie/ })).toBeInTheDocument()
   })
 
-  it('designed router agents appear in the rail and link to the router page', async () => {
+  it('designed router agents appear in the rail and link to standard chat', async () => {
     renderSidebar('/chat')
 
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const row = await within(list).findByRole('link', { name: /Waveshare OpenCode/ })
-    expect(row).toHaveAttribute('href', '/agents?agent=waveshare-opencode')
+    expect(row).toHaveAttribute('href', '/chat?blueprint=waveshare-opencode')
+    expect(row).not.toHaveAttribute('href', expect.stringContaining('/agents?agent='))
+  })
+
+  it('prevents regression of "Focused / 96 hidden agents": clicking designed agent does not route to /agents or hide agents', async () => {
+    renderSidebar('/chat')
+
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const row = await within(list).findByRole('link', { name: /Waveshare OpenCode/ })
+    // Must stay on standard chat href
+    expect(row).toHaveAttribute('href', '/chat?blueprint=waveshare-opencode')
+    expect(row.getAttribute('href')).not.toMatch(/^\/agents\?/)
   })
 
   it('REQ-170: catalog recipes without rail stay off the AGENTS rail', async () => {

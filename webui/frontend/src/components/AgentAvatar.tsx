@@ -140,6 +140,13 @@ export default function AgentAvatar({
   const showUploaded = Boolean(uploadedSrc && !broken)
   const isCustom = showUploaded || (showGeneratedStill && !broken)
 
+  const effectiveStatus: AgentStatus =
+    status && status !== 'idle' ? status : active ? 'working' : 'idle'
+  const eyeState =
+    active || effectiveStatus === 'working' || effectiveStatus === 'waiting'
+      ? 'active'
+      : 'idle'
+
   const shell = (attrs: Record<string, unknown>, children: ReactNode) => (
     <>
       <AvatarRoot
@@ -147,9 +154,10 @@ export default function AgentAvatar({
         chooseLabel={chooseLabel}
         open={open}
         onOpen={() => setOpen(true)}
-        className={`avatar ${className}`.trim()}
+        className={`avatar ${eyeState === 'active' ? 'os-avatar--active' : ''} ${className}`.trim()}
         style={{ ...motionStyle, ...style }}
         aria-hidden={choosable || alt ? undefined : true}
+        data-avatar-active={eyeState === 'active' ? 'true' : undefined}
         {...attrs}
       >
         {children}
@@ -171,8 +179,11 @@ export default function AgentAvatar({
         'data-agent-avatar': 'custom',
         'data-avatar-size': size,
         'data-avatar-still': showGeneratedStill ? 'generated' : undefined,
+        'data-eye-state': eyeState,
       },
-      <div className={`os-agent-avatar os-agent-avatar--${size} rounded-full`}>
+      <div
+        className={`os-agent-avatar os-agent-avatar--${size} rounded-full ${eyeState === 'active' ? 'os-agent-avatar--active' : ''}`}
+      >
         <img
           src={faceSrc}
           alt={alt}
@@ -184,8 +195,6 @@ export default function AgentAvatar({
     )
   }
 
-  const eyeState = active || status === 'working' || status === 'waiting' ? 'active' : 'idle'
-
   if (isRobotPackTheme(theme)) {
     return shell(
       {
@@ -196,7 +205,7 @@ export default function AgentAvatar({
       },
       <RobotAvatar
         color={packColor}
-        status={status}
+        status={effectiveStatus}
         size={AVATAR_SIZE_PX[size]}
         theme={theme as AvatarTheme}
         eyes={packEyes as AvatarEyes}
@@ -217,10 +226,10 @@ export default function AgentAvatar({
       },
       <Robot3DAvatar
         agentId={agentId}
-        status={status}
+        status={effectiveStatus}
         size={size}
         gl={gl}
-        active={active}
+        active={eyeState === 'active'}
       />,
     )
   }
@@ -336,7 +345,7 @@ function BlandAvatar({
 }) {
   return (
     <svg
-      className={`os-bland-avatar os-bland-avatar--${size} os-agent-avatar os-agent-avatar--${size}`}
+      className={`os-bland-avatar os-bland-avatar--${size} os-agent-avatar os-agent-avatar--${size} ${active ? 'os-bland-avatar--active os-agent-avatar--active' : ''}`.trim()}
       viewBox="0 0 40 40"
       role="img"
       aria-hidden={alt ? undefined : true}

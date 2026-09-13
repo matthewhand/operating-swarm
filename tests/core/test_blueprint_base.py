@@ -265,3 +265,40 @@ class TestBlueprintBase(TestCase):
         """Test approval_required default value"""
         blueprint = ConcreteBlueprint(self.blueprint_id)
         assert blueprint.approval_required is False
+
+    def test_get_navbar_items_default(self):
+        """Test get_navbar_items default value on BlueprintBase and instance"""
+        blueprint = ConcreteBlueprint(self.blueprint_id)
+        assert blueprint.get_navbar_items() == []
+        assert BlueprintBase.get_navbar_items() == []
+
+    def test_get_navbar_items_subclass_override(self):
+        """Test that subclasses can override get_navbar_items"""
+        class CustomNavbarBlueprint(BlueprintBase):
+            async def run(self, messages, **kwargs):
+                yield {}
+
+            def get_navbar_items(self=None):
+                return [{"id": "custom_item", "kind": "custom", "label": "Custom"}]
+
+        bp = CustomNavbarBlueprint("custom")
+        assert bp.get_navbar_items() == [{"id": "custom_item", "kind": "custom", "label": "Custom"}]
+        assert CustomNavbarBlueprint.get_navbar_items() == [{"id": "custom_item", "kind": "custom", "label": "Custom"}]
+
+    def test_api_kind_base_get_navbar_items(self):
+        """Test that ApiKindBase provides token counter navbar item"""
+        from swarm.core.kind_bases import ApiKindBase
+        assert ApiKindBase.get_navbar_items() == [
+            {"id": "token_counter", "kind": "token_counter", "label": "Tokens"}
+        ]
+
+    def test_chatbot_blueprint_navbar_items(self):
+        """Test that ChatbotBlueprint provides token counter navbar item and metadata"""
+        from swarm.blueprints.chatbot.blueprint_chatbot import ChatbotBlueprint
+        assert ChatbotBlueprint.get_navbar_items() == [
+            {"id": "token_counter", "kind": "token_counter", "label": "Tokens"}
+        ]
+        assert ChatbotBlueprint.metadata.get("navbar_items") == [
+            {"id": "token_counter", "kind": "token_counter", "label": "Tokens"}
+        ]
+

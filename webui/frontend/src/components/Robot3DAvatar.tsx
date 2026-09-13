@@ -166,7 +166,7 @@ function Robot3dStaticSvg({
   status: AgentStatus
   eyeState: 'idle' | 'active'
 }) {
-  const working = status === 'working'
+  const working = status === 'working' || eyeState === 'active'
   const error = status === 'error'
   const listen = status === 'waiting'
   const tilt = working ? '-3deg' : error ? '4deg' : listen ? '1.5deg' : '0deg'

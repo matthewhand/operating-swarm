@@ -561,6 +561,10 @@ class BlueprintBase(ABC):
         from swarm.core.slash_commands import slash_registry
         return slash_registry
 
+    def get_navbar_items(self=None) -> list[dict]:
+        """Returns metadata for navbar items contributed by this blueprint."""
+        return []
+
     def get_llm_profile(self, profile_name: str) -> dict:
         """Returns the resolved LLM profile dict (with LITELLM_* overrides applied).
 

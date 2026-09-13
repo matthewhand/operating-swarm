@@ -9,6 +9,7 @@ interface SidebarFooterProps {
   onRefresh?: () => void
   onConsensusClick?: () => void
   onCreateAgent?: () => void
+  onTeamsClick?: () => void
   onHideAll?: () => void
   onUnhideAll?: () => void
 }
@@ -20,6 +21,7 @@ export const SidebarFooter = memo(function SidebarFooter({
   onRefresh,
   onConsensusClick,
   onCreateAgent,
+  onTeamsClick,
   onHideAll,
   onUnhideAll,
 }: SidebarFooterProps) {
@@ -35,6 +37,18 @@ export const SidebarFooter = memo(function SidebarFooter({
             aria-label="New agent"
           >
             <Plus className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {onTeamsClick && (
+          <button
+            type="button"
+            onClick={onTeamsClick}
+            className="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-base-content"
+            title="Teams"
+            aria-label="Teams"
+            data-testid="sidebar-teams-button"
+          >
+            <Users className="w-3.5 h-3.5" />
           </button>
         )}
         {onRefresh && (
@@ -91,6 +105,19 @@ export const SidebarFooter = memo(function SidebarFooter({
           >
             <Plus className="w-3 h-3" />
             <span className="text-[11px]">New</span>
+          </button>
+        )}
+        {onTeamsClick && (
+          <button
+            type="button"
+            onClick={onTeamsClick}
+            className="btn btn-ghost btn-xs text-base-content/70 font-medium gap-1 px-1.5"
+            title="Teams"
+            aria-label="Teams"
+            data-testid="sidebar-teams-button"
+          >
+            <Users className="w-3 h-3" />
+            <span className="text-[11px]">Teams</span>
           </button>
         )}
         {onConsensusClick && (

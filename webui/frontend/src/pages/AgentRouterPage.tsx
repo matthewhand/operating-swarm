@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Code,
   Shuffle,
+  Users,
 } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types/agent'
 import { agentTypeLabel, defaultRemoteMemberId, remoteMembersOf } from '../lib/agent-types'
@@ -101,7 +102,9 @@ import {
 import { fetchBlueprints } from '../lib/api'
 import { AgentSidebar } from '../components/AgentSidebar/AgentSidebar'
 import { AgentAvatar } from '../components/AgentSidebar/AgentAvatar'
-import { AgentMessageBubble, AgentStatusBadge, BotCommPopup, AgentDesigner, EditableField, BackendSelect, TeamSelect, AgentRoles, defaultBackendFor, backendRouteParams } from '../components/AgentChat'
+import { AgentMessageBubble, AgentStatusBadge, BotCommPopup, AgentDesigner, EditableField, BackendSelect, AgentRoles, defaultBackendFor, backendRouteParams } from '../components/AgentChat'
+import TeamsSheet from '../components/overlays/TeamsSheet'
+import { OPEN_TEAMS_EVENT } from '../lib/chromeOverlay'
 import {
   buildSummaryPrompt,
   canCompactAt,
@@ -190,6 +193,17 @@ export default function AgentRouterPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
   const [inspectorOpen, setInspectorOpen] = useState(true)
+  const [teamsSheetOpen, setTeamsSheetOpen] = useState(false)
+
+  useEffect(() => {
+    const onOpenTeams = () => setTeamsSheetOpen(true)
+    window.addEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
+    window.addEventListener('swarm:open-team-composer', onOpenTeams)
+    return () => {
+      window.removeEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
+      window.removeEventListener('swarm:open-team-composer', onOpenTeams)
+    }
+  }, [])
   const [designerOpen, setDesignerOpen] = useState(false)
   const [compacting, setCompacting] = useState(false)
   /** REQ-213: view-only hide. Raw transcript stays in memory / on disk. */
@@ -231,11 +245,14 @@ export default function AgentRouterPage() {
     if (agents.length === 0) return
     const wanted = searchParams.get('agent')
     if (wanted && agents.some((a) => a.agent_id === wanted)) {
+      if (hiddenAgentIds.includes(wanted)) {
+        unhideAgent(wanted)
+      }
       selectAgent(wanted)
       deepLinkApplied.current = true
       setSearchParams({}, { replace: true })
     }
-  }, [agents, searchParams, selectAgent, setSearchParams])
+  }, [agents, searchParams, selectAgent, setSearchParams, hiddenAgentIds, unhideAgent])
 
   // Fetch routing strategies and delegations
   useQuery({
@@ -718,6 +735,7 @@ export default function AgentRouterPage() {
           selectAgent('router')
         }}
         onCreateAgent={() => setDesignerOpen(true)}
+        onTeamsClick={() => setTeamsSheetOpen(true)}
         onReorderAgents={reorderAgents}
         favouriteIds={favouriteIds}
         hiddenAgentIds={hiddenAgentIds}
@@ -841,43 +859,6 @@ export default function AgentRouterPage() {
                 ))}
               </select>
             </label>
-            <TeamSelect />
-            {/* Strategy Pill Switcher */}
-            <div className="join border border-base-300/80 rounded-full p-0.5 bg-base-200/60 shadow-xs">
-              <button
-                type="button"
-                onClick={() => setRoutingStrategy('auto_route')}
-                className={`btn btn-xs rounded-full px-2.5 ${routingStrategy === 'auto_route' ? 'btn-primary' : 'btn-ghost text-base-content/70'}`}
-                title="Automatically route to specialist based on query patterns"
-              >
-                Auto Route
-              </button>
-              <button
-                type="button"
-                onClick={() => setRoutingStrategy('direct')}
-                className={`btn btn-xs rounded-full px-2.5 ${routingStrategy === 'direct' ? 'btn-primary' : 'btn-ghost text-base-content/70'}`}
-                title="Directly target selected agent"
-              >
-                Direct
-              </button>
-              <button
-                type="button"
-                onClick={() => setRoutingStrategy('router')}
-                className={`btn btn-xs rounded-full px-2.5 ${routingStrategy === 'router' ? 'btn-primary' : 'btn-ghost text-base-content/70'}`}
-                title="Route through Agent Router orchestrator"
-              >
-                Router
-              </button>
-              <button
-                type="button"
-                onClick={() => setRoutingStrategy('consensus')}
-                className={`btn btn-xs rounded-full px-2.5 ${routingStrategy === 'consensus' ? 'btn-primary' : 'btn-ghost text-base-content/70'}`}
-                title="Multi-agent panel fan-out and synthesized consensus"
-              >
-                <Sparkles className="w-3 h-3" />
-                Consensus
-              </button>
-            </div>
 
             {/* Clear Messages */}
             {messages.length > 0 && (
@@ -1258,10 +1239,21 @@ export default function AgentRouterPage() {
                 Same file also runs as{' '}
                 <code className="text-[10px]">swarm-cli launch &lt;id&gt;</code>.
               </p>
-              <a href="/blueprint-library/creator/" className="btn btn-xs btn-outline gap-1">
-                <Code className="w-3 h-3" />
-                Open blueprint editor
-              </a>
+              <div className="flex flex-wrap gap-1.5">
+                <a href="/blueprint-library/creator/" className="btn btn-xs btn-outline gap-1">
+                  <Code className="w-3 h-3" />
+                  Open blueprint editor
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setTeamsSheetOpen(true)}
+                  className="btn btn-xs btn-outline gap-1"
+                  aria-label="Teams settings"
+                >
+                  <Users className="w-3 h-3" />
+                  Teams & routing
+                </button>
+              </div>
             </div>
 
             {/* Specialty & Traits */}
@@ -1335,6 +1327,11 @@ export default function AgentRouterPage() {
           onClose={() => setSelectedCommDelegation(null)}
         />
       )}
+
+      <TeamsSheet
+        isOpen={teamsSheetOpen}
+        onClose={() => setTeamsSheetOpen(false)}
+      />
     </div>
   )
 }

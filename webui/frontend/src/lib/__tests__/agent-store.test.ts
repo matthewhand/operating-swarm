@@ -80,6 +80,38 @@ describe('useAgentStore avatar themes', () => {
   })
 })
 
+describe('useAgentStore does not auto-hide agents on initial load', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useAgentStore.setState({
+      agents: [],
+      hiddenAgentIds: [],
+      favouriteIds: [],
+      selectedAgentId: 'router',
+    })
+  })
+
+  it('keeps all agents visible and favouriteIds empty when setAgents is called with clean storage', () => {
+    useAgentStore.getState().setAgents([...mockAgents])
+    const { hiddenAgentIds, favouriteIds, selectedAgentId } = useAgentStore.getState()
+    expect(hiddenAgentIds).toEqual([])
+    expect(favouriteIds).toEqual([])
+    expect(selectedAgentId).toBe('router')
+  })
+
+  it('cleans up legacy agent_sidebar_starters without auto-hiding', () => {
+    localStorage.setItem('agent_sidebar_starters', 'support-cli-api-remote')
+    localStorage.setItem('agent_hidden_ids', JSON.stringify(Array.from({ length: 96 }, (_, i) => `agent-${i}`)))
+    localStorage.setItem('agent_favourite_ids', JSON.stringify([STARTER_SUPPORT_ID, STARTER_CLI_ID, STARTER_API_ID, STARTER_REMOTE_ID]))
+
+    useAgentStore.getState().setAgents([...mockAgents])
+    const { hiddenAgentIds, favouriteIds } = useAgentStore.getState()
+    expect(localStorage.getItem('agent_sidebar_starters')).toBeNull()
+    expect(hiddenAgentIds).toEqual([])
+    expect(favouriteIds).toEqual([])
+  })
+})
+
 describe('useAgentStore hide all keeps starters', () => {
   beforeEach(() => {
     localStorage.clear()

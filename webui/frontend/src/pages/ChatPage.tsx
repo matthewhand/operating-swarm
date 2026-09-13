@@ -2705,9 +2705,9 @@ const ChatPage = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Token visibility: only when swarm owns the numbers — API/blueprint
-              agents. CLI provider sessions carry no swarm-side usage (REQ-806). */}
-          {!isCliAgent ? (
+          {/* Token visibility: only when using API agents (swarm owns the numbers).
+              For remote, CLI, and non-API agent types, the token counter must not exist in the top navbar. */}
+          {isApiAgent && (
             <button
               type="button"
               className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case shrink-0"
@@ -2730,7 +2730,7 @@ const ChatPage = () => {
               </div>
               <span className="tabular-nums whitespace-nowrap text-xs">{formatMeterLabel(tokenCount, contextMax)}</span>
             </button>
-          ) : null}
+          )}
           {showEmptyRemoteChrome ? (
             <button
               type="button"
@@ -3056,16 +3056,44 @@ const ChatPage = () => {
               messagesEditable &&
               !message.streaming &&
               (message.role === 'user' || message.role === 'assistant')
-            // CLI agents: while the run has produced no text the composer
-            // working avatar is the single indicator — no empty dots bubble.
-            if (
-              isCliAgent &&
-              message.role === 'assistant' &&
-              message.streaming &&
-              !message.text.trim()
-            ) {
-              return null
-            }
+            const isStreamingAssistant = message.role === 'assistant' && Boolean(message.streaming)
+            const bubbleAvatar =
+              message.role === 'assistant' ? (
+                isStreamingAssistant ? (
+                  <div
+                    className="os-composer-working os-inline-working"
+                    data-testid="composer-working-indicator"
+                    role="status"
+                    aria-live="polite"
+                    aria-label={workingTip}
+                  >
+                    <span
+                      className="tooltip tooltip-right os-composer-working__tip"
+                      data-tip={workingTip}
+                    >
+                      <span className="os-composer-working__avatar os-inline-working__avatar">
+                        <AgentAvatar
+                          src={selectedAgent?.avatar_path}
+                          agentId={teamFromUrl || agentIdFromBlueprint(selectedBlueprint)}
+                          active={true}
+                          status="working"
+                          size="xs"
+                          className="shrink-0"
+                        />
+                      </span>
+                    </span>
+                  </div>
+                ) : (
+                  <AgentAvatar
+                    src={selectedAgent?.avatar_path}
+                    agentId={teamFromUrl || agentIdFromBlueprint(selectedBlueprint)}
+                    active={false}
+                    status="idle"
+                    size="xs"
+                    className="shrink-0"
+                  />
+                )
+              ) : undefined
             const rawOffset = rawOffsetForMessage(messages, message.key)
             const showStartMarker =
               contextMeta.start_offset > 0 && rawOffset === contextMeta.start_offset
@@ -3097,6 +3125,7 @@ const ChatPage = () => {
                   text={message.text}
                   streaming={message.streaming}
                   edited={message.edited}
+                  avatar={bubbleAvatar}
                   skillCatalog={skillCatalog}
                   onOpenSkill={setOpenSkillName}
                   onRemoveCard={() =>
@@ -3144,24 +3173,23 @@ const ChatPage = () => {
                     />
                   ))}
                 </ChatMessageBubble>
-                {message.role === 'assistant' && !message.streaming && message.text.trim() ? (
-                  <ReadAloudButton text={message.text} />
+                {message.role === 'assistant' && !message.streaming && (message.text.trim() || retryEnabled) ? (
+                  <MessageRowActions text={message.text}>
+                    {message.text.trim() ? <ReadAloudButton text={message.text} /> : null}
+                    {SHOW_MESSAGE_ACTIONS && (
+                      <ChatMessageActions
+                        text={message.text}
+                        onRetry={
+                          retryEnabled
+                            ? () => {
+                                sendText(lastUserTextRef.current)
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
+                  </MessageRowActions>
                 ) : null}
-                {message.role === 'assistant' && !message.streaming && message.text.trim() ? (
-                  <MessageRowActions text={message.text} />
-                ) : null}
-                {SHOW_MESSAGE_ACTIONS && message.role === 'assistant' && !message.streaming && (
-                  <ChatMessageActions
-                    text={message.text}
-                    onRetry={
-                      retryEnabled
-                        ? () => {
-                            sendText(lastUserTextRef.current)
-                          }
-                        : undefined
-                    }
-                  />
-                )}
               </div>
             )
           })}
@@ -3189,27 +3217,6 @@ const ChatPage = () => {
               disabled={chipsDisabled}
               onChoose={chooseSuggestion}
             />
-          ) : null}
-          {streamingMessage && (isCliAgent || Boolean(streamingMessage.text.trim())) ? (
-            <div
-              className="os-composer-working"
-              data-testid="composer-working-indicator"
-              role="status"
-              aria-live="polite"
-              aria-label={workingTip}
-            >
-              <span className="tooltip tooltip-top os-composer-working__tip" data-tip={workingTip}>
-                <span className="os-composer-working__avatar">
-                  <AgentAvatar
-                    src={selectedAgent?.avatar_path}
-                    agentId={teamFromUrl || agentIdFromBlueprint(selectedBlueprint)}
-                    active={true}
-                    size="xs"
-                    className="shrink-0"
-                  />
-                </span>
-              </span>
-            </div>
           ) : null}
           {status !== 'open' ? (
             <div

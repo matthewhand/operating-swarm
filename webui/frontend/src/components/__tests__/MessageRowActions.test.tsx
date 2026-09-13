@@ -5,11 +5,11 @@ import MessageRowActions from '../MessageRowActions'
 import { COPY_EMPTY_TITLE, COPY_FAILED_TITLE } from '../../lib/clipboard'
 import * as clipboard from '../../lib/clipboard'
 
-function renderActions(text: string) {
+function renderActions(text: string, children?: React.ReactNode) {
   return render(
     <ToastProvider>
       <div className="group/osrow">
-        <MessageRowActions text={text} />
+        <MessageRowActions text={text}>{children}</MessageRowActions>
       </div>
     </ToastProvider>,
   )
@@ -46,5 +46,18 @@ describe('MessageRowActions', () => {
     renderActions('still stuck')
     fireEvent.click(screen.getByRole('button', { name: 'Copy message' }))
     expect(await screen.findByText(COPY_FAILED_TITLE)).toBeInTheDocument()
+  })
+
+  it('renders horizontal container with testid and hover reveal classes', () => {
+    renderActions('hello', <button type="button">Extra Action</button>)
+    const container = screen.getByTestId('os-message-row-actions')
+    expect(container).toBeInTheDocument()
+    expect(container.className).toContain('flex')
+    expect(container.className).toContain('flex-row')
+    expect(container.className).toContain('items-center')
+    expect(container.className).toContain('gap-1')
+    expect(container.className).toContain('group-hover/osrow:md:opacity-100')
+    expect(container.className).toContain('group-focus-within/osrow:md:opacity-100')
+    expect(screen.getByRole('button', { name: 'Extra Action' })).toBeInTheDocument()
   })
 })

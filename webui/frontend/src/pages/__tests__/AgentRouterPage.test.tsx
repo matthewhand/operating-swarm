@@ -26,6 +26,14 @@ vi.mock('../../lib/api', () => ({
     object: 'list',
     data: [{ id: 'codey', name: 'Codey', object: 'blueprint' }],
   }),
+  fetchTeams: vi.fn().mockResolvedValue({
+    object: 'list',
+    data: [],
+  }),
+  createTeam: vi.fn().mockResolvedValue({
+    id: 'test-team',
+    name: 'test-team',
+  }),
 }))
 
 const mockAgents: Record<string, Agent> = {
@@ -584,15 +592,24 @@ describe('AgentRouterPage integration', () => {
     renderPage()
 
     const header = screen.getByRole('banner')
+    // Strategy pills should no longer be in the header navbar
+    expect(within(header).queryByRole('button', { name: 'Auto Route' })).toBeNull()
+    expect(within(header).queryByRole('button', { name: 'Direct' })).toBeNull()
+    expect(within(header).queryByRole('button', { name: 'Router' })).toBeNull()
+    expect(within(header).queryByRole('button', { name: /Consensus/i })).toBeNull()
+
+    // Open Teams settings popup
+    fireEvent.click(screen.getByRole('button', { name: 'Teams' }))
+    const dialog = screen.getByRole('dialog')
 
     // 1. Switch to Direct
-    const directBtn = within(header).getByRole('button', { name: 'Direct' })
+    const directBtn = within(dialog).getByRole('button', { name: 'Direct' })
     fireEvent.click(directBtn)
     expect(useAgentStore.getState().routingStrategy).toBe('direct')
     expect(screen.getByPlaceholderText(/Message Agent Router directly…/i)).toBeInTheDocument()
 
-    // 2. Switch to Consensus (in header)
-    const consensusBtn = within(header).getByRole('button', { name: /Consensus/i })
+    // 2. Switch to Consensus (in dialog)
+    const consensusBtn = within(dialog).getByRole('button', { name: /Consensus/i })
     fireEvent.click(consensusBtn)
     expect(useAgentStore.getState().routingStrategy).toBe('consensus')
     expect(screen.getByPlaceholderText(/Query the multi-agent consensus panel…/i)).toBeInTheDocument()
@@ -613,12 +630,12 @@ describe('AgentRouterPage integration', () => {
     })
 
     // 4. Switch to Router
-    const routerBtn = within(header).getByRole('button', { name: 'Router' })
+    const routerBtn = within(dialog).getByRole('button', { name: 'Router' })
     fireEvent.click(routerBtn)
     expect(useAgentStore.getState().routingStrategy).toBe('router')
 
     // 5. Switch back to Auto Route
-    const autoRouteBtn = within(header).getByRole('button', { name: 'Auto Route' })
+    const autoRouteBtn = within(dialog).getByRole('button', { name: 'Auto Route' })
     fireEvent.click(autoRouteBtn)
     expect(useAgentStore.getState().routingStrategy).toBe('auto_route')
   })
@@ -798,26 +815,35 @@ describe('AgentRouterPage integration', () => {
   it('saves the current agents as a named team and reloads Unsaved', async () => {
     renderPage()
     await screen.findByRole('complementary', { name: 'Agent sidebar' })
-    const select = screen.getByRole('combobox', { name: 'Team' })
+
+    // Team selection is no longer in top navbar header
+    const header = screen.getByRole('banner')
+    expect(within(header).queryByRole('combobox', { name: 'Team' })).toBeNull()
+
+    // Open Teams settings popup
+    fireEvent.click(screen.getByRole('button', { name: 'Teams' }))
+    const dialog = screen.getByRole('dialog')
+
+    const select = within(dialog).getByRole('combobox', { name: 'Team' })
     expect(select).toHaveDisplayValue('Unsaved')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save as team' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'New team name' }), {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save as team' }))
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'New team name' }), {
       target: { value: 'Night shift' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Night shift')
+      expect(within(dialog).getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Night shift')
     })
     expect(useAgentStore.getState().activeTeamId).toBe('night-shift')
     expect(useAgentStore.getState().teams.some((t) => t.id === 'unsaved')).toBe(true)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team' }), {
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Team' }), {
       target: { value: 'unsaved' },
     })
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Unsaved')
+      expect(within(dialog).getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Unsaved')
     })
   })
 
@@ -893,5 +919,53 @@ describe('AgentRouterPage integration', () => {
     await screen.findByText('Here is the completed task response.')
     expect(await screen.findByText('What assumption did you skip?')).toBeInTheDocument()
     expect(agentApi.routeMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('prevents auto-hiding 96 agents and keeps catalog agents visible on clean load', async () => {
+    localStorage.clear()
+    useAgentStore.setState({
+      agents: Object.values(mockAgents),
+      selectedAgentId: 'router',
+      favouriteIds: [],
+      hiddenAgentIds: [],
+    })
+
+    renderPage()
+    const sidebar = await screen.findByLabelText('Agent sidebar')
+    // Coder, Researcher, etc. should be visible in the list, not hidden
+    expect(within(sidebar).getByText('Coder')).toBeInTheDocument()
+    expect(within(sidebar).getByText('Researcher')).toBeInTheDocument()
+    // Focused zone should exist as empty drop target
+    expect(within(sidebar).getByRole('region', { name: 'Focused agents' })).toBeInTheDocument()
+    expect(within(sidebar).getByText('Drag agents here')).toBeInTheDocument()
+    // Should NOT have hidden agents count
+    expect(within(sidebar).queryByText(/Hidden \(\d+\)/)).not.toBeInTheDocument()
+  })
+
+  it('unhides deep-linked agent if it was previously hidden', async () => {
+    localStorage.clear()
+    useAgentStore.setState({
+      agents: Object.values(mockAgents),
+      selectedAgentId: 'router',
+      hiddenAgentIds: ['coder'],
+      favouriteIds: [],
+    })
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={['/agents?agent=coder']}>
+          <ToastProvider>
+            <AgentRouterPage />
+          </ToastProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    const sidebar = await screen.findByLabelText('Agent sidebar')
+    await waitFor(() => {
+      expect(useAgentStore.getState().selectedAgentId).toBe('coder')
+    })
+    expect(useAgentStore.getState().hiddenAgentIds).not.toContain('coder')
+    expect(within(sidebar).getByText('Coder')).toBeInTheDocument()
   })
 })

@@ -302,10 +302,6 @@ function isHerdrAgent(agent: { id: string; kind?: string }): boolean {
 }
 
 function sidebarHref(agent: { id: string; kind?: string }): string {
-  if (agent.kind === 'design') {
-    // Designed agents chat on the router page, not the websocket composer.
-    return `/agents?agent=${encodeURIComponent(agent.id)}`
-  }
   if (isHerdrAgent(agent)) return '/teams/#herdr-members'
   return agentChatHref(agent.id)
 }

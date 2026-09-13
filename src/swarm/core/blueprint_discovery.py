@@ -36,6 +36,7 @@ class BlueprintMetadata(TypedDict, total=False):
     deprecated: bool | None
     status: str | None
     role: str | None
+    navbar_items: list[dict[str, Any]] | None
     # Add other common metadata fields here if needed for typing
 
 class DiscoveredBlueprintInfo(TypedDict):
@@ -253,6 +254,19 @@ def discover_blueprints(blueprint_dir: str, namespace: str | None = None, *, san
                         if description and not full_meta.get('description'):
                             full_meta['description'] = description
 
+                        if full_meta.get('navbar_items') is None and hasattr(member_obj, 'get_navbar_items'):
+                            try:
+                                items = member_obj.get_navbar_items()
+                                if items:
+                                    full_meta['navbar_items'] = items
+                            except TypeError:
+                                try:
+                                    items = member_obj.get_navbar_items(None)
+                                    if items:
+                                        full_meta['navbar_items'] = items
+                                except Exception:
+                                    pass
+
                         # Narrow to a TypedDict view for return typing, but keep extra keys
                         current_blueprint_metadata: BlueprintMetadata = {
                             'name': full_meta.get('name'),
@@ -266,6 +280,7 @@ def discover_blueprints(blueprint_dir: str, namespace: str | None = None, *, san
                             'deprecated': full_meta.get('deprecated'),
                             'status': full_meta.get('status'),
                             'role': full_meta.get('role'),
+                            'navbar_items': full_meta.get('navbar_items'),
                         }
 
                         found_bp_class_details = DiscoveredBlueprintInfo(

@@ -46,6 +46,10 @@ class ApiKindBase(KindBase):
 
     kind: ClassVar[str] = KIND_API
 
+    def get_navbar_items(self=None) -> list[dict]:
+        """Returns metadata for navbar items contributed by this blueprint."""
+        return [{"id": "token_counter", "kind": "token_counter", "label": "Tokens"}]
+
 
 class CliKindBase(KindBase):
     """CLI-backed template.

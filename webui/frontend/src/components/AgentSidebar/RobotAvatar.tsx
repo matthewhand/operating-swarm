@@ -168,7 +168,7 @@ export const RobotAvatar = memo(function RobotAvatar({
   const ex = gaze.x * 3.2
   const ey = gaze.y * 2.2
   const bodyClass =
-    status === 'working' ? 'robot-working' :
+    status === 'working' || eyesActive ? 'robot-working os-robot-avatar--active' :
     status === 'error' ? 'robot-error' :
     status === 'waiting' ? 'robot-waiting' :
     'robot-idle'

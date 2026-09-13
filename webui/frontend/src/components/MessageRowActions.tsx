@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { useToast } from './DaisyUI'
 import {
@@ -12,12 +12,20 @@ import {
 } from '../lib/clipboard'
 
 /**
- * Hover-only Copy for assistant rows (#70 / REQ-103).
+ * Assistant message reactions row (#70 / REQ-103).
  *
  * ChatPage mounts this beside ChatMessageBubble inside `group/osrow`.
- * Experimental ChatMessageActions must not add a second always-visible Copy.
+ * Combines Copy, Read Aloud, and Retry into the same horizontal line.
  */
-export default function MessageRowActions({ text }: { text: string }) {
+export default function MessageRowActions({
+  text,
+  children,
+  className,
+}: {
+  text: string
+  children?: ReactNode
+  className?: string
+}) {
   const [copied, setCopied] = useState(false)
   const { error } = useToast()
   const canCopy = messageHasCopyableText(text)
@@ -39,7 +47,9 @@ export default function MessageRowActions({ text }: { text: string }) {
   return (
     <div
       data-testid="os-message-row-actions"
-      className="mt-0.5 flex items-center gap-1 opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none group-hover/osrow:md:opacity-100 group-hover/osrow:md:pointer-events-auto group-focus-within/osrow:md:opacity-100 group-focus-within/osrow:md:pointer-events-auto transition-opacity"
+      className={`mt-0.5 flex flex-row items-center gap-1 opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none group-hover/osrow:md:opacity-100 group-hover/osrow:md:pointer-events-auto group-focus-within/osrow:md:opacity-100 group-focus-within/osrow:md:pointer-events-auto transition-opacity${
+        className ? ` ${className}` : ''
+      }`}
     >
       <button
         type="button"
@@ -54,6 +64,7 @@ export default function MessageRowActions({ text }: { text: string }) {
         {copied ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
         {copied ? 'Copied' : 'Copy'}
       </button>
+      {children}
     </div>
   )
 }

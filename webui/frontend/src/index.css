@@ -2033,14 +2033,33 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-chat-transcript .chat-end .chat-bubble {
   max-width: 95%;
 }
-/* No avatar column in the transcript grid — collapse DaisyUI's auto first
-   column so assistant bubbles hug the left edge instead of floating. */
-.os-chat-transcript .chat-start {
+/* Collapse DaisyUI's auto first column only when there is no avatar, so assistant bubbles hug left edge. */
+.os-chat-transcript .chat-start:not(:has(.chat-image)) {
   grid-template-columns: minmax(0, 1fr);
 }
-.os-chat-transcript .chat-start .chat-bubble {
+.os-chat-transcript .chat-start:not(:has(.chat-image)) .chat-bubble {
   grid-column-start: 1;
   justify-self: start;
+}
+.os-chat-transcript .chat-start:has(.chat-image) {
+  grid-template-columns: auto 1fr;
+  column-gap: 0.5rem;
+}
+.os-chat-transcript .chat-start:has(.chat-image) .chat-image {
+  grid-column-start: 1;
+  grid-row: 1 / span 2;
+  align-self: flex-start;
+  margin-top: 0.15rem;
+}
+.os-chat-transcript .chat-start:has(.chat-image) .chat-header {
+  grid-column-start: 2;
+}
+.os-chat-transcript .chat-start:has(.chat-image) .chat-bubble {
+  grid-column-start: 2;
+  justify-self: start;
+}
+.os-chat-transcript[data-bubble-theme="irc"] .chat-image {
+  display: none !important;
 }
 
 /* REQ-810: transcript-wide bubble themes (data-bubble-theme on .os-chat-transcript). */
@@ -2251,6 +2270,12 @@ html:not([data-theme="light"]) .os-composer__send,
   min-height: 0;
   line-height: 0;
 }
+.os-composer-working.os-inline-working {
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .os-composer-working__tip {
   display: inline-flex;
   line-height: 0;
@@ -2265,6 +2290,11 @@ html:not([data-theme="light"]) .os-composer__send,
   max-height: 1.5rem;
   flex: 0 0 auto;
   overflow: hidden;
+}
+.os-inline-working__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* REQ-143 / REQ-46: info/status/system chrome is full-pane centred — not a bubble. */
@@ -2930,4 +2960,57 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 [data-avatar-theme='robot3d'] canvas {
   border-radius: 999px;
+}
+
+/* Animated active/working avatars across themes */
+.os-avatar--active,
+.os-agent-avatar--active,
+.os-robot-avatar--active,
+.os-inline-working__avatar {
+  animation: os-avatar-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes os-avatar-pulse {
+  0%, 100% {
+    transform: scale(1) translateY(0);
+    filter: drop-shadow(0 0 0px transparent);
+  }
+  50% {
+    transform: scale(1.06) translateY(-1.5px);
+    filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--color-primary, #38bdf8) 40%, transparent));
+  }
+}
+
+.os-bland-avatar--active,
+.os-bland-avatar[data-eye-state="active"] {
+  animation: os-bland-working 1.2s ease-in-out infinite;
+}
+
+@keyframes os-bland-working {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.os-bland-avatar--active .os-bland-eyes,
+.os-bland-avatar[data-eye-state="active"] .os-bland-eyes {
+  animation: os-bland-eyes-blink 2.2s infinite;
+  transform-origin: 20px 16px;
+}
+
+@keyframes os-bland-eyes-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .os-avatar--active,
+  .os-agent-avatar--active,
+  .os-robot-avatar--active,
+  .os-inline-working__avatar,
+  .os-bland-avatar--active,
+  .os-bland-avatar[data-eye-state="active"],
+  .os-bland-avatar--active .os-bland-eyes,
+  .os-bland-avatar[data-eye-state="active"] .os-bland-eyes {
+    animation: none !important;
+  }
 }

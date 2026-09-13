@@ -75,4 +75,48 @@ describe('REQ-201: Token counter in top navbar beside agent/model picker', () =>
     const bottomDock = screen.getByTestId('chat-bottom-dock')
     expect(bottomDock.querySelector('[data-testid="token-meter-button"]')).toBeNull()
   })
+
+  it('does not render token meter in navbar for CLI agents', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=cli_agent']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+  })
+
+  it('does not render token meter in navbar for remote agents', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?remote=hermes']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+  })
 })

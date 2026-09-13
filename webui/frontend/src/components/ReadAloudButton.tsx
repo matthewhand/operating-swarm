@@ -15,7 +15,13 @@ import { useToast } from './DaisyUI'
  * Assistant-message read-aloud (REQ-77). System speechSynthesis by default;
  * custom OpenAI-compat speech when Settings opts in.
  */
-export default function ReadAloudButton({ text }: { text: string }) {
+export default function ReadAloudButton({
+  text,
+  className,
+}: {
+  text: string
+  className?: string
+}) {
   const { info, error: toastError } = useToast()
   const [speaking, setSpeaking] = useState(false)
   const [pathUsed, setPathUsed] = useState<'system' | 'custom' | null>(null)
@@ -70,7 +76,7 @@ export default function ReadAloudButton({ text }: { text: string }) {
   }
 
   return (
-    <div className="mt-0.5 flex items-center gap-2">
+    <div className={className ?? 'inline-flex items-center'}>
       <button
         type="button"
         className="btn btn-ghost btn-xs gap-1"

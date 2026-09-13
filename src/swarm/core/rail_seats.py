@@ -377,6 +377,11 @@ def custom_library_to_blueprint_rows(
                 "source": raw.get("source") or ADD_AGENT_SOURCE,
                 "user_created": True,
                 "role": "default",
+                "navbar_items": (
+                    [{"id": "token_counter", "kind": "token_counter", "label": "Tokens"}]
+                    if kind == "api"
+                    else []
+                ),
             }
         )
     rows.reverse()
