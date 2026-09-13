@@ -1009,8 +1009,8 @@ export default function AgentRouterPage() {
                   routingStrategy === 'consensus'
                     ? 'Query the multi-agent consensus panel…'
                     : routingStrategy === 'direct'
-                    ? `Message ${selectedAgent?.customName || selectedAgent?.name} directly…`
-                    : `Message ${selectedAgent?.customName || selectedAgent?.name}…`
+                    ? `Message ${selectedAgent?.customName || selectedAgent?.name || 'agent'} directly…`
+                    : `Message ${selectedAgent?.customName || selectedAgent?.name || 'Agent Router'}…`
                 }
                 disabled={routeMutation.isPending}
                 className="w-full pl-5 pr-12 py-3.5 bg-base-200/90 hover:bg-base-200 focus:bg-base-100 border border-base-300 rounded-full text-sm placeholder:text-base-content/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-xs"

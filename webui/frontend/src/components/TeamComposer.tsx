@@ -404,14 +404,13 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             data-testid="team-cos-instructions"
             label="How to use this team"
             size="sm"
-            rows={5}
+            rows={3}
             disabled={!chiefOfStaffId}
             value={chiefOfStaffId ? cosInstructions : ''}
             onChange={(event) => setCosInstructions(event.target.value)}
             placeholder={COS_INSTRUCTIONS_HELPER}
             aria-label="Chief of Staff instructions"
           />
-          <p className="mt-1 text-xs text-base-content/50">{COS_INSTRUCTIONS_HELPER}</p>
         </fieldset>
 
         {saveMutation.isError && (

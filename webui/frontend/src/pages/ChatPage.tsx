@@ -746,6 +746,16 @@ const ChatPage = () => {
         })),
   )
 
+  const supportSelected = Boolean(
+    !teamFromUrl &&
+      !remoteFromUrl &&
+      (isSupportJourneyConsumer(selectedBlueprint) ||
+        isSupportAgent({
+          id: selectedBlueprint || SUPPORT_AGENT_ID,
+          name: selectedAgentName,
+        })),
+  )
+
   const isApiAgent = Boolean(
     !teamFromUrl &&
       !remoteFromUrl &&
@@ -2148,14 +2158,6 @@ const ChatPage = () => {
   const streamingMessage = messages.find((message) => message.streaming)
   const isWorking = Boolean(streamingMessage) || awaitingAssistant
   const chipsDisabled = status !== 'open'
-  const supportSelected =
-    !teamFromUrl &&
-    !remoteFromUrl &&
-    (isSupportJourneyConsumer(selectedBlueprint) ||
-      isSupportAgent({
-        id: selectedBlueprint || SUPPORT_AGENT_ID,
-        name: selectedAgentName,
-      }))
   const supportJourneyChips =
     supportSelected && messages.length === 0 ? supportJourneyKickstart() : []
   const showSupportJourneyChips = supportJourneyChips.length > 0

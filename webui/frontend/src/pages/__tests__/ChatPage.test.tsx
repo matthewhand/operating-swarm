@@ -2812,6 +2812,14 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     unmountCli()
 
     MockWebSocket.instances = []
+    const { unmount: unmountGrok } = renderChat('/chat?blueprint=grok')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    unmountGrok()
+
+    MockWebSocket.instances = []
     const { unmount: unmountRemote } = renderChat('/chat?remote=hermes')
     await act(async () => {
       MockWebSocket.instances[0]?.open()

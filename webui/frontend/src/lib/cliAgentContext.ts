@@ -8,6 +8,7 @@
  */
 
 import type { CliAgentsInfo, CliModelsResponse, LlmProfile } from './api'
+import { KNOWN_CLI_NAMES } from './cliAgents'
 import { isHiddenRoutingLabel } from './routingPath'
 
 /** Last native-select item — navigates to the existing CLI manage path. */
@@ -16,9 +17,11 @@ export const MANAGE_CLI_VALUE = '__manage_cli__'
 /** Settings is the operator config surface (Builder SPA was deleted, ADR-001). */
 export const MANAGE_CLI_HREF = '/settings/'
 
-/** True for `cli_agent` and the `cli_*` family (`cli_fusion`, `cli_map`, …). */
+/** True for `cli_agent`, `cli_*` family (`cli_fusion`, `cli_map`, …), and known CLI names (`grok`, `agy`, …). */
 export function isCliBlueprintId(id: string): boolean {
-  return id.trim().toLowerCase().startsWith('cli_')
+  const norm = id.trim().toLowerCase()
+  if (norm.startsWith('cli_') || norm.startsWith('cli:') || norm === 'cli') return true
+  return (KNOWN_CLI_NAMES as readonly string[]).includes(norm)
 }
 
 /** True when ChatPage should list host CLIs instead of the blueprint catalog. */
