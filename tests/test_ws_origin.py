@@ -11,21 +11,21 @@ STAR = ["*", "localhost", "127.0.0.1"]
 
 
 def test_hostname_from_origin_strips_scheme_and_port():
-    assert hostname_from_origin("http://10.0.0.30:8002") == "10.0.0.30"
+    assert hostname_from_origin("http://198.51.100.30:8002") == "198.51.100.30"
     assert hostname_from_origin("http://[::1]:8002") == "::1"
     assert hostname_from_origin(None) is None
 
 
 def test_hostname_from_host_header_strips_port():
-    assert hostname_from_host_header("10.0.0.30:8002") == "10.0.0.30"
+    assert hostname_from_host_header("198.51.100.30:8002") == "198.51.100.30"
     assert hostname_from_host_header("[::1]:8002") == "::1"
     assert hostname_from_host_header("localhost") == "localhost"
 
 
 def test_lan_same_origin_allowed_in_debug_without_star():
     assert websocket_origin_allowed(
-        "http://10.0.0.30:8002",
-        "10.0.0.30:8002",
+        "http://198.51.100.30:8002",
+        "198.51.100.30:8002",
         allowed_hosts=LOCAL,
         debug=True,
     )
@@ -33,8 +33,8 @@ def test_lan_same_origin_allowed_in_debug_without_star():
 
 def test_lan_same_origin_allowed_when_star_listed():
     assert websocket_origin_allowed(
-        "http://10.0.0.30:8002",
-        "10.0.0.30:8002",
+        "http://198.51.100.30:8002",
+        "198.51.100.30:8002",
         allowed_hosts=STAR,
         debug=False,
     )
@@ -42,15 +42,15 @@ def test_lan_same_origin_allowed_when_star_listed():
 
 def test_lan_denied_in_production_unless_listed():
     assert not websocket_origin_allowed(
-        "http://10.0.0.30:8002",
-        "10.0.0.30:8002",
+        "http://198.51.100.30:8002",
+        "198.51.100.30:8002",
         allowed_hosts=LOCAL,
         debug=False,
     )
     assert websocket_origin_allowed(
-        "http://10.0.0.30:8002",
-        "10.0.0.30:8002",
-        allowed_hosts=["10.0.0.30", "localhost"],
+        "http://198.51.100.30:8002",
+        "198.51.100.30:8002",
+        allowed_hosts=["198.51.100.30", "localhost"],
         debug=False,
     )
 

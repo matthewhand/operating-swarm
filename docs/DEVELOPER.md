@@ -255,7 +255,7 @@ Today vs target + diagram: [ADR-005](./adr/005-kind-bases.md)
 
 For LAN sign-off when you need the built SPA (`#root` + hashed assets) without
 relying on django `runserver` alone, serve `webui/frontend/dist` with Vite
-preview. On ubuntu-max the agreed port is **8001** (LAN `0.0.0.0`). **Do not**
+preview. On dev-worker-max the agreed port is **8001** (LAN `0.0.0.0`). **Do not**
 bind **8000** (LiteLLM / other host services).
 
 ```bash

@@ -60,7 +60,7 @@ async def test_list_config_without_probing(bp):
     assert "omb" in out
     assert "rakazo" in out
     assert "swarm" in out
-    assert "10.0.0.36:8642" in out
+    assert "198.51.100.36:8642" in out
     assert "127.0.0.1:9" in out
 
 

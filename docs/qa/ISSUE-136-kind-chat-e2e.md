@@ -38,7 +38,7 @@ Checked-in transcript: [docs/qa/evidence/issue-136-kind-turns.md](./evidence/iss
 
 ---
 
-## Live ubuntu-gtx `:8000` look-only vs this branch
+## Live dev-worker-gpu `:8000` look-only vs this branch
 
 openswarm-agy notes below were taken on **live tip of `main`**, not this PR.
 This table is verified **on this branch’s tests**, not by claiming the live host.
@@ -53,7 +53,7 @@ This table is verified **on this branch’s tests**, not by claiming the live ho
 | `/v1/models` has `cli_agent`, `support`, `software_dev`, `skeptic`; no `api_agent` | **Fixed.** `GET /v1/models` lists `api_agent` (recipe `chatbot`) plus those ids (`test_models_list_includes_api_agent_rail_id`). |
 | Login form needs `csrfmiddlewaretoken`; WS anon → 4401 unless DEBUG+LAN | Unchanged and correct. Login CSRF is existing hardening. WS 4401 is AUTH.md (Bearer does **not** auth websockets). Not a Success item to weaken. |
 
-Do **not** treat ubuntu-gtx `:8000` @ `69b7b677` as Success for this PR.
+Do **not** treat dev-worker-gpu `:8000` @ `69b7b677` as Success for this PR.
 
 ---
 
@@ -128,7 +128,7 @@ Do not put the token in Issues, PRs, commits, or CI logs.
 
 ## CSRF root cause (verified, not just the live hunch)
 
-Live look-only on ubuntu-gtx `:8000` (non-binding, verified in tests):
+Live look-only on dev-worker-gpu `:8000` (non-binding, verified in tests):
 `GET /` and `GET /accounts/login/` set `csrftoken`. POST with no cookie →
 403 CSRF cookie not set. Cookie without `X-CSRFToken` → 403 token missing.
 Cookie + `X-CSRFToken` + Referer clears CSRF (then 404 if the model id is
@@ -143,7 +143,7 @@ paths with `csrf_exempt(...)`.
 session and passes `callback=None`, so the view decorator does **not**
 exempt cookie clients.
 
-That is why live `ubuntu-gtx` `POST /v1/chat/completions` without a CSRF
+That is why live `dev-worker-gpu` `POST /v1/chat/completions` without a CSRF
 cookie returned `403 CSRF Failed: CSRF cookie not set.` when LAN debug
 preview had already authenticated the caller.
 

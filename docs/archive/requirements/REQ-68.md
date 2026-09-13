@@ -36,7 +36,7 @@ others without exploding the sidepane.
 
 - Builds on #394 and #393. Compatible with remotes opt-in (#384). DaisyUI 5,
   React 18. Chat stays mounted.
-- GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+- GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 - Do not fold into PR 344. Do not rewrite #394’s PR.
 - GET `/v1/remotes/` list only — no health/operate, no live LAN, no Neon, no
   secrets.
@@ -47,4 +47,4 @@ others without exploding the sidepane.
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` — guest dirty only
+- live preview `198.51.100.30:8001` — guest dirty only

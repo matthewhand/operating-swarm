@@ -30,7 +30,7 @@ the Remotes list and in any remote dropdown. The OpenMausBot kind is labelled
   REQ-57 nested swarm (#380) but compatible (open-swarm is just another kind
   you add).
 - DaisyUI 5, React 18. Chat stays mounted.
-- GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+- GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 - No Neon. No secrets in Issue/PR/commits (placeholders only).
 - Do not fold into PR 344.
 - One Cursor cloud. PR must say `Fixes` this issue.
@@ -40,4 +40,4 @@ the Remotes list and in any remote dropdown. The OpenMausBot kind is labelled
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

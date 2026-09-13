@@ -21,7 +21,7 @@ class HerdrAgent(models.Model):
         blank=True,
         default="",
         help_text=(
-            "Empty = localhost (no --remote). Examples: you@10.0.0.36, "
+            "Empty = localhost (no --remote). Examples: you@198.51.100.36, "
             "workbox, ssh://you@server:2222."
         ),
     )

@@ -24,7 +24,7 @@ user to Allow, Always allow, or Deny.
 
 - API agents only (we own the runtime).
 - Do not wire CLI/remote into swarm safety.
-- GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+- GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 - No Neon. Local sqlite is fine; do not mention Django in UI copy.
 - DaisyUI 5, React 18, Vite, Tailwind 4. No shadcn.
 - Chat stays mounted; this is chat chrome, not a new SPA page.
@@ -38,4 +38,4 @@ user to Allow, Always allow, or Deny.
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

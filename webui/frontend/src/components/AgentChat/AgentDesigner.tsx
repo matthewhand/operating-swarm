@@ -231,7 +231,7 @@ export function AgentDesigner({ onClose, onCreated }: AgentDesignerProps) {
                     className="input input-sm input-bordered w-full mt-1"
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder="http://10.0.0.36:9119/v1"
+                    placeholder="http://198.51.100.36:9119/v1"
                   />
                   <span className="text-[10px] text-base-content/50">
                     We pull this host&apos;s agents into the sidebar from /v1/agents, /api/bots, or /v1/models. Leave blank to list the team now and wire the URL later.

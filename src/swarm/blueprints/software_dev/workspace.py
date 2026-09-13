@@ -1,8 +1,8 @@
 """software_dev workspace backends — local FS or SSH remote.
 
 File tools historically resolved ``params.workdir`` on the **API-host
-filesystem**. A control plane on ubuntu-max (:8002) therefore cannot see a
-tree that only exists on ubuntu-gtx (for example ``~/chatty-commander``)
+filesystem**. A control plane on dev-worker-max (:8002) therefore cannot see a
+tree that only exists on dev-worker-gpu (for example ``~/chatty-commander``)
 unless an SSH remote workdir is configured.
 
 Remote hop reuses the Herdr SSH argv builder (BatchMode, identity = env-var

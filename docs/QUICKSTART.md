@@ -111,7 +111,7 @@ curl -sf http://localhost:8000/v1/chat/completions \
 
 Notes:
 - docker-compose healthcheck probes `/health` (service name: `swarm`)
-- **PORT / LAN honesty:** greenfield compose and `swarm-api` default to **`:8000`** for Open Swarm ASGI + WebUI. On some LAN hosts (ubuntu-max) **`:8000` is LiteLLM**, Open Swarm uvicorn is typically **`:8002`**, and tip **vite** preview may be on **`:8001`** (often absent / stale). Curl Django / CSRF / chat at the **swarm** port — not LiteLLM.
+- **PORT / LAN honesty:** greenfield compose and `swarm-api` default to **`:8000`** for Open Swarm ASGI + WebUI. On some LAN hosts (dev-worker-max) **`:8000` is LiteLLM**, Open Swarm uvicorn is typically **`:8002`**, and tip **vite** preview may be on **`:8001`** (often absent / stale). Curl Django / CSRF / chat at the **swarm** port — not LiteLLM.
 - SPA `/` + `/chat` is baked into the Docker image; source checkouts need
   `make frontend` once (gitignored `dist/`) — [ADR-001](./ADR-001-primary-ui.md)
 - Auth is **not** “on by default”: it is on only when a token is configured.

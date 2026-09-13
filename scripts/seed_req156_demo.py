@@ -4,7 +4,7 @@
 Writes labeled ``demo-*`` team rosters into ``team_rosters.json``. Does not
 touch ``teams.json``, ``.env``, or day-to-day agents.
 
-Usage (engineer on ubuntu-gtx / preview after merge)::
+Usage (engineer on dev-worker-gpu / preview after merge)::
 
     uv run python scripts/seed_demo_agents.py --dry-run
     uv run python scripts/seed_demo_agents.py

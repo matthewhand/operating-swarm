@@ -20,7 +20,7 @@ def _spec(rid: str = "hermes") -> RemoteSpec:
         id=rid,
         title="t",
         host_label="box",
-        base_url="http://10.0.0.36:8642",
+        base_url="http://198.51.100.36:8642",
         api_key="${HERMES_API_KEY}",
         notes="n",
         source="default",
@@ -144,7 +144,7 @@ class TestRemoteDetail:
         mock_load.return_value = _spec()
         resp = api_client.get("/v1/remotes/hermes/")
         assert resp.status_code == 200
-        assert resp.json()["base_url"] == "http://10.0.0.36:8642"
+        assert resp.json()["base_url"] == "http://198.51.100.36:8642"
 
     @patch("swarm.views.remotes_api.remotes_core.load_remote")
     def test_unknown(self, mock_load, api_client):
@@ -157,7 +157,7 @@ class TestRemoteDetail:
         mock_persist.return_value = (_spec(), "/tmp/swarm_config.json")
         resp = api_client.patch(
             "/v1/remotes/hermes/",
-            {"base_url": "http://10.0.0.36:8642", "api_key": "${HERMES_API_KEY}"},
+            {"base_url": "http://198.51.100.36:8642", "api_key": "${HERMES_API_KEY}"},
             format="json",
         )
         assert resp.status_code == 200

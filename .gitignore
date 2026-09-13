@@ -238,3 +238,12 @@ webui/frontend/build/
 # Local swarm config (copy swarm_config.example.json). Only the repo-root
 # file is ignored so tests/swarm_config.json stays tracked.
 /swarm_config.json
+
+# Local operator manifests, fleet handover notes, and host specific configs
+*.local.json
+*.local.md
+local_manifests/
+*handover*manifest*
+docs/host-notes/
+.secrets/
+

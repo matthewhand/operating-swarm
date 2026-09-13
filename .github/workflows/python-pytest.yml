@@ -86,6 +86,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: Gate: Sanitize tracked files against sensitive LAN IPs and hostnames
+        run: uv run pytest tests/test_tracked_files_sanitization.py --no-cov
+
       - name: Run tests
         run: uv run pytest
         env:

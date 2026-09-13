@@ -364,7 +364,7 @@ intent if an implementer starts from this file.
 | Move or rename `src/swarm/herdr/` | `HerdrClient` wraps the **official** `herdr` binary. `herdr_available()` is “live hosts only.” Cloud CI **mocks** it. |
 | Delete `models/herdr.py` / migration `0012` / `/v1/herdr-agents/` | Persisted `kind=herdr` members. SQLite default; no Neon. |
 | “Fix” rail Herdr links to stay in SPA | They intentionally hop to Django `/teams/#herdr-members`. Changing the hash or retiring that fragment without a roster editor loses the only add/remove UI. |
-| Bake `10.0.0.30`, Fly, or `--remote` defaults | Same-host empty `remote` is the contract ([docs/HERDR.md](../HERDR.md)). |
+| Bake `198.51.100.30`, Fly, or `--remote` defaults | Same-host empty `remote` is the contract ([docs/HERDR.md](../HERDR.md)). |
 | Call live `herdr` from CI or this cloud | Tests mock. Do not target a WORKING pane. |
 | Confuse Herdr with Hermes / OMB / Rakazo | Those are `views/remotes_api.py` + `harness_fleet` `"kind": "hermes webui"` (wave 2 I-07). |
 

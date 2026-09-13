@@ -91,7 +91,7 @@ def _profile_config():
             "local": {
                 "provider": "openai",
                 "model": "auxiliary",
-                "base_url": "http://10.0.0.30:8000/v1",
+                "base_url": "http://198.51.100.30:8000/v1",
                 "api_key": "test-key",
             }
         },
@@ -147,7 +147,7 @@ async def test_ba_chat_calls_saved_profile_not_echo(monkeypatch):
     assert user not in out
     assert "falling back to echo" not in out
     assert fake.kwargs["model"] == "auxiliary"
-    assert _FakeClient.last_kwargs["base_url"] == "http://10.0.0.30:8000/v1"
+    assert _FakeClient.last_kwargs["base_url"] == "http://198.51.100.30:8000/v1"
     roles = [m["role"] for m in fake.kwargs["messages"]]
     assert "system" in roles
     assert "user" in roles

@@ -74,7 +74,7 @@ describe('remotes catalog (REQ-59)', () => {
           id: 'hermes',
           title: 'Hermes',
           host_label: '',
-          base_url: 'http://10.0.0.36:8642',
+          base_url: 'http://198.51.100.36:8642',
           source: 'default',
         },
       ],

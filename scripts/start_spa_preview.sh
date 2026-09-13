@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Long-lived SPA preview for visual QA / sign-off (ubuntu-max historically :8001).
+# Long-lived SPA preview for visual QA / sign-off (dev-worker-max historically :8001).
 # Serves webui/frontend/dist via vite preview. Does NOT bind :8000 (LiteLLM).
 set -euo pipefail
 

@@ -143,7 +143,7 @@ class TestLlmProfilesUpsertRoundTrip:
                 {
                     "id": "local",
                     "model": "auxiliary",
-                    "base_url": "http://10.0.0.30:8000/v1",
+                    "base_url": "http://198.51.100.30:8000/v1",
                     "provider": "openai",
                     "api_key": "${LITELLM_API_KEY}",
                     "set_default": True,
@@ -157,11 +157,11 @@ class TestLlmProfilesUpsertRoundTrip:
         by_id = {row["id"]: row for row in data["profiles"]}
         assert "local" in by_id
         assert by_id["local"]["model"] == "auxiliary"
-        assert by_id["local"]["base_url"] == "http://10.0.0.30:8000/v1"
+        assert by_id["local"]["base_url"] == "http://198.51.100.30:8000/v1"
         assert data["default_llm_profile"] == "local"
         raw = json.loads(path.read_text(encoding="utf-8"))
         assert raw["llm"]["local"]["model"] == "auxiliary"
-        assert raw["llm"]["local"]["base_url"] == "http://10.0.0.30:8000/v1"
+        assert raw["llm"]["local"]["base_url"] == "http://198.51.100.30:8000/v1"
         assert raw["llm"]["local"]["api_key"] == "${LITELLM_API_KEY}"
         assert "sk-" not in path.read_text(encoding="utf-8")
 
@@ -188,7 +188,7 @@ class TestLlmProfilesUpsertRoundTrip:
                 {
                     "id": "local",
                     "model": "auxiliary",
-                    "base_url": "http://10.0.0.30:8000/v1",
+                    "base_url": "http://198.51.100.30:8000/v1",
                     "api_key": "${OPENAI_API_KEY}",
                 },
                 format="json",
@@ -197,7 +197,7 @@ class TestLlmProfilesUpsertRoundTrip:
         assert resp.status_code == 200
         by_id = {row["id"]: row for row in listed.json()["profiles"]}
         assert by_id["local"]["model"] == "auxiliary"
-        assert by_id["local"]["base_url"] == "http://10.0.0.30:8000/v1"
+        assert by_id["local"]["base_url"] == "http://198.51.100.30:8000/v1"
 
     def test_post_plaintext_secret_is_400(self, api_client, tmp_path: Path):
         path = tmp_path / "swarm_config.json"

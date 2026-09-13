@@ -47,49 +47,49 @@ _DEFAULT_TIMEOUT_S = 3.0
 # auth_expected: service answers 401/403 when alive (token-gated APIs).
 _BUILTIN_FLEET: dict[str, dict[str, Any]] = {
     "nemohermes-36": {
-        "host": "10.0.0.36", "port": 8642, "kind": "hermes gateway",
+        "host": "198.51.100.36", "port": 8642, "kind": "hermes gateway",
         "note": "systemd nemohermes.service on this box",
     },
     "hermes-webui-36": {
-        "host": "10.0.0.36", "port": 9119, "kind": "hermes webui",
+        "host": "198.51.100.36", "port": 9119, "kind": "hermes webui",
         "note": "docker container; localhost forwarder must be running",
     },
     "nemohermes-30": {
-        "host": "10.0.0.30", "port": 8642, "kind": "hermes gateway",
+        "host": "198.51.100.30", "port": 8642, "kind": "hermes gateway",
         "note": "aiohttp confirmed on .30",
     },
     "letta-30": {
-        "host": "10.0.0.30", "port": 8283, "kind": "letta server",
+        "host": "198.51.100.30", "port": 8283, "kind": "letta server",
         # observed: TCP accepts but HTTP endpoints stall from this LAN —
         # report DEGRADED honestly unless/until a working path is known.
         "note": "TCP up; HTTP health path not yet answering on this install",
     },
     "home-assistant-111": {
-        "host": "10.0.0.111", "port": 8123, "kind": "home assistant",
+        "host": "198.51.100.111", "port": 8123, "kind": "home assistant",
         "health_path": "/",  # frontend answers unauthenticated; /api/ hangs
     },
-    "ollama-30": {"host": "10.0.0.30", "port": 11434, "kind": "ollama"},
-    "ollama-32": {"host": "10.0.0.32", "port": 11434, "kind": "ollama"},
+    "ollama-30": {"host": "198.51.100.30", "port": 11434, "kind": "ollama"},
+    "ollama-32": {"host": "198.51.100.32", "port": 11434, "kind": "ollama"},
     "codeproject-ai-32": {
-        "host": "10.0.0.32", "port": 5000, "kind": "codeproject ai server",
+        "host": "198.51.100.32", "port": 5000, "kind": "codeproject ai server",
     },
     "rakazo-32": {
-        "host": "10.0.0.32", "port": 3100, "kind": "rakazo api",
+        "host": "198.51.100.32", "port": 3100, "kind": "rakazo api",
         "health_path": "/health",
         "note": "Windows2 C:\\rakazo — UI :5173; operate via remotes.rakazo / remote_harness",
     },
     "rakoza-32": {
-        "host": "10.0.0.32", "port": 3100, "kind": "rakazo api",
+        "host": "198.51.100.32", "port": 3100, "kind": "rakazo api",
         "health_path": "/health",
         "note": "alias of rakazo-32 (legacy misspelling)",
     },
     "omb-32": {
-        "host": "10.0.0.32", "port": 8802, "kind": "openmausbot",
+        "host": "198.51.100.32", "port": 8802, "kind": "openmausbot",
         "health_path": "/api/health",
         "note": "Windows2 OpenMausBot — operate via remotes.omb / remote_harness",
     },
     "openmousbot-32": {
-        "host": "10.0.0.32", "port": 8802, "kind": "openmausbot",
+        "host": "198.51.100.32", "port": 8802, "kind": "openmausbot",
         "health_path": "/api/health",
         "note": "alias of omb-32 (legacy misspelling)",
     },

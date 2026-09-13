@@ -8,9 +8,9 @@ source of truth for:
 * operate: list / send a job via each harness's real HTTP API
 * opt-in catalog (REQ-59): only *configured* remotes appear in Settings / dropdowns
 
-LAN defaults are operator facts (ubuntu-gtx / Windows2). They are not
+LAN defaults are operator facts (dev-worker-gpu / Windows2). They are not
 invented cloud hosts. Do **not** point these remotes at Fly open-litellm;
-the LAN LLM for *this* swarm is ``http://10.0.0.30:8000/v1``.
+the LAN LLM for *this* swarm is ``http://198.51.100.30:8000/v1``.
 
 The ``swarm`` kind (alias ``open-swarm``) is another open-swarm *process*
 reached over HTTP — own listen port, own local DB. Nesting is network
@@ -94,10 +94,10 @@ _TOOL_NAMES: dict[str, str] = {
 # Verified operator LAN facts (not reachable from every cloud VM).
 _DEFAULTS: dict[str, dict[str, Any]] = {
     "hermes": {
-        "title": "Hermes Agent (ubuntu-gtx)",
-        "host_label": "ubuntu-gtx",
-        "base_url": "http://10.0.0.36:8642",
-        "ui_url": "http://10.0.0.36:9119",
+        "title": "Hermes Agent (dev-worker-gpu)",
+        "host_label": "dev-worker-gpu",
+        "base_url": "http://198.51.100.36:8642",
+        "ui_url": "http://198.51.100.36:9119",
         "api_key": "${HERMES_API_KEY}",
         "health_path": "/health",
         "version_path": "/v1/models",
@@ -111,7 +111,7 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "omb": {
         "title": "OpenMousBot",
         "host_label": "Windows2",
-        "base_url": "http://10.0.0.32:8802",
+        "base_url": "http://198.51.100.32:8802",
         "ui_url": "",
         "api_key": "${OMB_API_KEY}",
         "health_path": "/api/health",
@@ -126,8 +126,8 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "rakazo": {
         "title": "Rakazo (Windows2)",
         "host_label": "Windows2",
-        "base_url": "http://10.0.0.32:3100",
-        "ui_url": "http://10.0.0.32:5173",
+        "base_url": "http://198.51.100.32:3100",
+        "ui_url": "http://198.51.100.32:5173",
         "api_key": "${RAKAZO_API_KEY}",
         "cookie": "${RAKAZO_SESSION_COOKIE}",
         "health_path": "/health",
@@ -1020,7 +1020,7 @@ def persist_remote(
         if _looks_like_forbidden_llm_proxy(normalized):
             raise RemoteError(
                 "Refusing to persist a Fly open-litellm URL as a harness remote. "
-                "Hermes/OpenMousBot/Rakazo are LAN harnesses; LAN LLM is http://10.0.0.30:8000/v1."
+                "Hermes/OpenMousBot/Rakazo are LAN harnesses; LAN LLM is http://198.51.100.30:8000/v1."
             )
         if rid == "swarm" and is_this_server_base_url(normalized):
             raise RemoteError(

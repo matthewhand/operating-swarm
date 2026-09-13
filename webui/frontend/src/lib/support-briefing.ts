@@ -78,7 +78,7 @@ export function buildSupportBriefing(opts: {
       ].filter(Boolean)
     : [
         '- **No inference configured yet.**',
-        '- Open [Settings](/settings/) and set LiteLLM (`http://10.0.0.30:8000`, model `auxiliary`, provider `litellm`).',
+        '- Open [Settings](/settings/) and set LiteLLM (`http://198.51.100.30:8000`, model `auxiliary`, provider `litellm`).',
         '- Or install **grok** / **agy** and pick them on the CLI agent.',
       ]
 

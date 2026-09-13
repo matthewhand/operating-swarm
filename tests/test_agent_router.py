@@ -735,7 +735,7 @@ async def test_run_remote_agent_http_and_empty_url(blueprint, monkeypatch):
         "type": "specialist",
     })
     blueprint._config = {
-        "remote_teams": {"hermes": {"base_url": "http://10.0.0.36:9119/v1", "name": "Hermes"}},
+        "remote_teams": {"hermes": {"base_url": "http://198.51.100.36:9119/v1", "name": "Hermes"}},
     }
     blueprint._params = {"framework": "hermes"}
     with patch("swarm.core.remote_teams.chat_remote", return_value="via hermes") as mocked_fw:
@@ -746,7 +746,7 @@ async def test_run_remote_agent_http_and_empty_url(blueprint, monkeypatch):
             chunks.append(chunk)
     assert chunks[0]["content"] == "via hermes"
     mocked_fw.assert_called_with(
-        "http://10.0.0.36:9119/v1",
+        "http://198.51.100.36:9119/v1",
         [{"role": "user", "content": "hi"}],
         model="default",
     )

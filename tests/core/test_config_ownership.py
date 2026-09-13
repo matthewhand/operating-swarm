@@ -165,9 +165,9 @@ def test_badges_and_force_env(monkeypatch):
 def test_hybrid_remote_url_file_wins_unless_force(monkeypatch):
     monkeypatch.delenv("SWARM_CONFIG_FORCE_ENV", raising=False)
     monkeypatch.setenv("OMB_BASE_URL", "http://10.9.9.9:8802")
-    cfg = {"remotes": {"omb": {"base_url": "http://10.0.0.32:8802"}}}
+    cfg = {"remotes": {"omb": {"base_url": "http://198.51.100.32:8802"}}}
     spec = remotes_core.load_remote("omb", cfg)
-    assert spec.base_url == "http://10.0.0.32:8802"
+    assert spec.base_url == "http://198.51.100.32:8802"
     assert spec.source == "config"
     assert spec.provenance["base_url"]["kind"] == "overrides_env"
 

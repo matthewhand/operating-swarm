@@ -41,7 +41,7 @@ def test_settings_remotes_are_opt_in_not_live_lan():
     assert "remotes API has not landed" not in sheet
     assert "label: 'OMB'" not in sheet
     assert ":8001" not in sheet
-    assert "10.0.0.30" not in sheet
+    assert "198.51.100.30" not in sheet
 
 
 def test_rail_plugins_overlay_is_empty_honest():

@@ -15,7 +15,7 @@
 > **Constraints:**
 > - Distinct from #356 (badge click pane) and #344. Do not fold into 344.
 > - DaisyUI 5, React 18.
-> - GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+> - GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 > - No Neon. No secrets.
 > - One Cursor cloud. PR must say `Fixes` this issue.
 >
@@ -34,7 +34,7 @@ See the quoted issue above.
 
 - Distinct from #356 (badge click pane) and #344. Do not fold into 344.
 - DaisyUI 5, React 18.
-- GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+- GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 - No Neon. No secrets.
 
 ## Owner
@@ -42,4 +42,4 @@ See the quoted issue above.
 - CoS transcribes
 - cloud implements (this PR)
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

@@ -26,7 +26,7 @@ GET  /v1/responses/{id}  ->  status: "queued" -> "in_progress" -> "completed" | 
 ## Cancelling a task
 
 ```bash
-curl -s -X POST http://10.0.0.36:8000/v1/responses/resp_abc…/cancel
+curl -s -X POST http://198.51.100.36:8000/v1/responses/resp_abc…/cancel
 # -> {"status": "cancelled", ...}
 ```
 
@@ -69,7 +69,7 @@ the deadline to real task durations.
 
 ```bash
 # 1. Start a task — returns immediately with a handle
-curl -s http://10.0.0.36:8000/v1/responses -H "Content-Type: application/json" -d '{
+curl -s http://198.51.100.36:8000/v1/responses -H "Content-Type: application/json" -d '{
   "model": "cli_fusion",
   "input": "Refactor the auth module and summarize the changes",
   "background": true,
@@ -78,12 +78,12 @@ curl -s http://10.0.0.36:8000/v1/responses -H "Content-Type: application/json" -
 # -> {"id":"resp_abc…","status":"queued", ...}
 
 # 2. Poll until done
-curl -s http://10.0.0.36:8000/v1/responses/resp_abc…
+curl -s http://198.51.100.36:8000/v1/responses/resp_abc…
 # -> {"status":"in_progress", ...}   (keep polling)
 # -> {"status":"completed","output_text":"…","system_fingerprint":"cli_fusion:gemini+claude+grok|judge=claude","execution_ms":7893}
 
 # 3. (optional) Continue the thread
-curl -s http://10.0.0.36:8000/v1/responses -H "Content-Type: application/json" -d '{
+curl -s http://198.51.100.36:8000/v1/responses -H "Content-Type: application/json" -d '{
   "model": "cli_fusion", "input": "now write tests for it", "previous_response_id": "resp_abc…"
 }'
 ```

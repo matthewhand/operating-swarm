@@ -29,7 +29,7 @@ Cursor cloud agents), instead of stuffing every job into one reused session.
 
 - Agent-editor only (not global Settings). Compatible with #382.
 - DaisyUI 5, React 18. Chat stays mounted.
-- GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+- GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 - No Neon. No secrets.
 - Do not fold into PR 344.
 - `Fixes` #393.

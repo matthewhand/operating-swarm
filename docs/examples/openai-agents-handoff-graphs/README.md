@@ -159,7 +159,7 @@ edges. Tests load these JSON files and assert live == declared.
 
 ## :8001 seed (engineer, after merge)
 
-Apply on ubuntu-gtx / preview **after this PR merges**. Additive Demo rosters
+Apply on dev-worker-gpu / preview **after this PR merges**. Additive Demo rosters
 only — do **not** rename Matthew’s day-to-day agents. No secrets in the repo
 or in the seed. Use the box’s existing LiteLLM profile (`${LITELLM_API_KEY}`
 or whatever is already in `swarm_config.json`); do not paste keys.

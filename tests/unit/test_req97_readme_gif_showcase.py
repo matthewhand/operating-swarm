@@ -3,7 +3,9 @@
 Issue SoT: #456.
 """
 
-from PIL import Image
+import pytest
+
+Image = pytest.importorskip("PIL.Image", reason="Pillow not installed in test venv")
 
 from swarm.core.handoff_graph import repo_root
 

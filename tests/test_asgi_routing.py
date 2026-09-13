@@ -155,8 +155,8 @@ class TestWebsocketGating:
             application,
             WS_PATH,
             headers=[
-                (b"origin", b"http://10.0.0.30:8002"),
-                (b"host", b"10.0.0.30:8002"),
+                (b"origin", b"http://198.51.100.30:8002"),
+                (b"host", b"198.51.100.30:8002"),
             ],
         )
         connected, _ = await communicator.connect()

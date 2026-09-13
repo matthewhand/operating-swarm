@@ -8,7 +8,7 @@ Success:
 3. Sidepane exists; right-click Hide from sidebar on an agent; item leaves the main list; expandable Hidden; Unhide; persist across reload. hide-all must not be required.
 4. Later pages share the same chrome.
 
-Constraints: Live http://10.0.0.30:8001/. Do not change OMB (:8802). No LiteLLM catalog. Adding a sidepane is in scope if hide needs it; do not clone OMB wholesale. REQ-4 custom CoS+engineer+skeptic teams is a separate track. No Neon/oracle. No Qwen-while-Comfy POST. No Chatty implement. No Dual-entry rewrite.
+Constraints: Live http://198.51.100.30:8001/. Do not change OMB (:8802). No LiteLLM catalog. Adding a sidepane is in scope if hide needs it; do not clone OMB wholesale. REQ-4 custom CoS+engineer+skeptic teams is a separate track. No Neon/oracle. No Qwen-while-Comfy POST. No Chatty implement. No Dual-entry rewrite.
 
 Landed on origin/main as the squash-merge of https://github.com/matthewhand/open-swarm/pull/307, SHA 91dabd645d289ee539aa00bbe0721e1dc916b116 (`91dabd64`).
 

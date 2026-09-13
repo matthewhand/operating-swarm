@@ -112,7 +112,7 @@ def test_upsert_remote_team(designs_file):
         "kind": "remote",
         "name": "Hermes",
         "framework": "hermes",
-        "base_url": "http://10.0.0.36:9119/v1",
+        "base_url": "http://198.51.100.36:9119/v1",
     })
     assert spec["kind"] == "remote"
     assert spec["group"] == "remote"

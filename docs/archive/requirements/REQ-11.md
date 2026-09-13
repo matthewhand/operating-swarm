@@ -12,13 +12,13 @@ openai-agents handoff / `as_tool`.
 
 | Remote | Host | Default | Auth |
 |---|---|---|---|
-| hermes | ubuntu-gtx | `http://10.0.0.36:8642` (UI `:9119` is chrome, not the operate API) | `HERMES_API_KEY` |
-| omb | Windows2 | `http://10.0.0.32:8802` | `OMB_API_KEY` |
-| rakazo | Windows2 | API `http://10.0.0.32:3100`, UI `:5173` | `RAKAZO_API_KEY` and/or session cookie |
+| hermes | dev-worker-gpu | `http://198.51.100.36:8642` (UI `:9119` is chrome, not the operate API) | `HERMES_API_KEY` |
+| omb | Windows2 | `http://198.51.100.32:8802` | `OMB_API_KEY` |
+| rakazo | Windows2 | API `http://198.51.100.32:3100`, UI `:5173` | `RAKAZO_API_KEY` and/or session cookie |
 
 - `swarm-cli remotes` set / place / unplace / health. REST `/v1/remotes/<id>/` + `/v1/agent-team/`.
 - Health is one TCP + one HTTP, no retries, no crash-loop. DOWN is a report. 401/403 on a live port is UP.
-- Persist refuses Fly open-litellm URLs. LAN LLM for *this* swarm: `http://10.0.0.30:8000/v1`.
+- Persist refuses Fly open-litellm URLs. LAN LLM for *this* swarm: `http://198.51.100.30:8000/v1`.
 
 ## Constraints
 
@@ -31,4 +31,4 @@ openai-agents handoff / `as_tool`.
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

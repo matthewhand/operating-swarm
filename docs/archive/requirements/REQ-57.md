@@ -21,7 +21,7 @@ deployed for different needs.
 ## Constraints
 
 - Reuse Herdr / remotes machinery (PR 318 and follow-ons). Do not invent a second remote stack.
-- GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+- GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 - No Neon. Do not enable oracle.
 - No secrets, live tokens, or LAN inventories in the Issue, PR, commits, or tests. Fixtures use `http://127.0.0.1:9` / `CHANGE_ME`.
 - DaisyUI 5, React 18. Settings/Teams overlays; chat stays mounted.
@@ -34,4 +34,4 @@ deployed for different needs.
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

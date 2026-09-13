@@ -31,7 +31,7 @@ agent-scoped fields with global Settings sections such as Remotes.
 - Distinct from REQ-42 (#356, role-badge explained pane) and REQ-25 (#334,
   hover-pencil → Python). Do not fold this into those PRs or into PR 344.
 - DaisyUI 5, React 18. Chat stays mounted (editor is an overlay/popup).
-- GitHub-only PR. Do not deploy or touch `http://10.0.0.30:8001/`.
+- GitHub-only PR. Do not deploy or touch `http://198.51.100.30:8001/`.
 - No Neon. No secrets.
 - One Cursor cloud. PR must say `Fixes` this issue.
 
@@ -40,4 +40,4 @@ agent-scoped fields with global Settings sections such as Remotes.
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

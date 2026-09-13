@@ -298,8 +298,8 @@ describe('AgentRouterPage integration', () => {
       status: 'success',
       default: 'auxiliary',
       profiles: [
-        { name: 'auxiliary', provider: 'openai', model: 'auxiliary', base_url: 'http://10.0.0.30:8000/v1', description: '' },
-        { name: 'orchestration', provider: 'openai', model: 'orchestration', base_url: 'http://10.0.0.30:8000/v1', description: '' },
+        { name: 'auxiliary', provider: 'openai', model: 'auxiliary', base_url: 'http://198.51.100.30:8000/v1', description: '' },
+        { name: 'orchestration', provider: 'openai', model: 'orchestration', base_url: 'http://198.51.100.30:8000/v1', description: '' },
       ],
     })
     vi.mocked(agentApi.fetchRemoteCatalog).mockResolvedValue({

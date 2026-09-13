@@ -48,10 +48,10 @@ REST: `GET /v1/agent-team/` · `PATCH /v1/agent-team/` `{"members":["hermes","om
 or `{"place":"rakazo"}` / `{"unplace":"hermes"}`. `remote_harness` only attaches
 `consult_*` as_tool specialists for **placed** members.
 
-LAN LLM for *this* swarm: `http://10.0.0.30:8000/v1`. Do **not** point remotes
+LAN LLM for *this* swarm: `http://198.51.100.30:8000/v1`. Do **not** point remotes
 at Fly open-litellm.
 
-This environment could not TCP-reach `10.0.0.36` / `10.0.0.32` (cloud VM, no
+This environment could not TCP-reach `198.51.100.36` / `198.51.100.32` (cloud VM, no
 LAN). Defaults below are operator facts already present in `harness_fleet`
 plus the published APIs for those products. Health fails honestly when the
 box is down.
@@ -66,15 +66,15 @@ Kind defaults (override when adding). Unused kinds are not pre-seeded cards:
 
 | Remote | Host | Default base URL | Auth env |
 |---|---|---|---|
-| **hermes** | ubuntu-gtx | `http://10.0.0.36:8642` (UI `:9119`) | `HERMES_API_KEY` (Hermes `API_SERVER_KEY`) |
-| **omb** | Windows2 | `http://10.0.0.32:8802` | `OMB_API_KEY` (optional Bearer) |
-| **rakazo** | Windows2 | API `http://10.0.0.32:3100`, UI `:5173`, tree `C:\rakazo` | `RAKAZO_API_KEY` and/or `RAKAZO_SESSION_COOKIE` |
+| **hermes** | dev-worker-gpu | `http://198.51.100.36:8642` (UI `:9119`) | `HERMES_API_KEY` (Hermes `API_SERVER_KEY`) |
+| **omb** | Windows2 | `http://198.51.100.32:8802` | `OMB_API_KEY` (optional Bearer) |
+| **rakazo** | Windows2 | API `http://198.51.100.32:3100`, UI `:5173`, tree `C:\rakazo` | `RAKAZO_API_KEY` and/or `RAKAZO_SESSION_COOKIE` |
 | **swarm** | another open-swarm process | stub `http://127.0.0.1:9` (not this listen URL) | `SWARM_REMOTE_API_KEY` (Bearer; env var name only) |
 
 ```bash
-swarm-cli remotes set hermes --base-url http://10.0.0.36:8642 --api-key-env HERMES_API_KEY
-swarm-cli remotes set omb --base-url http://10.0.0.32:8802 --api-key-env OMB_API_KEY
-swarm-cli remotes set rakazo --base-url http://10.0.0.32:3100 --ui-url http://10.0.0.32:5173 --api-key-env RAKAZO_API_KEY
+swarm-cli remotes set hermes --base-url http://198.51.100.36:8642 --api-key-env HERMES_API_KEY
+swarm-cli remotes set omb --base-url http://198.51.100.32:8802 --api-key-env OMB_API_KEY
+swarm-cli remotes set rakazo --base-url http://198.51.100.32:3100 --ui-url http://198.51.100.32:5173 --api-key-env RAKAZO_API_KEY
 swarm-cli remotes set swarm --base-url http://127.0.0.1:9 --api-key-env SWARM_REMOTE_API_KEY
 ```
 
@@ -85,7 +85,7 @@ required to nest the parent. Tests use `http://127.0.0.1:9` and `CHANGE_ME`.
 
 Equivalent persist:
 
-* `PATCH /v1/remotes/hermes/` `{"base_url":"http://10.0.0.36:8642","api_key":"${HERMES_API_KEY}"}`
+* `PATCH /v1/remotes/hermes/` `{"base_url":"http://198.51.100.36:8642","api_key":"${HERMES_API_KEY}"}`
 * `swarm-cli config add --section remotes --name hermes --json '{...}'`
 * Edit `~/.config/swarm/swarm_config.json` → `"remotes"` (or `SWARM_CONFIG_PATH`)
 

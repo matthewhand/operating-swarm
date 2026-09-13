@@ -268,11 +268,11 @@ def test_env_overrides_config(monkeypatch):
     """#776 hybrid: persisted URL wins unless force-env is on."""
     monkeypatch.delenv("SWARM_CONFIG_FORCE_ENV", raising=False)
     monkeypatch.setenv("OMB_BASE_URL", "http://10.9.9.9:8802")
-    spec = remotes_core.load_remote("omb", {"remotes": {"omb": {"base_url": "http://10.0.0.32:8802"}}})
-    assert spec.base_url == "http://10.0.0.32:8802"
+    spec = remotes_core.load_remote("omb", {"remotes": {"omb": {"base_url": "http://198.51.100.32:8802"}}})
+    assert spec.base_url == "http://198.51.100.32:8802"
     assert spec.source == "config"
     monkeypatch.setenv("SWARM_CONFIG_FORCE_ENV", "1")
-    forced = remotes_core.load_remote("omb", {"remotes": {"omb": {"base_url": "http://10.0.0.32:8802"}}})
+    forced = remotes_core.load_remote("omb", {"remotes": {"omb": {"base_url": "http://198.51.100.32:8802"}}})
     assert forced.base_url == "http://10.9.9.9:8802"
     assert forced.source == "env"
 

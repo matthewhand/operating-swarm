@@ -1,6 +1,6 @@
 """REQ-21 Herdr CLI wrapper — mock only. Never talk to a live TUI.
 
-Proven on-host shape (ubuntu-max 10.0.0.30):
+Proven on-host shape (dev-worker-max 198.51.100.30):
 ``herdr agent prompt w3:p1 HERDR_PING_OK`` → JSON type ``agent_prompted``.
 
 Do not target a WORKING grok pane. Cloud CI has no live herdr server.
@@ -85,16 +85,16 @@ def test_optional_remote_prefixes_every_call():
         calls.append(list(argv))
         return _ok(argv, '{"ok":true}')
 
-    client = HerdrClient(remote="matthewh@10.0.0.36", runner=runner)
+    client = HerdrClient(remote="matthewh@198.51.100.36", runner=runner)
     client.workspace_list()
     client.agent_list()
     client.agent_prompt("w3:p1", "HERDR_PING_OK")
     for argv in calls:
-        assert argv[:3] == ["herdr", "--remote", "matthewh@10.0.0.36"]
+        assert argv[:3] == ["herdr", "--remote", "matthewh@198.51.100.36"]
     assert calls[-1] == [
         "herdr",
         "--remote",
-        "matthewh@10.0.0.36",
+        "matthewh@198.51.100.36",
         "agent",
         "prompt",
         "w3:p1",

@@ -26,7 +26,7 @@ def test_remotes_set_persists(tmp_path: Path):
         "set",
         "hermes",
         "--base-url",
-        "http://10.0.0.36:8642",
+        "http://198.51.100.36:8642",
         "--api-key-env",
         "HERMES_API_KEY",
         "--config",
@@ -36,7 +36,7 @@ def test_remotes_set_persists(tmp_path: Path):
     )
     assert proc.returncode == 0, proc.stderr + proc.stdout
     data = json.loads(cfg.read_text(encoding="utf-8"))
-    assert data["remotes"]["hermes"]["base_url"] == "http://10.0.0.36:8642"
+    assert data["remotes"]["hermes"]["base_url"] == "http://198.51.100.36:8642"
     assert data["remotes"]["hermes"]["api_key"] == "${HERMES_API_KEY}"
     assert data["remotes"]["hermes"]["api_key_env"] == "HERMES_API_KEY"
     assert "Persisted" in proc.stdout
@@ -248,15 +248,15 @@ def test_remotes_get_json(tmp_path: Path):
         id="rakazo",
         title="Rakazo",
         host_label="Windows2",
-        base_url="http://10.0.0.32:3100",
-        ui_url="http://10.0.0.32:5173",
+        base_url="http://198.51.100.32:3100",
+        ui_url="http://198.51.100.32:5173",
         source="default",
     )
     with patch("swarm.core.remotes.load_remote", return_value=spec):
         result = runner.invoke(app, ["remotes", "get", "rakazo"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["base_url"] == "http://10.0.0.32:3100"
+    assert payload["base_url"] == "http://198.51.100.32:3100"
     assert payload["api_key_set"] is False
 
 

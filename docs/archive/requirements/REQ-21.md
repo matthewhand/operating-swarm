@@ -16,7 +16,7 @@ a non-local swarm is opt-in via `--remote`, not the implicit default.
 ## Constraints
 
 - Do not enable Neon. Do not resume oracle.
-- Do not bake `10.0.0.30` or Fly open-litellm as the Herdr default.
+- Do not bake `198.51.100.30` or Fly open-litellm as the Herdr default.
 - Docs-only on this filing PR — do not implement here.
 
 ## Owner
@@ -24,4 +24,4 @@ a non-local swarm is opt-in via `--remote`, not the implicit default.
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

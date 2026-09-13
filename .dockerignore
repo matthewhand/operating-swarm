@@ -7,6 +7,12 @@
 .letta/
 .claude/
 .serena/
+.secrets/
+*.local.json
+*.local.md
+local_manifests/
+*handover*manifest*
+docs/host-notes/
 
 # --- VCS & CI ---
 .git/

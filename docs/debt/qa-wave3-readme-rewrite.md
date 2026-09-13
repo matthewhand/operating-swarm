@@ -319,7 +319,7 @@ Pointer + one honesty sentence is enough.
   `omb` is fine in CLI. `docs/REMOTE_HARNESSES.md` / GLOSSARY still say
   OpenMausBot / OMB in places — that is a docs-IA follow-up, not a
   mass rename here.
-- Do not put LAN IPs (`10.0.0.30`, Fly URLs, hostnames) in the README.
+- Do not put LAN IPs (`198.51.100.30`, Fly URLs, hostnames) in the README.
   `docs/REMOTE_HARNESSES.md` already has operator LAN facts; keep them
   out of the front door.
 - Herdr ≠ HTTP remotes (#463).

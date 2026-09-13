@@ -50,7 +50,7 @@ describe('REQ-118: RemoteSessionsPopup', () => {
       {
         id: 'hermes',
         title: 'Hermes Box',
-        base_url: 'http://10.0.0.25:8801',
+        base_url: 'http://198.51.100.25:8801',
       },
     ]
 

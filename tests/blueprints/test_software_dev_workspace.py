@@ -39,9 +39,9 @@ from tests.blueprints.test_software_dev import FEASIBILITY, QUOTED_ISSUE, _ask
 
 
 def test_looks_like_remote_workdir_shapes():
-    assert looks_like_remote_workdir("engineer@ubuntu-gtx.example.test:~/chatty-commander")
-    assert looks_like_remote_workdir("ssh://engineer@ubuntu-gtx.example.test/home/engineer/chatty-commander")
-    assert looks_like_remote_workdir("ssh://engineer@ubuntu-gtx.example.test:2222/srv/app")
+    assert looks_like_remote_workdir("engineer@dev-worker-gpu.example.test:~/chatty-commander")
+    assert looks_like_remote_workdir("ssh://engineer@dev-worker-gpu.example.test/home/engineer/chatty-commander")
+    assert looks_like_remote_workdir("ssh://engineer@dev-worker-gpu.example.test:2222/srv/app")
     assert not looks_like_remote_workdir("")
     assert not looks_like_remote_workdir("/home/engineer/chatty-commander")
     assert not looks_like_remote_workdir("C:\\Users\\app")
@@ -73,17 +73,17 @@ def test_confine_local_blocks_prefix_sibling(tmp_path: Path):
 
 def test_parse_remote_workdir_user_at_host_and_url():
     spec = parse_remote_workdir(
-        {"remote_workdir": "engineer@ubuntu-gtx.example.test:~/chatty-commander"}
+        {"remote_workdir": "engineer@dev-worker-gpu.example.test:~/chatty-commander"}
     )
     assert spec is not None
-    assert spec.host == "ubuntu-gtx.example.test"
+    assert spec.host == "dev-worker-gpu.example.test"
     assert spec.user == "engineer"
     assert spec.path == "~/chatty-commander"
     assert spec.port == 22
     assert "10.0.0." not in spec.public_label()
 
     url = parse_remote_workdir(
-        {"workdir": "ssh://engineer@ubuntu-gtx.example.test:2222/home/engineer/chatty-commander"}
+        {"workdir": "ssh://engineer@dev-worker-gpu.example.test:2222/home/engineer/chatty-commander"}
     )
     assert url is not None
     assert url.port == 2222
@@ -95,7 +95,7 @@ def test_parse_remote_workdir_ssh_host_plus_local_shaped_path():
     spec = parse_remote_workdir(
         {
             "workdir": "/home/engineer/chatty-commander",
-            "ssh_host": "ubuntu-gtx.example.test",
+            "ssh_host": "dev-worker-gpu.example.test",
             "ssh_user": "engineer",
         }
     )
@@ -115,7 +115,7 @@ def test_parse_remote_workdir_refuses_guess_and_key_material():
     with pytest.raises(SSHNotConfiguredError, match="key"):
         parse_remote_workdir(
             {
-                "remote_workdir": "engineer@ubuntu-gtx.example.test:~/chatty-commander",
+                "remote_workdir": "engineer@dev-worker-gpu.example.test:~/chatty-commander",
                 "ssh_identity_env": "-----BEGIN OPENSSH PRIVATE KEY-----\nbogus\n",
             }
         )
@@ -137,13 +137,13 @@ def test_local_backend_read_write_list_and_escape(tmp_path: Path):
 def test_ssh_backend_read_write_list_via_helper_stub(tmp_path: Path):
     (tmp_path / "a.txt").write_text("hello", encoding="utf-8")
     spec = parse_remote_workdir(
-        {"remote_workdir": f"engineer@ubuntu-gtx.example.test:{tmp_path}"}
+        {"remote_workdir": f"engineer@dev-worker-gpu.example.test:{tmp_path}"}
     )
     assert spec is not None
     ws = SSHWorkspaceBackend(spec, runner=stub_remote_helper_runner())
     assert ws.kind == "ssh"
     assert FS_LOCALITY_SSH in ws.locality_note()
-    assert "ubuntu-gtx.example.test" in ws.label()
+    assert "dev-worker-gpu.example.test" in ws.label()
     assert ws.read_file("a.txt") == "hello"
     assert "a.txt" in ws.list_files(".")
     wrote = ws.write_file("b.txt", "world\n")
@@ -163,7 +163,7 @@ def test_ssh_argv_is_openssh_and_never_embeds_a_key(tmp_path: Path):
         return inner(argv, timeout=timeout, input=input, **kwargs)
 
     spec = parse_remote_workdir(
-        {"remote_workdir": f"engineer@ubuntu-gtx.example.test:{tmp_path}"}
+        {"remote_workdir": f"engineer@dev-worker-gpu.example.test:{tmp_path}"}
     )
     ws = SSHWorkspaceBackend(spec, runner=spy)
     ws.write_file("note.txt", "ok")
@@ -171,7 +171,7 @@ def test_ssh_argv_is_openssh_and_never_embeds_a_key(tmp_path: Path):
     argv = seen[0]
     assert argv[0] == "ssh"
     assert "BatchMode=yes" in argv
-    assert "engineer@ubuntu-gtx.example.test" in argv
+    assert "engineer@dev-worker-gpu.example.test" in argv
     remote = remote_command_from_ssh_argv(argv)
     assert remote[:2] == ["python3", "-c"]
     assert remote[2] == shlex.quote(REMOTE_HELPER)
@@ -205,7 +205,7 @@ def test_openssh_space_join_requires_quoted_remote_argv(tmp_path: Path):
     assert good.stdout == "hello"
 
     spec = parse_remote_workdir(
-        {"remote_workdir": f"engineer@ubuntu-gtx.example.test:{tmp_path}"}
+        {"remote_workdir": f"engineer@dev-worker-gpu.example.test:{tmp_path}"}
     )
     assert spec is not None
     seen: list[list[str]] = []
@@ -247,7 +247,7 @@ def test_resolve_workspace_prefers_remote_workdir_over_local(tmp_path: Path):
     ws = resolve_workspace(
         {
             "workdir": str(tmp_path / "local-only"),
-            "remote_workdir": f"engineer@ubuntu-gtx.example.test:{tmp_path}",
+            "remote_workdir": f"engineer@dev-worker-gpu.example.test:{tmp_path}",
         },
         runner=stub_remote_helper_runner(),
     )
@@ -257,7 +257,7 @@ def test_resolve_workspace_prefers_remote_workdir_over_local(tmp_path: Path):
 
 def test_params_select_router_ignores_remote_workdir_keys():
     assert params_select_router({"remote_workdir": "engineer@h:~/ws"}) is False
-    assert params_select_router({"ssh_host": "ubuntu-gtx.example.test", "ssh_user": "eng"}) is False
+    assert params_select_router({"ssh_host": "dev-worker-gpu.example.test", "ssh_user": "eng"}) is False
     assert params_select_router({"ssh_identity_env": ENV_SSH_IDENTITY, "workdir": "/tmp/ws"}) is False
 
 
@@ -279,7 +279,7 @@ async def test_engineer_writes_remote_workdir_via_stub(tmp_path: Path):
         team,
         "implement Success",
         params={
-            "remote_workdir": f"engineer@ubuntu-gtx.example.test:{tmp_path}",
+            "remote_workdir": f"engineer@dev-worker-gpu.example.test:{tmp_path}",
             "seat": "engineer",
             "action": "implement",
             "issue": QUOTED_ISSUE,
@@ -293,7 +293,7 @@ async def test_engineer_writes_remote_workdir_via_stub(tmp_path: Path):
     assert "hello.py" in team.context.writes
     status = await _ask(team, "status", params={"seat": "cos", "action": "status"})
     assert "workspace: ssh" in status
-    assert "ubuntu-gtx.example.test" in status
+    assert "dev-worker-gpu.example.test" in status
     assert "not the API-host disk" in status
 
 
@@ -305,7 +305,7 @@ async def test_skeptic_cannot_write_remote_workdir(tmp_path: Path):
         team,
         "review please also write a fix",
         params={
-            "remote_workdir": f"engineer@ubuntu-gtx.example.test:{tmp_path}",
+            "remote_workdir": f"engineer@dev-worker-gpu.example.test:{tmp_path}",
             "seat": "skeptic",
             "action": "write",
             "path": "evil.py",
@@ -322,7 +322,7 @@ async def test_remote_workdir_only_still_enters_runner(tmp_path: Path, monkeypat
     monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
     team = SoftwareDevBlueprint(config={"llm": {}, "software_dev": {"talk_to": "cos"}})
     team._workspace_runner = stub_remote_helper_runner()
-    team.set_params({"remote_workdir": f"engineer@ubuntu-gtx.example.test:{tmp_path}"})
+    team.set_params({"remote_workdir": f"engineer@dev-worker-gpu.example.test:{tmp_path}"})
     fake = SimpleNamespace(final_output="CoS live turn via consult_engineer")
     with patch("agents.Runner.run", new=AsyncMock(return_value=fake)) as mock_run:
         out = await _ask(team, "please coordinate the engineer on this remote tree")

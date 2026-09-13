@@ -40,11 +40,11 @@ def test_catalog_includes_requested_frameworks():
 
 def test_parent_spec_for_framework_uses_config_url():
     spec = parent_spec_for_framework("hermes", {
-        "remote_teams": {"hermes": {"base_url": "http://10.0.0.36:9119/v1"}},
+        "remote_teams": {"hermes": {"base_url": "http://198.51.100.36:9119/v1"}},
     })
     assert spec is not None
     assert spec["framework"] == "hermes"
-    assert spec["base_url"] == "http://10.0.0.36:9119/v1"
+    assert spec["base_url"] == "http://198.51.100.36:9119/v1"
     assert parent_spec_for_framework("") is None
 
 
@@ -57,7 +57,7 @@ def test_listed_specs_always_include_catalog():
 
 
 def test_listed_specs_env_url_and_no_invented_ports(monkeypatch):
-    monkeypatch.setenv("HERMES_BASE_URL", "http://10.0.0.36:9119/v1")
+    monkeypatch.setenv("HERMES_BASE_URL", "http://198.51.100.36:9119/v1")
     monkeypatch.delenv("RAKAZO_BASE_URL", raising=False)
     monkeypatch.delenv("RAKEZO_BASE_URL", raising=False)
     monkeypatch.delenv("OPENMAUSBOT_BASE_URL", raising=False)
@@ -65,7 +65,7 @@ def test_listed_specs_env_url_and_no_invented_ports(monkeypatch):
     hermes = next(s for s in specs if s["agent_id"] == "hermes")
     rakazo = next(s for s in specs if s["agent_id"] == "rakazo")
     omb = next(s for s in specs if s["agent_id"] == "openmausbot")
-    assert hermes["base_url"] == "http://10.0.0.36:9119/v1"
+    assert hermes["base_url"] == "http://198.51.100.36:9119/v1"
     assert rakazo["base_url"] == ""
     assert omb["base_url"] == ""
 
@@ -136,7 +136,7 @@ def test_expand_rakazo_bots(monkeypatch):
 
     monkeypatch.setattr(rt, "_http_get_json", fake_get)
     specs = listed_remote_specs({
-        "remote_teams": {"rakazo": {"base_url": "http://10.0.0.32:9000/v1"}},
+        "remote_teams": {"rakazo": {"base_url": "http://198.51.100.32:9000/v1"}},
     }, expand=True)
     child = next(s for s in specs if s["agent_id"] == "rakazo--desk")
     assert child["name"] == "Desk bot"
@@ -183,16 +183,16 @@ def test_remote_child_id_slug():
 def test_listed_specs_overlay_config_url():
     specs = listed_remote_specs({
         "remote_teams": {
-            "hermes": {"base_url": "http://10.0.0.36:9119/v1", "model": "local"},
+            "hermes": {"base_url": "http://198.51.100.36:9119/v1", "model": "local"},
         }
     })
     hermes = next(s for s in specs if s["agent_id"] == "hermes")
-    assert hermes["base_url"] == "http://10.0.0.36:9119/v1"
+    assert hermes["base_url"] == "http://198.51.100.36:9119/v1"
     assert hermes["model"] == "local"
 
 
 def test_completions_url_and_scheme_guard():
-    assert completions_url("http://10.0.0.1:9/v1").endswith("/v1/chat/completions")
+    assert completions_url("http://198.51.100.1:9/v1").endswith("/v1/chat/completions")
     with pytest.raises(ValueError, match="http"):
         completions_url("file:///etc/passwd")
 
@@ -218,7 +218,7 @@ def test_validate_remote_design():
         "kind": "remote",
         "name": "OpenMausBot",
         "framework": "openmausbot",
-        "base_url": "http://10.0.0.32:8802/v1",
+        "base_url": "http://198.51.100.32:8802/v1",
     })
     assert spec["kind"] == "remote"
     assert spec["group"] == "remote"

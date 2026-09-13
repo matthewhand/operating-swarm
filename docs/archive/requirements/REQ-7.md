@@ -25,4 +25,4 @@ own chat thread. Configuration help is question cards, not a wall of prose.
 - CoS transcribes
 - cloud implements
 - engineer GitHub-merge after skeptic
-- live preview `10.0.0.30:8001` guest dirty only
+- live preview `198.51.100.30:8001` guest dirty only

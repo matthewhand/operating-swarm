@@ -59,9 +59,9 @@ describe('pinnedAgents persistence', () => {
 
   it('clears URL and URI drag data to prevent browser split view popup (#702)', () => {
     const data: Record<string, string> = {
-      'text/uri-list': 'http://10.0.0.30:8001/chat?blueprint=codey',
-      'URL': 'http://10.0.0.30:8001/chat?blueprint=codey',
-      'text/html': '<a href="http://10.0.0.30:8001/chat?blueprint=codey">Codey</a>',
+      'text/uri-list': 'http://198.51.100.30:8001/chat?blueprint=codey',
+      'URL': 'http://198.51.100.30:8001/chat?blueprint=codey',
+      'text/html': '<a href="http://198.51.100.30:8001/chat?blueprint=codey">Codey</a>',
     }
     const mockDataTransfer = {
       setData: (key: string, val: string) => {

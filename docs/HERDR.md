@@ -23,7 +23,7 @@ herdr agent wait w3:p1 --until idle
 ```
 
 That talks to the Herdr already on this host (local server + unix sockets,
-typically `~/.config/herdr/`). Live `.30` (ubuntu-max) runs `herdr server` plus
+typically `~/.config/herdr/`). Live `.30` (dev-worker-max) runs `herdr server` plus
 the remote-client-bridge. This cloud agent does **not** SSH there.
 
 ## Settings Remotes kind (REQ-64 + REQ-100)
@@ -76,11 +76,11 @@ Do not commit tokens or private keys. Identity is an env-var *name*
 ## Optional `--remote`
 
 A persisted Herdr row may set `remote` to a string such as
-`matthewh@10.0.0.36`, `workbox`, or `ssh://you@server:2222`. Empty/omitted
+`matthewh@198.51.100.36`, `workbox`, or `ssh://you@server:2222`. Empty/omitted
 means localhost. When set, **every** CLI call is prefixed:
 
 ```bash
-herdr --remote matthewh@10.0.0.36 agent prompt w3:p1 HERDR_PING_OK
+herdr --remote matthewh@198.51.100.36 agent prompt w3:p1 HERDR_PING_OK
 ```
 
 See [How to work with Herdr](https://herdr.dev/docs/how-to-work/) and the
@@ -89,7 +89,7 @@ invent flags or a socket protocol; it wraps `herdr`.
 
 ## Proven prompt shape
 
-Engineer proof on ubuntu-max `10.0.0.30`:
+Engineer proof on dev-worker-max `198.51.100.30`:
 
 ```bash
 herdr agent prompt w3:p1 HERDR_PING_OK
@@ -144,8 +144,8 @@ client = HerdrClient()  # localhost, no --remote
 payload = client.agent_prompt("w3:p1", "HERDR_PING_OK")
 assert extract_prompt_type(payload) == "agent_prompted"
 
-client = HerdrClient(remote="matthewh@10.0.0.36")
-client.agent_list()  # herdr --remote matthewh@10.0.0.36 agent list
+client = HerdrClient(remote="matthewh@198.51.100.36")
+client.agent_list()  # herdr --remote matthewh@198.51.100.36 agent list
 
 # Settings operate + sidebar chat share this factory (REQ-171C-5 / #614)
 client = HerdrClient.from_remote_config()  # remotes.herdr; raises if not added

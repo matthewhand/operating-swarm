@@ -21,12 +21,12 @@ describe('REQ-195: RemoteSessionsPopup health indicators', () => {
     {
       id: 'remote-1',
       title: 'Remote One',
-      base_url: 'http://10.0.0.10:8000',
+      base_url: 'http://198.51.100.10:8000',
     },
     {
       id: 'remote-2',
       title: 'Remote Two',
-      base_url: 'http://10.0.0.20:8000',
+      base_url: 'http://198.51.100.20:8000',
     },
   ]
 

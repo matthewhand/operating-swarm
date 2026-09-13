@@ -159,7 +159,7 @@ client", not literally OpenAI. Point it anywhere:
 ```jsonc
 {
   "llm": {
-    "default": {"provider": "openai", "model": "qwen3.5",  "base_url": "http://10.0.0.107:1234/v1", "api_key": "${LITELLM_API_KEY}"},
+    "default": {"provider": "openai", "model": "qwen3.5",  "base_url": "http://198.51.100.107:1234/v1", "api_key": "${LITELLM_API_KEY}"},
     "openai":  {"provider": "openai", "model": "gpt-4o",   "base_url": "https://api.openai.com/v1", "api_key": "${OPENAI_API_KEY}"},
     "groq":    {"provider": "openai", "model": "llama-3.3-70b-versatile", "base_url": "https://api.groq.com/openai/v1", "api_key": "${GROQ_API_KEY}"},
     "ollama":  {"provider": "openai", "model": "qwen3.5:4b", "base_url": "http://localhost:11434/v1", "api_key": "ollama"}

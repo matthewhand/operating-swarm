@@ -221,7 +221,7 @@ class TestConnect:
     async def test_connect_passes_client_ip_to_anonymous_gate(
         self, mock_scope_unauthenticated
     ):
-        mock_scope_unauthenticated["client"] = ("10.0.0.199", 51234)
+        mock_scope_unauthenticated["client"] = ("172.16.0.199", 51234)
         consumer = DjangoChatConsumer()
         consumer.scope = mock_scope_unauthenticated
         preview = MagicMock()
@@ -239,7 +239,7 @@ class TestConnect:
                     with patch.object(consumer, "accept", new_callable=AsyncMock):
                         with patch.object(consumer, "close", new_callable=AsyncMock) as mock_close:
                             await consumer.connect()
-        allow.assert_called_with("10.0.0.199")
+        allow.assert_called_with("172.16.0.199")
         mock_close.assert_not_called()
 
     @pytest.mark.asyncio

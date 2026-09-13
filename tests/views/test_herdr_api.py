@@ -48,11 +48,11 @@ class TestHerdrAgentsAPI:
     def test_create_with_remote(self, api_client):
         response = api_client.post(
             "/v1/herdr-agents/",
-            {"name": "workbox", "remote": "matthewh@10.0.0.36"},
+            {"name": "workbox", "remote": "matthewh@198.51.100.36"},
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["remote"] == "matthewh@10.0.0.36"
+        assert response.json()["remote"] == "matthewh@198.51.100.36"
         assert response.json()["kind"] == "herdr"
 
     def test_duplicate_name_conflict(self, api_client):

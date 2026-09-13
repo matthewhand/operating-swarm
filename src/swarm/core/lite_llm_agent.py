@@ -1,7 +1,7 @@
 """Lite-LLM API Agent Implementation.
 
 This module implements a true inference API seat that connects to a local
-lite-llm setup (http://10.0.0.30:8000 with model slugs like 'orchestration').
+lite-llm setup (http://198.51.100.30:8000 with model slugs like 'orchestration').
 
 This is the first-class "api" seat envisioned in the four-kind lock:
 CLI | API (true inference) | Blueprint | Remote.
@@ -24,7 +24,7 @@ from swarm.core.inference_list import LLM_PREFIX
 logger = logging.getLogger(__name__)
 
 # Configuration for the local lite-llm service
-LITE_LLM_BASE_URL = os.environ.get("LITE_LLM_BASE_URL", "http://10.0.0.30:8000")
+LITE_LLM_BASE_URL = os.environ.get("LITE_LLM_BASE_URL", "http://198.51.100.30:8000")
 LITE_LLM_API_KEY = os.environ.get("LITE_LLM_API_KEY", "test-key-for-local")
 
 # Global registry of lite-llm API seats

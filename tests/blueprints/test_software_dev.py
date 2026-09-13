@@ -408,7 +408,7 @@ def test_params_select_router_ignores_workspace_context():
     assert params_select_router({"workdir": "/tmp/ws"}) is False
     assert params_select_router({"cwd": "/tmp/ws", "issue": QUOTED_ISSUE}) is False
     assert params_select_router({"workdir": "/tmp/ws", "feasibility": FEASIBILITY}) is False
-    assert params_select_router({"remote_workdir": "engineer@ubuntu-gtx.example.test:~/ws"}) is False
+    assert params_select_router({"remote_workdir": "engineer@dev-worker-gpu.example.test:~/ws"}) is False
     assert params_select_router({"seat": "cos"}) is True
     assert params_select_router({"action": "status"}) is True
     assert params_select_router({"seat": "", "action": "  ", "workdir": "/tmp/ws"}) is False

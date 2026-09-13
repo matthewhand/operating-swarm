@@ -2,9 +2,9 @@
 
 Issue: #`148`.
 
-**Intent:** Let open-swarm on ubuntu-max (`:8002`) run `software_dev` /
+**Intent:** Let open-swarm on dev-worker-max (`:8002`) run `software_dev` /
 `software_dev_team` (and similar) against a remote host path such as
-ubuntu-gtx `~/chatty-commander`, without requiring the API process to
+dev-worker-gpu `~/chatty-commander`, without requiring the API process to
 share that filesystem.
 
 ## FS-locality (honest default)
@@ -14,7 +14,7 @@ share that filesystem.
 
 | Mode | When | Where bytes go |
 |------|------|----------------|
-| **Local (default)** | `params.workdir` / `cwd` / `SWARM_SOFTWARE_DEV_WORKDIR` is a normal path | **API-host filesystem.** ubuntu-max cannot see ubuntu-gtx paths. |
+| **Local (default)** | `params.workdir` / `cwd` / `SWARM_SOFTWARE_DEV_WORKDIR` is a normal path | **API-host filesystem.** dev-worker-max cannot see dev-worker-gpu paths. |
 | **SSH remote** | `params.remote_workdir` **or** a remote-shaped `params.workdir` (`user@host:path` / `ssh://user@host/path`) **or** `ssh_host` + `ssh_user` plus a remote path | OpenSSH hop; tools stay confined to that remote root. |
 
 `status` prints `workspace:` plus an `fs-locality:` line so operators are
@@ -80,7 +80,7 @@ open a live session.
    claimed Met.** In-tree hop is now argv-quoted and the join/shell
    regression is green; that is still not a live SSH hop. Do not treat
    stub R/W as Success(1).
-2. **Live prove: ubuntu-max `:8002` edits ubuntu-gtx paths** — **not
+2. **Live prove: dev-worker-max `:8002` edits dev-worker-gpu paths** — **not
    run** from this cloud agent. No LAN to `.30` / `.36`, no operator
    SSH identity. Host prove after this hop fix.
 3. **Docs state FS-locality honestly** — met (`status` line, this

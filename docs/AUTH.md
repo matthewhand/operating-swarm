@@ -143,8 +143,8 @@ Per-request `params.workdir` / `params.cwd` (`cli_agent`, hybrid MoA, MoA orches
 
 `software_dev` / `software_dev_team` file tools are a separate workdir: they
 default to the **API-host filesystem** (`params.workdir` or
-`SWARM_SOFTWARE_DEV_WORKDIR`). ubuntu-max `:8002` cannot read or write a
-tree that only exists on ubuntu-gtx (for example `~/chatty-commander`)
+`SWARM_SOFTWARE_DEV_WORKDIR`). dev-worker-max `:8002` cannot read or write a
+tree that only exists on dev-worker-gpu (for example `~/chatty-commander`)
 unless `params.remote_workdir` or a remote-shaped `params.workdir`
 (`user@host:path` / `ssh://…`) plus SSH is configured. Identity is an
 env-var name for a key path — never a private key. See

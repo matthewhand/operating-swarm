@@ -64,8 +64,8 @@ async def test_list_shows_inventory_without_probing():
     assert "nemohermes-36" in out
     assert "rakazo-32" in out
     assert "omb-32" in out
-    assert "10.0.0.32:3100" in out
-    assert "10.0.0.32:8802" in out
+    assert "198.51.100.32:3100" in out
+    assert "198.51.100.32:8802" in out
     assert "UP" not in out  # no probing happened
 
 

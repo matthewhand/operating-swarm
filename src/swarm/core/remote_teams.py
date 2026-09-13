@@ -6,9 +6,9 @@ multiplexer for grok/claude/gemini/…) are first-class sidebar agents.
 Config block ``remote_teams`` in swarm_config.json overlays the catalog::
 
     "remote_teams": {
-      "hermes": {"base_url": "http://10.0.0.36:9119/v1", "model": "local"},
-      "openmausbot": {"base_url": "http://10.0.0.32:8802/v1"},
-      "rakazo": {"base_url": "http://10.0.0.32:9000/v1"},
+      "hermes": {"base_url": "http://198.51.100.36:9119/v1", "model": "local"},
+      "openmausbot": {"base_url": "http://198.51.100.32:8802/v1"},
+      "rakazo": {"base_url": "http://198.51.100.32:9000/v1"},
       "herdr": {"target": "w7:p1"}
     }
 """

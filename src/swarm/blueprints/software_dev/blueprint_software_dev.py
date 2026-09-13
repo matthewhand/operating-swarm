@@ -33,7 +33,7 @@ That workaround is no longer required.
 
 **FS-locality (Issue #148):** ``read_file`` / ``list_files`` /
 ``write_file`` default to the **API-host filesystem**. A local
-``params.workdir`` on ubuntu-max (:8002) cannot see ubuntu-gtx paths
+``params.workdir`` on dev-worker-max (:8002) cannot see dev-worker-gpu paths
 such as ``~/chatty-commander``. Point ``params.workdir`` at
 ``user@host:path`` / ``ssh://user@host/path``, or set
 ``params.remote_workdir`` (plus ``ssh_host`` / ``ssh_user`` when the

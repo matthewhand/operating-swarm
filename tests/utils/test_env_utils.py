@@ -122,14 +122,14 @@ def test_get_django_csrf_trusted_origins():
 def test_get_django_csrf_trusted_origins_debug_includes_listen_port():
     env = {
         "DJANGO_DEBUG": "true",
-        "DJANGO_ALLOWED_HOSTS": "10.0.0.30",
+        "DJANGO_ALLOWED_HOSTS": "198.51.100.30",
         "DJANGO_CSRF_TRUSTED_ORIGINS": "http://localhost:8000",
         "PORT": "8002",
     }
     with patch.dict(os.environ, env, clear=False):
         origins = get_django_csrf_trusted_origins()
     assert "http://localhost:8000" in origins
-    assert "http://10.0.0.30:8002" in origins
+    assert "http://198.51.100.30:8002" in origins
 
 
 def test_build_mcp_stdio_env_does_not_leak_parent_secrets():
