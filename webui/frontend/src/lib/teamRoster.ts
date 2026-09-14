@@ -28,6 +28,7 @@ export type TeamMemberRole =
   | 'support'
   | 'gate'
   | 'skeptic'
+  | 'advisor'
   | 'chief_of_staff'
   | 'suggestions'
 
@@ -36,6 +37,7 @@ export const TEAM_MEMBER_ROLES: readonly TeamMemberRole[] = [
   'support',
   'gate',
   'skeptic',
+  'advisor',
   'chief_of_staff',
   'suggestions',
 ]

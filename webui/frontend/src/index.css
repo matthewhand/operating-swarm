@@ -1095,6 +1095,7 @@ button.os-agent-row {
 .os-agent-role-badge[data-role="support"] { color: #3d8f8a; }
 .os-agent-role-badge[data-role="gate"] { color: #c47a3a; }
 .os-agent-role-badge[data-role="skeptic"] { color: #7a6b9b; }
+.os-agent-role-badge[data-role="advisor"] { color: #8a7a4a; }
 .os-agent-role-badge[data-role="chief_of_staff"] {
   color: #4f8ec9;
   text-transform: none;

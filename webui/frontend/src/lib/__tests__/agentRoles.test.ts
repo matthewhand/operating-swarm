@@ -175,3 +175,17 @@ describe('REQ-75 blueprint role apply + picker filter', () => {
     expect(normalizeWorkflow('handoff')).toBe('handoff')
   })
 })
+
+// #181 — advisor role
+describe('advisor role (#181)', () => {
+  it('normalizes advisor aliases and badges as Advisor', async () => {
+    const { normalizeAgentRole, roleBadgeLabel, isAdvisor, ROLE_ADVISOR } = await import('../agentRoles')
+    expect(normalizeAgentRole('advisor')).toBe('advisor')
+    expect(normalizeAgentRole('adviser')).toBe('advisor')
+    expect(normalizeAgentRole('mentor')).toBe('advisor')
+    expect(roleBadgeLabel('advisor')).toBe('Advisor')
+    expect(isAdvisor('advisor')).toBe(true)
+    expect(isAdvisor('skeptic')).toBe(false)
+    expect(ROLE_ADVISOR).toBe('advisor')
+  })
+})

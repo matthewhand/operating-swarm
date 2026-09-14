@@ -24,6 +24,9 @@ const ROLE_ALIASES: Record<string, AgentRole> = {
   toolgate: 'gate',
   skeptic: 'skeptic',
   reviewer: 'skeptic',
+  advisor: 'advisor',
+  adviser: 'advisor',
+  mentor: 'advisor',
   chief_of_staff: 'chief_of_staff',
   'chief-of-staff': 'chief_of_staff',
   chiefofstaff: 'chief_of_staff',
@@ -177,15 +180,21 @@ export function agentRole(agent: {
 }
 
 export const ROLE_CHIEF_OF_STAFF = 'chief_of_staff'
+export const ROLE_ADVISOR = 'advisor'
 
 export const ROLE_BADGE_LABELS: Record<AgentRole, string> = {
   default: '',
   support: 'Support',
   gate: 'Gate',
   skeptic: 'Skeptic',
+  advisor: 'Advisor',
   chief_of_staff: 'CoS',
   engineer: 'Engineer',
   suggestions: 'Suggest',
+}
+
+export function isAdvisor(role: unknown): boolean {
+  return normalizeAgentRole(role) === ROLE_ADVISOR
 }
 
 export function isChiefOfStaff(role: unknown): boolean {

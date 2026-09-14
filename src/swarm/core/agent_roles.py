@@ -35,6 +35,7 @@ ROLE_DEFAULT = "default"
 ROLE_SUPPORT = "support"
 ROLE_GATE = "gate"
 ROLE_SKEPTIC = "skeptic"
+ROLE_ADVISOR = "advisor"
 ROLE_CHIEF_OF_STAFF = "chief_of_staff"
 ROLE_ENGINEER = "engineer"
 ROLE_SUGGESTIONS = "suggestions"
@@ -54,6 +55,9 @@ ROLE_ALIASES: dict[str, str] = {
     "toolgate": ROLE_GATE,
     "skeptic": ROLE_SKEPTIC,
     "reviewer": ROLE_SKEPTIC,
+    "advisor": ROLE_ADVISOR,
+    "adviser": ROLE_ADVISOR,
+    "mentor": ROLE_ADVISOR,
     "chief_of_staff": ROLE_CHIEF_OF_STAFF,
     "chief-of-staff": ROLE_CHIEF_OF_STAFF,
     "chiefofstaff": ROLE_CHIEF_OF_STAFF,
@@ -71,6 +75,7 @@ CANONICAL_ROLES: tuple[str, ...] = (
     ROLE_SUPPORT,
     ROLE_GATE,
     ROLE_SKEPTIC,
+    ROLE_ADVISOR,
     ROLE_CHIEF_OF_STAFF,
     ROLE_ENGINEER,
     ROLE_SUGGESTIONS,
@@ -81,6 +86,7 @@ ROLE_BADGE_LABELS: dict[str, str] = {
     ROLE_SUPPORT: "Support",
     ROLE_GATE: "Gate",
     ROLE_SKEPTIC: "Skeptic",
+    ROLE_ADVISOR: "Advisor",
     ROLE_CHIEF_OF_STAFF: "CoS",
     ROLE_ENGINEER: "Engineer",
     ROLE_SUGGESTIONS: "Suggest",
@@ -113,6 +119,7 @@ ROLE_MECHANISMS: dict[str, str] = {
     ROLE_SUPPORT: "implement",
     ROLE_GATE: "intercept",
     ROLE_SKEPTIC: "parse",
+    ROLE_ADVISOR: "parse",
     ROLE_CHIEF_OF_STAFF: "intercept",
     ROLE_ENGINEER: "implement",
     ROLE_SUGGESTIONS: "parse",
@@ -123,6 +130,7 @@ ROLE_MECHANISM_DETAILS: dict[str, str] = {
     ROLE_SUPPORT: "Socratic support and agent lifecycle manager (REQ-7, REQ-154).",
     ROLE_GATE: "Tool-call classifier intercepting execution requests before execution.",
     ROLE_SKEPTIC: "Post-run output validator performing bounded retries on failures.",
+    ROLE_ADVISOR: "Reviews a completed turn and posts one concise follow-up advice note (#181).",
     ROLE_CHIEF_OF_STAFF: "Orchestrator seat with cross-team communication and mailbox-wide scope (REQ-28).",
     ROLE_ENGINEER: "Implementer seat for software development, test authoring, and file editing.",
     ROLE_SUGGESTIONS: "Generates quick-select follow-up prompt chips after model turns (REQ-85).",
@@ -133,6 +141,7 @@ ROLE_ALLOW_ALL: dict[str, bool] = {
     ROLE_SUPPORT: False,
     ROLE_GATE: False,
     ROLE_SKEPTIC: False,
+    ROLE_ADVISOR: False,
     ROLE_CHIEF_OF_STAFF: True,
     ROLE_ENGINEER: False,
     ROLE_SUGGESTIONS: False,

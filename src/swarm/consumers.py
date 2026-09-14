@@ -1027,6 +1027,104 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=final_message_html)
         await self._persist_completed_turn()
         await self._emit_suggestions_if_enabled(blueprint_id, blueprint=blueprint_instance)
+        await self._emit_advisor_followup(blueprint_id, full_message, params=params)
+
+    async def _emit_advisor_followup(self, agent_blueprint_id, reply_text, params=None):
+        """#181: wired advisor posts one concise follow-up advice note.
+
+        After the advised agent's turn completes, the advisor reviews the
+        transcript slice and posts a single advice line — styled as a status
+        line, never persisted as a model turn, so later context stays clean.
+        Multiple advisors in a roster resolve to the first (no double-fire);
+        failure to reach the advisor degrades to a quiet status note.
+        """
+        try:
+            from swarm.core.team_rosters import advisor_blueprint_for_agent
+
+            team_id = params.get("team") if isinstance(params, dict) else None
+            advisor_id = advisor_blueprint_for_agent(team_id, agent_blueprint_id)
+            if not advisor_id:
+                return
+
+            advice = await self._generate_advice_note(advisor_id, agent_blueprint_id, reply_text)
+            if advice:
+                await self.send(text_data=_status_line_html(f"Advisor: {advice}"))
+            else:
+                await self.send(
+                    text_data=_status_line_html(
+                        f"Advisor ({advisor_id}) had no advice for this turn."
+                    )
+                )
+        except Exception:
+            logger.exception("Advisor follow-up failed")
+            try:
+                await self.send(text_data=_status_line_html("Advisor follow-up failed."))
+            except Exception:
+                pass
+
+    async def _generate_advice_note(self, advisor_id, agent_id, reply_text):
+        """One bounded advice generation against the default chat model.
+
+        Deliberately NOT a full re-answer: a compact transcript slice plus a
+        strict advisor prompt, non-streaming, short answer. Returns None when
+        the advisor produces nothing usable.
+        """
+        from swarm.core.blueprint_discovery import discover_blueprints
+
+        advisor_name = advisor_id
+        for row in discover_blueprints():
+            if getattr(row, "id", None) == advisor_id:
+                advisor_name = getattr(row, "name", None) or advisor_id
+                break
+
+        slice_text = "\n".join(
+            f"{row.get('role')}: {row.get('content')}" for row in _display_rows(self)[-6:]
+        )
+        prompt = (
+            f"You are {advisor_name}, an advisor wired to agent '{agent_id}'. "
+            "Review the exchange below and reply with ONE concise follow-up "
+            "advice note (max 2 sentences). Do not re-answer the task. "
+            "If there is nothing to improve, reply exactly: none\n\n"
+            f"{slice_text}"
+        )
+
+        from swarm.utils.env_utils import get_llm_base_url, openai_client_kwargs
+
+        base_url = get_llm_base_url()
+        client_kwargs = openai_client_kwargs()
+        model = (
+            os.environ.get("LITELLM_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or os.environ.get("DEFAULT_LLM")
+        )
+        if not model:
+            from swarm.core.llm_task_routing import model_id_for_profile, resolve_chat_model
+
+            model = model_id_for_profile(resolve_chat_model().profile)
+
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(**client_kwargs)
+        try:
+            completion = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "Be terse. One advice note, max 2 sentences."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=120,
+            )
+            text = str(
+                getattr(getattr(completion, "choices", [None])[0], "message", None)
+                and completion.choices[0].message.content
+                or ""
+            ).strip()
+        except Exception as exc:
+            logger.warning("Advisor LLM call failed: %s", exc)
+            return None
+        if not text or text.lower() in {"none", "n/a", "nothing"}:
+            return None
+        return text[:400]
 
     async def _emit_pr_opened_from_text(self, text):
         """REQ-79: CLI/API stdout with a real GitHub PR URL → REQ-71 View PR card.

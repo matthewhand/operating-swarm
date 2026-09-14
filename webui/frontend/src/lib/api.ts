@@ -213,6 +213,7 @@ export type AgentRole =
   | 'support'
   | 'gate'
   | 'skeptic'
+  | 'advisor'
   | 'chief_of_staff'
   | 'engineer'
   | 'suggestions'

@@ -133,3 +133,12 @@ describe('teamRoster CoS + composer helpers (REQ-107)', () => {
     expect(roster?.chief_of_staff_instructions).toBe('coordinate the roster')
   })
 })
+
+// #181 — advisor selectable as a team member role
+describe('advisor in TEAM_MEMBER_ROLES (#181)', () => {
+  it('offers advisor alongside skeptic and CoS', async () => {
+    const { TEAM_MEMBER_ROLES } = await import('../teamRoster')
+    expect(TEAM_MEMBER_ROLES).toContain('advisor')
+    expect(TEAM_MEMBER_ROLES).toContain('skeptic')
+  })
+})

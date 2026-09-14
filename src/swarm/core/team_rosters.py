@@ -295,6 +295,42 @@ def blueprint_id_from_source(source: Any) -> str | None:
     return blueprint_id or None
 
 
+def advisor_blueprint_for_agent(
+    roster_id: Any, agent_blueprint_id: Any
+) -> str | None:
+    """#181: blueprint id of the one advisor wired to ``agent_blueprint_id``.
+
+    A team wire (handoff / as_tool — the per-roster ``wires`` toggles) to a
+    member with ``role == 'advisor'`` marks the source agent as advised.
+    When several advisors exist, the first in roster order wins (no
+    double-fire). Returns None when the agent has no wired advisor or the
+    member is not a blueprint-backed seat.
+    """
+    roster = resolve_roster(str(roster_id or "").strip())
+    if not isinstance(roster, dict):
+        return None
+    wires = roster.get("wires")
+    wired = isinstance(wires, dict) and (wires.get("handoff") or wires.get("as_tool"))
+    if isinstance(wires, dict) and not wired:
+        return None
+    wanted = str(agent_blueprint_id or "").strip()
+    if not wanted:
+        return None
+    members = roster.get("members")
+    if not isinstance(members, list):
+        return None
+    for row in members:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("role") or "") != "advisor":
+            continue
+        source = row.get("source")
+        bid = blueprint_id_from_source(source)
+        if bid and bid != wanted:
+            return bid
+    return None
+
+
 def blueprint_id_for_team_target(team_id: Any, target: Any = None) -> str | None:
     """Blueprint id for a team send, or None (stub / CLI / remote)."""
     roster = resolve_roster(str(team_id or "").strip())
