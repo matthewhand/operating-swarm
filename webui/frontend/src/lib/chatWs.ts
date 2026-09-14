@@ -117,6 +117,11 @@ export function buildChatWsEditFrame(index: number, content: string): string {
   return JSON.stringify({ edit: { index, content } })
 }
 
+/** #198: ask the server to interrupt the turn in flight (enter-to-interrupt). */
+export function buildCancelTurnFrame(): string {
+  return JSON.stringify({ type: 'cancel_turn' })
+}
+
 export function newConversationId(): string {
   try {
     return crypto.randomUUID()
@@ -176,6 +181,10 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
       const spaVersion = String(payload.spa_version || '').trim()
       if (!spaVersion) return { kind: 'unknown', raw }
       return { kind: 'spa_hello', spaVersion }
+    }
+    if (type === 'turn_cancelled') {
+      // #198: ack for cancel_turn — styled as a status line in the transcript.
+      return { kind: 'status', text: 'Interrupted — queued message promoted.' }
     }
     if (type === 'suggestions') {
       const suggestions = parseSuggestions(payload)

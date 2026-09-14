@@ -116,6 +116,7 @@ import {
 } from '../lib/chatCompact'
 import { turnIndexFromDisplay } from '../lib/transcriptReconstruct'
 import {
+  buildCancelTurnFrame,
   buildChatWsEditFrame,
   buildChatWsFrame,
   buildChatWsUrl,
@@ -1998,6 +1999,19 @@ const ChatPage = () => {
     [addToast, awaitingAssistant, messages, queued, sendText, status],
   )
 
+  /**
+   * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
+   * The drain effect promotes the top queued row automatically once the
+   * cancelled turn closes, so this only needs to request the cancel.
+   */
+  const interruptRunningTurn = useCallback(() => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(buildCancelTurnFrame())
+      setAwaitingAssistant(false)
+    }
+  }, [])
+
   useEffect(() => {
     const onChip = (event: Event) => {
       const text = suggestionChipText(event)
@@ -2569,6 +2583,13 @@ const ChatPage = () => {
         submitUserText(textToSend)
         setInput('')
         setReplyTarget(null)
+        return
+      }
+      // #198: enter on an empty composer with a queued send interrupts the
+      // running turn; the drain effect then sends the promoted top row.
+      const nextQueued = nextDrainableQueuedSend(queued.rows, queuedHoldIds)
+      if (nextQueued) {
+        interruptRunningTurn()
       }
     }
   }
@@ -3328,6 +3349,9 @@ const ChatPage = () => {
           onChangeText={queued.update}
           onDelete={queued.remove}
           onHoldIdsChange={setQueuedHoldIds}
+          interruptible={
+            status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
+          }
         />
 
         <div

@@ -33,6 +33,11 @@ IN_MEMORY_UI_EVENTS = {}
 # so browsers receive a CloseEvent with this code instead of opaque 1006.
 WS_AUTH_REQUIRED_CODE = 4401
 
+# #198: client -> server turn-cancel request ({"type": "cancel_turn"});
+# server -> client acknowledgement {"type": "turn_cancelled"}. The ack is
+# consumed by the WS parser as a status line, not a new event kind.
+TURN_CANCELLED_TYPE = "turn_cancelled"
+
 # REQ-78 / #423 — advertise the backend's expected SPA bake on connect.
 SPA_HELLO_TYPE = "spa_hello"
 
@@ -450,6 +455,12 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             await self.resolve_tool_decision(text_data_json)
             return
 
+        # #198: enter-to-interrupt — a queued-send promote cancels the turn
+        # in flight before the new message runs.
+        if text_data_json.get("type") == "cancel_turn":
+            await self._cancel_current_turn()
+            return
+
         if text_data_json.get("type") == "status":
             status_text = text_data_json.get("text")
             if not isinstance(status_text, str) or not status_text.strip():
@@ -480,9 +491,33 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
 
         await self._run_serialised_chat_turn(text_data_json, message_text)
 
+    def _cancel_event(self) -> asyncio.Event:
+        """Lazily create the single cancel event shared by this socket."""
+        event = getattr(self, "_turn_cancel_event", None)
+        if event is None:
+            event = asyncio.Event()
+            self._turn_cancel_event = event
+        return event
+
+    async def _cancel_current_turn(self):
+        """#198: cooperative cancel — request the active turn to stop.
+
+        The running turn polls ``self._cancel_event`` between streamed chunks
+        (blueprint and default-model paths) and bails with an "Interrupted"
+        note instead of persisting a partial reply. Safe when nothing runs:
+        the next turn clears the flag at entry.
+        """
+        self._cancel_event().set()
+        try:
+            await self.send(text_data=json.dumps({"type": TURN_CANCELLED_TYPE}))
+        except Exception:
+            logger.debug("turn_cancelled ack send failed", exc_info=True)
+
     async def _run_serialised_chat_turn(self, text_data_json, message_text):
         """One ``respond_with_*`` at a time on this socket (REQ-171A-3 / #603)."""
         async with self._ensure_chat_turn_lock():
+            # #198: a fresh turn always starts un-cancelled.
+            self._cancel_event().clear()
             # Per-message blueprint selection wins over the connection default.
             blueprint_id = text_data_json.get("blueprint") or getattr(
                 self, "default_blueprint", None
@@ -850,6 +885,11 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                         )
                     )
             async for chunk in blueprint_instance.run(model_messages):
+                # #198: enter-to-interrupt — stop before processing the next
+                # chunk once a cancel was requested; finalization re-checks
+                # the event so a late cancel still closes as "Interrupted."
+                if self._cancel_event().is_set():
+                    break
                 if isinstance(chunk, dict) and chunk.get("type") == "cli_session_notice":
                     notice = str(chunk.get("content") or "").strip()
                     if notice:
@@ -920,6 +960,17 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 from swarm.core.safety import reset_safety_session
 
                 reset_safety_session(token)
+
+        # #198: a cancel that landed mid-turn (possibly with partial chunks
+        # already streamed, or the generator having stopped on its own cancel
+        # check) closes the turn as "Interrupted." — never as a partial
+        # assistant reply, and never persisted. The event is authoritative:
+        # turns are serialised, so it can only refer to this turn. The final
+        # partial (not a bare chunk) so the SPA clears its streaming state and
+        # the queued-send drain can promote the next message.
+        if self._cancel_event().is_set():
+            await self.send_error_message(contents_div_id, "Interrupted.")
+            return
 
         if not isinstance(final_message, dict) or final_message.get("content") is None:
             await self.send_error_message(
@@ -1195,6 +1246,9 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 stream=True,
             )
             async for chunk in stream:
+                # #198: same cooperative cancel as the blueprint path.
+                if self._cancel_event().is_set():
+                    break
                 choices = getattr(chunk, "choices", None) or []
                 if not choices:
                     continue
@@ -1214,6 +1268,11 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             return
 
         from swarm.core.model_text import sanitize_model_text
+
+        # #198: default-model interrupt — no partial reply, no persistence.
+        if self._cancel_event().is_set():
+            await self.send_error_message(contents_div_id, "Interrupted.")
+            return
 
         full_message = sanitize_model_text(full_message)
         if not full_message:

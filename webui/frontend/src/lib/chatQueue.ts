@@ -150,6 +150,24 @@ export function queuedPaneMaxHeightPx(transcriptHeight: number): number {
   return Math.max(1, Math.round(transcriptHeight / 3))
 }
 
+/** #198: previews cap at this many chars; hover (title) reveals the full text. */
+export const QUEUED_PREVIEW_MAX_CHARS = 80
+
+/**
+ * #198: single-line preview for a queued row — whitespace collapsed, capped
+ * at 80 chars with an ellipsis. The pane styles the truncation with a fade;
+ * the full text stays available via the row's hover title and the editor.
+ */
+export function queuedPreviewText(text: string): string {
+  const singleLine = text.replace(/\s+/g, ' ').trim()
+  if (singleLine.length <= QUEUED_PREVIEW_MAX_CHARS) return singleLine
+  return `${singleLine.slice(0, QUEUED_PREVIEW_MAX_CHARS)}…`
+}
+
+export function queuedPreviewIsTruncated(text: string): boolean {
+  return text.replace(/\s+/g, ' ').trim().length > QUEUED_PREVIEW_MAX_CHARS
+}
+
 export function suggestionChipText(event: Event): string {
   const detail = (event as CustomEvent<{ text?: unknown }>).detail
   return typeof detail?.text === 'string' ? detail.text : ''

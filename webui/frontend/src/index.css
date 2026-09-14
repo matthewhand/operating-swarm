@@ -2019,6 +2019,19 @@ html:not([data-theme="light"]) .os-composer__send,
   flex-shrink: 0;
   margin-top: 0.05rem;
 }
+/* #198: 80-char previews fade out instead of a hard cut; full text on hover. */
+.os-queued-row__text.is-truncated {
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 3.5em), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 3.5em), transparent);
+}
+.os-queued-row__hint {
+  flex-shrink: 0;
+  margin-top: 0.05rem;
+  white-space: nowrap;
+  opacity: 0.85;
+}
 @media (min-width: 640px) {
   .os-chat-transcript {
     padding-left: 1rem;

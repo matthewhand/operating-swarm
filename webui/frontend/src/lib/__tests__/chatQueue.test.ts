@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   QUEUED_PANE_MAX_HEIGHT_CLASS,
   QUEUED_PANE_MAX_HEIGHT_STYLE,
+  QUEUED_PREVIEW_MAX_CHARS,
   QUEUED_SENDS_KEY,
   enqueueQueuedSend,
   generationIsInFlight,
@@ -9,6 +10,8 @@ import {
   nextDrainableQueuedSend,
   prependQueuedSend,
   queuedPaneMaxHeightPx,
+  queuedPreviewIsTruncated,
+  queuedPreviewText,
   removeQueuedSend,
   saveQueuedSends,
   suggestionChipText,
@@ -89,5 +92,22 @@ describe('chatQueue (REQ-90)', () => {
   it('restores a failed drain at the front', () => {
     const row = enqueueQueuedSend([], 'retry-me')[0]!
     expect(prependQueuedSend([], row)[0]).toEqual(row)
+  })
+
+  // #198 — 80-char single-line previews with hover-reveal
+  it('collapses whitespace and caps previews at 80 chars with an ellipsis', () => {
+    expect(QUEUED_PREVIEW_MAX_CHARS).toBe(80)
+    const long = 'a'.repeat(120)
+    expect(queuedPreviewText(long)).toBe(`${'a'.repeat(80)}…`)
+    const multiline = 'one\n\ntwo   three\tfour'
+    expect(queuedPreviewText(multiline)).toBe('one two three four')
+    expect(queuedPreviewText('  padded  ')).toBe('padded')
+  })
+
+  it('flags which previews are truncated (hover reveals full text)', () => {
+    expect(queuedPreviewIsTruncated('a'.repeat(120))).toBe(true)
+    expect(queuedPreviewIsTruncated('a'.repeat(80))).toBe(false)
+    expect(queuedPreviewIsTruncated('a'.repeat(81))).toBe(true)
+    expect(queuedPreviewIsTruncated('short')).toBe(false)
   })
 })

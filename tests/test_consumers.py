@@ -16,6 +16,7 @@ Covers:
 import asyncio
 import json
 import re
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -2055,3 +2056,123 @@ class TestRespondWithDefaultModelLiteLLM:
             with patch.object(consumer, "send", new_callable=AsyncMock):
                 with pytest.raises(RuntimeError, match="Attempted fallback to OpenAI API"):
                     await consumer.respond_with_default_model("message-response-bad")
+
+
+# =============================================================================
+# #198 — enter-to-interrupt (cancel_turn / turn_cancelled)
+# =============================================================================
+
+
+class TestCancelTurn:
+    """#198: cooperative turn cancel for queued-send promotion."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_turn_sets_event_and_acks(self, consumer):
+        with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+            await consumer.receive(json.dumps({"type": "cancel_turn"}))
+        assert consumer._turn_cancel_event.is_set()
+        ack = mock_send.call_args.kwargs["text_data"]
+        assert json.loads(ack) == {"type": "turn_cancelled"}
+
+    @pytest.mark.asyncio
+    async def test_cancel_frame_during_stream_interrupts_blueprint_turn(
+        self, consumer, monkeypatch
+    ):
+        """A cancel requested mid-run stops the stream; partial text is not
+        recorded and the placeholder closes with an Interrupted note."""
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        consumer.messages = []
+        consumer.conversation_id = "test-conv-123"
+        consumer.default_blueprint = "jeeves"
+
+        chunks_seen = 0
+
+        async def fake_run(messages, **kwargs):
+            nonlocal chunks_seen
+            for i in range(50):
+                if consumer._turn_cancel_event.is_set():
+                    return
+                chunks_seen += 1
+                yield {
+                    "messages": [
+                        {"role": "assistant", "content": f"part {i}"},
+                        "delta",
+                    ]
+                }
+                await asyncio.sleep(0.01)
+
+        instance = MagicMock()
+        instance.run = fake_run
+        instance._params = {}
+        sent = []
+
+        async def capture_send(*, text_data=None, **_kwargs):
+            sent.append(text_data or "")
+
+        def fake_render(template, context):
+            name = str(template)
+            cid = context.get("contents_div_id", "")
+            if "final_system" in name:
+                return f'<div id="{cid}" class="assistant-final"></div>'
+            return f'<div id="{cid}" class="assistant-start"></div>'
+
+        with patch("swarm.consumers.render_to_string", side_effect=fake_render):
+            with patch.object(consumer, "send", new_callable=AsyncMock, side_effect=capture_send):
+                with patch(
+                    "swarm.views.utils.get_blueprint_instance",
+                    new_callable=AsyncMock,
+                    return_value=instance,
+                ):
+                    turn = asyncio.create_task(
+                        consumer.receive(
+                            json.dumps({"message": "hello", "blueprint": "jeeves"})
+                        )
+                    )
+                    await asyncio.sleep(0.05)
+                    await consumer.receive(json.dumps({"type": "cancel_turn"}))
+                    await asyncio.wait_for(turn, timeout=5)
+
+        assert chunks_seen < 50  # stream stopped early, not exhausted
+        joined = "\n".join(sent)
+        # #198: the turn closes with a final partial (so the SPA clears its
+        # streaming state) and the partial reply is never persisted.
+        assert 'class="assistant-final"' in joined
+        assert "part 49" not in joined
+        # The user turn is recorded; no assistant turn is appended after cancel.
+        assert [m["role"] for m in consumer.messages if m["role"] == "user"] == ["user"]
+        assert [m["content"] for m in consumer.messages if m["role"] == "user"] == [
+            "hello"
+        ]
+        assert not any(
+            m["role"] == "assistant" and "part" in str(m.get("content", ""))
+            for m in consumer.messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_cancelled_default_model_stream_persists_nothing(self, consumer):
+        """#198: default-model path also honours the cancel flag and skips
+        _persist_completed_turn after an interrupt."""
+        consumer.messages = []
+        consumer.conversation_id = "test-conv-123"
+        consumer.default_blueprint = None
+        consumer._cancel_event().set()  # cancel already requested
+
+        deltas = [SimpleNamespace(delta=SimpleNamespace(content="partial hello "))]
+        stream = MagicMock()
+        stream.__aiter__ = MagicMock(return_value=iter(deltas))
+
+        client = MagicMock()
+        client.close = AsyncMock()
+        client.chat.completions.create = MagicMock(return_value=stream)
+
+        persisted = []
+        with patch("swarm.consumers.AsyncOpenAI", return_value=client):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "_persist_completed_turn", new_callable=AsyncMock
+                ) as mock_persist:
+                    mock_persist.side_effect = lambda: persisted.append(True)
+                    await consumer.respond_with_default_model("message-response-x")
+
+        mock_persist.assert_not_awaited()
+        assert persisted == []

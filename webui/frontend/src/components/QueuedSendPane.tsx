@@ -5,6 +5,8 @@ import {
   QUEUED_PANE_MAX_HEIGHT_CLASS,
   QUEUED_PANE_MAX_HEIGHT_STYLE,
   type QueuedSendRow,
+  queuedPreviewIsTruncated,
+  queuedPreviewText,
 } from '../lib/chatQueue'
 
 export function QueuedSendPane({
@@ -13,12 +15,15 @@ export function QueuedSendPane({
   onChangeText,
   onDelete,
   onHoldIdsChange,
+  interruptible = false,
 }: {
   rows: QueuedSendRow[]
   maxHeightPx?: number
   onChangeText: (id: string, text: string) => void
   onDelete: (id: string) => void
   onHoldIdsChange: (ids: string[]) => void
+  /** #198: when true, the top row shows the "enter to interrupt" hint. */
+  interruptible?: boolean
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -123,14 +128,26 @@ export function QueuedSendPane({
               ) : (
                 <button
                   type="button"
-                  className="os-queued-row__text"
+                  className={`os-queued-row__text${
+                    queuedPreviewIsTruncated(row.text) ? ' is-truncated' : ''
+                  }`}
+                  title={row.text}
                   onClick={() => {
                     setEditingId(row.id)
                     setDraft(row.text)
                   }}
                 >
-                  {row.text}
+                  {queuedPreviewText(row.text)}
                 </button>
+              )}
+              {interruptible && row.id === rows[0]?.id && (
+                <span
+                  className="os-queued-row__hint kbd kbd-xs"
+                  data-testid="queued-interrupt-hint"
+                  title="Enter on the empty composer interrupts the running turn and sends this"
+                >
+                  ↵ interrupt
+                </span>
               )}
               <button
                 type="button"

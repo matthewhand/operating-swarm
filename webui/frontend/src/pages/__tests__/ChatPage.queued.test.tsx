@@ -283,3 +283,77 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     expect(screen.getByTestId('queued-row')).toHaveTextContent('survives refresh')
   })
 })
+
+// #198 — enter-to-interrupt on a queued send
+describe('ChatPage queued sends (#198 enter-to-interrupt)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    clearAllQueuedSends()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearAllQueuedSends()
+    resetConversationThreads()
+  })
+
+  it('shows the enter-to-interrupt hint while a send is queued mid-generation', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'queued item' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    expect(screen.getByTestId('queued-interrupt-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('queued-interrupt-hint')).toHaveTextContent('interrupt')
+  })
+
+  it('interrupts the running turn and promotes the queued send on Enter over an empty input', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'jump the queue' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(ws.send).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Chat message' }), {
+      key: 'Enter',
+      code: 'Enter',
+    })
+
+    expect(ws.send).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+      type: 'cancel_turn',
+    })
+
+    // Server closes the interrupted turn with a final partial; the drain
+    // effect then promotes the queued message.
+    await act(async () => {
+      finishStreaming(ws, 'message-response-abc123', 'Interrupted.')
+    })
+    await waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(2)
+    })
+    expect(JSON.parse(String(ws.send.mock.calls[1][0]))).toMatchObject({
+      message: 'jump the queue',
+    })
+  })
+})
