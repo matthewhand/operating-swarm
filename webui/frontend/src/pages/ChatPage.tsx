@@ -239,6 +239,7 @@ import {
   isAgentUnread,
   loadUnreadAgentIds,
   markAgentRead,
+  markAgentUnread,
 } from '../lib/unreadAgents'
 import { fetchAgentSuggestions, shouldShowSuggestionChips } from '../lib/suggestions'
 import {
@@ -1587,9 +1588,19 @@ const ChatPage = () => {
             selectedAgentId: agentId,
           })
         }
+        // #96: a turn finishing on the open-but-scrolled-up seat was never
+        // seen — mark it unread (the rail only dots unselected seats today).
+        if (
+          agentId &&
+          !seatUnread &&
+          !pinnedToBottomRef.current &&
+          !(typeof document !== 'undefined' && document.visibilityState === 'hidden')
+        ) {
+          setUnreadIds(markAgentUnread(agentId))
+        }
       }
     },
-    [activeChatAgentId, attachToolToThread, sendToolDecision, threadKey, useSuggestions],
+    [activeChatAgentId, attachToolToThread, sendToolDecision, threadKey, useSuggestions, seatUnread],
   )
 
   useEffect(() => {
@@ -1753,8 +1764,37 @@ const ChatPage = () => {
   useEffect(() => {
     if (!activeChatAgentId || seatUnread) return
     if (!pinnedToBottomRef.current) return
+    // #96: a hidden tab never counts as reading the transcript.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
   }, [activeChatAgentId, conversationId, messages, seatUnread])
+
+  // #96: returning to a visible tab while pinned at the bottom counts as
+  // catching up — the scroll handler alone would miss it (no scroll event).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      if (!pinnedToBottomRef.current || !seatUnread || !activeChatAgentId) return
+      setUnreadIds(markAgentRead(activeChatAgentId))
+      saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [seatUnread, activeChatAgentId, conversationId, messages])
+
+  // #96: unread clears only when the seat is visible AND pinned to the
+  // transcript bottom — not merely because a scroll happened.
+  const handleTranscriptScroll = useCallback(
+    (e: React.UIEvent<HTMLElement>) => {
+      const atBottom = isPinnedToTranscriptBottom(e.currentTarget, composerInsetPx)
+      pinnedToBottomRef.current = atBottom
+      if (!atBottom || !seatUnread || !activeChatAgentId) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      setUnreadIds(markAgentRead(activeChatAgentId))
+      saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
+    },
+    [composerInsetPx, seatUnread, activeChatAgentId, conversationId, messages],
+  )
 
   useEffect(() => {
     const wasOpen = prevStatusRef.current === 'open'
@@ -2953,14 +2993,7 @@ const ChatPage = () => {
         data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
         data-composer-inset={composerInsetPx}
         tabIndex={0}
-        onScroll={(e) => {
-          const atBottom = isPinnedToTranscriptBottom(e.currentTarget, composerInsetPx)
-          pinnedToBottomRef.current = atBottom
-          if (atBottom && seatUnread && activeChatAgentId) {
-            setUnreadIds(markAgentRead(activeChatAgentId))
-            saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
-          }
-        }}
+        onScroll={handleTranscriptScroll}
       >
         <div className="os-chat-messages space-y-1 flex-1" data-testid="chat-messages-container">
         {restoreNotice ? (
