@@ -265,7 +265,7 @@ def persist_custom_item(item: dict[str, Any], *, disk: bool | None = None) -> di
             if not save_user_blueprint_library(lib):
                 logger.warning("NL blueprint disk persist returned false for %s", stamped.get("id"))
         except Exception:
-            logger.debug("NL blueprint disk persist skipped", exc_info=True)
+            logger.warning("NL blueprint disk persist failed for %s", stamped.get("id"), exc_info=True)
     try:
         registry = api_views._custom_blueprints_registry
         kept = [row for row in list(registry) if isinstance(row, dict) and row.get("id") != stamped.get("id")]
@@ -273,7 +273,15 @@ def persist_custom_item(item: dict[str, Any], *, disk: bool | None = None) -> di
         registry.extend(kept)
         registry.append(stamped)
     except Exception:
-        logger.debug("NL blueprint registry persist skipped", exc_info=True)
+        logger.warning("NL blueprint registry persist failed for %s", stamped.get("id"), exc_info=True)
+
+    # Invalidate blueprint discovery cache so get_available_blueprints sees the new seat immediately
+    try:
+        from swarm.views import utils as views_utils
+        views_utils._blueprint_meta_cache = None
+    except Exception:
+        pass
+
     return stamped
 
 

@@ -149,16 +149,21 @@ _custom_blueprints_registry: list[dict] = []
 
 
 def _custom_library_items() -> list[dict]:
-    """Custom-library rows for list/merge. Disk first, then in-memory test registry."""
+    """Custom-library rows for list/merge. Disk first, merged with in-memory registry."""
+    items: list[dict] = []
     try:
         lib = get_user_blueprint_library()
-        items = list(lib.get("custom") or [])
+        items = [row for row in (lib.get("custom") or []) if isinstance(row, dict)]
     except Exception:
         logger.exception("Error loading custom blueprint library for rail merge")
         items = []
-    if not items and _custom_blueprints_registry:
-        items = list(_custom_blueprints_registry)
-    return [item for item in items if isinstance(item, dict)]
+
+    seen = {row.get("id") for row in items if row.get("id")}
+    for row in _custom_blueprints_registry:
+        if isinstance(row, dict) and row.get("id") and row["id"] not in seen:
+            items.append(row)
+            seen.add(row["id"])
+    return items
 
 
 class ModelsListView(APIView):
@@ -289,6 +294,22 @@ class BlueprintsListView(APIView):
                 for row in custom_library_to_blueprint_rows(_custom_library_items())
                 if row.get("id") and row["id"] not in seen
             ]
+            if search:
+                custom_seats = [
+                    row
+                    for row in custom_seats
+                    if (
+                        search in str(row.get("id", "")).lower()
+                        or search in str(row.get("name", "")).lower()
+                        or search in str(row.get("description", "")).lower()
+                    )
+                ]
+            if required_mcp:
+                custom_seats = [
+                    row
+                    for row in custom_seats
+                    if required_mcp in [str(x).lower() for x in (row.get("required_mcp_servers") or [])]
+                ]
             data = custom_seats + data
 
             response_payload = {

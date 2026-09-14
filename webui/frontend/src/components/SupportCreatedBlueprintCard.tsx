@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { QueryClientContext } from '@tanstack/react-query'
 import { FileCode2, EyeOff } from 'lucide-react'
 import { Button, Textarea } from './DaisyUI'
 import {
@@ -18,6 +19,13 @@ export default function SupportCreatedBlueprintCard({
   card,
 }: SupportCreatedBlueprintCardProps) {
   const [revealed, setRevealed] = useState(false)
+  const queryClient = useContext(QueryClientContext)
+
+  useEffect(() => {
+    if (queryClient) {
+      void queryClient.invalidateQueries({ queryKey: ['blueprints'] })
+    }
+  }, [queryClient, card.id])
 
   return (
     <div

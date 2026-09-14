@@ -159,6 +159,63 @@ def _load_all_blueprint_metadata_sync():
                 "tags": ["team", "dynamic"],
             },
         }
+
+    # Merge custom library blueprints (Support-created NL teams, custom API/CLI seats)
+    try:
+        from swarm.views.api_views import _custom_library_items
+        custom_items = _custom_library_items()
+    except Exception:
+        custom_items = []
+
+    for item in custom_items:
+        if not isinstance(item, dict):
+            continue
+        ident = str(item.get("id") or item.get("name") or "").strip()
+        if not ident or ident in blueprint_classes:
+            continue
+
+        tags = list(item.get("tags") or [])
+        template = str(item.get("template") or "").lower()
+        code = str(item.get("code") or "")
+        class_type = None
+
+        if code:
+            try:
+                ns = {}
+                exec(code, ns)
+                from swarm.core.blueprint_base import BlueprintBase
+                from swarm.core.kind_bases import ApiKindBase, CliKindBase, KindBase, RemoteKindBase
+                for val in ns.values():
+                    if (
+                        isinstance(val, type)
+                        and issubclass(val, BlueprintBase)
+                        and val not in (BlueprintBase, KindBase, ApiKindBase, CliKindBase, RemoteKindBase)
+                    ):
+                        class_type = val
+                        break
+            except Exception as exc:
+                logger.warning("Could not compile custom blueprint '%s' code: %s", ident, exc)
+
+        if class_type is None:
+            if any(t in ("pipeline", "handoff", "tester", "sdlc") for t in tags) or template in ("pipeline", "sdlc"):
+                from swarm.blueprints.sdlc_handoff.blueprint_sdlc_handoff import SdlcHandoffBlueprint
+                class_type = SdlcHandoffBlueprint
+            else:
+                class_type = DynamicTeamBlueprint
+
+        blueprint_classes[ident] = {
+            "class_type": class_type,
+            "metadata": {
+                "name": ident,
+                "title": item.get("name") or item.get("title") or ident,
+                "description": item.get("description", "Custom blueprint"),
+                "abbreviation": item.get("abbreviation"),
+                "tags": tags,
+                "rail": bool(item.get("rail", True)),
+                "kind": item.get("kind", "api"),
+            },
+        }
+
     logger.info(f"Found blueprint classes: {list(blueprint_classes.keys())}")
     _blueprint_meta_cache = blueprint_classes
     return blueprint_classes
@@ -215,7 +272,11 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
             pass
         logger.info(f"Successfully instantiated blueprint: {blueprint_id}")
         if hasattr(instance, 'set_params') and callable(instance.set_params):
-             instance.set_params(params)
+             effective_params = dict(params or {})
+             tags = blueprint_info.get("metadata", {}).get("tags") or []
+             if "variant" not in effective_params and "skeptic" in tags:
+                 effective_params["variant"] = "skeptic_loop"
+             instance.set_params(effective_params)
 
         return instance
     except Exception as e:

@@ -89,3 +89,47 @@ def test_unique_ids_and_slug():
     assert slugify_blueprint_id("BA Eng Tester") == "ba_eng_tester"
     assert class_name_for_id("ba_eng_tester") == "BaEngTesterBlueprint"
     assert unique_blueprint_id("first_team", {"first_team", "first_team_2"}) == "first_team_3"
+
+
+@pytest.mark.asyncio
+async def test_support_nl_blueprint_chatable_and_on_rail(tmp_path, monkeypatch):
+    from swarm.views import api_views
+    from swarm.views import blueprint_library_views as lib
+    from swarm.views.utils import get_available_blueprints_sync, get_blueprint_instance
+
+    monkeypatch.setattr(lib, "get_user_config_dir_for_swarm", lambda: tmp_path)
+    api_views._custom_blueprints_registry.clear()
+
+    # Create and persist BA Engineer Tester
+    created = create_nl_blueprint("Create a BA → Engineer → Tester workflow")
+    persist_custom_item(created.item, disk=True)
+
+    # 1. Verify blueprint is discovered and stamped as rail seat
+    avail = get_available_blueprints_sync()
+    assert created.spec.blueprint_id in avail
+    meta = avail[created.spec.blueprint_id]["metadata"]
+    assert meta["rail"] is True
+    assert meta["kind"] == "api"
+
+    # 2. Verify blueprint is loadable and can instantiate
+    instance = await get_blueprint_instance(created.spec.blueprint_id)
+    assert instance is not None
+    assert instance.blueprint_id == created.spec.blueprint_id
+
+    # 3. Verify blueprint execution works (test mode PONG)
+    chunks = []
+    async for chunk in instance.run([{"role": "user", "content": "ping"}]):
+        chunks.append(chunk)
+    assert len(chunks) > 0
+    assert "PONG" in chunks[0]["messages"][0]["content"]
+
+    # Create and persist First Team
+    created_team = create_nl_blueprint("Create a team")
+    persist_custom_item(created_team.item, disk=True)
+
+    avail = get_available_blueprints_sync()
+    assert created_team.spec.blueprint_id in avail
+    team_instance = await get_blueprint_instance(created_team.spec.blueprint_id)
+    assert team_instance is not None
+    assert team_instance.blueprint_id == created_team.spec.blueprint_id
+

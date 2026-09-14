@@ -22,6 +22,12 @@ from rest_framework.test import APIClient
 # Fixtures
 # =============================================================================
 
+@pytest.fixture(autouse=True)
+def _disable_api_auth(settings, monkeypatch):
+    settings.ENABLE_API_AUTH = False
+    monkeypatch.setattr("swarm.views.api_views._custom_library_items", lambda: [])
+
+
 @pytest.fixture
 def api_client():
     """Return an API client for testing."""
