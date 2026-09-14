@@ -29,7 +29,8 @@ def test_user_facing_kind_is_always_remote():
     assert USER_FACING_KIND == "remote"
     assert user_facing_kind("herdr") == "remote"
     assert user_facing_kind("hermes") == "remote"
-    assert set(REMOTE_IMPL_IDS) == {"hermes", "omb", "rakazo", "herdr", "swarm"}
+    assert user_facing_kind("trueforge") == "remote"
+    assert set(REMOTE_IMPL_IDS) == {"hermes", "omb", "rakazo", "herdr", "swarm", "trueforge"}
 
 
 def test_registry_covers_every_catalog_impl():
@@ -104,7 +105,7 @@ def test_computer_operate_stub_honest():
 def test_herdr_is_remote_impl_not_fifth_kind():
     assert "herdr" not in AGENT_TYPES
     assert AGENT_TYPES == ("api", "cli", "remote")
-    assert set(get_args(AgentKind)) == {"api", "cli", "remote"}
+    assert set(get_args(AgentKind)) == {"api", "cli", "remote", "blueprint"}
     assert agent_type_for_kind("herdr") == "remote"
     assert classify_agent_kind("herdr") == "remote"
     assert classify_agent_kind("w3:p1", explicit="herdr") == "remote"
@@ -112,14 +113,18 @@ def test_herdr_is_remote_impl_not_fifth_kind():
     assert classify_agent_kind("hermes") == "remote"
     assert classify_agent_kind("omb") == "remote"
     assert classify_agent_kind("rakazo") == "remote"
+    assert classify_agent_kind("trueforge") == "remote"
     # Design-kind swarm stays API (not the nested remote impl).
     assert classify_agent_kind("swarm") == "api"
     assert agent_type_for_kind("swarm") == "api"
     assert is_remote_impl_id("herdr")
     assert is_remote_impl_id("open-swarm")
+    assert is_remote_impl_id("trueforge")
     assert not is_remote_impl_id("swarm")
     assert normalize_impl_id("openmousbot") == "omb"
     assert normalize_impl_id("open-swarm") == "swarm"
+    assert normalize_impl_id("true_forge") == "trueforge"
+    assert normalize_impl_id("true-forge") == "trueforge"
 
 
 def test_wrappers_expose_contract_methods_without_lan():

@@ -11,6 +11,7 @@ Remote implementation, not a fifth kind.
 | **Rakazo** | `rakazo` | HTTP | health, list, send | yes — stub until ADR-007 Phase 3 |
 | **Herdr** | `herdr` | CLI local / SSH remote | health, list, send, interrogate | no |
 | **Nested open-swarm** | `swarm` (`open-swarm`) | HTTP | health, list, send | no |
+| **TrueForge** | `trueforge` | HTTP | health, list, send | no |
 
 Typed protocol: `from swarm.core.remote_harness import RemoteHarness`. Settings
 `GET /v1/remotes/` `kinds[]` uses `kind=remote` and `id`/`impl` as the
@@ -70,12 +71,14 @@ Kind defaults (override when adding). Unused kinds are not pre-seeded cards:
 | **omb** | Windows2 | `http://198.51.100.32:8802` | `OMB_API_KEY` (optional Bearer) |
 | **rakazo** | Windows2 | API `http://198.51.100.32:3100`, UI `:5173`, tree `C:\rakazo` | `RAKAZO_API_KEY` and/or `RAKAZO_SESSION_COOKIE` |
 | **swarm** | another open-swarm process | stub `http://127.0.0.1:9` (not this listen URL) | `SWARM_REMOTE_API_KEY` (Bearer; env var name only) |
+| **trueforge** | local/remote | `http://127.0.0.1:8791` | `TRUEFORGE_API_KEY` (optional Bearer) |
 
 ```bash
 swarm-cli remotes set hermes --base-url http://198.51.100.36:8642 --api-key-env HERMES_API_KEY
 swarm-cli remotes set omb --base-url http://198.51.100.32:8802 --api-key-env OMB_API_KEY
 swarm-cli remotes set rakazo --base-url http://198.51.100.32:3100 --ui-url http://198.51.100.32:5173 --api-key-env RAKAZO_API_KEY
 swarm-cli remotes set swarm --base-url http://127.0.0.1:9 --api-key-env SWARM_REMOTE_API_KEY
+swarm-cli remotes set trueforge --base-url http://127.0.0.1:8791 --api-key-env TRUEFORGE_API_KEY
 ```
 
 Nested swarm is a **normal deploy** (own process, own local DB). Point
@@ -89,7 +92,7 @@ Equivalent persist:
 * `swarm-cli config add --section remotes --name hermes --json '{...}'`
 * Edit `~/.config/swarm/swarm_config.json` → `"remotes"` (or `SWARM_CONFIG_PATH`)
 
-Env overrides win over the file: `HERMES_BASE_URL`, `OMB_BASE_URL`, `RAKAZO_BASE_URL`, `SWARM_REMOTE_BASE_URL`.
+Env overrides win over the file: `HERMES_BASE_URL`, `OMB_BASE_URL`, `RAKAZO_BASE_URL`, `SWARM_REMOTE_BASE_URL`, `TRUEFORGE_BASE_URL`.
 
 Settings → **Remotes** lists only added remotes (secrets redacted). Missing
 catalog is empty, not a default Hermes card. `swarm-cli remotes get hermes`
@@ -112,6 +115,7 @@ report, not an exception. Auth-gated 401/403 on a live port counts as **UP**
 | OMB | `GET /api/health` → `{"app":"openmausbot",...}` |
 | Rakazo | `GET /health` → `{"ok":true,"runtime":"pi",...}` |
 | Nested swarm | `GET /health` → `{"status":"ok"}`; version via `GET /v1/models` |
+| TrueForge | `GET /healthz` → `{"status":"ok","version":"..."}` |
 | **Herdr** | **Not HTTP.** Local: `herdr workspace list`. Remote: `ssh user@host -- herdr workspace list` (stub SSH in tests). |
 
 ## Operate today vs not
@@ -122,6 +126,7 @@ report, not an exception. Auth-gated 401/403 on a live port counts as **UP**
 | **OMB** | `GET /api/bots` | `POST /api/bots/{id}/messages` `{"text":"..."}` (202). Creates a bot if none exist. | HTTP only — no OMB source clone. Upstream default bind is `127.0.0.1:8799`; this LAN install is `:8802`. |
 | **Rakazo** | `POST /rpc/bots/list` | `POST /rpc/threads/send` `{botId,text}` | **Better Auth session required** for RPC. Public `GET /health` works without auth. Set `RAKAZO_SESSION_COOKIE` from a signed-in UI session. No unauthenticated job API in upstream. |
 | **swarm** | `GET /v1/blueprints/` (fallback `GET /v1/models/`) | `POST /v1/chat/completions/` `{"model":"<blueprint>","messages":[…]}` | Network remote only. Unreachable child is the same DOWN / operate-fail as other remotes (no hang). Do not persist this process listen URL. |
+| **TrueForge** | `GET /api/v1/agents` | `POST /api/v1/sessions` + `POST /turns` + poll `GET /turns/{id}` + `GET /events` | Async sessions/turns/events job workflow. Optional Bearer auth via `TRUEFORGE_API_KEY`. |
 | **Herdr** | `herdr agent list` (local or over SSH) | `herdr agent prompt` / `herdr agent get` (interrogate) | SSH-shaped. Not HTTP like the rows above. Missing ssh_host/ssh_user is a clear error. Stub SSH in tests; no live LAN. |
 
 ```bash
@@ -130,13 +135,15 @@ swarm-cli remotes operate hermes --op send --prompt "status"
 swarm-cli remotes operate omb --op list
 swarm-cli remotes operate omb --op send --prompt "hello" --target <botId>
 swarm-cli remotes operate rakazo --op list
+swarm-cli remotes operate trueforge --op list
+swarm-cli remotes operate trueforge --op send --prompt "hello" --target orchestrator
 swarm-cli remotes operate herdr --op list
 swarm-cli remotes operate herdr --op send --target w3:p1 --prompt HERDR_PING_OK
 ```
 
 REST: `POST /v1/remotes/<id>/operate/` `{"op":"list"}` or `{"op":"send","prompt":"…","target":"…"}`.
 
-Blueprint `remote_harness` (chat `model: remote_harness`): grammar `health`, `list omb`, `list swarm`, `send hermes …`. Coordinator uses openai-agents **as_tool** specialists (`consult_hermes` / `consult_omb` / `consult_rakazo` / `consult_swarm` when placed).
+Blueprint `remote_harness` (chat `model: remote_harness`): grammar `health`, `list omb`, `list swarm`, `send hermes …`. Coordinator uses openai-agents **as_tool** specialists (`consult_hermes` / `consult_omb` / `consult_rakazo` / `consult_swarm` / `consult_trueforge` when placed).
 
 `harness_fleet` inventory now names `rakazo-32:3100` and `omb-32:8802` (legacy `rakoza-32` / `openmousbot-32` aliases kept).
 

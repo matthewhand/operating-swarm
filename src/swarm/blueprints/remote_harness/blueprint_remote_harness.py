@@ -107,7 +107,7 @@ class RemoteHarnessBlueprint(BlueprintBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -119,6 +119,8 @@ class RemoteHarnessBlueprint(BlueprintBase):
             "RAKAZO_SESSION_COOKIE",
             "SWARM_REMOTE_BASE_URL",
             "SWARM_REMOTE_API_KEY",
+            "TRUEFORGE_BASE_URL",
+            "TRUEFORGE_API_KEY",
         ],
     }
 
@@ -205,6 +207,15 @@ class RemoteHarnessBlueprint(BlueprintBase):
                 "consult_swarm",
                 "Hand off to the nested open-swarm remote operator.",
             ),
+            "trueforge": (
+                "TrueforgeRemote",
+                (
+                    "You operate the remote TrueForge agent server via tools. "
+                    "Never pretend to be TrueForge locally."
+                ),
+                "consult_trueforge",
+                "Hand off to the TrueForge remote operator (health/list/send).",
+            ),
         }
 
         try:
@@ -290,7 +301,7 @@ class RemoteHarnessBlueprint(BlueprintBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm> <prompt>"
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge> <prompt>"
                 else:
                     body = _send_tool(name, prompt, target)
             yield support.message_chunk(

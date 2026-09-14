@@ -72,6 +72,16 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "path": "delimiter",
         "notes": "One-shot argv/stdin prompt; no message objects.",
     },
+    "cli:omp": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "One-shot argv/stdin prompt; no message objects.",
+    },
+    "cli:qwen": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "One-shot argv/stdin prompt; no message objects.",
+    },
     "remote:hermes": {
         "name_field": "stripped",
         "path": "delimiter",
@@ -96,6 +106,11 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "name_field": "stripped",
         "path": "delimiter",
         "notes": "Nested send wraps the prompt as a single user message.",
+    },
+    "remote:trueforge": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "Harness send is a prompt string via sessions/turns.",
     },
 }
 

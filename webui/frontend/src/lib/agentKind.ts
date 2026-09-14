@@ -21,6 +21,9 @@ const REMOTE_IMPL_IDS = new Set([
   'open-swarm',
   'openswarm',
   'open_swarm',
+  'trueforge',
+  'true_forge',
+  'true-forge',
 ])
 
 export function isRemoteImplId(raw: string | null | undefined): boolean {

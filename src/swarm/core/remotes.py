@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
-REMOTE_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm")
-REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm")
+REMOTE_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
 # Kinds that never appear until the user (or env) adds them.
 OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr"})
 REMOTE_KIND_LABELS: dict[str, str] = {
@@ -53,6 +53,7 @@ REMOTE_KIND_LABELS: dict[str, str] = {
     "rakazo": "Rakazo",
     "herdr": "Herdr",
     "swarm": "Swarm",
+    "trueforge": "TrueForge",
 }
 _KIND_ALIASES: dict[str, str] = {
     "openmausbot": "omb",
@@ -62,6 +63,8 @@ _KIND_ALIASES: dict[str, str] = {
     "open-swarm": "swarm",
     "openswarm": "swarm",
     "open_swarm": "swarm",
+    "true_forge": "trueforge",
+    "true-forge": "trueforge",
 }
 
 # REQ-11 default roster. ``swarm`` is in the catalog but is not auto-placed
@@ -89,6 +92,7 @@ _TOOL_NAMES: dict[str, str] = {
     "rakazo": "consult_rakazo",
     "herdr": "consult_herdr",
     "swarm": "consult_swarm",
+    "trueforge": "consult_trueforge",
 }
 
 # Verified operator LAN facts (not reachable from every cloud VM).
@@ -177,6 +181,23 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "not required to nest the parent."
         ),
     },
+    "trueforge": {
+        "title": "TrueForge",
+        "host_label": "trueforge",
+        "base_url": "http://127.0.0.1:8791",
+        "ui_url": "",
+        "api_key": "${TRUEFORGE_API_KEY}",
+        "health_path": "/healthz",
+        "version_path": "/healthz",
+        "notes": (
+            "TrueForge agent server on :8791 (truefoundry/trueforge). "
+            "GET /healthz, GET /api/v1/agents, "
+            "POST /api/v1/sessions, POST /api/v1/sessions/{id}/turns, "
+            "GET /api/v1/sessions/{id}/turns/{turn_id}, "
+            "GET /api/v1/sessions/{id}/turns/{turn_id}/events. "
+            "Auth is optional Bearer token via TRUEFORGE_API_KEY."
+        ),
+    },
 }
 
 _ENV_BASE = {
@@ -185,6 +206,7 @@ _ENV_BASE = {
     "rakazo": "RAKAZO_BASE_URL",
     "herdr": "HERDR_BASE_URL",
     "swarm": "SWARM_REMOTE_BASE_URL",
+    "trueforge": "TRUEFORGE_BASE_URL",
 }
 _ENV_KEY = {
     "hermes": "HERMES_API_KEY",
@@ -192,6 +214,7 @@ _ENV_KEY = {
     "rakazo": "RAKAZO_API_KEY",
     "herdr": "HERDR_API_KEY",
     "swarm": "SWARM_REMOTE_API_KEY",
+    "trueforge": "TRUEFORGE_API_KEY",
 }
 _ENV_UI = {"rakazo": "RAKAZO_UI_URL", "hermes": "HERMES_UI_URL"}
 _ENV_COOKIE = {"rakazo": "RAKAZO_SESSION_COOKIE"}
@@ -1826,6 +1849,259 @@ def _swarm_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> O
     )
 
 
+def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
+    base_url = (spec.base_url or "").rstrip("/")
+    timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
+    result = http_json(
+        "GET",
+        f"{base_url}/api/v1/agents",
+        headers=_auth_headers(spec),
+        timeout=timeout_s,
+    )
+    if result.status in _UP:
+        agents = None
+        if isinstance(result.body, dict):
+            agents = result.body.get("agents") or result.body.get("data")
+        elif isinstance(result.body, list):
+            agents = result.body
+        count = len(agents) if isinstance(agents, list) else (1 if agents else 0)
+        return OperateResult(
+            remote="trueforge",
+            op="list",
+            ok=True,
+            detail=f"TrueForge listed {count} agent(s) via GET /api/v1/agents",
+            http_status=result.status,
+            data=result.body,
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote="trueforge",
+            op="list",
+            ok=False,
+            detail="TrueForge /api/v1/agents requires auth. Set remotes.trueforge.api_key or TRUEFORGE_API_KEY.",
+            http_status=result.status,
+            data=result.body,
+        )
+    return OperateResult(
+        remote="trueforge",
+        op="list",
+        ok=False,
+        detail=result.error or f"TrueForge list failed (http {result.status})",
+        http_status=result.status,
+        data=result.body or result.text,
+    )
+
+
+def _trueforge_send(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    timeout: float = _OPERATE_TIMEOUT_S,
+    *,
+    session_id: str | None = None,
+) -> OperateResult:
+    if not prompt.strip():
+        return OperateResult(remote="trueforge", op="send", ok=False, detail="prompt is required")
+    base_url = (spec.base_url or "").rstrip("/")
+    timeout_s = float(timeout or _OPERATE_TIMEOUT_S)
+    start_time = time.monotonic()
+    deadline = start_time + timeout_s
+
+    # 1. Session id: reuse or create via POST /api/v1/sessions
+    sess_id = (session_id or "").strip()
+    if not sess_id:
+        agent_name = (target or "").strip() or "orchestrator"
+        sess_resp = http_json(
+            "POST",
+            f"{base_url}/api/v1/sessions",
+            headers=_auth_headers(spec),
+            body={"agent": {"name": agent_name}, "metadata": {}},
+            timeout=min(5.0, timeout_s),
+        )
+        if sess_resp.status in _AUTH:
+            return OperateResult(
+                remote="trueforge",
+                op="send",
+                ok=False,
+                detail="TrueForge POST /api/v1/sessions requires auth. Set remotes.trueforge.api_key or TRUEFORGE_API_KEY.",
+                http_status=sess_resp.status,
+                data=sess_resp.body,
+            )
+        if sess_resp.status not in _UP and sess_resp.status != 201:
+            return OperateResult(
+                remote="trueforge",
+                op="send",
+                ok=False,
+                detail=sess_resp.error or f"TrueForge session create failed (http {sess_resp.status})",
+                http_status=sess_resp.status,
+                data=sess_resp.body or sess_resp.text,
+            )
+        body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
+        sess_id = str(
+            (body.get("data") if isinstance(body.get("data"), dict) else {}).get("id")
+            or body.get("id")
+            or ""
+        )
+        if not sess_id:
+            return OperateResult(
+                remote="trueforge",
+                op="send",
+                ok=False,
+                detail="TrueForge did not return a session id",
+                http_status=sess_resp.status,
+                data=sess_resp.body,
+            )
+
+    # 2. POST turn: POST /api/v1/sessions/{session_id}/turns
+    remaining = max(1.0, deadline - time.monotonic())
+    turn_resp = http_json(
+        "POST",
+        f"{base_url}/api/v1/sessions/{sess_id}/turns",
+        headers=_auth_headers(spec),
+        body={
+            "input": [{"type": "user.message", "content": prompt}],
+            "stream": False,
+        },
+        timeout=min(5.0, remaining),
+    )
+    if turn_resp.status in _AUTH:
+        return OperateResult(
+            remote="trueforge",
+            op="send",
+            ok=False,
+            detail="TrueForge POST /turns requires auth. Set remotes.trueforge.api_key or TRUEFORGE_API_KEY.",
+            http_status=turn_resp.status,
+            data=turn_resp.body,
+        )
+    if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
+        return OperateResult(
+            remote="trueforge",
+            op="send",
+            ok=False,
+            detail=turn_resp.error or f"TrueForge turn create failed (http {turn_resp.status})",
+            http_status=turn_resp.status,
+            data=turn_resp.body or turn_resp.text,
+        )
+    tbody = turn_resp.body if isinstance(turn_resp.body, dict) else {}
+    turn_id = str(
+        (tbody.get("data") if isinstance(tbody.get("data"), dict) else {}).get("id")
+        or tbody.get("id")
+        or ""
+    )
+    if not turn_id:
+        return OperateResult(
+            remote="trueforge",
+            op="send",
+            ok=False,
+            detail="TrueForge did not return a turn id",
+            http_status=turn_resp.status,
+            data=turn_resp.body,
+        )
+
+    # 3. Poll turn: GET /api/v1/sessions/{session_id}/turns/{turn_id}
+    turn_data: dict[str, Any] = {}
+    last_state = ""
+    while time.monotonic() < deadline:
+        poll_resp = http_json(
+            "GET",
+            f"{base_url}/api/v1/sessions/{sess_id}/turns/{turn_id}",
+            headers=_auth_headers(spec),
+            timeout=min(3.0, max(1.0, deadline - time.monotonic())),
+        )
+        if poll_resp.status in _AUTH:
+            return OperateResult(
+                remote="trueforge",
+                op="send",
+                ok=False,
+                detail="TrueForge turn poll requires auth.",
+                http_status=poll_resp.status,
+                data=poll_resp.body,
+            )
+        if poll_resp.status in _UP:
+            turn_data = (
+                poll_resp.body.get("data", {})
+                if isinstance(poll_resp.body, dict) and isinstance(poll_resp.body.get("data"), dict)
+                else (poll_resp.body if isinstance(poll_resp.body, dict) else {})
+            )
+            last_state = str(turn_data.get("state") or "").strip().lower()
+            if last_state in ("done", "completed", "finished", "success"):
+                break
+            if last_state in ("error", "failed", "cancelled", "canceled"):
+                err_msg = (
+                    turn_data.get("error")
+                    or turn_data.get("message")
+                    or f"TrueForge turn {turn_id} ended with state '{last_state}'"
+                )
+                return OperateResult(
+                    remote="trueforge",
+                    op="send",
+                    ok=False,
+                    detail=str(err_msg),
+                    http_status=poll_resp.status,
+                    data=turn_data,
+                )
+        time.sleep(0.1)
+
+    if last_state not in ("done", "completed", "finished", "success"):
+        return OperateResult(
+            remote="trueforge",
+            op="send",
+            ok=False,
+            detail=f"TrueForge turn {turn_id} timed out after {timeout_s:.1f}s (state: {last_state or 'unknown'})",
+            data=turn_data,
+        )
+
+    # 4. Fetch events: GET /api/v1/sessions/{session_id}/turns/{turn_id}/events
+    events_resp = http_json(
+        "GET",
+        f"{base_url}/api/v1/sessions/{sess_id}/turns/{turn_id}/events",
+        headers=_auth_headers(spec),
+        timeout=min(5.0, max(1.0, deadline - time.monotonic())),
+    )
+    events_data = events_resp.body
+    events_list: list[Any] = []
+    if isinstance(events_data, dict):
+        events_list = events_data.get("data") or events_data.get("events") or []
+    elif isinstance(events_data, list):
+        events_list = events_data
+
+    reply_text = ""
+    for event in reversed(events_list):
+        if isinstance(event, dict):
+            etype = str(event.get("type") or "").lower()
+            if etype in ("model.message", "assistant.message", "model_message", "message"):
+                content = event.get("content")
+                if isinstance(content, str) and content.strip():
+                    reply_text = content.strip()
+                    break
+                elif isinstance(content, list):
+                    parts = [
+                        b.get("text", "")
+                        for b in content
+                        if isinstance(b, dict) and b.get("text")
+                    ]
+                    if parts:
+                        reply_text = "".join(parts).strip()
+                        break
+
+    if not reply_text:
+        reply_text = str(turn_data.get("output") or turn_data.get("result") or "")
+
+    return OperateResult(
+        remote="trueforge",
+        op="send",
+        ok=True,
+        detail=reply_text or "TrueForge turn completed",
+        http_status=200,
+        data={
+            "session_id": sess_id,
+            "turn_id": turn_id,
+            "turn": turn_data,
+            "events": events_data,
+        },
+    )
+
+
 def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:
     from swarm.herdr.client import HerdrClient
     from swarm.herdr.remote import (
@@ -2018,6 +2294,10 @@ def operate(
             return _rakazo_list(spec, timeout) if action == "list" else _rakazo_send(spec, prompt, target, timeout)
         if rid == "swarm":
             return _swarm_list(spec, timeout) if action == "list" else _swarm_send(spec, prompt, target, timeout)
+        if rid == "trueforge":
+            return _trueforge_list(spec, timeout) if action == "list" else _trueforge_send(
+                spec, prompt, target, timeout, session_id=resume_id
+            )
         return OperateResult(
             remote=rid,
             op=action,
@@ -2102,6 +2382,18 @@ def _swarm_send_bound(
     session_id: str | None = None,  # noqa: ARG001
 ) -> OperateResult:
     return _swarm_send(spec, prompt, target, timeout)
+
+
+def _trueforge_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    return _trueforge_send(spec, prompt, target=target, timeout=timeout, session_id=session_id)
 
 
 def _herdr_list_bound(
@@ -2199,6 +2491,16 @@ def _install_remote_harnesses() -> None:
             health_fn=_bind_health("swarm"),
             list_fn=_bind_http_list(_swarm_list),
             send_fn=_swarm_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="trueforge",
+            label="TrueForge",
+            capabilities=capabilities_for("trueforge"),
+            health_fn=_bind_health("trueforge"),
+            list_fn=_bind_http_list(_trueforge_list),
+            send_fn=_trueforge_send_bound,
         )
     )
 

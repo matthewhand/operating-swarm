@@ -28,8 +28,10 @@ describe('classifyAgentKind', () => {
     expect(classifyAgentKind('pane', 'herdr')).toBe('remote')
     expect(classifyAgentKind('hermes')).toBe('remote')
     expect(classifyAgentKind('omb')).toBe('remote')
+    expect(classifyAgentKind('trueforge')).toBe('remote')
     expect(classifyAgentKind('swarm')).toBe('api')
     expect(canEditAgentMessages('herdr')).toBe(false)
+    expect(canEditAgentMessages('trueforge')).toBe(false)
   })
 
   it('treats blueprint as a first-class swarm-owned kind', () => {

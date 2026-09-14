@@ -20,7 +20,7 @@ USER_FACING_KIND = "remote"
 
 # Catalog impl ids. ``swarm`` is the nested open-swarm remote — not the
 # stored fine kind ``swarm`` (persona/swarm *designs*, which stay API).
-REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm")
+REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 # Ids that classifiers treat as Remote (exclude design-kind ``swarm``).
 REMOTE_IMPL_CLASSIFIER_IDS: frozenset[str] = frozenset(
@@ -36,6 +36,9 @@ REMOTE_IMPL_CLASSIFIER_IDS: frozenset[str] = frozenset(
         "open-swarm",
         "openswarm",
         "open_swarm",
+        "trueforge",
+        "true_forge",
+        "true-forge",
     }
 )
 
@@ -47,6 +50,8 @@ _IMPL_ALIASES: dict[str, str] = {
     "open-swarm": "swarm",
     "openswarm": "swarm",
     "open_swarm": "swarm",
+    "true_forge": "trueforge",
+    "true-forge": "trueforge",
 }
 
 REMOTE_IMPL_LABELS: dict[str, str] = {
@@ -55,6 +60,7 @@ REMOTE_IMPL_LABELS: dict[str, str] = {
     "rakazo": "Rakazo",
     "herdr": "Herdr",
     "swarm": "Swarm",
+    "trueforge": "TrueForge",
 }
 
 # Transport as the operator sees it. Herdr is CLI locally and SSH remotely.
@@ -64,6 +70,7 @@ REMOTE_IMPL_TRANSPORT: dict[str, str] = {
     "rakazo": "http",
     "herdr": "cli",
     "swarm": "http",
+    "trueforge": "http",
 }
 
 COMPUTER_OPS: frozenset[str] = frozenset(
