@@ -61,6 +61,17 @@ describe('bubbleTheme', () => {
     )
   })
 
+  it('irc theme uses monospace log with fixed-width nick gutter and transparent bubbles (#165)', () => {
+    const css = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '../../index.css'),
+      'utf8',
+    )
+    expect(css).toMatch(/\[data-bubble-theme="irc"\]\s*\{[\s\S]*font-family:\s*ui-monospace/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*flex:\s*0 0 10ch/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*text-align:\s*right/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat-end[\s\S]*justify-content:\s*flex-start/)
+  })
+
   it('formats a valid timestamp and skips invalid ones', () => {
     expect(formatBubbleTime(undefined)).toBe('')
     expect(formatBubbleTime('not-a-date')).toBe('')
@@ -69,3 +80,4 @@ describe('bubbleTheme', () => {
     expect(label).toMatch(/\d/)
   })
 })
+

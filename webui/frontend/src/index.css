@@ -2153,9 +2153,15 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 .os-chat-transcript[data-bubble-theme="irc"] .chat[data-speaker]::before {
   content: "<" attr(data-speaker) ">";
-  flex: 0 0 auto;
+  flex: 0 0 10ch;
+  width: 10ch;
+  max-width: 10ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
   opacity: 0.8;
-  margin-right: 0.35em;
+  margin-right: 0.5rem;
 }
 .os-chat-transcript[data-bubble-theme="irc"] .chat-bubble {
   flex: 1 1 auto;

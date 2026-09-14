@@ -850,14 +850,21 @@ def rail_cli_agent_id(cli_name: str) -> str:
 
 
 def cli_from_rail_id(agent_id: str | None) -> str | None:
-    """Map grok_agent / grok → catalog CLI name, or None."""
+    """Map grok_agent / grok / litellm-pi / <prefix>-<cli> → catalog CLI name, or None."""
     raw = str(agent_id or "").strip().lower()
     if not raw:
         return None
     if raw.endswith("_agent"):
-        raw = raw[: -len("_agent")]
+        candidate = raw[: -len("_agent")]
+        if candidate in CATALOG:
+            return candidate
     if raw in CATALOG:
         return raw
+    for delim in ("-", "_"):
+        if delim in raw:
+            suffix = raw.rsplit(delim, 1)[-1]
+            if suffix in CATALOG:
+                return suffix
     return None
 
 

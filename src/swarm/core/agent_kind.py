@@ -29,14 +29,19 @@ API_AGENT_BLUEPRINT_ID = "chatbot"
 def resolve_chat_blueprint_id(model_or_agent_id: str | None) -> str:
     """Blueprint id that actually runs a chat turn for ``model_or_agent_id``.
 
-    ``api_agent`` (rail / starter API seat) → ``chatbot``. Every other id is
-    returned stripped as-is (including ``cli_agent``, ``support``,
+    ``api_agent`` (rail / starter API seat) → ``chatbot``. Fleet seats ending
+    in a catalog CLI name (e.g. ``litellm-pi``) remap to ``cli_agent``. Every
+    other id is returned stripped as-is (including ``cli_agent``, ``support``,
     ``software_dev``).
     """
     raw = (model_or_agent_id or "").strip()
     if raw.lower() == API_AGENT_RAIL_ID:
         return API_AGENT_BLUEPRINT_ID
+    from swarm.core.cli_catalog import cli_from_rail_id
+    if cli_from_rail_id(raw):
+        return "cli_agent"
     return raw
+
 
 
 def classify_agent_kind(

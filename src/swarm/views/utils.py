@@ -249,6 +249,10 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
     """
     logger.debug(f"Getting instance for blueprint: {blueprint_id} with params: {params}")
 
+    original_id = blueprint_id
+    from swarm.core.cli_catalog import cli_from_rail_id
+    cli_name = cli_from_rail_id(original_id)
+
     available_blueprint_classes = await get_available_blueprints()
     blueprint_id = resolve_chat_blueprint_id(blueprint_id)
 
@@ -273,6 +277,8 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
         logger.info(f"Successfully instantiated blueprint: {blueprint_id}")
         if hasattr(instance, 'set_params') and callable(instance.set_params):
              effective_params = dict(params or {})
+             if "cli" not in effective_params and cli_name:
+                 effective_params["cli"] = cli_name
              tags = blueprint_info.get("metadata", {}).get("tags") or []
              if "variant" not in effective_params and "skeptic" in tags:
                  effective_params["variant"] = "skeptic_loop"
