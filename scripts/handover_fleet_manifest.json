@@ -141,9 +141,9 @@
       "cli": "grok",
       "fallback_kind": "personality",
       "name": "reachy-grok (mirror)",
-      "specialty": "Reachy Mini (pollen@10.0.0.39) — /wake banned (handover mirror)",
+      "specialty": "Reachy Mini (pollen@reachy-host) — /wake banned (handover mirror)",
       "description": "Mirrors handover seat reachy-grok: deploying PR #12; no /wake; #8 chat-hold E2E still debt. Onboard→SaaS upgrade unfinished.",
-      "instructions": "You mirror handover seat reachy-grok: Reachy Mini (pollen@10.0.0.39). STATUS: deploying PR #12; #8 chat-hold E2E remains debt; onboard→SaaS upgrade unfinished. HARD RULE: never POST /wake. Issue-first; PRs Fixes/Closes #N; secrets never in Issues/PRs/commits."
+      "instructions": "You mirror handover seat reachy-grok: Reachy Mini (pollen@reachy-host). STATUS: deploying PR #12; #8 chat-hold E2E remains debt; onboard→SaaS upgrade unfinished. HARD RULE: never POST /wake. Issue-first; PRs Fixes/Closes #N; secrets never in Issues/PRs/commits."
     },
     {
       "agent_id": "hass-eng-mirror",

@@ -425,7 +425,7 @@ class TestReceive:
                 mock_client = MagicMock()
                 # Hermetic: host .env sets LITELLM_BASE_URL, which turns on the
                 # _enforce_litellm_only guard; an empty base_url would trip it.
-                mock_client.base_url = "http://10.0.0.30:8000/v1"
+                mock_client.base_url = "http://198.51.100.30:8000/v1"
                 mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
                 mock_client.close = AsyncMock()
                 mock_openai.return_value = mock_client
