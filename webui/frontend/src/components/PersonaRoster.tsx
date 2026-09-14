@@ -2,6 +2,7 @@ import AgentAvatar from './AgentAvatar'
 import AvatarStack from './AvatarStack'
 import { personaInitials } from '../lib/personaParse'
 import { facesFromDeclaredRoster, type DeclaredTeamRoster } from '../lib/declaredRoster'
+import { TEAM_STACK_ALL_MAX, teamSidepaneStack } from '../lib/avatarStack'
 
 export interface PersonaRosterProps {
   roster: DeclaredTeamRoster
@@ -23,6 +24,9 @@ export default function PersonaRoster({
   const faces = facesFromDeclaredRoster(roster, groupId)
   const count = roster.parsed ? roster.count : 1
   const caption = label || (roster.parsed ? `${count} declared members` : 'Team')
+  // #98: declared rosters follow the same team stack plan as member rows —
+  // 4 or fewer show all faces, more collapse to 2 faces + a +N remainder.
+  const stack = teamSidepaneStack(faces)
 
   if (faces.length <= 1) {
     const face = faces[0]
@@ -65,10 +69,18 @@ export default function PersonaRoster({
       data-testid="declared-roster"
       data-persona-count={String(count)}
       data-roster="declared"
-      data-stack-count={String(faces.length)}
+      data-stack-count={String(stack.faces.length)}
+      data-remainder={String(stack.remainder)}
       aria-label={caption}
     >
-      <AvatarStack faces={faces} animate={false} />
+      {/* maxFaces stays at the all-max so the planned 4-face roster is not
+          re-sliced to the default 3; the plan owns the remainder. */}
+      <AvatarStack
+        faces={stack.faces}
+        remainder={stack.remainder}
+        maxFaces={TEAM_STACK_ALL_MAX}
+        animate={false}
+      />
       <span className="sr-only">
         {roster.personas.map((persona) => persona.name).join(', ')}
       </span>
