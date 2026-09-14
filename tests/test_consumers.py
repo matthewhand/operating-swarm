@@ -422,7 +422,9 @@ class TestReceive:
         with patch('swarm.consumers.render_to_string', return_value="<div>user message</div>"):
             with patch('swarm.consumers.AsyncOpenAI') as mock_openai:
                 mock_client = MagicMock()
-                mock_client.base_url = None  # Set base_url to None to avoid litellm check
+                # Hermetic: host .env sets LITELLM_BASE_URL, which turns on the
+                # _enforce_litellm_only guard; an empty base_url would trip it.
+                mock_client.base_url = "http://10.0.0.30:8000/v1"
                 mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
                 mock_client.close = AsyncMock()
                 mock_openai.return_value = mock_client
@@ -685,23 +687,26 @@ class TestReceive:
         assert captured["messages"][-1]["content"] == "follow up"
 
     @pytest.mark.asyncio
-    async def test_edit_frame_ignored_for_cli_and_remote(self, consumer):
+    async def test_edit_frame_api_cli_persist_remote_ignored(self, consumer):
+        """REQ-49 + 8831baf9: CLI edits persist (the edit restarts the provider
+        session, surfaced by cli_session_reset); remote stays read-only."""
         consumer.messages = [{"role": "user", "content": "stay"}]
         consumer.conversation_id = "test-conv-123"
+
         consumer.default_blueprint = "cli:grok"
         consumer.active_agent = "cli:grok"
-
         with patch.object(consumer, "save_conversation", new_callable=AsyncMock) as mock_save:
-            await consumer.receive(json.dumps({"edit": {"index": 0, "content": "nope"}}))
-            mock_save.assert_not_called()
-        assert consumer.messages[0]["content"] == "stay"
+            await consumer.receive(json.dumps({"edit": {"index": 0, "content": "cli edit"}}))
+            mock_save.assert_called_once()
+        assert consumer.messages[0]["content"] == "cli edit"
+        assert consumer.messages[0]["edited"] is True
 
         consumer.default_blueprint = "remote:acp"
         consumer.active_agent = "remote:acp"
         with patch.object(consumer, "save_conversation", new_callable=AsyncMock) as mock_save:
             await consumer.receive(json.dumps({"edit": {"index": 0, "content": "nope"}}))
             mock_save.assert_not_called()
-        assert consumer.messages[0]["content"] == "stay"
+        assert consumer.messages[0]["content"] == "cli edit"
 
 
 # =============================================================================
