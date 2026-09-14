@@ -255,6 +255,56 @@ describe('SettingsSheet', () => {
     expect(screen.queryByText(/Something went wrong/i)).not.toBeInTheDocument()
   })
 
+  it('renders Add LLM profile as an opaque overlay with collapsed advanced fields (#115)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/llm-profiles/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'llm_profiles',
+              default_llm_profile: 'test-model',
+              override_per_task: false,
+              task_llm_profiles: {},
+              profiles: [{ id: 'test-model', source: 'llm', owned_by: 'openai', model: 'gpt-4o' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: [] }),
+        } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
+    const addBtn = await screen.findByRole('button', { name: 'Add LLM profile' })
+    expect(addBtn).toBeInTheDocument()
+    fireEvent.click(addBtn)
+
+    const overlay = await screen.findByTestId('llm-profile-add-overlay')
+    expect(overlay).toBeInTheDocument()
+    expect(overlay.className).toContain('bg-base-100')
+    expect(overlay.className).toContain('border-base-300')
+    expect(overlay.className).toContain('shadow-xl')
+
+    const advBtn = screen.getByRole('button', { name: 'Advanced' })
+    expect(advBtn).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('llm-profile-add-advanced')).not.toBeInTheDocument()
+
+    fireEvent.click(advBtn)
+    expect(advBtn).toHaveAttribute('aria-expanded', 'true')
+    const advancedPane = await screen.findByTestId('llm-profile-add-advanced')
+    expect(advancedPane).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('0.2')).toBeInTheDocument() // temperature
+    expect(screen.getByPlaceholderText('4096')).toBeInTheDocument() // max tokens
+    expect(screen.getByPlaceholderText('60')).toBeInTheDocument() // timeout
+  })
+
   it('adds an OpenMousBot remote then lists it in Settings and the dropdown', async () => {
     const configured: Array<Record<string, unknown>> = []
     vi.stubGlobal(

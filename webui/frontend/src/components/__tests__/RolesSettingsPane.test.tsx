@@ -86,4 +86,47 @@ describe('RolesSettingsPane', () => {
     ).toBeInTheDocument()
     expect(screen.getByTestId('settings-roles-pane')).toBeInTheDocument()
   })
+
+  it('maps roster members correctly to role usage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/roles')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [{ name: 'chief_of_staff', label: 'CoS', mechanism: 'intercept' }],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/team-rosters')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [
+                {
+                  id: 'squad',
+                  name: 'Research Squad',
+                  members: [{ id: 'agent-1', name: 'Commander', role: 'chief_of_staff' }],
+                },
+              ],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: [] }),
+        } as Response
+      }),
+    )
+    renderPane()
+    expect(await screen.findByTestId('role-row-chief_of_staff')).toBeInTheDocument()
+    expect(screen.getByText(/Commander \(Research Squad\)/i)).toBeInTheDocument()
+  })
 })

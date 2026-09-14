@@ -141,6 +141,7 @@ from swarm.views.team_rosters_api import (
     TeamRosterDetailAPIView,
     TeamRostersAPIView,
 )
+from swarm.views.roles_api import RolesAPIView
 from swarm.views.teams_api import TeamDetailAPIView, TeamsAPIView
 from swarm.views.web_views import (
     asgi_file_response,
@@ -349,6 +350,8 @@ urlpatterns = [
     path("v1/team-rosters/<str:roster_id>/", TeamRosterDetailAPIView.as_view(), name="team-rosters-api-detail"),
     path("v1/team-agents", TeamAgentsAPIView.as_view(), name="team-agents-api-no-slash"),
     path("v1/team-agents/", TeamAgentsAPIView.as_view(), name="team-agents-api"),
+    path("v1/roles", RolesAPIView.as_view(), name="roles-api-no-slash"),
+    path("v1/roles/", RolesAPIView.as_view(), name="roles-api"),
     # Remote harnesses (Hermes / OpenMausBot / Rakazo) — config + health + operate
     path("v1/remotes", RemotesListView.as_view(), name="remotes-list-no-slash"),
     path("v1/remotes/", RemotesListView.as_view(), name="remotes-list"),

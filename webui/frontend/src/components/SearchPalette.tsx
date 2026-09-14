@@ -274,6 +274,12 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         onClose()
         return
       }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && /^[1-9]$/.test(event.key)) {
+        // Rail hotkey Alt+1–9 (REQ-172 / REQ-208): close search overlay so operator lands on chat.
+        // Do not call preventDefault so the rail listener handles navigation.
+        onClose()
+        return
+      }
       if (event.key === 'ArrowDown') {
         event.preventDefault()
         setActiveIdx((i) => Math.min(i + 1, Math.max(0, visible.length - 1)))
@@ -289,7 +295,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         choose(visible[activeIdx])
         return
       }
-      if (event.ctrlKey && /^[1-9]$/.test(event.key)) {
+      if ((event.ctrlKey || event.metaKey) && /^[1-9]$/.test(event.key)) {
         event.preventDefault()
         choose(visible[Number(event.key) - 1])
       }

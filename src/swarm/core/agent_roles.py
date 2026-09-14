@@ -108,6 +108,58 @@ ROLE_CSS_CLASSES: dict[str, str] = {
     role: f"{ROLE_CSS_CLASS_PREFIX}{role}" for role in CANONICAL_ROLES
 }
 
+ROLE_MECHANISMS: dict[str, str] = {
+    ROLE_DEFAULT: "none",
+    ROLE_SUPPORT: "implement",
+    ROLE_GATE: "intercept",
+    ROLE_SKEPTIC: "parse",
+    ROLE_CHIEF_OF_STAFF: "intercept",
+    ROLE_ENGINEER: "implement",
+    ROLE_SUGGESTIONS: "parse",
+}
+
+ROLE_MECHANISM_DETAILS: dict[str, str] = {
+    ROLE_DEFAULT: "Worker agent executing standard conversational turns without role overrides.",
+    ROLE_SUPPORT: "Socratic support and agent lifecycle manager (REQ-7, REQ-154).",
+    ROLE_GATE: "Tool-call classifier intercepting execution requests before execution.",
+    ROLE_SKEPTIC: "Post-run output validator performing bounded retries on failures.",
+    ROLE_CHIEF_OF_STAFF: "Orchestrator seat with cross-team communication and mailbox-wide scope (REQ-28).",
+    ROLE_ENGINEER: "Implementer seat for software development, test authoring, and file editing.",
+    ROLE_SUGGESTIONS: "Generates quick-select follow-up prompt chips after model turns (REQ-85).",
+}
+
+ROLE_ALLOW_ALL: dict[str, bool] = {
+    ROLE_DEFAULT: False,
+    ROLE_SUPPORT: False,
+    ROLE_GATE: False,
+    ROLE_SKEPTIC: False,
+    ROLE_CHIEF_OF_STAFF: True,
+    ROLE_ENGINEER: False,
+    ROLE_SUGGESTIONS: False,
+}
+
+
+def role_aliases_for(role: str) -> list[str]:
+    """Return all configured aliases that resolve to the given canonical role."""
+    canonical = normalize_agent_role(role)
+    return [alias for alias, target in ROLE_ALIASES.items() if target == canonical]
+
+
+def get_canonical_role_descriptors() -> list[dict[str, Any]]:
+    """Return serialized descriptors for all canonical roles for /v1/roles/."""
+    return [
+        {
+            "name": role,
+            "label": role_badge_label(role),
+            "aliases": role_aliases_for(role),
+            "allow_all": ROLE_ALLOW_ALL.get(role, False),
+            "mechanism": ROLE_MECHANISMS.get(role, "none"),
+            "mechanism_detail": ROLE_MECHANISM_DETAILS.get(role, ""),
+            "css_class": role_css_class(role),
+        }
+        for role in CANONICAL_ROLES
+    ]
+
 
 def normalize_agent_role(value: Any) -> str:
     """Map a free-text / alias role to a canonical visual/wiring role.

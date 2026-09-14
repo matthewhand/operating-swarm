@@ -24,6 +24,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function listFromPayload(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload
   const rec = asRecord(payload)
   return Array.isArray(rec?.data) ? rec.data : []
 }
@@ -106,12 +107,17 @@ function RolesSettingsPaneInner() {
       const list = byRole.get(key)!
       if (!list.includes(label)) list.push(label)
     }
-    const rosters = Array.isArray(rostersQuery.data) ? rostersQuery.data : []
-    for (const roster of rosters) {
+    const rosters = listFromPayload(rostersQuery.data)
+    for (const rawRoster of rosters) {
+      const roster = asRecord(rawRoster)
       const members = Array.isArray(roster?.members) ? roster.members : []
-      for (const member of members) {
+      for (const rawMember of members) {
+        const member = asRecord(rawMember)
         if (member?.kind === 'team') continue
-        push(member?.role || 'default', `${member?.name || member?.id} (${roster?.name || roster?.id})`)
+        const role = typeof member?.role === 'string' ? member.role : 'default'
+        const memberName = typeof member?.name === 'string' ? member.name : (typeof member?.id === 'string' ? member.id : 'agent')
+        const rosterName = typeof roster?.name === 'string' ? roster.name : (typeof roster?.id === 'string' ? roster.id : 'roster')
+        push(role, `${memberName} (${rosterName})`)
       }
     }
     const names = new Map<string, string>()
@@ -124,11 +130,15 @@ function RolesSettingsPaneInner() {
       const name = typeof rec?.name === 'string' ? rec.name : ''
       if (id && name) names.set(id, name)
     }
-    const edits = loadAgentEdits()
-    for (const [id, edit] of Object.entries(edits ?? {})) {
-      if (edit?.role && edit.role !== 'default') {
-        push(edit.role, names.get(id) ?? id)
+    try {
+      const edits = loadAgentEdits()
+      for (const [id, edit] of Object.entries(edits ?? {})) {
+        if (edit?.role && edit.role !== 'default') {
+          push(edit.role, names.get(id) ?? id)
+        }
       }
+    } catch {
+      // Ignore local storage read issues
     }
     return byRole
   }, [rostersQuery.data, blueprintsQuery.data, customQuery.data])

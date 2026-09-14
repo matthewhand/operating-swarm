@@ -304,6 +304,29 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
     expect(screen.getByTestId('palette-loc')).toHaveTextContent('/chat?blueprint=support')
   })
 
+  it('chooses the first visible row with Cmd+1 (metaKey)', async () => {
+    const { onClose } = renderRoutedPalette()
+    await screen.findByRole('option', { name: /Support/i })
+    fireEvent.keyDown(window, { key: '1', metaKey: true })
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.getByTestId('palette-loc')).toHaveTextContent('/chat?blueprint=support')
+  })
+
+  it('closes the palette on Alt+1-9 rail hotkey without preventing default', async () => {
+    const { onClose } = renderRoutedPalette()
+    await screen.findByRole('option', { name: /Support/i })
+    const event = new KeyboardEvent('keydown', {
+      key: '2',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    const defaultPreventedSpy = vi.spyOn(event, 'preventDefault')
+    window.dispatchEvent(event)
+    expect(onClose).toHaveBeenCalled()
+    expect(defaultPreventedSpy).not.toHaveBeenCalled()
+  })
+
   it('filters bots by query and Enter chooses the highlighted row', async () => {
     const { onClose } = renderRoutedPalette()
     await screen.findByRole('option', { name: /Codey/i })
