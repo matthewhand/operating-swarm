@@ -840,6 +840,24 @@ class BlueprintBase(ABC):
         if lifecycle_ctx is not None:
             extra = lifecycle_ctx.tool_objects()
             tools = tools + extra
+
+        # Optional sandbox harness integration: attach sandbox execution tools if requested
+        sandbox_opt = kwargs.pop("sandbox", None)
+        if sandbox_opt is None:
+            sandbox_opt = self.config.get("settings", {}).get("enable_sandbox_tools", False)
+        if sandbox_opt:
+            try:
+                from swarm.core.sandbox import SandboxManager, get_default_sandbox_manager
+                if isinstance(sandbox_opt, dict):
+                    sb_mgr = SandboxManager.from_config(sandbox_opt)
+                elif isinstance(sandbox_opt, SandboxManager):
+                    sb_mgr = sandbox_opt
+                else:
+                    sb_mgr = get_default_sandbox_manager()
+                tools = tools + sb_mgr.as_function_tools()
+            except Exception as e:
+                logger.warning("Failed to attach sandbox tools to agent '%s': %s", name, e)
+
         agent = Agent(
             name=name,
             model=model_instance,

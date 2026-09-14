@@ -291,3 +291,27 @@ class TestSandboxManagerAndTools:
         )
         assert agent.name == "SandboxWorker"
         assert len(agent.tools) == 4
+
+    def test_blueprint_base_make_agent_sandbox(self):
+        try:
+            from agents import Agent
+        except ImportError:
+            pytest.skip("openai-agents SDK not installed")
+
+        from swarm.core.blueprint_base import BlueprintBase
+
+        class TestBlueprint(BlueprintBase):
+            async def run(self, messages: list[dict], **kwargs):
+                yield {}
+
+        bp = TestBlueprint("test_bp")
+        # With sandbox=True
+        agent = bp.make_agent(
+            name="TestSandboxedAgent",
+            instructions="Sandbox test",
+            tools=[],
+            sandbox=SandboxManager(config=SandboxConfig(backend_type="mock")),
+        )
+        assert len(agent.tools) == 4
+        tool_names = [getattr(t, "name", "") for t in agent.tools]
+        assert "sandbox_run_bash" in tool_names
