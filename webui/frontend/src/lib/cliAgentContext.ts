@@ -5,6 +5,9 @@
  * - selected / ?blueprint= id is `cli_agent` or any `cli_*` family slug
  * - explicit `?mode=cli` / `?mode=cli_agent`
  * - explicit `?cli=<name>` (the host CLI to run)
+ *
+ * API seats (#108): a blueprint id whose rail row is `kind: 'api'` (e.g.
+ * `api_agent`) is never a CLI context — a leftover `?cli=` must not flip it.
  */
 
 import type { CliAgentsInfo, CliModelsResponse, LlmProfile } from './api'
@@ -29,12 +32,23 @@ export function isCliAgentContext(options: {
   blueprintId?: string | null
   searchParams?: URLSearchParams | null
 }): boolean {
+  if (isApiBlueprintId(options.blueprintId ?? '')) return false
   if (isCliBlueprintId(options.blueprintId ?? '')) return true
   const params = options.searchParams
   if (!params) return false
   const mode = (params.get('mode') ?? '').trim().toLowerCase()
   if (mode === 'cli' || mode === 'cli_agent') return true
   return (params.get('cli') ?? '').trim().length > 0
+}
+
+/**
+ * True for rail rows / ids that are API seats (#108): `kind === 'api'` or the
+ * `api_agent` id. Kept next to `isCliAgentContext` so ChatPage can gate its
+ * CLI-vs-API picker decision on one honest pair of predicates.
+ */
+export function isApiBlueprintId(id: string | null | undefined): boolean {
+  const norm = (id ?? '').trim().toLowerCase()
+  return norm === 'api_agent' || norm === 'api' || norm.startsWith('api:')
 }
 
 /**

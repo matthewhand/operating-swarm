@@ -263,8 +263,10 @@ import {
 } from '../lib/chatQueue'
 import { QueuedSendPane } from '../components/QueuedSendPane'
 import {
+  apiModelOptionsFromProfiles,
   discoverChatClis,
   honestChatCliModels,
+  isApiBlueprintId,
   isCliAgentContext,
   isCliBlueprintId,
   preferredChatCli,
@@ -636,7 +638,11 @@ const ChatPage = () => {
   const selectedRemote = remotes.find((remote) => remote.id === remoteFromUrl) ?? null
   const selectedRemoteSession = selectedRemote?.agents.find((agent) => agent.id === sessionFromUrl)
   const selectedTeamSession = selectedTeam?.members.find((member) => member.id === sessionFromUrl)
-  const selectedCli = cliAgents.find((row) => row.id === selectedBlueprint)
+  // #108: only rail rows whose kind is actually 'cli' may drive the CLI
+  // picker. api_agent is a rail row too (kind 'api') and must never match.
+  const selectedCli = cliAgents.find(
+    (row) => row.id === selectedBlueprint && row.kind !== 'api',
+  )
   const selectedAgent = blueprints.find((bp) => bp.id === selectedBlueprint)
   const runtimeBlueprint = teamFromUrl ? '' : assignedBlueprintId(selectedBlueprint)
   const fallbackAgentName =
@@ -737,6 +743,7 @@ const ChatPage = () => {
       !remoteFromUrl &&
       !isRemoteBackedTeam &&
       !isRemoteAgent &&
+      !isApiBlueprintId(selectedBlueprint) &&
       (selectedCli ||
         agentKind === 'cli' ||
         isCliBlueprintId(selectedBlueprint) ||
@@ -932,6 +939,32 @@ const ChatPage = () => {
       recordDropdownChange('model', next.previous.modelBase || next.previous.model, next.modelBase || next.model)
     },
     [dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
+  )
+
+  // #108: API seats route via LLM profiles. A pick lands in the same
+  // ?model= channel the WS send path already reads, plus the per-agent
+  // dropdown memory ('api' field) so the choice survives navigation.
+  const applyApiRoutingChange = useCallback(
+    (next: RoutingPathChange) => {
+      if (next.changed !== 'agent') return
+      const model = next.agent.trim()
+      persistAgentDropdownChoice(dropdownAgentId, {
+        api: model,
+        model: '',
+        effort: '',
+      })
+      setSearchParams(
+        (prevParams) => {
+          const nextParams = new URLSearchParams(prevParams)
+          if (model) nextParams.set('model', model)
+          else nextParams.delete('model')
+          return nextParams
+        },
+        { replace: true },
+      )
+      recordDropdownChange('api', next.previous.agent, model)
+    },
+    [dropdownAgentId, recordDropdownChange, setSearchParams],
   )
 
   useEffect(() => {
@@ -2852,6 +2885,25 @@ const ChatPage = () => {
               agentId={selectedBlueprint}
               cli={currentCli}
               agentName={selectedAgentName}
+            />
+          ) : null}
+          {isApiAgent ? (
+            /* #108: API seats route through LLM profiles, not host CLIs. */
+            <NavbarRoutingPicker
+              seatKind="api"
+              aria-label="API"
+              agents={apiModelOptionsFromProfiles(
+                llmProfilesQuery.data?.profiles,
+                llmProfilesQuery.data?.default_llm_profile
+                  ? [llmProfilesQuery.data.default_llm_profile]
+                  : [],
+              ).map((opt) => ({ id: opt.id, label: opt.label }))}
+              selectedAgent={
+                selectedModelId || llmProfilesQuery.data?.default_llm_profile || ''
+              }
+              models={[]}
+              selectedModel=""
+              onChange={applyApiRoutingChange}
             />
           ) : null}
           <div

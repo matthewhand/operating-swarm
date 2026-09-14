@@ -3,6 +3,7 @@ import {
   apiModelOptionsFromProfiles,
   discoverChatClis,
   honestChatCliModels,
+  isApiBlueprintId,
   isCliAgentContext,
   isCliBlueprintId,
   preferredChatCli,
@@ -45,6 +46,21 @@ describe('isCliAgentContext', () => {
     ).toBe(true)
   })
 
+  it('never treats an API seat as CLI, even with a leftover ?cli= (#108)', () => {
+    expect(
+      isCliAgentContext({
+        blueprintId: 'api_agent',
+        searchParams: new URLSearchParams('blueprint=api_agent&cli=grok'),
+      }),
+    ).toBe(false)
+    expect(
+      isCliAgentContext({
+        blueprintId: 'api_agent',
+        searchParams: new URLSearchParams('mode=cli'),
+      }),
+    ).toBe(false)
+  })
+
   it('stays in blueprint mode without those signals', () => {
     expect(isCliAgentContext({ blueprintId: 'codey' })).toBe(false)
     expect(
@@ -57,6 +73,22 @@ describe('isCliAgentContext', () => {
     expect(
       isCliAgentContext({ searchParams: new URLSearchParams('cli=') }),
     ).toBe(false)
+  })
+})
+
+describe('isApiBlueprintId', () => {
+  it('matches api_agent and api-prefixed ids (#108)', () => {
+    expect(isApiBlueprintId('api_agent')).toBe(true)
+    expect(isApiBlueprintId('API_AGENT')).toBe(true)
+    expect(isApiBlueprintId('api')).toBe(true)
+    expect(isApiBlueprintId('api:orchestration')).toBe(true)
+  })
+
+  it('rejects CLI and blueprint slugs', () => {
+    expect(isApiBlueprintId('cli_agent')).toBe(false)
+    expect(isApiBlueprintId('codey')).toBe(false)
+    expect(isApiBlueprintId('')).toBe(false)
+    expect(isApiBlueprintId(null)).toBe(false)
   })
 })
 
