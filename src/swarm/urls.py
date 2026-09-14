@@ -143,6 +143,7 @@ from swarm.views.team_rosters_api import (
 )
 from swarm.views.roles_api import RolesAPIView
 from swarm.views.teams_api import TeamDetailAPIView, TeamsAPIView
+from swarm.views.marketplace_api import MarketplaceScanView
 from swarm.views.web_views import (
     asgi_file_response,
     brand_root_file,
@@ -255,6 +256,8 @@ urlpatterns = [
     path("v1/cli-sessions/hop/", CliSessionHopAPIView.as_view(), name="cli-sessions-hop"),
     path("v1/llm-profiles", LlmProfilesView.as_view(), name="llm-profiles-api-no-slash"),
     path("v1/llm-profiles/", LlmProfilesView.as_view(), name="llm-profiles-api"),
+    path("v1/marketplace", MarketplaceScanView.as_view(), name="marketplace-api-no-slash"),
+    path("v1/marketplace/", MarketplaceScanView.as_view(), name="marketplace-api"),
     path("v1/rate-limits", RateLimitsView.as_view(), name="rate-limits-api-no-slash"),
     path("v1/rate-limits/", RateLimitsView.as_view(), name="rate-limits-api"),
     path("v1/config-ownership", ConfigOwnershipView.as_view(), name="config-ownership-api-no-slash"),

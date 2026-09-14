@@ -99,3 +99,47 @@ describe('PluginsPopup', () => {
     expect(screen.getByText(/No matches for “zzzz-no-such-tool”/)).toBeInTheDocument()
   })
 })
+
+// #179 — marketplace entry point in the Plugins popup
+describe('PluginsPopup marketplace entry (#179)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    publishCurrentChatScope('chat-codey')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/v1/marketplace')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'marketplace_scan',
+              kind: 'plugins',
+              topics: [],
+              external: true,
+              items: [],
+              warnings: ['No community packages found for these tags yet.'],
+            }),
+          } as Response
+        }
+        throw new Error('offline catalog — use fixture')
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.removeItem(CURRENT_CHAT_SCOPE_KEY)
+  })
+
+  it('exposes "Get more from GitHub" that scans when expanded', async () => {
+    renderPopup()
+    await screen.findByRole('switch', { name: /Write File Off/i })
+    const toggle = screen.getByTestId('marketplace-toggle')
+    expect(toggle).toHaveTextContent('Get more from GitHub')
+    fireEvent.click(toggle)
+    expect(await screen.findByTestId('marketplace-results')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/No community packages/i)
+  })
+})

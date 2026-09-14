@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Users } from 'lucide-react'
 import { Alert, Badge, Button, Input, Modal, Textarea } from './DaisyUI'
+import { MarketplaceScanSection } from './MarketplaceScanSection'
 import {
   createTeamRoster,
   fetchTeamAgents,
@@ -608,6 +609,10 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
               </div>
             )}
           </section>
+        </div>
+
+        <div className="border-t border-base-300 pt-3" aria-label="Get more teams">
+          <MarketplaceScanSection kind="teams" />
         </div>
       </div>
 

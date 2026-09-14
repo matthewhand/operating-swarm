@@ -17,6 +17,7 @@ import {
   resolveChatScopeId,
 } from '../lib/chatScope'
 import { notifyOverlayClosed } from '../lib/chromeOverlay'
+import { MarketplaceScanSection } from './MarketplaceScanSection'
 
 export interface PluginsPopupProps {
   open: boolean
@@ -293,6 +294,9 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
             <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
             Manage servers
           </button>
+        </div>
+        <div className="os-search-palette__footer" aria-label="Get more plugins">
+          <MarketplaceScanSection kind="plugins" />
         </div>
       </div>
     </div>
