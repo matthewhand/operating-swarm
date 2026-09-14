@@ -226,6 +226,21 @@ commit log; version bumped to 0.4.0.
   installer in the ADR PR. TUI (#481 / ADR-012) is a separate API client —
   Wave 0 scaffold is `swarm-cli tui --once`; Waves 1–N are child Issues.
 
+### 3.7 Sandboxed Tool Execution & Isolation (LangChain / Host / Container)
+
+Provides tool-level sandboxed execution (Python REPL, Bash subprocesses, workspace file I/O) complementing the core `openai-agents` loop ([docs/architecture/LANGCHAIN_SANDBOX_HARNESS.md](./docs/architecture/LANGCHAIN_SANDBOX_HARNESS.md)).
+
+- [x] **MVP Bare-Metal Host Harness (`src/swarm/core/sandbox/`)**
+  - [x] `SandboxBackend` protocol with `LocalSubprocessSandbox`, `LangChainSandboxHarness`, `MockSandbox`, and `SandboxManager`.
+  - [x] Bare-metal host execution within designated workspace directories with automatic environment sanitization (scrubs API keys, secrets, DB credentials).
+  - [x] Direct bridge to OpenAI Agents via `SandboxManager.as_function_tools()`.
+  - [x] Unit test suite covering backends, env scrubbing, timeout handling, and fallback behavior (`tests/core/test_langchain_sandbox.py`).
+- [ ] **Phase 2: Containerized & MicroVM Sandboxes (Roadmap)**
+  - [ ] `DockerSandbox`: Ephemeral container per session (`docker run --rm -v ...`) with CPU/memory limits and optional network egress restriction (`--network none`).
+  - [ ] `E2BSandbox`: Integration with E2B cloud sandboxes (Firecracker microVMs) for multi-tenant and cloud deployments.
+  - [ ] LangChain Docker/Container tool harmonization via `LangChainSandboxHarness`.
+
+
 ---
 
 ## 4. Critique findings — multi-agent audit (2026-06-19)
