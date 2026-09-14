@@ -616,14 +616,7 @@ export interface RemoteKind {
   /** Implementation discriminator under Remote. */
   impl?: string
   transport?: string
-  capabilities?: {
-    list?: boolean
-    send?: boolean
-    health?: boolean
-    operate?: boolean
-    interrogate?: boolean
-    transport?: string
-  }
+  capabilities?: RemoteCapabilities
   title?: string
   complete?: boolean
   fields?: string[]
@@ -631,6 +624,16 @@ export interface RemoteKind {
   send_path?: string
   health_path?: string
   api_key_env_default?: string
+}
+
+export interface RemoteCapabilities {
+  list?: boolean
+  send?: boolean
+  health?: boolean
+  operate?: boolean
+  interrogate?: boolean
+  routines?: boolean
+  transport?: string
 }
 
 export interface RemoteConnection {
@@ -649,6 +652,7 @@ export interface RemoteConnection {
   notes?: string
   source?: string
   added?: boolean
+  capabilities?: RemoteCapabilities
   herdr_mode?: 'local' | 'ssh' | string
   ssh_host?: string
   ssh_user?: string
@@ -745,7 +749,7 @@ export interface OperateRemoteOptions {
  */
 export async function operateRemote(
   remoteId: string,
-  body: { op: 'list' | 'send' | 'interrogate'; prompt?: string; target?: string },
+  body: { op: 'list' | 'send' | 'interrogate' | 'routines'; prompt?: string; target?: string },
   options?: OperateRemoteOptions,
 ): Promise<RemoteOperateResult> {
   const timeoutMs = options?.timeoutMs ?? 12000
@@ -768,15 +772,49 @@ export async function operateRemote(
 
     return (await response.json()) as RemoteOperateResult
   } catch (err: unknown) {
-    if (controller.signal.aborted) {
+    if (err instanceof Error && err.name === 'AbortError') {
       throw new Error(
-        `OpenMousBot list operation timed out after ${Math.round(timeoutMs / 1000)}s. Remote server is slow or hung.`,
+        `Remote operate operation timed out after ${Math.round(timeoutMs / 1000)}s. Remote server is slow or hung.`,
       )
     }
     throw err
   } finally {
     clearTimeout(timer)
   }
+}
+
+export interface RemoteRoutineLastRun {
+  id?: string
+  name?: string
+  scheduled_for?: string
+  status?: 'scheduled' | 'triggered' | 'failed' | string
+}
+
+export interface RemoteRoutine {
+  id?: string
+  name: string
+  agent?: string
+  cron?: string
+  timezone?: string
+  task?: string
+  status?: string
+  created_at?: string
+  last_run?: RemoteRoutineLastRun | null
+}
+
+export interface RemoteRoutinesResult {
+  remote: string
+  op: string
+  ok: boolean
+  detail: string
+  http_status?: number | null
+  data?: {
+    routines?: RemoteRoutine[]
+  }
+}
+
+export function fetchRemoteRoutines(remoteId: string): Promise<RemoteRoutinesResult> {
+  return apiGet<RemoteRoutinesResult>(`/v1/remotes/${encodeURIComponent(remoteId)}/routines/`)
 }
 
 /**

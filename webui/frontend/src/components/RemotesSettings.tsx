@@ -4,12 +4,14 @@ import { AlertCircle, Plus, Server } from 'lucide-react'
 import { Alert, Button, Input, Select, Textarea, useToast } from './DaisyUI'
 import {
   addRemote,
+  fetchRemoteRoutines,
   operateRemote,
   probeRemoteHealth,
   type RemoteConnection,
   type RemoteHealthResult,
   type RemoteKind,
   type RemoteOperateResult,
+  type RemoteRoutine,
 } from '../lib/api'
 import { isOpenMousBotKind, OPENMOUSBOT_LABEL, remoteKindLabel } from '../lib/remoteKinds'
 import { herdrLocationLabel, isHerdrKind } from '../lib/remotes'
@@ -271,17 +273,63 @@ function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: s
     .filter((item): item is { id: string; name?: string } => Boolean(item?.id))
 }
 
+export function humanizeCron(cron: string): string {
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length !== 5) return cron
+
+  const [min, hour, dom, mon, dow] = parts
+
+  if (cron === '* * * * *') return 'Every minute'
+  if (min.startsWith('*/') && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    return `Every ${min.slice(2)} minutes`
+  }
+  if (min === '0' && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    return 'Every hour'
+  }
+  if (min === '0' && hour.startsWith('*/') && dom === '*' && mon === '*' && dow === '*') {
+    return `Every ${hour.slice(2)} hours`
+  }
+  if (dom === '*' && mon === '*') {
+    const pad = (v: string) => v.padStart(2, '0')
+    const timeStr = `${pad(hour)}:${pad(min)}`
+    if (dow === '*') return `Daily at ${timeStr}`
+    if (dow === '1-5') return `Weekdays at ${timeStr}`
+    if (dow === '0,6' || dow === '6,0' || dow === '6-0' || dow === '0-1') return `Weekends at ${timeStr}`
+    const dayNames: Record<string, string> = {
+      '0': 'Sunday',
+      '1': 'Monday',
+      '2': 'Tuesday',
+      '3': 'Wednesday',
+      '4': 'Thursday',
+      '5': 'Friday',
+      '6': 'Saturday',
+      '7': 'Sunday',
+    }
+    if (dayNames[dow]) return `Every ${dayNames[dow]} at ${timeStr}`
+  }
+
+  return cron
+}
+
 export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   const { error } = useToast()
   const label = remoteKindLabel(remote.id, remote.label || remote.title)
   const isOmb = isOpenMousBotKind(remote.id)
   const isHerdr = isHerdrKind(remote.id)
+  const hasRoutines = Boolean(remote.capabilities?.routines)
   const [health, setHealth] = useState<RemoteHealthResult | null>(null)
   const [listed, setListed] = useState<RemoteOperateResult | null>(null)
   const [sent, setSent] = useState<RemoteOperateResult | null>(null)
   const [interrogated, setInterrogated] = useState<RemoteOperateResult | null>(null)
   const [botId, setBotId] = useState('')
   const [prompt, setPrompt] = useState('')
+
+  const routinesQuery = useQuery({
+    queryKey: ['remote-routines', remote.id],
+    queryFn: () => fetchRemoteRoutines(remote.id),
+    enabled: hasRoutines && health?.state !== 'DOWN',
+    staleTime: 10_000,
+  })
 
   const healthMutation = useMutation({
     mutationFn: () => probeRemoteHealth(remote.id),
@@ -470,6 +518,111 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
         <Alert type={sent.ok ? 'success' : 'warning'} icon={<AlertCircle className="h-5 w-5" />}>
           <span className="text-sm">{sent.detail}</span>
         </Alert>
+      )}
+
+      {hasRoutines && health?.state !== 'DOWN' && (
+        <div className="space-y-3 border-t border-base-300 pt-4" data-testid="remote-routines-section">
+          <div className="flex items-center justify-between">
+            <h5 className="text-sm font-semibold text-base-content">
+              Routines (TrueForge schedules)
+            </h5>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              loading={routinesQuery.isFetching}
+              onClick={() => void routinesQuery.refetch()}
+            >
+              Refresh
+            </Button>
+          </div>
+
+          {routinesQuery.isPending ? (
+            <p className="text-sm text-base-content/60" data-testid="remote-routines-loading">
+              Loading routines…
+            </p>
+          ) : routinesQuery.isError ? (
+            <Alert type="warning" icon={<AlertCircle className="h-5 w-5" />}>
+              <span className="text-sm">
+                {routinesQuery.error?.message || 'Failed to load routines'}
+              </span>
+            </Alert>
+          ) : ((routinesQuery.data?.data?.routines ?? []) as RemoteRoutine[]).length === 0 ? (
+            <p className="text-sm text-base-content/60" data-testid="remote-routines-empty">
+              No routines configured on this remote.
+            </p>
+          ) : (
+            <ul className="space-y-2 os-scrollable-picker-list" data-testid="remote-routines-list">
+              {((routinesQuery.data?.data?.routines ?? []) as RemoteRoutine[]).map((routine) => {
+                const isActive = (routine.status || 'active').toLowerCase() === 'active'
+                const lastRun = routine.last_run
+                const lastRunStatus = (lastRun?.status || '').toLowerCase()
+                const scheduleHuman = humanizeCron(routine.cron || '')
+                return (
+                  <li
+                    key={routine.id || routine.name}
+                    className="rounded-lg border border-base-300 bg-base-200/50 p-3 space-y-1.5 text-sm"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-base-content">{routine.name}</span>
+                      <span
+                        className={`badge badge-sm ${
+                          isActive ? 'badge-success' : 'badge-ghost text-base-content/70'
+                        }`}
+                      >
+                        {routine.status || 'active'}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-base-content/80 space-y-0.5">
+                      {routine.agent && (
+                        <p>
+                          <span className="font-medium">Agent:</span> {routine.agent}
+                        </p>
+                      )}
+                      {routine.cron && (
+                        <p>
+                          <span className="font-medium">Schedule:</span> {routine.cron}
+                          {scheduleHuman && scheduleHuman !== routine.cron
+                            ? ` (${scheduleHuman})`
+                            : ''}
+                          {routine.timezone ? ` · ${routine.timezone}` : ''}
+                        </p>
+                      )}
+                      {routine.task && (
+                        <p className="truncate">
+                          <span className="font-medium">Task:</span> {routine.task}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="border-t border-base-300/50 pt-1.5 text-xs text-base-content/70 flex items-center justify-between">
+                      <span>Last run:</span>
+                      {lastRun ? (
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className={`badge badge-xs ${
+                              lastRunStatus === 'triggered'
+                                ? 'badge-success'
+                                : lastRunStatus === 'failed'
+                                ? 'badge-error'
+                                : 'badge-ghost'
+                            }`}
+                          >
+                            {lastRun.status || 'unknown'}
+                          </span>
+                          <span>{lastRun.scheduled_for || '—'}</span>
+                        </span>
+                      ) : (
+                        <span>No runs recorded</span>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   )

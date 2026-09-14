@@ -269,6 +269,8 @@ class RemoteSpec:
 
     def public_dict(self) -> dict[str, Any]:
         """JSON-safe view with secrets redacted."""
+        from swarm.core.remote_harness import capabilities_for
+
         payload: dict[str, Any] = {
             "id": self.id,
             "title": self.title,
@@ -289,6 +291,7 @@ class RemoteSpec:
             "session_cookie_env": self.session_cookie_env,
             "added": self.source in ("config", "env"),
             "provenance": dict(self.provenance),
+            "capabilities": capabilities_for(self.id).as_dict(),
             "member": {
                 "kind": "remote",
                 "talk": _TOOL_NAMES.get(self.id, ""),
@@ -2102,6 +2105,103 @@ def _trueforge_send(
     )
 
 
+def _trueforge_routines(spec: RemoteSpec, timeout: float = _OPERATE_TIMEOUT_S) -> OperateResult:
+    base_url = (spec.base_url or "").rstrip("/")
+    if not base_url:
+        return OperateResult(remote="trueforge", op="routines", ok=False, detail="base_url is empty")
+    timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 15.0)
+    start_time = time.monotonic()
+    deadline = start_time + timeout_s
+
+    headers = _auth_headers(spec)
+    result = http_json(
+        "GET",
+        f"{base_url}/api/v1/schedules?limit=100",
+        headers=headers,
+        timeout=min(5.0, timeout_s),
+    )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote="trueforge",
+            op="routines",
+            ok=False,
+            detail="TrueForge /api/v1/schedules requires auth. Set remotes.trueforge.api_key or TRUEFORGE_API_KEY.",
+            http_status=result.status,
+            data={"routines": []},
+        )
+    if result.status not in _UP:
+        return OperateResult(
+            remote="trueforge",
+            op="routines",
+            ok=False,
+            detail=result.error or f"TrueForge schedules failed (http {result.status})",
+            http_status=result.status,
+            data={"routines": []},
+        )
+
+    schedules_data: list[Any] = []
+    if isinstance(result.body, dict):
+        schedules_data = (
+            result.body.get("data")
+            or result.body.get("schedules")
+            or []
+        )
+    elif isinstance(result.body, list):
+        schedules_data = result.body
+
+    routines: list[dict[str, Any]] = []
+    for schedule in schedules_data:
+        if not isinstance(schedule, dict):
+            continue
+        schedule_id = schedule.get("id")
+        manifest = schedule.get("manifest") if isinstance(schedule.get("manifest"), dict) else {}
+
+        last_run = None
+        if schedule_id and time.monotonic() < deadline:
+            remaining = max(0.5, deadline - time.monotonic())
+            runs_resp = http_json(
+                "GET",
+                f"{base_url}/api/v1/schedules/{schedule_id}/runs?limit=1",
+                headers=headers,
+                timeout=min(3.0, remaining),
+            )
+            if runs_resp.status in _UP:
+                runs_list: list[Any] = []
+                if isinstance(runs_resp.body, dict):
+                    runs_list = runs_resp.body.get("data") or runs_resp.body.get("runs") or []
+                elif isinstance(runs_resp.body, list):
+                    runs_list = runs_resp.body
+                if runs_list and isinstance(runs_list[0], dict):
+                    lr = runs_list[0]
+                    last_run = {
+                        "id": lr.get("id"),
+                        "name": lr.get("name"),
+                        "scheduled_for": lr.get("scheduled_for"),
+                        "status": lr.get("status"),
+                    }
+
+        routines.append({
+            "id": schedule.get("id"),
+            "name": schedule.get("name") or "",
+            "agent": schedule.get("agent_name") or schedule.get("agent") or "",
+            "cron": manifest.get("cron") or "",
+            "timezone": manifest.get("timezone") or "",
+            "task": manifest.get("task") or "",
+            "status": manifest.get("status") or schedule.get("status") or "active",
+            "created_at": schedule.get("created_at"),
+            "last_run": last_run,
+        })
+
+    return OperateResult(
+        remote="trueforge",
+        op="routines",
+        ok=True,
+        detail=f"TrueForge listed {len(routines)} routine(s)",
+        http_status=result.status,
+        data={"routines": routines},
+    )
+
+
 def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:
     from swarm.herdr.client import HerdrClient
     from swarm.herdr.remote import (
@@ -2265,10 +2365,16 @@ def operate(
 
         if action in COMPUTER_OPS:
             return computer_operate_stub(rid, action)
-        if action not in ("list", "send", "interrogate"):
-            return OperateResult(remote=rid, op=action, ok=False, detail=f"Unknown op '{op}'. Use list or send.")
+        if action not in ("list", "send", "interrogate", "routines", "schedules"):
+            return OperateResult(remote=rid, op=action, ok=False, detail=f"Unknown op '{op}'. Use list, send, or routines.")
         if not is_configured(rid, config):
             return OperateResult(remote=rid, op=action, ok=False, detail=_not_added_message(rid))
+        if action in ("routines", "schedules"):
+            if rid == "trueforge":
+                return _trueforge_routines(spec, timeout)
+            from swarm.core.remote_harness import unsupported_routines
+
+            return unsupported_routines(rid)
         if rid == "herdr":
             if action == "list":
                 return _herdr_list(spec, timeout, config)
@@ -2396,6 +2502,15 @@ def _trueforge_send_bound(
     return _trueforge_send(spec, prompt, target=target, timeout=timeout, session_id=session_id)
 
 
+def _trueforge_routines_bound(
+    spec: RemoteSpec,
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+) -> OperateResult:
+    return _trueforge_routines(spec, timeout=timeout)
+
+
 def _herdr_list_bound(
     spec: RemoteSpec,
     *,
@@ -2501,6 +2616,7 @@ def _install_remote_harnesses() -> None:
             health_fn=_bind_health("trueforge"),
             list_fn=_bind_http_list(_trueforge_list),
             send_fn=_trueforge_send_bound,
+            routines_fn=_trueforge_routines_bound,
         )
     )
 

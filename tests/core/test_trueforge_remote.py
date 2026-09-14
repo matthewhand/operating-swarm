@@ -102,7 +102,14 @@ def test_trueforge_catalog_and_capabilities():
     assert caps.health is True
     assert caps.operate is False
     assert caps.interrogate is False
+    assert caps.routines is True
     assert caps.transport == "http"
+
+    assert capabilities_for("hermes").routines is False
+    assert capabilities_for("omb").routines is False
+    assert capabilities_for("rakazo").routines is False
+    assert capabilities_for("herdr").routines is False
+    assert capabilities_for("swarm").routines is False
 
     harness = get_harness("trueforge")
     assert harness is not None
@@ -110,6 +117,7 @@ def test_trueforge_catalog_and_capabilities():
     assert isinstance(harness, BoundRemoteHarness)
     assert harness.impl_id == "trueforge"
     assert harness.label == "TrueForge"
+    assert harness.capabilities.routines is True
 
 
 def test_trueforge_default_spec_is_loopback():
@@ -128,6 +136,7 @@ def test_trueforge_default_spec_is_loopback():
     assert pub["impl"] == "trueforge"
     assert pub["user_kind"] == "remote"
     assert pub["label"] == "TrueForge"
+    assert pub["capabilities"]["routines"] is True
     assert pub["member"]["talk"] == "consult_trueforge"
     assert pub["member"]["via"] == "as_tool"
 
@@ -414,3 +423,177 @@ def test_trueforge_blueprint_grammar_and_specialist(tf_server, monkeypatch):
     assert op == "send"
     assert name == "trueforge"
     assert prompt == "hello world"
+
+
+def test_trueforge_routines_success(tf_server, monkeypatch):
+    """TrueForge schedules and runs endpoint integration (REQ-852)."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/schedules"): (
+            200,
+            {
+                "data": [
+                    {
+                        "id": "sched-1",
+                        "agent_name": "daily-brief",
+                        "name": "Daily Briefing",
+                        "manifest": {
+                            "task": "Summarize top headlines and emails",
+                            "cron": "0 9 * * 1-5",
+                            "timezone": "America/New_York",
+                            "status": "active",
+                        },
+                        "created_at": "2026-09-10T12:00:00Z",
+                    },
+                    {
+                        "id": "sched-2",
+                        "agent_name": "health-check",
+                        "name": "Hourly Ping",
+                        "manifest": {
+                            "task": "Ping services",
+                            "cron": "0 * * * *",
+                            "timezone": "UTC",
+                            "status": "paused",
+                        },
+                        "created_at": "2026-09-11T12:00:00Z",
+                    },
+                ]
+            },
+        ),
+        ("GET", "/api/v1/schedules/sched-1/runs"): (
+            200,
+            {
+                "data": [
+                    {
+                        "id": "run-101",
+                        "name": "daily-briefing-run-101",
+                        "scheduled_for": "2026-09-15T09:00:00Z",
+                        "status": "scheduled",
+                    }
+                ]
+            },
+        ),
+        ("GET", "/api/v1/schedules/sched-2/runs"): (
+            200,
+            {
+                "data": [
+                    {
+                        "id": "run-201",
+                        "name": "hourly-ping-run-201",
+                        "scheduled_for": "2026-09-14T20:00:00Z",
+                        "status": "triggered",
+                    }
+                ]
+            },
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge": {
+                "base_url": f"http://{host}:{port}",
+            }
+        }
+    }
+
+    # Test through remotes_core.operate
+    res = remotes_core.operate("trueforge", "routines", config=cfg)
+    assert res.ok is True
+    assert res.op == "routines"
+    assert res.remote == "trueforge"
+    assert "2 routine(s)" in res.detail
+    routines = res.data["routines"]
+    assert len(routines) == 2
+
+    r1 = routines[0]
+    assert r1["id"] == "sched-1"
+    assert r1["name"] == "Daily Briefing"
+    assert r1["agent"] == "daily-brief"
+    assert r1["cron"] == "0 9 * * 1-5"
+    assert r1["timezone"] == "America/New_York"
+    assert r1["task"] == "Summarize top headlines and emails"
+    assert r1["status"] == "active"
+    assert r1["last_run"] == {
+        "id": "run-101",
+        "name": "daily-briefing-run-101",
+        "scheduled_for": "2026-09-15T09:00:00Z",
+        "status": "scheduled",
+    }
+
+    r2 = routines[1]
+    assert r2["id"] == "sched-2"
+    assert r2["name"] == "Hourly Ping"
+    assert r2["agent"] == "health-check"
+    assert r2["cron"] == "0 * * * *"
+    assert r2["timezone"] == "UTC"
+    assert r2["status"] == "paused"
+    assert r2["last_run"] == {
+        "id": "run-201",
+        "name": "hourly-ping-run-201",
+        "scheduled_for": "2026-09-14T20:00:00Z",
+        "status": "triggered",
+    }
+
+    # Also test via RemoteHarness protocol
+    harness = get_harness("trueforge")
+    spec = remotes_core.load_remote("trueforge", cfg)
+    h_res = harness.routines(spec, timeout=5.0)
+    assert h_res.ok is True
+    assert len(h_res.data["routines"]) == 2
+
+
+def test_trueforge_routines_empty(tf_server, monkeypatch):
+    """TrueForge schedules returns empty list when no routines exist."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/schedules"): (200, {"data": []}),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge": {
+                "base_url": f"http://{host}:{port}",
+            }
+        }
+    }
+    res = remotes_core.operate("trueforge", "routines", config=cfg)
+    assert res.ok is True
+    assert res.data["routines"] == []
+    assert "0 routine(s)" in res.detail
+
+
+def test_trueforge_routines_auth_error(tf_server, monkeypatch):
+    """TrueForge schedules endpoint surfaces auth required honestly."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/schedules"): (401, {"error": "Unauthorized"}),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge": {
+                "base_url": f"http://{host}:{port}",
+            }
+        }
+    }
+    res = remotes_core.operate("trueforge", "routines", config=cfg)
+    assert res.ok is False
+    assert "requires auth" in res.detail
+
+
+def test_other_remotes_routines_unsupported():
+    """Harnesses without routines capability return unsupported result."""
+    cfg = {
+        "remotes": {
+            "hermes": {"base_url": "http://127.0.0.1:9"},
+            "omb": {"base_url": "http://127.0.0.1:9"},
+            "rakazo": {"base_url": "http://127.0.0.1:9"},
+            "swarm": {"base_url": "http://127.0.0.1:9"},
+            "herdr": {"base_url": "http://127.0.0.1:9"},
+        }
+    }
+    for rid in ("hermes", "omb", "rakazo", "swarm", "herdr"):
+        res = remotes_core.operate(rid, "routines", config=cfg)
+        assert res.ok is False
+        assert "does not support routines" in res.detail
+        assert res.data["routines"] == []

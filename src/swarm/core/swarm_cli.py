@@ -747,7 +747,7 @@ def remotes_cmd(
 
     if act == "set":
         if not rid:
-            typer.echo("remotes set requires a name (hermes|omb|rakazo|herdr|swarm)", err=True)
+            typer.echo("remotes set requires a name (hermes|omb|rakazo|herdr|swarm|trueforge)", err=True)
             raise typer.Exit(code=1)
         kwargs: dict = {}
         if base_url:
@@ -811,7 +811,7 @@ def remotes_cmd(
 
     if act == "operate":
         if not rid:
-            typer.echo("remotes operate requires a name (hermes|omb|rakazo|herdr|swarm)", err=True)
+            typer.echo("remotes operate requires a name (hermes|omb|rakazo|herdr|swarm|trueforge)", err=True)
             raise typer.Exit(code=1)
         result = _remotes.operate(rid, op, prompt=prompt, target=target, config=cfg)
         typer.echo(_json.dumps(result.as_dict(), indent=2, default=str))
@@ -824,7 +824,7 @@ def remotes_cmd(
 
     if act in ("place", "unplace"):
         if not rid:
-            typer.echo(f"remotes {act} requires a name (hermes|omb|rakazo|herdr|swarm)", err=True)
+            typer.echo(f"remotes {act} requires a name (hermes|omb|rakazo|herdr|swarm|trueforge)", err=True)
             raise typer.Exit(code=1)
         try:
             if act == "place":

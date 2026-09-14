@@ -11,6 +11,18 @@ import pytest
 from swarm.core import remotes as remotes_core
 
 
+@pytest.fixture(autouse=True)
+def clean_remotes_env(monkeypatch):
+    for var in (
+        "HERMES_BASE_URL", "HERMES_API_KEY",
+        "OMB_BASE_URL", "OMB_API_KEY",
+        "RAKAZO_BASE_URL", "RAKAZO_API_KEY",
+        "TRUEFORGE_BASE_URL", "TRUEFORGE_API_KEY",
+        "SWARM_REMOTE_BASE_URL", "SWARM_REMOTE_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 class _Router(BaseHTTPRequestHandler):
     routes: dict[tuple[str, str], tuple[int, dict | list | str]] = {}
 
@@ -80,13 +92,14 @@ def test_team_members_are_handoff_not_profile_aliases():
     }
     members = remotes_core.list_team_members(cfg)
     ids = {m["id"] for m in members}
-    assert ids == {"hermes", "omb", "rakazo", "swarm"}
+    assert ids == {"hermes", "omb", "rakazo", "swarm", "trueforge"}
     assert all(m["via"] == "as_tool" for m in members)
     placed = {m["id"]: m["placed"] for m in members}
     assert placed["hermes"] is True
     assert placed["omb"] is True
     assert placed["rakazo"] is True
     assert placed["swarm"] is False  # catalog only until explicitly placed
+    assert placed["trueforge"] is False
     assert "DynamicTeam" not in remotes_core.TEAM_VOCABULARY["team"]
     assert "/teams/" in remotes_core.TEAM_VOCABULARY["not_teams_page"]
 

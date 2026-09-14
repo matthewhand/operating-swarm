@@ -71,4 +71,119 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
       expect(listBtn).not.toHaveAttribute('aria-busy', 'true')
     })
   })
+
+  it('renders routines section when capabilities.routines is true and displays routines', async () => {
+    vi.spyOn(api, 'fetchRemoteRoutines').mockResolvedValue({
+      remote: 'trueforge',
+      op: 'routines',
+      ok: true,
+      detail: 'TrueForge listed 1 routine(s)',
+      data: {
+        routines: [
+          {
+            id: 'sched-1',
+            name: 'Morning Summary',
+            agent: 'summarizer-agent',
+            cron: '0 9 * * 1-5',
+            timezone: 'America/New_York',
+            task: 'Summarize news',
+            status: 'active',
+            last_run: {
+              id: 'run-1',
+              scheduled_for: '2026-09-15T09:00:00Z',
+              status: 'scheduled',
+            },
+          },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'trueforge',
+      label: 'TrueForge',
+      base_url: 'http://127.0.0.1:8791',
+      capabilities: { routines: true },
+    } as any)
+
+    expect(screen.getByTestId('remote-routines-section')).toBeInTheDocument()
+    expect(screen.getByText('Routines (TrueForge schedules)')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByText('Morning Summary')).toBeInTheDocument()
+      expect(screen.getByText(/Agent:/)).toBeInTheDocument()
+      expect(screen.getByText('summarizer-agent')).toBeInTheDocument()
+      expect(screen.getByText(/0 9 \* \* 1-5/)).toBeInTheDocument()
+      expect(screen.getByText(/Weekdays at 09:00/)).toBeInTheDocument()
+      expect(screen.getByText(/America\/New_York/)).toBeInTheDocument()
+      expect(screen.getByText('Summarize news')).toBeInTheDocument()
+      expect(screen.getByText('scheduled')).toBeInTheDocument()
+      expect(screen.getByText('2026-09-15T09:00:00Z')).toBeInTheDocument()
+    })
+  })
+
+  it('renders empty message when no routines configured', async () => {
+    vi.spyOn(api, 'fetchRemoteRoutines').mockResolvedValue({
+      remote: 'trueforge',
+      op: 'routines',
+      ok: true,
+      detail: 'TrueForge listed 0 routine(s)',
+      data: { routines: [] },
+    })
+
+    renderPane({
+      id: 'trueforge',
+      label: 'TrueForge',
+      base_url: 'http://127.0.0.1:8791',
+      capabilities: { routines: true },
+    } as any)
+
+    await waitFor(() => {
+      expect(screen.getByText('No routines configured on this remote.')).toBeInTheDocument()
+    })
+  })
+
+  it('does not render routines section when capabilities.routines is false', () => {
+    renderPane({
+      id: 'omb',
+      label: 'OpenMousBot',
+      base_url: 'http://localhost:8000',
+      capabilities: { routines: false },
+    } as any)
+
+    expect(screen.queryByTestId('remote-routines-section')).not.toBeInTheDocument()
+    expect(screen.queryByText('Routines (TrueForge schedules)')).not.toBeInTheDocument()
+  })
+
+  it('hides routines section when remote probe reports DOWN', async () => {
+    vi.spyOn(api, 'fetchRemoteRoutines').mockResolvedValue({
+      remote: 'trueforge',
+      op: 'routines',
+      ok: true,
+      detail: 'TrueForge listed 0 routine(s)',
+      data: { routines: [] },
+    })
+    vi.spyOn(api, 'probeRemoteHealth').mockResolvedValue({
+      remote: 'trueforge',
+      ok: false,
+      state: 'DOWN',
+      detail: 'Connection refused',
+    })
+
+    renderPane({
+      id: 'trueforge',
+      label: 'TrueForge',
+      base_url: 'http://127.0.0.1:8791',
+      capabilities: { routines: true },
+    } as any)
+
+    expect(screen.getByTestId('remote-routines-section')).toBeInTheDocument()
+
+    const healthBtn = screen.getByRole('button', { name: /health/i })
+    fireEvent.click(healthBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText(/report, not a crash/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('remote-routines-section')).not.toBeInTheDocument()
+    })
+  })
 })

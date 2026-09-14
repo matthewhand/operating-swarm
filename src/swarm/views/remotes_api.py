@@ -273,6 +273,24 @@ class RemoteOperateView(APIView):
         return Response(result.as_dict(), status=status.HTTP_200_OK)
 
 
+class RemoteRoutinesView(APIView):
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    @extend_schema(
+        operation_id="v1_remotes_routines",
+        summary="List routines / schedules for a remote harness (read-only)",
+        responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, _request, remote_id: str, *_args, **_kwargs):
+        try:
+            remotes_core._require_id(remote_id)
+        except remotes_core.RemoteError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        result = remotes_core.operate(remote_id, "routines")
+        return Response(result.as_dict(), status=status.HTTP_200_OK)
+
+
 class AgentTeamView(APIView):
     """Handoff Team roster — remotes (and later CLI/API agents) that see/talk.
 

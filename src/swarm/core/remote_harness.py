@@ -88,6 +88,7 @@ class RemoteCapabilities:
     # Computer-control operate (ADR-007). OMB / Rakazo advertise it; stubbed.
     operate: bool = False
     interrogate: bool = False
+    routines: bool = False
     transport: str = "http"
 
     def as_dict(self) -> dict[str, Any]:
@@ -104,6 +105,7 @@ def capabilities_for(impl_id: str) -> RemoteCapabilities:
         health=True,
         operate=computer,
         interrogate=rid == "herdr",
+        routines=rid == "trueforge",
         transport=REMOTE_IMPL_TRANSPORT.get(rid, "http"),
     )
 
@@ -185,11 +187,20 @@ class RemoteHarness(Protocol):
         session_id: str | None = None,
     ) -> Any: ...
 
+    def routines(
+        self,
+        spec: Any,
+        *,
+        timeout: float,
+        config: dict[str, Any] | None = None,
+    ) -> Any: ...
+
 
 HealthFn = Callable[..., Any]
 ListFn = Callable[..., Any]
 SendFn = Callable[..., Any]
 OperateFn = Callable[..., Any]
+RoutinesFn = Callable[..., Any]
 
 
 @dataclass
@@ -203,6 +214,7 @@ class BoundRemoteHarness:
     list_fn: ListFn
     send_fn: SendFn
     operate_fn: OperateFn | None = None
+    routines_fn: RoutinesFn | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def health(
@@ -267,6 +279,17 @@ class BoundRemoteHarness:
                 session_id=session_id,
             )
         return unsupported_operate(self.impl_id, action)
+
+    def routines(
+        self,
+        spec: Any,
+        *,
+        timeout: float,
+        config: dict[str, Any] | None = None,
+    ) -> Any:
+        if self.routines_fn is not None:
+            return self.routines_fn(spec, timeout=timeout, config=config)
+        return unsupported_routines(self.impl_id)
 
 
 _REGISTRY: dict[str, BoundRemoteHarness] = {}
@@ -349,6 +372,19 @@ def unsupported_operate(impl_id: str, op: str) -> Any:
     )
 
 
+def unsupported_routines(impl_id: str) -> Any:
+    from swarm.core.remotes import OperateResult
+
+    rid = normalize_impl_id(impl_id) or str(impl_id)
+    return OperateResult(
+        remote=rid,
+        op="routines",
+        ok=False,
+        detail=f"{REMOTE_IMPL_LABELS.get(rid, rid)} does not support routines/schedules.",
+        data={"routines": []},
+    )
+
+
 __all__ = [
     "COMPUTER_OPS",
     "REMOTE_IMPL_CLASSIFIER_IDS",
@@ -367,5 +403,7 @@ __all__ = [
     "is_remote_impl_id",
     "normalize_impl_id",
     "register_harness",
+    "unsupported_operate",
+    "unsupported_routines",
     "user_facing_kind",
 ]

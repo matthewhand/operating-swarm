@@ -12,7 +12,12 @@ from swarm.core.remotes import HealthResult, OperateResult, RemoteError, RemoteS
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    client = APIClient()
+    from django.conf import settings
+
+    if getattr(settings, "ENABLE_API_AUTH", False) and getattr(settings, "SWARM_API_KEY", None):
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.SWARM_API_KEY}")
+    return client
 
 
 def _spec(rid: str = "hermes") -> RemoteSpec:
@@ -241,6 +246,28 @@ class TestRemoteOperate:
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         assert resp.json()["remote"] == "swarm"
+
+
+class TestRemoteRoutines:
+    @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_routines_get(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="trueforge",
+            op="routines",
+            ok=True,
+            detail="TrueForge listed 1 routine(s)",
+            data={"routines": [{"name": "Routine 1", "cron": "0 * * * *"}]},
+        )
+        resp = api_client.get("/v1/remotes/trueforge/routines/")
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert resp.json()["remote"] == "trueforge"
+        assert len(resp.json()["data"]["routines"]) == 1
+        mock_op.assert_called_once_with("trueforge", "routines")
+
+    def test_routines_unknown_remote(self, api_client):
+        resp = api_client.get("/v1/remotes/nonexistent_xyz/routines/")
+        assert resp.status_code == 404
 
 
 class TestAgentTeam:

@@ -11,7 +11,7 @@ Remote implementation, not a fifth kind.
 | **Rakazo** | `rakazo` | HTTP | health, list, send | yes — stub until ADR-007 Phase 3 |
 | **Herdr** | `herdr` | CLI local / SSH remote | health, list, send, interrogate | no |
 | **Nested open-swarm** | `swarm` (`open-swarm`) | HTTP | health, list, send | no |
-| **TrueForge** | `trueforge` | HTTP | health, list, send | no |
+| **TrueForge** | `trueforge` | HTTP | health, list, send, routines | no |
 
 Typed protocol: `from swarm.core.remote_harness import RemoteHarness`. Settings
 `GET /v1/remotes/` `kinds[]` uses `kind=remote` and `id`/`impl` as the
@@ -136,12 +136,13 @@ swarm-cli remotes operate omb --op list
 swarm-cli remotes operate omb --op send --prompt "hello" --target <botId>
 swarm-cli remotes operate rakazo --op list
 swarm-cli remotes operate trueforge --op list
+swarm-cli remotes operate trueforge --op routines
 swarm-cli remotes operate trueforge --op send --prompt "hello" --target orchestrator
 swarm-cli remotes operate herdr --op list
 swarm-cli remotes operate herdr --op send --target w3:p1 --prompt HERDR_PING_OK
 ```
 
-REST: `POST /v1/remotes/<id>/operate/` `{"op":"list"}` or `{"op":"send","prompt":"…","target":"…"}`.
+REST: `POST /v1/remotes/<id>/operate/` `{"op":"list"}` or `{"op":"send","prompt":"…","target":"…"}` or `{"op":"routines"}` (and `GET /v1/remotes/<id>/routines/`).
 
 Blueprint `remote_harness` (chat `model: remote_harness`): grammar `health`, `list omb`, `list swarm`, `send hermes …`. Coordinator uses openai-agents **as_tool** specialists (`consult_hermes` / `consult_omb` / `consult_rakazo` / `consult_swarm` / `consult_trueforge` when placed).
 

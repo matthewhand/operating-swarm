@@ -116,6 +116,7 @@ from swarm.views.remotes_api import (
     RemoteDetailView,
     RemoteHealthView,
     RemoteOperateView,
+    RemoteRoutinesView,
     RemotesListView,
 )
 from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
@@ -364,6 +365,8 @@ urlpatterns = [
     path("v1/remotes/<str:remote_id>/health/", RemoteHealthView.as_view(), name="remotes-health"),
     path("v1/remotes/<str:remote_id>/operate", RemoteOperateView.as_view(), name="remotes-operate-no-slash"),
     path("v1/remotes/<str:remote_id>/operate/", RemoteOperateView.as_view(), name="remotes-operate"),
+    path("v1/remotes/<str:remote_id>/routines", RemoteRoutinesView.as_view(), name="remotes-routines-no-slash"),
+    path("v1/remotes/<str:remote_id>/routines/", RemoteRoutinesView.as_view(), name="remotes-routines"),
     # Handoff Team (API/CLI/remote members) — not /v1/teams/ Profiles aliases.
     path("v1/agent-team", AgentTeamView.as_view(), name="agent-team-no-slash"),
     path("v1/agent-team/", AgentTeamView.as_view(), name="agent-team"),
