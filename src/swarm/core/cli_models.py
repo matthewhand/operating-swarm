@@ -1,13 +1,17 @@
-"""Non-interactive list-models probes for catalogued CLI adapters (REQ-44).
+"""Non-interactive list-models probes for catalogued CLI adapters (REQ-44 / REQ-877).
 
 Each catalog CLI exposes a real list/help/models command (see
 ``cli_catalog.LIST_MODELS``). This module runs that argv with stdin closed and
 a hard timeout, then parses boring model ids out of stdout.
 
 Missing CLI, unknown name, nonzero exit, empty stdout, or timeout → catalog
-``CLI_MODELS`` presets when known, otherwise ``{cli, models: []}``, plus a
-warning. Never raises to the caller. Never hangs. Secrets are stripped from
-parsed ids and redacted from warnings.
+``CLI_MODELS`` presets when known, otherwise last-good cached models,
+otherwise ``{cli, models: []}``, plus a warning. Never raises to the caller.
+Never hangs. Secrets are stripped from parsed ids and redacted from warnings.
+
+Profile loading (``/v1/llm-profiles/``) uses ``list_models_many``: concurrent
+probes, a 1.5s cap, TTL cache, and stale-while-revalidate so reloads do not
+block on CLI subprocesses.
 """
 
 from __future__ import annotations
@@ -18,13 +22,20 @@ import logging
 import os
 import re
 import signal
+import threading
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from swarm.core import cli_catalog
+from swarm.core.async_utils import run_coro_sync
 from swarm.core.cli_adapter import TERM_GRACE
-from swarm.utils.redact import SENSITIVE_PATTERNS, is_sensitive_key, redact_uri_credentials
+from swarm.utils.redact import (
+    SENSITIVE_PATTERNS,
+    is_sensitive_key,
+    redact_uri_credentials,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +74,11 @@ _HEADER_WORDS = frozenset(
 
 RunExec = Callable[[list[str], float], Awaitable[tuple[int | None, str, str]]]
 
+# REQ-877: profile-loading probes stay bounded, cached, and concurrent.
+PROBE_TIMEOUT_S = 1.5
+PROBE_CACHE_TTL_S = 10 * 60.0  # 10 minutes (within the 5–15 min window)
+PROBE_TERM_GRACE_S = 0.25  # SIGTERM→SIGKILL for list-models only; not agent runs
+
 
 @dataclass
 class ListModelsResult:
@@ -79,23 +95,109 @@ class ListModelsResult:
         return out
 
 
+@dataclass
+class _CacheEntry:
+    ts: float
+    result: ListModelsResult
+    last_good: ListModelsResult | None = None
+
+
+_RESULT_CACHE: dict[str, _CacheEntry] = {}
+_CACHE_LOCK = threading.Lock()
+_IN_FLIGHT: set[str] = set()
+
+
+def clear_probe_cache() -> None:
+    """Drop cached probe results. Tests call this between cases."""
+    with _CACHE_LOCK:
+        _RESULT_CACHE.clear()
+        _IN_FLIGHT.clear()
+
+
 def list_models(name: str, *, timeout: float | None = None) -> ListModelsResult:
     """Synchronous probe. Safe to call from Typer / Django (no event loop)."""
-    return asyncio.run(probe_list_models(name, timeout=timeout))
+    return list_models_many([name], timeout=timeout)[0]
 
 
 def list_models_all(*, timeout: float | None = None) -> list[ListModelsResult]:
     """Probe every catalogued CLI (sorted). Never raises."""
-    return asyncio.run(probe_list_models_all(timeout=timeout))
-
-
-async def probe_list_models_all(*, timeout: float | None = None) -> list[ListModelsResult]:
     names = [
         n
         for n in cli_catalog.catalog_names()
         if n in cli_catalog.LIST_MODELS or n in cli_catalog.CLI_MODELS
     ]
-    rows = await asyncio.gather(*(probe_list_models(n, timeout=timeout) for n in names))
+    return list_models_many(names, timeout=timeout)
+
+
+def list_models_many(
+    names: Iterable[str],
+    *,
+    timeout: float | None = None,
+) -> list[ListModelsResult]:
+    """Probe ``names`` concurrently with TTL cache. Never raises.
+
+    Default (``timeout is None``) is the REQ-877 profile-loading path: 1.5s
+    cap, cache with TTL, last-good fallback, and stale-while-revalidate so a
+    warm or expired cache never blocks the caller on a CLI subprocess.
+    An explicit ``timeout`` bypasses the cache (tests / one-shot CLI).
+    """
+    ordered = [str(n) for n in names]
+    if not ordered:
+        return []
+    if timeout is not None:
+        return _run_many_sync(ordered, float(timeout))
+
+    t = _default_timeout()
+    now = time.monotonic()
+    hits: dict[str, ListModelsResult] = {}
+    stale: list[str] = []
+    missing: list[str] = []
+    with _CACHE_LOCK:
+        for name in ordered:
+            entry = _RESULT_CACHE.get(name)
+            if entry is None:
+                missing.append(name)
+                continue
+            hits[name] = _serve_entry(entry)
+            if now - entry.ts >= PROBE_CACHE_TTL_S:
+                stale.append(name)
+    if stale:
+        _schedule_refresh(stale, t)
+    if missing:
+        for row in _run_many_sync(missing, t):
+            hits[row.cli] = _remember(row)
+    empty = "list-models helper returned no payload"
+    return [
+        hits.get(
+            name, ListModelsResult(cli=name, models=[], warning=f"{name}: {empty}")
+        )
+        for name in ordered
+    ]
+
+
+async def probe_list_models_all(
+    *, timeout: float | None = None
+) -> list[ListModelsResult]:
+    names = [
+        n
+        for n in cli_catalog.catalog_names()
+        if n in cli_catalog.LIST_MODELS or n in cli_catalog.CLI_MODELS
+    ]
+    return await probe_list_models_many(names, timeout=timeout)
+
+
+async def probe_list_models_many(
+    names: Iterable[str],
+    *,
+    timeout: float | None = None,
+) -> list[ListModelsResult]:
+    """Run list-models probes concurrently. Never raises."""
+    ordered = [str(n) for n in names]
+    if not ordered:
+        return []
+    rows = await asyncio.gather(
+        *(probe_list_models(n, timeout=timeout) for n in ordered)
+    )
     return list(rows)
 
 
@@ -129,7 +231,7 @@ async def probe_list_models(
         logger.warning(warning)
         return ListModelsResult(cli=name, models=[], warning=warning)
 
-    t = float(cli_catalog.LIST_MODELS_TIMEOUT if timeout is None else timeout)
+    t = _default_timeout() if timeout is None else float(timeout)
     if t <= 0:
         return _result_with_optional_presets(name, f"{name}: list-models timeout must be positive")
 
@@ -306,6 +408,67 @@ def _resolve_executable(
     return finder(argv0)
 
 
+def _default_timeout() -> float:
+    return min(float(cli_catalog.LIST_MODELS_TIMEOUT), PROBE_TIMEOUT_S)
+
+
+def _serve_entry(entry: _CacheEntry) -> ListModelsResult:
+    if entry.result.models:
+        return entry.result
+    if entry.last_good and entry.last_good.models:
+        return ListModelsResult(
+            cli=entry.result.cli,
+            models=list(entry.last_good.models),
+            warning=entry.result.warning,
+        )
+    return entry.result
+
+
+def _remember(row: ListModelsResult) -> ListModelsResult:
+    with _CACHE_LOCK:
+        prev = _RESULT_CACHE.get(row.cli)
+        last_good = prev.last_good if prev is not None else None
+        if row.models:
+            last_good = row
+        entry = _CacheEntry(ts=time.monotonic(), result=row, last_good=last_good)
+        _RESULT_CACHE[row.cli] = entry
+        return _serve_entry(entry)
+
+
+def _run_many_sync(names: list[str], timeout: float) -> list[ListModelsResult]:
+    return run_coro_sync(probe_list_models_many(names, timeout=timeout))
+
+
+def _schedule_refresh(names: list[str], timeout: float) -> None:
+    to_start: list[str] = []
+    with _CACHE_LOCK:
+        for name in names:
+            if name in _IN_FLIGHT:
+                continue
+            _IN_FLIGHT.add(name)
+            to_start.append(name)
+    if not to_start:
+        return
+    threading.Thread(
+        target=_refresh_names,
+        args=(to_start, timeout),
+        name="cli-model-probe",
+        daemon=True,
+    ).start()
+
+
+def _refresh_names(names: list[str], timeout: float) -> None:
+    try:
+        for row in _run_many_sync(names, timeout):
+            _remember(row)
+    except Exception:
+        logger.warning("background CLI model probe failed", exc_info=True)
+    finally:
+        with _CACHE_LOCK:
+            for name in names:
+                _IN_FLIGHT.discard(name)
+
+
 async def _run_exec(argv: list[str], timeout: float) -> tuple[int | None, str, str]:
     """Run argv with stdin closed. Kill the process group on timeout."""
     env = os.environ.copy()
@@ -324,12 +487,14 @@ async def _run_exec(argv: list[str], timeout: float) -> tuple[int | None, str, s
     try:
         stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
-        await _terminate(proc)
+        await _terminate(proc, grace=PROBE_TERM_GRACE_S)
         return None, "", ""
     return proc.returncode, _decode(stdout_b), _decode(stderr_b)
 
 
-async def _terminate(proc: asyncio.subprocess.Process) -> None:
+async def _terminate(
+    proc: asyncio.subprocess.Process, *, grace: float = TERM_GRACE
+) -> None:
     if proc.returncode is not None or not proc.pid or proc.pid <= 1:
         return
     try:
@@ -344,7 +509,7 @@ async def _terminate(proc: asyncio.subprocess.Process) -> None:
         except (ProcessLookupError, OSError):
             return
         try:
-            await asyncio.wait_for(proc.wait(), timeout=TERM_GRACE)
+            await asyncio.wait_for(proc.wait(), timeout=grace)
             return
         except asyncio.TimeoutError:
             continue
