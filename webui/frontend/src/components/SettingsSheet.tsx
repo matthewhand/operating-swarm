@@ -12,6 +12,7 @@ import ProviderRateLimitFields from './ProviderRateLimitFields'
 import ImageGenPane from './ImageGenSettings'
 import SpeechPane from './SpeechSettings'
 import RolesSettingsPane from './RolesSettingsPane'
+import SandboxesSettingsPane from './SandboxesSettingsPane'
 import {
   EMPTY_LOCAL_STORE,
   createRemote,
@@ -111,6 +112,7 @@ export type SettingsSection =
   | 'mcp'
   | 'cli-agents'
   | 'roles'
+  | 'sandboxes'
   | 'rail'
   | 'image-gen'
   | 'speech'
@@ -372,6 +374,16 @@ export default function SettingsSheet({
             <li>
               <button
                 type="button"
+                className={section === 'sandboxes' ? 'menu-active' : undefined}
+                aria-current={section === 'sandboxes' ? 'page' : undefined}
+                onClick={() => setSection('sandboxes')}
+              >
+                Sandboxes
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
                 className={section === 'rail' ? 'menu-active' : undefined}
                 aria-current={section === 'rail' ? 'page' : undefined}
                 onClick={() => setSection('rail')}
@@ -486,6 +498,7 @@ export default function SettingsSheet({
             <CliAgentsSettingsPane focusProviderId={focusRateLimits ? initialProviderId : null} />
           )}
           {section === 'roles' && <RolesSettingsPane />}
+          {section === 'sandboxes' && <SandboxesSettingsPane />}
           {section === 'rail' && (
             <RailPane
               bumpCompleted={bumpCompleted}

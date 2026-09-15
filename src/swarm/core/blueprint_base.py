@@ -841,10 +841,19 @@ class BlueprintBase(ABC):
             extra = lifecycle_ctx.tool_objects()
             tools = tools + extra
 
-        # Optional sandbox harness integration: attach sandbox execution tools if requested
+        # Optional sandbox harness integration: attach sandbox execution tools
+        # if requested (REQ-860: Settings provider drives the backend).
         sandbox_opt = kwargs.pop("sandbox", None)
         if sandbox_opt is None:
-            sandbox_opt = self.config.get("settings", {}).get("enable_sandbox_tools", False)
+            settings_cfg = self.config.get("settings", {}) or {}
+            sandbox_block = settings_cfg.get("sandbox") if isinstance(settings_cfg.get("sandbox"), dict) else None
+            if isinstance(sandbox_block, dict):
+                # REQ-860: an explicit sandbox block wins — provider "none"
+                # (the default) means disabled, regardless of the legacy flag.
+                if sandbox_block.get("provider") not in (None, "", "none"):
+                    sandbox_opt = dict(sandbox_block)
+            else:
+                sandbox_opt = settings_cfg.get("enable_sandbox_tools", False)
         if sandbox_opt:
             try:
                 from swarm.core.sandbox import SandboxManager, get_default_sandbox_manager
@@ -854,7 +863,8 @@ class BlueprintBase(ABC):
                     sb_mgr = sandbox_opt
                 else:
                     sb_mgr = get_default_sandbox_manager()
-                tools = tools + sb_mgr.as_function_tools()
+                if type(sb_mgr.backend).__name__ != "DisabledSandbox":
+                    tools = tools + sb_mgr.as_function_tools()
             except Exception as e:
                 logger.warning("Failed to attach sandbox tools to agent '%s': %s", name, e)
 

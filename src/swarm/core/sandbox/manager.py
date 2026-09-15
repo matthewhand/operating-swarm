@@ -7,11 +7,24 @@ import os
 from typing import Any, Callable
 
 from .base import SandboxBackend, SandboxConfig, SandboxExecutionResult
+from .daytona_sandbox import DaytonaSandbox
+from .disabled_sandbox import DisabledSandbox
 from .langchain_sandbox import LangChainSandboxHarness
 from .local_sandbox import LocalSubprocessSandbox
 from .mock_sandbox import MockSandbox
 
 logger = logging.getLogger(__name__)
+
+# REQ-860 / #227: Settings-facing provider names map to backend types.
+# "none" is the default (no execution tools), "bare_metal" is the honest
+# name for direct host execution (dangerous).
+SANDBOX_PROVIDER_ALIASES: dict[str, str] = {
+    "none": "none",
+    "bare_metal": "local",
+    "local": "local",
+    "daytona": "daytona",
+    "mock": "mock",
+}
 
 _DEFAULT_MANAGER: SandboxManager | None = None
 
@@ -35,6 +48,8 @@ class SandboxManager:
             raw_config = {}
 
         b_type = raw_config.get("backend_type") or raw_config.get("backend") or "local"
+        # Accept Settings provider names ("bare_metal", "none") as aliases.
+        b_type = SANDBOX_PROVIDER_ALIASES.get(str(b_type).strip().lower(), b_type)
         timeout = raw_config.get("timeout_seconds") or raw_config.get("timeout") or 30
         work_dir = raw_config.get("work_dir") or raw_config.get("workspace") or os.getcwd()
         allowed = raw_config.get("allowed_paths") or [work_dir]
@@ -56,14 +71,23 @@ class SandboxManager:
             e2b_api_key=raw_config.get("e2b_api_key"),
             extra_options=raw_config.get("extra_options", {}),
         )
+        # Daytona settings (REQ-860): env-var *name* + optional API URL.
+        if raw_config.get("daytona_api_key_env"):
+            cfg.extra_options["daytona_api_key_env"] = str(raw_config["daytona_api_key_env"])
+        if raw_config.get("daytona_api_url"):
+            cfg.extra_options["daytona_api_url"] = str(raw_config["daytona_api_url"])
         return cls(config=cfg)
 
     def _init_backend(self, cfg: SandboxConfig) -> SandboxBackend:
         """Instantiate the configured execution backend."""
+        if cfg.backend_type == "none":
+            return DisabledSandbox(cfg)
         if cfg.backend_type == "mock":
             return MockSandbox(cfg)
         elif cfg.backend_type == "langchain_repl":
             return LangChainSandboxHarness(cfg)
+        elif cfg.backend_type == "daytona":
+            return DaytonaSandbox(cfg)
         elif cfg.backend_type in ("docker", "e2b"):
             logger.warning(
                 "Container backend '%s' selected; falling back to local bare-metal execution",

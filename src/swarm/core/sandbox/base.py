@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
-SandboxBackendType = Literal["mock", "local", "langchain_repl", "docker", "e2b"]
+SandboxBackendType = Literal["none", "mock", "local", "langchain_repl", "docker", "e2b", "daytona"]
 
 
 @dataclass

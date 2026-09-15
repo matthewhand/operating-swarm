@@ -85,6 +85,7 @@ from swarm.views.mcp_plugins_api import (
     McpPluginsView,
 )
 from swarm.views.llm_profiles_api import LlmProfilesView
+from swarm.views.sandbox_settings_api import SandboxSettingsTestView, SandboxSettingsView
 from swarm.views.rate_limits_api import RateLimitsView
 from swarm.views.preferences_api import UserPreferencesView
 from swarm.views.library_api import LibraryAPIView, LibraryDetailAPIView
@@ -258,6 +259,10 @@ urlpatterns = [
     path("v1/cli-sessions/hop/", CliSessionHopAPIView.as_view(), name="cli-sessions-hop"),
     path("v1/llm-profiles", LlmProfilesView.as_view(), name="llm-profiles-api-no-slash"),
     path("v1/llm-profiles/", LlmProfilesView.as_view(), name="llm-profiles-api"),
+    path("v1/settings/sandbox", SandboxSettingsView.as_view(), name="sandbox-settings-no-slash"),
+    path("v1/settings/sandbox/", SandboxSettingsView.as_view(), name="sandbox-settings"),
+    path("v1/settings/sandbox/test", SandboxSettingsTestView.as_view(), name="sandbox-settings-test-no-slash"),
+    path("v1/settings/sandbox/test/", SandboxSettingsTestView.as_view(), name="sandbox-settings-test"),
     path("v1/marketplace", MarketplaceScanView.as_view(), name="marketplace-api-no-slash"),
     path("v1/marketplace/", MarketplaceScanView.as_view(), name="marketplace-api"),
     path("v1/rate-limits", RateLimitsView.as_view(), name="rate-limits-api-no-slash"),
