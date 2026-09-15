@@ -113,6 +113,10 @@ export function NavbarRoutingPicker({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const labelId = useId()
   const [open, setOpen] = useState<OpenState>(null)
+  // #275: the dimension the user actually asked for. In sheet (narrow) mode the
+  // level used to be derived from `families.length`, which silently downgraded an
+  // explicit Model request to the agent list whenever no families were probed yet.
+  const [sheetDim, setSheetDim] = useState<RoutingDimension | null>(null)
   const [previewAgent, setPreviewAgent] = useState(selectedAgent)
   const [previewModel, setPreviewModel] = useState(selectedModel)
   const [narrow, setNarrow] = useState(() => isNarrowViewport())
@@ -206,6 +210,16 @@ export function NavbarRoutingPicker({
     setActiveIndex(0)
   }, [])
 
+  /** Open the picker at `dim`, remembering it for sheet mode (#275). */
+  const openSheetAt = useCallback(
+    (dim: RoutingDimension) => {
+      setSheetDim(dim)
+      setOpen(narrow ? 'sheet' : dim)
+      setActiveIndex(0)
+    },
+    [narrow],
+  )
+
   useEffect(() => {
     if (open === null) return
     const onDoc = (event: MouseEvent) => {
@@ -267,8 +281,7 @@ export function NavbarRoutingPicker({
       emit('agent', { agent: agentId, model: '', modelBase: '', effort: null })
       if (cascade && nextFamilies.length > 0) {
         setPreviewAgent(agentId)
-        setOpen(narrow ? 'sheet' : 'model')
-        setActiveIndex(0)
+        openSheetAt('model')
         return
       }
       close()
@@ -308,7 +321,7 @@ export function NavbarRoutingPicker({
       emit('model', parsed)
       setPreviewModel(model)
       if (cascade && effort) {
-        setOpen(narrow ? 'sheet' : 'effort')
+        openSheetAt('effort')
         setActiveIndex(Math.max(0, family.efforts.indexOf(effort)))
         return
       }
@@ -360,10 +373,9 @@ export function NavbarRoutingPicker({
     (dim: RoutingDimension) => {
       setPreviewAgent(selectedAgent)
       setPreviewModel(selectedModel)
-      setOpen(narrow ? 'sheet' : dim)
-      setActiveIndex(0)
+      openSheetAt(dim)
     },
-    [narrow, selectedAgent, selectedModel],
+    [openSheetAt, selectedAgent, selectedModel],
   )
 
   const agentItems = useMemo(() => {
@@ -461,8 +473,7 @@ export function NavbarRoutingPicker({
       if (!item) return
       if (item.kind === 'agent') {
         setPreviewAgent(item.id)
-        setOpen(narrow ? 'sheet' : 'model')
-        setActiveIndex(0)
+        openSheetAt('model')
       } else if (item.kind === 'model') {
         const family = families.find((row) => row.base === item.id)
         if (family && familyHasEffort(family)) pickModel(family, true)
@@ -472,13 +483,11 @@ export function NavbarRoutingPicker({
     if (event.key === closeSub) {
       event.preventDefault()
       if (open === 'effort') {
-        setOpen(narrow ? 'sheet' : 'model')
-        setActiveIndex(0)
+        openSheetAt('model')
         return
       }
       if (open === 'model') {
-        setOpen(narrow ? 'sheet' : 'agent')
-        setActiveIndex(0)
+        openSheetAt('agent')
         return
       }
       close()
@@ -498,18 +507,29 @@ export function NavbarRoutingPicker({
     pickEffort(id as EffortToken)
   }
 
-  const sheetLevel: RoutingDimension =
-    open === 'effort' || (open === 'sheet' && showEffort && Boolean(previewModel) && families.some(familyHasEffort))
-      ? previewModels.length && groupModelsByFamily(previewModels).some((row) =>
-          row.base ===
-            routingPathFromSelection({ agent: previewAgent, model: previewModel || selectedModel }).modelBase &&
-          familyHasEffort(row),
-        )
-        ? 'effort'
-        : 'model'
-      : open === 'model' || (open === 'sheet' && families.length > 0 && previewAgent !== '')
-        ? 'model'
-        : 'agent'
+  // #275: in sheet mode the level follows the dimension the user asked for
+  // (`sheetDim`); only the cascade advances it (agent pick → model → effort).
+  const sheetIsEffort =
+    open === 'effort' ||
+    (open === 'sheet' &&
+      (sheetDim === 'effort' ||
+        (sheetDim === 'model' && showEffort && Boolean(previewModel) && families.some(familyHasEffort))))
+  const sheetIsModel =
+    open === 'model' ||
+    (open === 'sheet' &&
+      (sheetDim === 'model' || (sheetDim === 'agent' && families.length > 0 && previewAgent !== '')))
+
+  const sheetLevel: RoutingDimension = sheetIsEffort
+    ? previewModels.length && groupModelsByFamily(previewModels).some((row) =>
+        row.base ===
+          routingPathFromSelection({ agent: previewAgent, model: previewModel || selectedModel }).modelBase &&
+        familyHasEffort(row),
+      )
+      ? 'effort'
+      : 'model'
+    : sheetIsModel
+      ? 'model'
+      : 'agent'
 
   const renderMenu = (dim: RoutingDimension, nested = false) => {
     const isAgent = dim === 'agent'
@@ -563,7 +583,7 @@ export function NavbarRoutingPicker({
           <button
             type="button"
             className="os-routing-menu__back"
-            onClick={() => setOpen(dim === 'effort' ? 'model' : 'agent')}
+            onClick={() => openSheetAt(dim === 'effort' ? 'model' : 'agent')}
           >
             Back
           </button>

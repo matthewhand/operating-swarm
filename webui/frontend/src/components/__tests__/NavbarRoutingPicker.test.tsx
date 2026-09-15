@@ -148,6 +148,31 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     expect(screen.getByTestId('routing-sheet')).toBeInTheDocument()
   })
 
+  it('narrow sheet keeps an explicit Model request when no families are known yet (#275)', () => {
+    const mq = {
+      matches: true,
+      media: '(max-width: 1023px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      onchange: null,
+    }
+    window.matchMedia = vi.fn().mockImplementation(() => mq) as unknown as typeof window.matchMedia
+    // The model pill is rendered because a probe warning exists, yet there are no
+    // families — the old level fallback swapped in the agent list here.
+    renderPicker({
+      models: [],
+      selectedModel: '',
+      modelWarning: 'grok: no models advertised',
+    })
+    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    expect(screen.getByTestId('routing-sheet')).toBeInTheDocument()
+    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+  })
+
   it('shows a probe warning instead of option default when models are empty', () => {
     renderPicker({
       models: [],
