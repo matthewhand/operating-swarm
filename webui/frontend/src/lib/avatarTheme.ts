@@ -83,8 +83,11 @@ export function isAvatarThemeFamily(value: unknown): value is AvatarThemeFamily 
 
 export function familyForAvatarTheme(theme: AvatarTheme): AvatarThemeFamily {
   if (isRobotPackTheme(theme)) return 'robots'
-  if (theme === 'default') return 'bland'
-  return theme
+  if (theme === 'default' || theme === 'bland') return 'bland'
+  if (theme === 'blobs') return 'blobs'
+  if (theme === 'bee') return 'bee'
+  if (theme === 'robot3d') return 'robot3d'
+  return 'robots'
 }
 
 export function avatarsForFamily(

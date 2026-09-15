@@ -189,7 +189,9 @@ export function speakSystem(text: string, win: Window = window): { stop: () => v
     throw new Error('Read-aloud is not available in this browser.')
   }
   win.speechSynthesis.cancel()
-  const utterance = new win.SpeechSynthesisUtterance(spoken)
+  // DOM lib types Window without the SpeechSynthesisUtterance constructor.
+  const utteranceCtor = (win as unknown as { SpeechSynthesisUtterance: new (text: string) => SpeechSynthesisUtterance }).SpeechSynthesisUtterance
+  const utterance = new utteranceCtor(spoken)
   win.speechSynthesis.speak(utterance)
   return {
     path: 'system',

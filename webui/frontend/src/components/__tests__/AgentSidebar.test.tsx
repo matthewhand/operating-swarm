@@ -532,7 +532,8 @@ describe('AgentSidebar Grok rail', () => {
       expect(screen.getByTestId('os-test-search')).toHaveTextContent('session=cli-fresh-1')
     })
     const posted = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([input, init]: [RequestInfo, RequestInit | undefined]) => {
+      (call: unknown[]) => {
+        const [input, init] = call as [RequestInfo, RequestInit | undefined]
         const url = String(input)
         const body = typeof init?.body === 'string' ? init.body : ''
         return url.includes('/v1/cli-sessions/select') && body.includes('"start_new":true')
@@ -2448,7 +2449,7 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
   })
 
   it('renders resizer handle on desktop and sets avatar-only state when narrow', async () => {
-    renderSidebar({ narrow: false })
+    renderSidebar('/chat?narrow=false')
     const resizer = await screen.findByTestId('rail-resize-handle')
     expect(resizer).toBeInTheDocument()
     expect(resizer).toHaveAttribute('role', 'separator')
@@ -2469,7 +2470,7 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
 
   it('initializes in avatar-only mode if stored width is <= threshold', async () => {
     localStorage.setItem('swarm_rail_width', '80')
-    renderSidebar({ narrow: false })
+    renderSidebar('/chat?narrow=false')
     const rail = await screen.findByTestId('os-agent-rail')
     expect(rail).toHaveAttribute('data-avatar-only', 'true')
     expect(rail).toHaveClass('os-agent-sidebar--avatar-only')

@@ -97,11 +97,12 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
     await waitFor(() => {
       expect(postPayload).not.toBeNull()
     })
-    expect(postPayload?.kind).toBe('herdr')
-    expect(postPayload?.herdr_mode).toBe('ssh')
-    expect(postPayload?.ssh_host).toBe('herdr.example.test')
-    expect(postPayload?.ssh_user).toBe('herdr')
-    expect(postPayload?.ssh_identity_env).toBe('HERDR_SSH_IDENTITY')
+    const payload = postPayload as unknown as Record<string, unknown>
+    expect(payload.kind).toBe('herdr')
+    expect(payload.herdr_mode).toBe('ssh')
+    expect(payload.ssh_host).toBe('herdr.example.test')
+    expect(payload.ssh_user).toBe('herdr')
+    expect(payload.ssh_identity_env).toBe('HERDR_SSH_IDENTITY')
     expect(postPayload).not.toHaveProperty('api_key')
     expect(JSON.stringify(postPayload)).not.toMatch(/BEGIN .*PRIVATE KEY/)
   })

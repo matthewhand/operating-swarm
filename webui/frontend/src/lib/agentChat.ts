@@ -6,7 +6,7 @@ import {
   type ConversationSummary,
 } from './chatCompact'
 import { newConversationId } from './chatWs'
-import { asTranscriptRole, isStatusRole } from './chatStatus'
+import { asTranscriptRole, isStatusRole, type ChatTranscriptRole } from './chatStatus'
 import { messagesFromThreadPayload } from './transcriptReconstruct'
 import { parseContextMeta, type ContextMeta } from './contextCull'
 
@@ -138,7 +138,7 @@ export function conversationIdForTask(
 }
 
 export interface AgentThreadMessage {
-  role: 'user' | 'assistant' | 'status' | 'system'
+  role: ChatTranscriptRole
   content: string
   edited?: boolean
   kind?: 'prior_history'
@@ -156,6 +156,8 @@ export interface AgentThread {
   editable?: boolean
   /** Requested session was not on disk/DB — do not silently swap. */
   session_missing?: boolean
+  /** Edited turn cannot rewind the CLI session; next message starts fresh (BE PATCH flag). */
+  cli_session_reset?: boolean
   context_meta?: ContextMeta
 }
 
@@ -283,6 +285,7 @@ export async function patchAgentMessage(
     summaries: parseSummaries(data?.summaries),
     kind,
     editable: data?.editable === true || (data?.editable !== false && kind === 'api'),
+    cli_session_reset: data?.cli_session_reset === true,
   }
 }
 

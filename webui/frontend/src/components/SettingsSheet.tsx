@@ -26,7 +26,6 @@ import {
   fetchRemotes,
   patchConfigSection,
   patchLlmProfiles,
-  upsertLlmProfile,
   updateBlueprintSource,
   type Blueprint,
   type BlueprintSource,

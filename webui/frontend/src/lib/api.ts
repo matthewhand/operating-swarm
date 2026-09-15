@@ -235,6 +235,8 @@ export interface Blueprint {
   abbreviation: string | null
   required_mcp_servers: string[]
   tags: string[]
+  /** Library grouping (blueprint library); optional — plain /v1/blueprints rows may omit it. */
+  category?: string | null
   installed: boolean | null
   compiled: boolean | null
   /** First-class role for sidepane highlighting when the API sends it. */
@@ -312,6 +314,8 @@ export interface Model {
 /** GET/POST /v1/teams/ and DELETE /v1/teams/<id>/ (swarm/views/teams_api.py) */
 export interface Team {
   id: string
+  /** Roster label; rail rows prefer `name` and fall back to the slug id. */
+  name?: string
   object: 'team'
   description: string
   llm_profile: string

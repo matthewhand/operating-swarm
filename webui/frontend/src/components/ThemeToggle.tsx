@@ -16,7 +16,8 @@ import {
 export default function ThemeToggle() {
   const [visible, setVisible] = useState<boolean>(initialNavbarThemeVisible)
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(initialTheme()))
+  // Only the setter is read (state value is tracked but never rendered).
+  const [, setResolvedTheme] = useState(() => resolveTheme(initialTheme()))
 
   useEffect(() => {
     const onSet = (event: Event) => {

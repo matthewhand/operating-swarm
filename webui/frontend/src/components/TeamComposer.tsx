@@ -63,7 +63,9 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [members, setMembers] = useState<TeamRosterMember[]>([])
-  const [wires, setWires] = useState({ ...DEFAULT_TEAM_WIRES })
+  const [wires, setWires] = useState<{ handoff: boolean; as_tool: boolean }>({
+    ...DEFAULT_TEAM_WIRES,
+  })
   const [chiefOfStaffId, setChiefOfStaffId] = useState<string | null>(null)
   const [cosInstructions, setCosInstructions] = useState(DEFAULT_COS_STARTER)
   const [savedId, setSavedId] = useState<string | null>(null)

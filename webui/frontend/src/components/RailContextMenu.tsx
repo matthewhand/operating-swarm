@@ -204,7 +204,7 @@ export default function RailContextMenu({
       ref={(node) => {
         nodeRef.current = node
         if (typeof menuRef === 'function') menuRef(node)
-        else if (menuRef) menuRef.current = node
+        else if (menuRef) (menuRef as { current: HTMLUListElement | null }).current = node
       }}
       role="menu"
       aria-label={`Actions for ${agentName}`}

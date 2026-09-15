@@ -170,7 +170,8 @@ export const RobotAvatar = memo(function RobotAvatar({
   const bodyClass =
     status === 'working' || eyesActive ? 'robot-working os-robot-avatar--active' :
     status === 'error' ? 'robot-error' :
-    status === 'waiting' ? 'robot-waiting' :
+    // NOTE: 'waiting' is covered by eyesActive above, so it lands here as
+    // robot-working — pre-existing render behavior, preserved verbatim.
     'robot-idle'
   const face: FaceProps = {
     color, status, hi, sh, metal, visor, gradId, visorId, chassis,

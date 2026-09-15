@@ -6,8 +6,8 @@ import {
   initialTheme,
   nextTheme,
   persistNavbarThemeVisible,
-  persistTheme,
-  resolveSystemTheme,
+
+
   resolveTheme,
   subscribeSystemTheme,
   THEME_NAVBAR_SET_EVENT,

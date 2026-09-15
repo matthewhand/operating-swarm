@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, type Mock } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import CliSessionPicker, { type CliSessionPickerProps } from '../CliSessionPicker'
 import type { CliProviderSession } from '../../lib/cliSessions'
@@ -72,7 +72,7 @@ describe('CliSessionPicker', () => {
     expect(paste).toBeInTheDocument()
     fireEvent.click(paste)
     expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(onSelect.mock.calls[0][0].id).toBe('pasted-session-99')
+    expect((onSelect as Mock<(s: CliProviderSession) => void>).mock.calls[0][0].id).toBe('pasted-session-99')
   })
 
   it('navigates with the keyboard and selects on Enter', () => {
@@ -80,7 +80,7 @@ describe('CliSessionPicker', () => {
     fireEvent.keyDown(window, { key: 'ArrowDown' })
     fireEvent.keyDown(window, { key: 'Enter' })
     expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(onSelect.mock.calls[0][0].id).toBe('sid-2')
+    expect((onSelect as Mock<(s: CliProviderSession) => void>).mock.calls[0][0].id).toBe('sid-2')
   })
 
   it('shows honest empty copy when the CLI cannot list', () => {

@@ -515,7 +515,13 @@ export function NavbarRoutingPicker({
     const isAgent = dim === 'agent'
     const isModel = dim === 'model'
     const isEffort = dim === 'effort'
-    const items = isEffort
+    const items: Array<{
+      id: string
+      label: string
+      kind: RoutingDimension
+      current: boolean
+      hasChildren?: boolean
+    }> = isEffort
       ? (families.find(
           (row) =>
             row.base ===

@@ -5,8 +5,8 @@ describe('computeRailHotkeyTargets (REQ-172)', () => {
   const mockRows: RailRow[] = [
     { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
     { kind: 'agent', id: 'agent-2', agent: { id: 'agent-2', name: 'Agent 2' } },
-    { kind: 'team', id: 'team-alpha', team: { id: 'alpha', name: 'Team Alpha', object: 'team' } },
-    { kind: 'remote', id: 'remote-omb', remote: { id: 'omb', label: 'OpenMousBot', title: 'OpenMousBot', kind: 'omb' } },
+    { kind: 'team', id: 'team-alpha', team: { id: 'alpha', name: 'Team Alpha' } },
+    { kind: 'remote', id: 'remote-omb', remote: { id: 'omb', label: 'OpenMousBot' } },
     { kind: 'agent', id: 'agent-5', agent: { id: 'agent-5', name: 'Agent 5' } },
     { kind: 'agent', id: 'agent-6', agent: { id: 'agent-6', name: 'Agent 6' } },
     { kind: 'agent', id: 'agent-7', agent: { id: 'agent-7', name: 'Agent 7' } },

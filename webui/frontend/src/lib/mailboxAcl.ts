@@ -164,7 +164,6 @@ export async function resetMailboxAcl(
   id: string,
   role?: string,
 ): Promise<MailboxAcl> {
-  const fallback = defaultMailboxAcl(id, (role || 'default') as AgentRole, scope)
   const path =
     scope === 'role'
       ? `/v1/mailbox-acl/roles/${encodeURIComponent(id)}/`

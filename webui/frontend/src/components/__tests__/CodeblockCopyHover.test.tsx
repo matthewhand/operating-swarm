@@ -60,7 +60,7 @@ describe('REQ-174: Codeblock copy control (top-right, reveal on hover/focus)', (
 
   it('copies full code text and provides Copied! visual feedback', async () => {
     vi.useFakeTimers()
-    const copySpy = vi.spyOn(clipboard, 'copyTextToClipboard').mockResolvedValue(true)
+    const copySpy = vi.spyOn(clipboard, 'copyTextToClipboard').mockResolvedValue('copied')
 
     render(
       <ChatMessageBubble

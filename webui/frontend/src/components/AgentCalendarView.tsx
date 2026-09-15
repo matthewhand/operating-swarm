@@ -28,7 +28,12 @@ export interface AgentCalendarViewProps {
   open?: boolean
   onClose?: () => void
   initialRoutines?: Routine[]
-  agents?: Array<{ id: string; name?: string; kind?: string; description?: string }>
+  agents?: Array<{
+    id: string
+    name?: string
+    kind?: string | null
+    description?: string | null
+  }>
   startDate?: Date | string | number
   onSelectRoutine?: (routine: Routine) => void
   onSelectAgent?: (agentId: string) => void
@@ -62,7 +67,7 @@ export function getCalendarDays(baseDate: Date, count: number = 30): CalendarDay
 
 export function isApiAgentRoutine(
   routine: Routine,
-  agentsList?: Array<{ id: string; name?: string; kind?: string }>,
+  agentsList?: Array<{ id: string; name?: string; kind?: string | null }>,
 ): boolean {
   if (routine.agent_kind === "api") return true
   const agentId = (routine.agent_id ?? "").trim().toLowerCase()

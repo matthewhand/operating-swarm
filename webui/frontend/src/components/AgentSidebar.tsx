@@ -139,7 +139,7 @@ import {
   getChatConnection,
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
-import { selectStackedFaces, teamSidepaneStack } from '../lib/avatarStack'
+import {teamSidepaneStack } from '../lib/avatarStack'
 import {
   defaultSessionForRemote,
   defaultSessionForTeam,
@@ -176,7 +176,6 @@ import {
 } from '../lib/railContextMenu'
 import {
   NEW_SECTION_TARGET,
-  UNASSIGNED_SECTION_ID,
   createSection,
   createSectionWithAgent,
   deleteSection,
@@ -189,6 +188,7 @@ import {
   renameSection,
   sectionIdForAgent,
   toggleSectionCollapsed,
+  UNASSIGNED_SECTION_ID,
   type RailSectionsState,
 } from '../lib/railSections'
 import { copyTextToClipboard } from '../lib/clipboard'
@@ -240,7 +240,6 @@ import {
   isAvatarOnlyWidth,
   MIN_RAIL_WIDTH,
   MAX_RAIL_WIDTH,
-  AVATAR_ONLY_THRESHOLD,
 } from '../lib/railResize'
 
 const EMPTY_BLUEPRINTS: Blueprint[] = []
@@ -294,10 +293,14 @@ interface SessionPickerState {
   sessions: AgentSession[]
 }
 
+/**
+ * Rail seat view of a Blueprint. `kind` widens to `string | null` to match the
+ * wire type (GET /v1/blueprints/ rows may send kind: null).
+ */
 type SidebarAgent = Blueprint & {
-  kind?: string
+  kind?: string | null
   remote?: string
-  cli?: string
+  cli?: string | null
 }
 
 type RailRow =
@@ -305,11 +308,11 @@ type RailRow =
   | { kind: 'team'; id: string; team: TeamRoster }
   | { kind: 'remote'; id: string; remote: RemoteEntry }
 
-function isHerdrAgent(agent: { id: string; kind?: string }): boolean {
+function isHerdrAgent(agent: { id: string; kind?: string | null }): boolean {
   return agent.kind === 'herdr' || String(agent.id).startsWith('herdr:')
 }
 
-function sidebarHref(agent: { id: string; kind?: string }): string {
+function sidebarHref(agent: { id: string; kind?: string | null }): string {
   if (isHerdrAgent(agent)) return '/teams/#herdr-members'
   return agentChatHref(agent.id)
 }
@@ -334,15 +337,15 @@ function toSidebarCli(row: CliRailAgent): SidebarAgent {
 }
 
 /** Named kind rows (cli_agent, api_agent) stay on the rail. */
-function isCliRailAgent(agent: { id?: string; kind?: string }): boolean {
+function isCliRailAgent(agent: { id?: string; kind?: string | null }): boolean {
   return agent.kind === 'cli'
 }
 
-function isApiRailAgent(agent: { id?: string; kind?: string }): boolean {
+function isApiRailAgent(agent: { id?: string; kind?: string | null }): boolean {
   return agent.kind === 'api' || agent.id === 'api_agent'
 }
 
-function isBlueprintRailAgent(agent: { id?: string; kind?: string }): boolean {
+function isBlueprintRailAgent(agent: { id?: string; kind?: string | null }): boolean {
   return agent.kind === 'blueprint'
 }
 
@@ -1559,7 +1562,6 @@ export default function AgentSidebar({
     const onAltDigit = (event: KeyboardEvent) => {
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && /^[1-9]$/.test(event.key)) {
         const idx = parseInt(event.key, 10) - 1
-        const pin = visiblePins[idx]
         const target = hotkeyTargets[idx]
         if (target) {
           event.preventDefault()
@@ -1890,11 +1892,6 @@ export default function AgentSidebar({
     setDraggingId(agent.id)
   }
 
-  const openEditor = (agent: Blueprint) => {
-    openAgentEditor({ agentId: agent.id })
-    onClose?.()
-  }
-
   const openDefinition = (
     kind: 'role' | 'blueprint' | 'team',
     id: string,
@@ -2016,7 +2013,7 @@ export default function AgentSidebar({
     const remote = remotes.find((r) => remoteHideId(r.id) === fromId || r.id === fromId)
     const team = teams.find((t) => teamHideId(t.id) === fromId || t.id === fromId)
 
-    let kind: RailMenuKind = 'agent'
+    let kind: RailMenuKind = resolveMenuKind(fromId)
     let entityId = fromId
     let agentName = fromId
 
@@ -2030,7 +2027,7 @@ export default function AgentSidebar({
         entityId = row.team.id
         agentName = row.team.name
       } else {
-        kind = row.agent.kind === 'cli' ? 'cli' : 'agent'
+        kind = row.agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
         entityId = row.agent.id
         agentName = row.agent.name
       }
@@ -2043,7 +2040,7 @@ export default function AgentSidebar({
       entityId = team.id
       agentName = team.name
     } else if (agent) {
-      kind = agent.kind === 'cli' ? 'cli' : 'agent'
+      kind = agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
       entityId = agent.id
       agentName = agent.name
     } else if (pin) {

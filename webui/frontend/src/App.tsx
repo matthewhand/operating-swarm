@@ -11,7 +11,6 @@ import TeamsSheet from './components/overlays/TeamsSheet'
 import SettingsSheet, {
   OPEN_SETTINGS_EVENT,
   type OpenSettingsDetail,
-  type SettingsSection,
 } from './components/SettingsSheet'
 import { OPEN_LLM_PROFILES_EVENT, OPEN_HIDDEN_EVENT, OPEN_TEAMS_EVENT } from './lib/chromeOverlay' 
 import { RailChromeProvider, SwipeHint } from './components/RailChrome'

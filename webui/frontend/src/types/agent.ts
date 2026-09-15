@@ -73,7 +73,7 @@ export interface Agent {
   chiefOfStaff?: boolean
   customName?: string
   customPurpose?: string
-  kind?: 'builtin' | 'personality' | 'swarm' | 'cli' | 'remote' | 'blueprint' | 'api'
+  kind?: 'builtin' | 'personality' | 'swarm' | 'cli' | 'remote' | 'blueprint' | 'api' | (string & {})
   agent_type?: AgentType
   personas?: AgentPersona[]
   cli?: string
@@ -168,6 +168,10 @@ export interface CompactedLine {
 
 export interface ChatMessage {
   key: string
+  /** Server-issued container id, when the source provides one (reaction keys fall back to key). */
+  id?: string
+  /** Legacy sender name; new code prefers role/agent. */
+  sender?: string
   role: 'user' | 'assistant' | 'system'
   text: string
   agent?: string

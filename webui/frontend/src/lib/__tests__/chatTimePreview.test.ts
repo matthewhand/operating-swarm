@@ -7,7 +7,7 @@ import {
 } from '../chatTime'
 import {
   AGENT_CHAT_SESSIONS_EVENT,
-  AGENT_CHAT_SESSIONS_KEY,
+
   putAgentChatSession,
 } from '../agentChatSessions'
 

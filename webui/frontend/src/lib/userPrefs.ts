@@ -42,8 +42,6 @@ import {
 } from './settingsPrefs'
 import {
   DEFAULT_CONTEXT_STRATEGY,
-  DEFAULT_CULL_FRACTION_PCT,
-  DEFAULT_CULL_TRIGGER_PCT,
   parseContextStrategy,
   parseCullFractionPct,
   parseCullTriggerPct,

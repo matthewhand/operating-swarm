@@ -121,6 +121,8 @@ describe('remotes catalog (REQ-59)', () => {
     expect(herdrLocationLabel({ herdr_mode: 'local', base_url: '' })).toBe('Local Herdr (no SSH)')
     expect(
       herdrLocationLabel({
+        base_url: '',
+        transport: 'ssh',
         herdr_mode: 'ssh',
         ssh_user: 'herdr',
         ssh_host: 'herdr.example.test',

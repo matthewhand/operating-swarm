@@ -226,7 +226,6 @@ import { chatFolderParams } from '../lib/agentFolder'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { nextInferenceIndex, serializeInferenceList } from '../lib/inferenceList'
 import {
-  agentLabel,
   defaultBlueprintId,
   isSupportAgent,
   SUPPORT_AGENT_ID,
@@ -1567,58 +1566,6 @@ const ChatPage = () => {
           needsApproval: true,
           concerned: true,
         })
-        return
-      }
-      if (event.kind === 'cli_session_update') {
-        // Live qwen/CLI provider session activity (inside OR outside open-swarm).
-        const ownThread =
-          Boolean(event.conversationId) &&
-          event.conversationId === conversationIdRef.current
-        if (ownThread && event.events.length > 0) {
-          setThreads((prev) => {
-            const current = prev[threadKey] ?? []
-            const additions: ChatMessage[] = []
-            if (event.events.some((row) => row.role === 'user')) {
-              additions.push({
-                key: `cliext-${Date.now()}-head`,
-                role: 'status',
-                text: `${event.cli} session updated outside open-swarm (live).`,
-                streaming: false,
-              })
-            }
-            event.events.forEach((row, idx) => {
-              if (row.role === 'user' || row.role === 'assistant') {
-                additions.push({
-                  key: `cliext-${Date.now()}-${idx}`,
-                  role: row.role,
-                  text: row.text,
-                  streaming: false,
-                })
-              } else {
-                additions.push({
-                  key: `cliext-tool-${Date.now()}-${idx}`,
-                  role: 'status',
-                  text: row.text,
-                  streaming: false,
-                })
-              }
-            })
-            return { ...prev, [threadKey]: [...current, ...additions] }
-          })
-        }
-        if (event.state === 'completed') {
-          const lastText = [...event.events]
-            .reverse()
-            .find((row) => row.role === 'assistant')?.text
-          const { agentId: notifyAgentId, agentName: notifyAgentName } = notifyCtxRef.current
-          maybeNotifyAgentTurn({
-            agentId: event.agentId || notifyAgentId || event.cli,
-            agentName: notifyAgentName,
-            snippet: lastText || '',
-            selectedAgentId: notifyAgentId,
-            tabHidden: typeof document !== 'undefined' ? document.hidden : false,
-          })
-        }
         return
       }
       setThreads((prev) => {

@@ -29,7 +29,6 @@ import {
 import {
   STARTER_SUPPORT_ID,
   STARTER_IDS,
-  STARTER_LAYOUT,
   hideAllExceptStarters,
   mergeStarters,
 } from './starter-agents'

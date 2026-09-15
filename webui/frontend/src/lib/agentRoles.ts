@@ -145,7 +145,7 @@ export function normalizeAgentRole(value: unknown): AgentRole {
 export function agentRole(agent: {
   id?: string | null
   name?: string | null
-  role?: string | null
+  role?: unknown
 }): AgentRole {
   const edited = agent.id ? loadAgentEdit(agent.id).role : undefined
   if (edited) return normalizeAgentRole(edited)
@@ -205,7 +205,11 @@ export function roleBadgeLabel(role: unknown): string {
   return ROLE_BADGE_LABELS[normalizeAgentRole(role)]
 }
 
-export function roleFromAgent(agent: { role?: unknown; id?: string; name?: string | null }): AgentRole {
+export function roleFromAgent(agent: {
+  role?: unknown
+  id?: string | null
+  name?: string | null
+}): AgentRole {
   return agentRole(agent)
 }
 
@@ -370,9 +374,10 @@ export function applyBlueprintAssignment(
   blueprint: { id: string; role?: string | null; workflow?: string | null },
 ): AgentEdit {
   const current = loadAgentEdit(agentId)
+  const workflow = normalizeWorkflow(blueprint.workflow)
   const patch: AgentEdit = {
     blueprintId: blueprint.id,
-    workflow: normalizeWorkflow(blueprint.workflow),
+    ...(workflow ? { workflow } : {}),
   }
   if (!current.roleOverridden) {
     patch.role = normalizeAgentRole(blueprint.role)

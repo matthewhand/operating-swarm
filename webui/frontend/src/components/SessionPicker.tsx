@@ -3,7 +3,6 @@ import { Search } from 'lucide-react'
 import { agentMarkIndex } from '../lib/hiddenAgents'
 import {
   compareSessions,
-  filterAgentSessions,
   type AgentSession,
 } from '../lib/scaleOutSessions'
 import type { MemberSession } from '../lib/sessionPicker'

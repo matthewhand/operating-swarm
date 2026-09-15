@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, act, fireEvent, within } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import ChatPage from '../ChatPage'

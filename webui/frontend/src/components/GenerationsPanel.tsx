@@ -14,7 +14,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Copy, X } from 'lucide-react'
-import { ToolStatusBadge, type ToolCallState } from './ToolCallPopup'
+import { ToolStatusBadge } from './ToolCallPopup'
+import type { ToolCallState } from '../lib/safety'
 
 /** Tool calls as rendered in the panel; args/output appear when the backend sends them. */
 export interface PanelToolCall extends ToolCallState {

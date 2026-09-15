@@ -8,7 +8,6 @@ import {
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { 
   Send, 
-  Sparkles, 
   Trash2, 
   PanelRightClose, 
   PanelRight, 
@@ -77,13 +76,14 @@ function routeRequest(
         : routingStrategy
   const params = backendRouteParams(backend, llmProfile, cliModel, remoteId, blueprintId, framework)
   if (sessionMode && sessionMode !== 'default') params.session_mode = sessionMode
-  return {
+  const req: Parameters<typeof routeMessage>[0] = {
     message: text,
     routing_strategy: strategy,
     target_agent: strategy === 'direct' ? (targetAgentId || selectedAgentId) : null,
     agent_ids: strategy === 'consensus' ? ['researcher', 'writer', 'analyst', 'coder'] : undefined,
     params,
   }
+  return req
 }
 import { AVATAR_THEMES, AVATAR_EYES } from '../types/agent'
 import { useSearchParams } from 'react-router-dom'

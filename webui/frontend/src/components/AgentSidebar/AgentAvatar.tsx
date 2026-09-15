@@ -13,7 +13,6 @@ import { getInitials, getReadableTextColor } from '../../lib/agent-utils'
 import { useAgentStore } from '../../lib/agent-store'
 import { isRobotPackTheme, resolveAvatarTheme } from '../../lib/avatarTheme'
 import { useAvatarTheme, useEnabledAvatarThemes } from '../../lib/useAvatarTheme'
-import ChatAgentAvatar from '../AgentAvatar'
 import { RobotAvatar } from './RobotAvatar'
 
 export interface AgentAvatarProps {

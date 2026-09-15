@@ -2,20 +2,23 @@
  * REQ-172: Alt+1–9 spill into top unpinned rail rows when favourites < 10.
  */
 
-import type { Team, RemoteConnection } from './api'
 import { chatHrefForRowId } from './agentNotifications'
 
-export function isHerdrAgent(agent?: { id?: string; kind?: string } | null): boolean {
+export function isHerdrAgent(agent?: { id?: string; kind?: string | null } | null): boolean {
   if (!agent) return false
   return agent.kind === 'herdr' || String(agent.id).startsWith('herdr:')
 }
 
+/**
+ * Structural row shape for hotkey targeting — callers own their row types
+ * (AgentSidebar uses TeamRoster/RemoteEntry), so these stay minimum-viable.
+ */
 export interface RailRow {
   kind: 'agent' | 'team' | 'remote'
   id: string
-  agent?: any
-  team?: Team
-  remote?: RemoteConnection
+  agent?: { id: string; name?: string | null; kind?: string | null } | null
+  team?: { id: string; name?: string | null } | null
+  remote?: { id: string; label?: string | null } | null
 }
 
 export interface RailHotkeyTarget {

@@ -109,8 +109,8 @@ describe('AvatarThemePicker apply to all (REQ-842)', () => {
   it('confirms before restamping a large roster', () => {
     saveEnabledAvatarThemes(['blobs', 'bee'])
     const roster = Array.from({ length: 20 }, (_, i) => stubAgent(`a${i}`))
-    const themes = Object.fromEntries(roster.map((a) => [a.agent_id, 'blobs']))
-    const eyes = Object.fromEntries(roster.map((a) => [a.agent_id, 'lens']))
+    const themes = Object.fromEntries(roster.map((a) => [a.agent_id, 'blobs' as const]))
+    const eyes = Object.fromEntries(roster.map((a) => [a.agent_id, 'lens' as const]))
     useAgentStore.setState({
       agents: roster,
       avatarThemeByAgent: themes,

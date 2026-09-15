@@ -190,6 +190,7 @@ describe('AgentMessageBubble', () => {
       key: 'r-msg',
       role: 'assistant',
       text: 'Great idea!',
+      timestamp: new Date('2024-01-01T00:00:00Z'),
       reactions: [
         { emoji: '👍', count: 3, userReacted: true },
         { emoji: '🎉', count: 1, userReacted: false },

@@ -20,6 +20,14 @@ export interface ChatBubble {
   /** REQ-104 — expandable archive of the previous swarm thread. */
   kind?: 'prior_history'
   ts?: string
+  /** REQ-88 — provider queue wait chrome on status lines. */
+  rateLimit?: import('./providerRateLimits').RateLimitWait
+  /** REQ-72 — turn was edited after send. */
+  edited?: boolean
+  /** REQ-176 — tool-call chips attached to the turn. */
+  tools?: import('./safety').ToolCallState[]
+  /** REQ-859 — inline fan-out block for dynamically spawned subagent turns. */
+  subagentFanOut?: import('./subagentFanOut').SubagentFanOutData
 }
 
 export type DisplayItem =
