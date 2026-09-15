@@ -27,11 +27,23 @@ Operating Swarm is simultaneously:
 This tagline captures the purest, best-distilled intent of the project: eliminating artificial architectural divides between native execution runtimes, third-party frameworks, and federated peer instances.
 
 **Header Placement Requirement:**  
-This tagline must be featured directly beneath the project name in the top `README.md` hero header:
+This tagline and the architecture hero diagram (`assets/brand/operating-swarm-hero-diagram.svg`) must be featured directly beneath the project name in the top `README.md` hero header:
 ```markdown
 # Operating Swarm (OS)
 > Treat external harnesses and peer instances as one common abstraction.
+
+<p align="center">
+  <img src="assets/brand/operating-swarm-hero-diagram.svg" alt="Operating Swarm Architecture Overview" width="750" />
+</p>
 ```
+
+The hero diagram visualizes the central OS hub radiating out across 5 core connection paths:
+- **API** (OpenAI · MCP · A2A)
+- **Remote** (Other OS · hosted agents)
+- **Embedded** (SDKs · plugins · adapters)
+- **WebUI** (Browser · local UI via WebSocket)
+- **CLI** (Hermes · TruForge · OpenCode)
+
 
 ### 1.3 Required Positioning Statement
 > *"Operating Swarm is a provider-agnostic agent operating layer and harness. It provides its own agentic interface while also connecting to existing harnesses and other Operating Swarm instances. Sessions can persist while switching between providers, harnesses, and remote OS nodes."*
@@ -139,4 +151,6 @@ The project architecture is structured into seven distinct layers:
 - [ ] PyPI deprecation plan for `open-swarm` and reservation plan for `operating-swarm` on PyPI and npm defined.
 - [ ] Brand touchpoints in WebUI, CLI, templates, and `pyproject.toml` inventoried and aligned to OS naming.
 - [ ] The official brand tagline *"Treat external harnesses and peer instances as one common abstraction."* is featured in the top `README.md` hero header and documentation overview.
+- [ ] The hero architecture diagram `assets/brand/operating-swarm-hero-diagram.svg` is embedded in the top hero section of `README.md`.
+
 
