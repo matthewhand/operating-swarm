@@ -8,6 +8,8 @@ export interface ConversationSummary {
   body: string
   created_at: string
   replaced_count?: number
+  /** #214: unticked = summary (and its span) stop feeding model context. */
+  include_in_context?: boolean
 }
 
 export interface ChatBubble {

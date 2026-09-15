@@ -22,6 +22,7 @@ import {
   PinOff,
   Trash2,
   Users,
+  CircleCheck,
 } from 'lucide-react'
 import type { RailMenuItemId, RailMenuItemSpec, RailMenuSubItemSpec } from '../lib/railContextMenu'
 
@@ -49,6 +50,8 @@ const ICONS: Record<RailMenuItemId, LucideIcon> = {
   expand: ChevronDown,
   collapse: ChevronUp,
   copy: ClipboardCopy,
+  include_context: CircleCheck,
+  exclude_context: EyeOff,
 }
 
 export interface RailMenuItemProps {

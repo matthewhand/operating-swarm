@@ -348,6 +348,21 @@ export async function compactAgentThread(opts: {
   }
 }
 
+/** POST /chat/summary/toggle-context/ — #214: tick/untick a summary's context inclusion. */
+export async function toggleSummaryInContext(opts: {
+  summaryId: number
+  includeInContext: boolean
+}): Promise<ConversationSummary> {
+  const data = await apiPost<{ summary: unknown }>('/chat/summary/toggle-context/', {
+    summary_id: opts.summaryId,
+    include_in_context: opts.includeInContext,
+  })
+  if (!isConversationSummary(data?.summary)) {
+    throw new Error('Toggle returned no summary')
+  }
+  return data.summary
+}
+
 /** POST /chat/context-start/ — start chat context from a chosen message (REQ-121). */
 export async function startContextFromHere(opts: {
   conversationId: string

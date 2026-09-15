@@ -27,7 +27,7 @@ from swarm.core.chat_compact import (
 )
 from swarm.core.thread_load import load_thread
 from swarm.core.thread_load import public_messages as _public_messages
-from swarm.models import ChatAttachment, ChatMessage
+from swarm.models import ChatAttachment, ChatMessage, ConversationSummary
 
 logger = logging.getLogger(__name__)
 
@@ -497,6 +497,35 @@ def chat_compact(request):
             "raw_count": len(raw),
         }
     )
+
+
+@login_required
+@require_http_methods(["POST"])
+def chat_summary_toggle_context(request):
+    """#214: toggle a summary's include_in_context (default True keeps today's behavior).
+
+    Unticked = the summary (and the raw span it replaced) stops feeding model
+    context — a lightweight "new chat". The transcript row is untouched.
+    """
+    payload = _json_body(request)
+    summary_id = payload.get("summary_id")
+    try:
+        summary_id = int(summary_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "summary_id must be an integer."}, status=400)
+    include = payload.get("include_in_context")
+    if not isinstance(include, bool):
+        return JsonResponse({"error": "include_in_context must be a boolean."}, status=400)
+    try:
+        row = ConversationSummary.objects.select_related("conversation").get(pk=summary_id)
+    except ConversationSummary.DoesNotExist:
+        return JsonResponse({"error": "Summary not found."}, status=404)
+    owner = row.conversation.student
+    if owner is not None and request.user.pk != owner.pk:
+        return JsonResponse({"error": "Not your conversation."}, status=403)
+    row.include_in_context = include
+    row.save(update_fields=["include_in_context"])
+    return JsonResponse({"summary": summary_to_dict(row)})
 
 
 @login_required

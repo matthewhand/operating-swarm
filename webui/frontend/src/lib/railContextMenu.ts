@@ -44,6 +44,8 @@ export type RailMenuItemId =
   | 'expand'
   | 'collapse'
   | 'copy'
+  | 'include_context'
+  | 'exclude_context'
 
 export interface RailMenuSubItemSpec {
   id: string
