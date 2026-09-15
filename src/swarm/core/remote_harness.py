@@ -96,8 +96,15 @@ class RemoteCapabilities:
 
 
 def capabilities_for(impl_id: str) -> RemoteCapabilities:
-    """Static capability table. ``operate`` is computer-control, not list/send."""
+    """Static capability table. ``operate`` is computer-control, not list/send.
+
+    Named instances (``trueforge-2``, REQ-856) resolve to their kind first so
+    capabilities match the underlying implementation."""
     rid = normalize_impl_id(impl_id) or (impl_id or "").strip().lower()
+    if rid not in REMOTE_IMPL_IDS:
+        from swarm.core.remotes import kind_of_instance
+
+        rid = kind_of_instance(rid)
     computer = rid in {"omb", "rakazo"}
     return RemoteCapabilities(
         list=True,

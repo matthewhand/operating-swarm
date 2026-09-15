@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import socket
 import time
 import urllib.error
@@ -45,6 +46,36 @@ logger = logging.getLogger(__name__)
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
 REMOTE_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
 REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
+
+def kind_of_instance(remote_id: str) -> str:
+    """Resolve the remote *kind* for a catalog id (REQ-856 / #211).
+
+    Ids are either a bare kind (``trueforge``) or a named instance of a kind
+    (``trueforge-2``, ``trueforge_lab``): the kind is the prefix before the
+    first ``-`` / ``_`` that maps to a known kind. Unknown ids fall back to
+    the whole id so existing behavior is unchanged.
+    """
+    raw = (remote_id or "").strip().lower()
+    raw = _KIND_ALIASES.get(raw, raw)
+    if raw in REMOTE_KIND_IDS:
+        return raw
+    for sep in ("-", "_"):
+        head, _, tail = raw.partition(sep)
+        if tail and head in REMOTE_KIND_IDS:
+            return head
+    return raw or (remote_id or "")
+
+
+def _instance_slug(remote_id: str) -> str:
+    """Uppercase env slug for a named instance: ``trueforge-2`` → ``TRUEFORGE_2``.
+    Bare kinds get an empty slug."""
+    raw = (remote_id or "").strip().lower()
+    kind = kind_of_instance(raw)
+    if kind == raw:
+        return ""
+    tail = raw[len(kind) + 1 :] if raw.startswith(kind) else raw
+    return re.sub(r"[^a-z0-9]+", "_", tail).strip("_").upper()
+
 # Kinds that never appear until the user (or env) adds them.
 OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr"})
 REMOTE_KIND_LABELS: dict[str, str] = {
@@ -271,6 +302,8 @@ class RemoteSpec:
         """JSON-safe view with secrets redacted."""
         from swarm.core.remote_harness import capabilities_for
 
+        kind = kind_of_instance(self.id)
+        is_instance = self.id != kind
         payload: dict[str, Any] = {
             "id": self.id,
             "title": self.title,
@@ -282,24 +315,25 @@ class RemoteSpec:
             "health_path": self.health_path,
             "version_path": self.version_path,
             "notes": self.notes,
-            "kind": self.id,
-            "impl": self.id,
+            "kind": kind,
+            "impl": kind,
+            "instance": self.id if is_instance else "",
             "user_kind": "remote",
-            "label": kind_label(self.id),
+            "label": f"{kind_label(kind)} ({self.id})" if is_instance else kind_label(self.id),
             "source": self.source,
             "api_key_env": self.api_key_env,
             "session_cookie_env": self.session_cookie_env,
             "added": self.source in ("config", "env"),
             "provenance": dict(self.provenance),
-            "capabilities": capabilities_for(self.id).as_dict(),
+            "capabilities": capabilities_for(kind).as_dict(),
             "member": {
                 "kind": "remote",
-                "talk": _TOOL_NAMES.get(self.id, ""),
+                "talk": _TOOL_NAMES.get(kind, ""),
                 "via": "as_tool",
                 "place_in": "Team (handoff members — not /teams/ profile aliases)",
             },
         }
-        if self.id == "herdr":
+        if kind == "herdr":
             from swarm.herdr.remote import HOP_MODEL, resolve_herdr_mode
 
             mode = resolve_herdr_mode(self)
@@ -579,19 +613,29 @@ def default_spec(remote_id: str) -> RemoteSpec:
 
 
 def _require_kind_id(remote_id: str) -> str:
+    """Validate a remote id and return its **kind** (REQ-856).
+
+    Accepts bare kinds (``trueforge``), aliases (``open-swarm``) and named
+    instances (``trueforge-2`` — returns ``trueforge``). Raises for unknown
+    kinds so callers can reject bad ids as before.
+    """
     rid = (remote_id or "").strip().lower()
     rid = _KIND_ALIASES.get(rid, rid)
-    if rid not in REMOTE_KIND_IDS:
+    kind = kind_of_instance(rid)
+    if kind not in REMOTE_KIND_IDS:
         raise RemoteError(f"Unknown remote '{remote_id}'. Known: {', '.join(REMOTE_KIND_IDS)}")
-    return rid
+    return kind
+
+
+def normalize_instance_id(remote_id: str) -> str:
+    """Alias-normalized instance id: kinds stay kinds, instances keep their name."""
+    raw = (remote_id or "").strip().lower()
+    return _KIND_ALIASES.get(raw, raw)
 
 
 def _require_id(remote_id: str) -> str:
-    """Operate/health trio. Extra kinds use ``_require_kind_id``."""
-    rid = _require_kind_id(remote_id)
-    if rid not in REMOTE_IDS:
-        raise RemoteError(f"Unknown remote '{remote_id}'. Known: {', '.join(REMOTE_IDS)}")
-    return rid
+    """Health/operate gate: accept bare kinds and named instances (REQ-856)."""
+    return _require_kind_id(remote_id)
 
 
 def resolve_config_path(explicit: str | Path | None = None) -> Path:
@@ -628,14 +672,27 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
     """
     from swarm.core import config_ownership as ownership
 
-    rid = _require_kind_id(remote_id)
+    # REQ-856 / #211: ids are a bare kind ("trueforge") or a named instance
+    # of a kind ("trueforge-2"). Kind drives defaults/dispatch; the instance
+    # id is preserved on the spec and drives per-instance config/env lookup.
+    kind = kind_of_instance(remote_id)
+    if kind not in REMOTE_KIND_IDS:
+        raise RemoteError(f"Unknown remote '{remote_id}'. Known: {', '.join(REMOTE_KIND_IDS)}")
+    inst_id = _KIND_ALIASES.get((remote_id or "").strip().lower(), (remote_id or "").strip().lower())
     cfg = config if isinstance(config, dict) else load_raw_config()[0]
-    if rid in OPT_IN_REMOTE_IDS and not is_configured(rid, cfg):
-        raise RemoteError(_opt_in_not_configured_message(rid))
-    spec = default_spec(rid)
+    if kind in OPT_IN_REMOTE_IDS and not is_configured(inst_id, cfg):
+        raise RemoteError(_opt_in_not_configured_message(kind))
+    spec = default_spec(kind)
+    spec.id = inst_id
+    if inst_id != kind:
+        # Named instance: disambiguate the display title (config can override).
+        spec.title = f"{REMOTE_KIND_LABELS.get(kind, kind)} ({inst_id})"
+        spec.host_label = inst_id
     remotes_block = cfg.get("remotes") if isinstance(cfg.get("remotes"), dict) else {}
-    block = remotes_block.get(rid)
-    if not isinstance(block, dict) and rid == "swarm":
+    block = remotes_block.get(inst_id)
+    if not isinstance(block, dict) and inst_id == kind:
+        block = remotes_block.get(kind)
+    if not isinstance(block, dict) and kind == "swarm":
         block = remotes_block.get("open-swarm")
     persisted_base = ""
     persisted_ui = ""
@@ -667,32 +724,46 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
         persisted_base = str(block.get("base_url") or "").strip()
         persisted_ui = str(block.get("ui_url") or "").strip()
 
-    env_base_key = _ENV_BASE.get(rid) or ""
+    # Per-instance env names (TRUEFORGE_2_BASE_URL) fall back to the kind-level
+    # pair (TRUEFORGE_BASE_URL) so back-compat single-kind setups keep working.
+    inst_slug = _instance_slug(inst_id)
+    env_base_key = f"{kind.upper()}_{inst_slug}_BASE_URL" if inst_slug else (_ENV_BASE.get(kind) or "")
+    kind_env_base_key = _ENV_BASE.get(kind) or ""
     env_base = os.environ.get(env_base_key, "").strip() if env_base_key else ""
-    if env_base and (ownership.field_is_forced(env_base_key) or not persisted_base):
+    if not env_base and inst_slug and kind_env_base_key:
+        env_base = os.environ.get(kind_env_base_key, "").strip()
+    if env_base and (ownership.field_is_forced(env_base_key) or ownership.field_is_forced(kind_env_base_key) or not persisted_base):
         spec.base_url = env_base
         spec.source = "env"
 
-    env_ui_key = _ENV_UI.get(rid) or ""
+    env_ui_key = _ENV_UI.get(kind) or ""
     env_ui = os.environ.get(env_ui_key, "").strip() if env_ui_key else ""
     if env_ui and (ownership.field_is_forced(env_ui_key) or not persisted_ui):
         spec.ui_url = env_ui
 
     # Secrets stay env-only: file may hold ${VAR}; live value comes from env.
-    env_key_name = _ENV_KEY.get(rid)
+    env_key_name = f"{kind.upper()}_{inst_slug}_API_KEY" if inst_slug else (_ENV_KEY.get(kind) or "")
+    kind_env_key_name = _ENV_KEY.get(kind) or ""
     env_key = os.environ.get(env_key_name, "").strip() if env_key_name else ""
+    if not env_key and inst_slug and kind_env_key_name:
+        env_key = os.environ.get(kind_env_key_name, "").strip()
     if env_key:
         spec.api_key = env_key
-    env_cookie = _ENV_COOKIE.get(rid)
+    env_cookie = _ENV_COOKIE.get(kind)
     if env_cookie and os.environ.get(env_cookie, "").strip():
         spec.cookie = os.environ[env_cookie].strip()
 
     if not spec.api_key_env:
-        spec.api_key_env = _placeholder_env_name(str(spec.api_key or "")) or (env_key_name or "")
+        spec.api_key_env = (
+            _placeholder_env_name(str(spec.api_key or ""))
+            or env_key_name
+            or kind_env_key_name
+            or ""
+        )
     if not spec.session_cookie_env:
         spec.session_cookie_env = _placeholder_env_name(str(spec.cookie or ""))
 
-    if rid == "herdr":
+    if kind == "herdr":
         env_ssh_host = os.environ.get(_ENV_HERDR_SSH_HOST, "").strip()
         if env_ssh_host and not str(spec.ssh_host or "").strip():
             spec.ssh_host = env_ssh_host
@@ -735,7 +806,7 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             secret=False,
         ),
         "api_key": ownership.badge_for(
-            env_var=spec.api_key_env or (env_key_name or ""),
+            env_var=spec.api_key_env or kind_env_key_name,
             persisted=f"${{{spec.api_key_env}}}" if spec.api_key_env else "",
             secret=True,
         ),
@@ -754,7 +825,11 @@ def load_all_remotes(config: dict[str, Any] | None = None) -> dict[str, RemoteSp
 
 
 def configured_remote_ids(config: dict[str, Any] | None = None) -> list[str]:
-    """Remote kind ids the user (or env) has actually added. Defaults do not count."""
+    """Remote ids the user (or env) has actually added. Defaults do not count.
+
+    Includes named instances (``trueforge-2``) found in the ``remotes`` block
+    whose kind resolves (REQ-856). Bare-kind ids are emitted once each.
+    """
     cfg = config if isinstance(config, dict) else load_raw_config()[0]
     remotes = cfg.get("remotes") if isinstance(cfg.get("remotes"), dict) else {}
     ids: list[str] = []
@@ -768,8 +843,12 @@ def configured_remote_ids(config: dict[str, Any] | None = None) -> list[str]:
             rid = _require_kind_id(str(key))
         except RemoteError:
             continue
-        if rid not in ids:
-            ids.append(rid)
+        # Named instances (trueforge-2) keep their full id so each resolves
+        # independently; alias keys (open-swarm) normalize to the kind id.
+        raw = str(key).strip().lower()
+        emitted = rid if (raw == rid or raw in _KIND_ALIASES) else raw
+        if emitted not in ids:
+            ids.append(emitted)
     for rid, env_name in _ENV_BASE.items():
         if os.environ.get(env_name, "").strip() and rid not in ids:
             persisted = remotes.get(rid)
@@ -817,10 +896,10 @@ def added_remote_ids(
 
 def is_configured(remote_id: str, config: dict[str, Any] | None = None) -> bool:
     try:
-        rid = _require_kind_id(remote_id)
+        _require_kind_id(remote_id)
     except RemoteError:
         return False
-    return rid in configured_remote_ids(config)
+    return normalize_instance_id(remote_id) in configured_remote_ids(config)
 
 
 def is_remote_added(remote_id: str, config: dict[str, Any] | None = None) -> bool:
@@ -1022,8 +1101,13 @@ def persist_remote(
     ssh_agent: bool | str | None = None,
     config_path: str | Path | None = None,
 ) -> tuple[RemoteSpec, Path]:
-    """Merge fields into ``remotes.<id>`` and write swarm_config.json."""
-    rid = _require_kind_id(remote_id)
+    """Merge fields into ``remotes.<id>`` and write swarm_config.json.
+
+    ``remote_id`` may be a bare kind or a named instance (``trueforge-2``);
+    instances persist under their own key (REQ-856).
+    """
+    rid = normalize_instance_id(remote_id)
+    _require_kind_id(rid)  # validate kind part
     cfg, path = load_raw_config(config_path)
     remotes = cfg.setdefault("remotes", {})
     if not isinstance(remotes, dict):
@@ -1035,7 +1119,7 @@ def persist_remote(
         cfg.setdefault("llm", {})
     from swarm.core import config_ownership as ownership
 
-    env_base_key = _ENV_BASE.get(rid) or ""
+    env_base_key = _ENV_BASE.get(kind_of_instance(rid)) or ""
     if base_url is not None and env_base_key and ownership.field_is_forced(env_base_key):
         raise RemoteError(
             f"base_url is forced by env {env_base_key} (read-only). "
@@ -1048,7 +1132,7 @@ def persist_remote(
                 "Refusing to persist a Fly open-litellm URL as a harness remote. "
                 "Hermes/OpenMousBot/Rakazo are LAN harnesses; LAN LLM is http://198.51.100.30:8000/v1."
             )
-        if rid == "swarm" and is_this_server_base_url(normalized):
+        if kind_of_instance(rid) == "swarm" and is_this_server_base_url(normalized):
             raise RemoteError(
                 "Refusing to nest this server as its own remote "
                 f"(base_url {normalized} matches this process listen URL). "
@@ -1144,8 +1228,10 @@ def delete_remote(
     *,
     config_path: str | Path | None = None,
 ) -> tuple[str, Path]:
-    """Remove ``remotes.<id>`` so the kind disappears from Settings / dropdowns."""
-    rid = _require_kind_id(remote_id)
+    """Remove ``remotes.<id>`` so the kind (or instance) disappears from
+    Settings / dropdowns. Named instances remove only themselves (REQ-856)."""
+    rid = normalize_instance_id(remote_id)
+    _require_kind_id(rid)
     cfg, path = load_raw_config(config_path)
     remotes = cfg.get("remotes") if isinstance(cfg.get("remotes"), dict) else {}
     if rid not in remotes:
@@ -2351,10 +2437,13 @@ def operate(
         resume_id = resume_remote_session_id(remote_id, session_id)
         spec = load_remote(remote_id, config)
         rid = spec.id
+        # Kind drives dispatch (herdr/hermes/omb/...); spec.id may be a named
+        # instance of that kind (REQ-856).
+        rkind = kind_of_instance(rid)
         action = (op or "list").strip().lower()
         if action in ("start", "job", "run"):
             action = "send"
-        if action == "interrogate" and rid != "herdr":
+        if action == "interrogate" and rkind != "herdr":
             return OperateResult(
                 remote=rid,
                 op=action,
@@ -2370,12 +2459,12 @@ def operate(
         if not is_configured(rid, config):
             return OperateResult(remote=rid, op=action, ok=False, detail=_not_added_message(rid))
         if action in ("routines", "schedules"):
-            if rid == "trueforge":
+            if rkind == "trueforge":
                 return _trueforge_routines(spec, timeout)
             from swarm.core.remote_harness import unsupported_routines
 
             return unsupported_routines(rid)
-        if rid == "herdr":
+        if rkind == "herdr":
             if action == "list":
                 return _herdr_list(spec, timeout, config)
             if action == "interrogate":
@@ -2390,17 +2479,17 @@ def operate(
                 ok=False,
                 detail="Refusing to operate against a Fly open-litellm URL",
             )
-        if rid == "hermes":
+        if rkind == "hermes":
             return _hermes_list(spec, timeout) if action == "list" else _hermes_send(
                 spec, prompt, timeout, session_id=resume_id
             )
-        if rid == "omb":
+        if rkind == "omb":
             return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
-        if rid == "rakazo":
+        if rkind == "rakazo":
             return _rakazo_list(spec, timeout) if action == "list" else _rakazo_send(spec, prompt, target, timeout)
-        if rid == "swarm":
+        if rkind == "swarm":
             return _swarm_list(spec, timeout) if action == "list" else _swarm_send(spec, prompt, target, timeout)
-        if rid == "trueforge":
+        if rkind == "trueforge":
             return _trueforge_list(spec, timeout) if action == "list" else _trueforge_send(
                 spec, prompt, target, timeout, session_id=resume_id
             )
