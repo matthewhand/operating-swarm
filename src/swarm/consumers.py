@@ -113,6 +113,21 @@ def _load_agent_json(user, agent_id, *, conversation_id=""):
     return _load_agent_record(user, agent_id, conversation_id=conversation_id)["messages"]
 
 
+def _credential_hint() -> str:
+    """Best-effort naming of the config knob a failed turn is missing.
+
+    Empty when credentials look fine, so a non-credential failure is not blamed
+    on a key that is present (see ``swarm.core.llm_diagnostics``).
+    """
+    try:
+        from swarm.core.llm_diagnostics import llm_credential_hint
+
+        return llm_credential_hint()
+    except Exception:
+        logger.debug("LLM credential diagnosis failed", exc_info=True)
+        return ""
+
+
 def _display_rows(consumer):
     from swarm.core.transcript_roles import reconstruct_display
 
@@ -606,17 +621,19 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 logger.exception("Chat turn raised outside the respond_* handlers")
                 from swarm.utils.env_utils import client_safe_error_message
 
+                public = (
+                    "Error: the reply could not be started — the server's "
+                    "model provider is unusable (missing or invalid "
+                    "credentials?)."
+                )
+                hint = _credential_hint()
+                if hint:
+                    public = f"{public} {hint}"
+
                 try:
                     await self.send_error_message(
                         contents_div_id,
-                        client_safe_error_message(
-                            e,
-                            public=(
-                                "Error: the reply could not be started — the server's "
-                                "model provider is unusable (missing or invalid "
-                                "credentials?)."
-                            ),
-                        ),
+                        client_safe_error_message(e, public=public),
                     )
                 except Exception:
                     logger.debug(

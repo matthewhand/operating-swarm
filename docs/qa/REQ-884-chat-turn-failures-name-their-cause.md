@@ -72,6 +72,16 @@ with `public=` text that does not claim to be a connection fault.
 only the public text, `DJANGO_DEBUG=true` appends a capped exception type/message
 for the operator.
 
+**R4.** When the failure is a missing credential, the error partial must *name the
+knob to set*, not describe the symptom. Provider text such as "The api_key client
+option must be set" or a gateway 401 leaves the operator to guess between
+`LITELLM_API_KEY`, `OPENAI_API_KEY`, a placeholder, and a key stored on the wrong
+profile.
+
+**R5.** The diagnosis must stay silent when it cannot prove a credential problem
+(profile absent, key present, unresolvable config). Blaming a credential for an
+unrelated failure is the same misdirection this requirement exists to remove.
+
 ### Acceptance criteria
 
 - [x] The dispatch in `_run_serialised_chat_turn` is wrapped in `try/except`.
@@ -82,6 +92,11 @@ for the operator.
 - [x] The message is not appended to `self.messages`, so an error frame cannot
       enter the context of a later turn.
 - [x] No credential or raw exception text reaches the client outside debug.
+- [x] The public text names the unset variable(s) when the profile points at a
+      ``${NAME}`` that is not set, or the environment fallback when the profile
+      has no key and neither `LITELLM_API_KEY` nor `OPENAI_API_KEY` is set.
+- [x] A failed diagnosis (exception, unreadable config) yields no hint rather
+      than a wrong one.
 
 ---
 
@@ -101,13 +116,13 @@ failing: it produces a 401 from the gateway that looks like a revoked credential
 
 ### Requirement
 
-**R4.** A resolved LLM profile must never carry an unresolved `${NAME}` in
+**R6.** A resolved LLM profile must never carry an unresolved `${NAME}` in
 `api_key` or `base_url`.
 
-**R5.** The unset variable must be named in a warning, so the operator can fix
+**R7.** The unset variable must be named in a warning, so the operator can fix
 configuration without reading source.
 
-**R6.** Env substitution semantics stay unchanged: the loader keeps leaving
+**R8.** Env substitution semantics stay unchanged: the loader keeps leaving
 unknown references alone (a documented contract with its own tests), and the
 guard lives in the resolver, not in substitution.
 
@@ -149,6 +164,8 @@ guard lives in the resolver, not in substitution.
 | Placeholder detection | `src/swarm/core/config_loader.py:36` (`unresolved_env_placeholders`) |
 | Placeholder drop | `src/swarm/core/config_loader.py:59` (`drop_unresolved_env_values`) |
 | Resolver integration | `src/swarm/core/config_loader.py:522` |
+| Credential diagnosis | `src/swarm/core/llm_diagnostics.py` (`llm_credential_hint`) |
+| Consumer hook for it | `src/swarm/consumers.py` (`_credential_hint`) |
 | Debug/prod error text | `src/swarm/utils/env_utils.py` (`client_safe_error_message`) |
 
 ---
@@ -164,8 +181,15 @@ guard lives in the resolver, not in substitution.
   variables, env-set substitution unaffected, real values untouched, `model`
   intentionally kept, and `_get_model_instance` never forwarding a placeholder to
   the client.
+- `tests/unit/test_llm_credential_hint.py` — names unset placeholders, stays quiet
+  when the variable is set, names the environment fallback when the profile has no
+  key, and returns nothing for a literal key, a missing profile or an empty config.
 - Live: the same probe that aborted the socket now completes two consecutive
   turns with the socket intact (`socket_survived_two_turns: True`, no `ABORTED`).
+- Live (dev stack on `:8002`): `llm_credential_hint()` against the container's real
+  config returns
+  `Set LITELLM_API_KEY and LITELLM_BASE_URL in the environment (.env or ~/.config/swarm/.env).`
+  — i.e. the text that now reaches the chat pane.
 - Live (dev stack on `:8002`, the container reads the host's
   `~/.config/swarm/swarm_config.json`): resolving profile `default` logs the
   warning naming `LITELLM_API_KEY` / `LITELLM_BASE_URL` and returns
@@ -188,13 +212,9 @@ guard lives in the resolver, not in substitution.
 3. **Consider a config-doctor surface.** `requirements.py` already aggregates
    `unresolved_env` for MCP servers; an LLM-profile equivalent could surface the
    same warning at `swarm-cli` startup instead of on first chat.
-4. **Unrelated finding, found while verifying:** `load_full_configuration` with no
-   override resolves its default through `paths.get_swarm_config_file()`, which
-   returns `~/.config/swarm/config.yaml` — a file nothing writes, loaded with
-   `json.load`. So every no-override caller silently proceeds with an empty base
-   config; `requirements.load_active_config()` is one, which is why an
-   MCP-compliance check can report nothing missing. The loader's own discovery
-   (`find_config_file`) would return the real `swarm_config.json`. Changing that
-   default is not a one-liner: `tests/core/test_paths.py` pins the `config.yaml`
-   name, and pointing the default at discovery would make several tests read the
-   developer's real XDG config instead of their fixtures.
+4. **Fixed separately:** `load_full_configuration` with no override resolved its
+   default through `paths.get_swarm_config_file()`, which returned
+   `~/.config/swarm/config.yaml` — a file nothing writes, loaded with `json.load`.
+   Every no-override caller silently ran on an empty base config;
+   `requirements.load_active_config()` is one, which is why an MCP-compliance check
+   could report nothing missing. See [REQ-885](./REQ-885-config-discovery-default.md).
