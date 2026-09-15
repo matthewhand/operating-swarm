@@ -9,8 +9,8 @@ from swarm.core.remotes import RemoteError
 def _cfg(**overrides):
     remotes_block = {
         "trueforge": {"base_url": "http://127.0.0.1:8791"},
-        "trueforge-2": {"base_url": "http://10.0.0.36:8791"},
-        "trueforge_lab": {"base_url": "http://10.0.0.39:8791"},
+        "trueforge-2": {"base_url": "http://tf-a.example.test:8791"},
+        "trueforge_lab": {"base_url": "http://tf-b.example.test:8791"},
     }
     remotes_block.update(overrides)
     return {"remotes": remotes_block}
@@ -53,8 +53,8 @@ def test_named_instances_resolve_independently():
     s2 = remotes.load_remote("trueforge-2", cfg)
     s3 = remotes.load_remote("trueforge_lab", cfg)
     assert (s1.id, s1.base_url) == ("trueforge", "http://127.0.0.1:8791")
-    assert (s2.id, s2.base_url) == ("trueforge-2", "http://10.0.0.36:8791")
-    assert (s3.id, s3.base_url) == ("trueforge_lab", "http://10.0.0.39:8791")
+    assert (s2.id, s2.base_url) == ("trueforge-2", "http://tf-a.example.test:8791")
+    assert (s3.id, s3.base_url) == ("trueforge_lab", "http://tf-b.example.test:8791")
     # kind defaults inherited (health path etc.)
     assert s2.health_path == "/healthz"
     assert s3.health_path == "/healthz"
@@ -110,7 +110,7 @@ def test_alias_normalized_instances_resolve():
     cfg = _cfg()
     spec = remotes.load_remote("TrueForge-2", cfg)
     assert spec.id == "trueforge-2"
-    assert spec.base_url == "http://10.0.0.36:8791"
+    assert spec.base_url == "http://tf-a.example.test:8791"
 
 
 # --- back-compat ------------------------------------------------------------
@@ -147,12 +147,12 @@ def test_persist_and_delete_instance(tmp_path, monkeypatch):
     monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
     spec, _ = remotes.persist_remote(
         "trueforge-2",
-        base_url="http://10.0.0.36:8791",
+        base_url="http://tf-a.example.test:8791",
         config_path=cfg_path,
     )
     assert spec.id == "trueforge-2"
     on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert on_disk["remotes"]["trueforge-2"]["base_url"] == "http://10.0.0.36:8791"
+    assert on_disk["remotes"]["trueforge-2"]["base_url"] == "http://tf-a.example.test:8791"
     # Kind entry untouched if present.
     remotes.persist_remote("trueforge", base_url="http://127.0.0.1:8791", config_path=cfg_path)
     rid, _ = remotes.delete_remote("trueforge-2", config_path=cfg_path)
@@ -205,7 +205,7 @@ def test_operate_dispatches_by_kind_for_instances():
         remotes_mod._trueforge_list = original
     assert result.ok is True
     assert captured["id"] == "trueforge-2"
-    assert captured["base_url"] == "http://10.0.0.36:8791"
+    assert captured["base_url"] == "http://tf-a.example.test:8791"
 
 
 def test_health_reports_instance_id():
