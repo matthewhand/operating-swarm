@@ -190,9 +190,14 @@ class TestCodeyConfiguration:
         path = tmp_path / "swarm_config.json"
         path.write_text(json.dumps(cfg), encoding="utf-8")
         monkeypatch.setenv("SWARM_CONFIG_PATH", str(path))
-        # Codey maps its config_path positional onto BlueprintBase.config —
-        # discover via SWARM_CONFIG_PATH instead.
-        codey_blueprint = CodeyBlueprint(blueprint_id="test_codey_config")
+        # AppConfig.config (discovery step 1) is cached at ready() from the
+        # developer's real XDG config and would shadow the SWARM_CONFIG_PATH
+        # fixture above — blank it for the construction (same hermetic idiom
+        # as tests/core/test_blueprint_base.py).
+        from django.apps import apps
+
+        with patch.object(apps.get_app_config("swarm"), "config", {}):
+            codey_blueprint = CodeyBlueprint(blueprint_id="test_codey_config")
         assert hasattr(codey_blueprint, "llm_profile")
         profile = codey_blueprint.llm_profile
         assert profile is not None

@@ -65,7 +65,10 @@ def test_source_lock_persist_on_final_and_keep_status_edit():
         "async def apply_message_edit", 1
     )[0]
     assert after_team.count("await self._persist_completed_turn()") == 1
-    assert after_bp.count("await self._persist_completed_turn()") == 2
+    # Blueprint path persists the completed turn, the compact summary
+    # rollover, and the skeptic rework loop's reworked answer (bounded
+    # adversarial auto-prompting) — three persistence points.
+    assert after_bp.count("await self._persist_completed_turn()") == 3
     assert after_default.count("await self._persist_completed_turn()") == 1
 
     status_block = src.split('if text_data_json.get("type") == "status":', 1)[1].split(

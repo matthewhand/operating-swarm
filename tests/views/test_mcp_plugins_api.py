@@ -26,7 +26,13 @@ def test_mcp_plugins_urls_accept_trailing_slash():
 def test_list_upsert_remove_and_refuse_plaintext(api_client, tmp_path: Path):
     path = tmp_path / "swarm_config.json"
     path.write_text(json.dumps({"llm": {}, "mcpServers": {}}), encoding="utf-8")
-    with patch("swarm.core.remotes.load_raw_config", return_value=({"llm": {}, "mcpServers": {}}, path)):
+    with (
+        patch("swarm.core.remotes.load_raw_config", return_value=({"llm": {}, "mcpServers": {}}, path)),
+        # GET reads plugins.swarm_config() → AppConfig.config (server mode);
+        # pin it to the tmp file so the dev machine's real XDG servers cannot
+        # leak in and persists inside the test are reflected in responses.
+        patch("swarm.core.mcp_plugins.swarm_config", side_effect=lambda: json.loads(path.read_text(encoding="utf-8"))),
+    ):
         listed = api_client.get("/v1/mcp-plugins/")
         assert listed.status_code == 200
         assert listed.json()["object"] == "mcp_plugins"

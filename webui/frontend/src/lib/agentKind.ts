@@ -64,10 +64,11 @@ export function isSwarmOwnedAgent(
   return kind === 'api' || kind === 'blueprint'
 }
 
-/** True for editable threads: API + blueprint. CLI/remote stay read-only. */
+/** True for editable threads: API + blueprint + CLI (edit restarts the
+ * provider session — REQ-808). Remote threads stay read-only (REQ-49). */
 export function canEditAgentMessages(
   raw: string | null | undefined,
   explicit?: string | null,
 ): boolean {
-  return isSwarmOwnedAgent(raw, explicit)
+  return classifyAgentKind(raw, explicit) !== 'remote'
 }

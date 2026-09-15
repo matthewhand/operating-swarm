@@ -13,7 +13,8 @@ describe('classifyAgentKind', () => {
     expect(classifyAgentKind('cli:grok')).toBe('cli')
     expect(classifyAgentKind('remote:acp')).toBe('remote')
     expect(classifyAgentKind('placeholder:remote:acp')).toBe('remote')
-    expect(canEditAgentMessages('cli:grok')).toBe(false)
+    // REQ-808: CLI edits restart the provider session, so they are allowed.
+    expect(canEditAgentMessages('cli:grok')).toBe(true)
     expect(canEditAgentMessages('remote:acp')).toBe(false)
   })
 

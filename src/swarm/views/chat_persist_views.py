@@ -205,7 +205,9 @@ def chat_thread(request):
         "conversation_id": conversation_id,
         "session_title": session_title,
         "kind": kind,
-        "editable": kind == "api",
+        # REQ-808: CLI threads are editable too (edit restarts the provider
+        # session); only remote threads stay read-only.
+        "editable": can_edit_agent_messages(agent_raw or agent),
         "new_chat_per_task": fresh_task,
         "active_sessions": sessions,
         "session_missing": session_missing,

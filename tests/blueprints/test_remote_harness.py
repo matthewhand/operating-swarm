@@ -105,6 +105,9 @@ async def test_health_not_added_rendered_natural(bp):
 @pytest.mark.asyncio
 async def test_runner_failure_fallback_is_short(bp, monkeypatch):
     """Coordinator LLM failure yields a short honest fallback, not a dump (issue #131)."""
+    # tests/api/conftest.py setdefaults SWARM_TEST_MODE into the process env;
+    # it must not hijack this test into the deterministic health-dump branch.
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
     async def boom(*args, **kwargs):
         raise RuntimeError("coordinator exploded with a very long detail string" * 40)
 
@@ -121,41 +124,7 @@ async def test_runner_failure_fallback_is_short(bp, monkeypatch):
 @pytest.mark.asyncio
 async def test_runner_failure_fallback_bound_shows_only_bound_health(bp, monkeypatch):
     """A bound seat keeps one health line + the honest failure, nothing else."""
-    async def boom(*args, **kwargs):
-        raise RuntimeError("boom detail " * 60)
-
-    monkeypatch.setattr("agents.Runner.run", boom)
-    monkeypatch.setattr(
-        "swarm.blueprints.remote_harness.blueprint_remote_harness._health_tool",
-        lambda name="": "hermes: DOWN — tcp timeout",
-    )
-    monkeypatch.setattr(bp, "_parse", lambda messages: ("health", "hermes", "", ""))
-    out = await _ask(bp, "tell me something interesting")
-    assert out.startswith("hermes: DOWN")
-    assert "unavailable" in out
-    assert "rakazo" not in out and "swarm:" not in out
-    assert len(out) < 700
-
-
-@pytest.mark.asyncio
-async def test_runner_failure_fallback_is_short(bp, monkeypatch):
-    """Coordinator LLM failure yields a short honest fallback, not a dump (issue #131)."""
-    async def boom(*args, **kwargs):
-        raise RuntimeError("coordinator exploded with a very long detail string" * 40)
-
-    monkeypatch.setattr("agents.Runner.run", boom)
-    out = await _ask(bp, "tell me something interesting")
-    # No bound remote ⇒ just the short honest line — never the full
-    # multi-remote health dump or a raw stack dump (DEBUG may append the
-    # bounded exception detail via client_safe_error_message).
-    assert "unavailable" in out
-    assert "hermes:" not in out and "omb:" not in out and "rakazo" not in out
-    assert len(out) < 700
-
-
-@pytest.mark.asyncio
-async def test_runner_failure_fallback_bound_shows_only_bound_health(bp, monkeypatch):
-    """A bound seat keeps one health line + the honest failure, nothing else."""
+    monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
     async def boom(*args, **kwargs):
         raise RuntimeError("boom detail " * 60)
 

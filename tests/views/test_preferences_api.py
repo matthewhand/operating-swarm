@@ -43,6 +43,7 @@ def test_get_empty_when_no_row(api_client):
         "context_strategy",
         "context_cull_trigger_pct",
         "context_cull_fraction_pct",
+        "context_compress_api_only",
     ]
     assert body["context_auto_compress_pct"] == 80
     assert body["context_strategy"] == "compress"

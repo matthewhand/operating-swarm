@@ -45,7 +45,11 @@ def test_landing_page_is_styled(page, live_server_url):
     # `/` is ChatPage (`/?blueprint=support`). SettingsSheet keeps a hidden
     # `.btn-primary` ("Save retention"), so `.btn-primary`.first is never
     # visible. Use a visible DaisyUI `.btn` plus the themed composer fill.
-    btn = page.locator("button.btn").locator("visible=true").first
+    # Square/circle icon buttons (btn-square/btn-circle) have zero padding by
+    # design — probe only regular buttons.
+    btn = page.locator(
+        "button.btn:not(.btn-square):not(.btn-circle)"
+    ).locator("visible=true").first
     btn.wait_for(state="visible", timeout=10_000)
     pad = _computed(page, btn, "paddingLeft")
     assert pad not in ("0px", "0"), (
@@ -133,7 +137,13 @@ def test_teams_navbar_has_no_zero_text_links(page, live_server_url):
         link = links.nth(i)
         if not link.is_visible():
             continue
-        if not link.inner_text().strip():
+        # A link is only an "empty box" when it has neither visible text nor
+        # an accessible name (icon-only brand links carry aria-label).
+        has_text = bool(link.inner_text().strip())
+        has_label = bool(
+            (link.get_attribute("aria-label") or "").strip()
+        )
+        if not has_text and not has_label:
             empty.append(link.evaluate("el => el.outerHTML"))
     assert not empty, f"navbar has zero-text nav links: {empty}"
 

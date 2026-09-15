@@ -83,7 +83,9 @@ def test_frontend_operate_remote_bounded_timeout():
     assert "timeoutMs" in content
     assert "AbortController" in content
     assert "signal: controller.signal" in content
-    assert "OpenMousBot list operation timed out" in content
+    # REQ-131 message evolved to the generic remote-operate guard; the
+    # contract is a bounded timeout with a clear, non-hanging error.
+    assert "Remote operate operation timed out" in content
 
 
 def test_frontend_remotes_settings_bots_from_operate():

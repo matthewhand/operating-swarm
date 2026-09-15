@@ -210,6 +210,8 @@ def test_patch_api_message_persists_and_marks_edited(client, user):
 
 @pytest.mark.django_db
 def test_patch_cli_and_remote_threads_are_forbidden(client, user):
+    # REQ-808: CLI edits restart the provider session (200 + session_reset);
+    # remote threads stay read-only (REQ-49).
     _seed_thread(user, "cli-grok", "cli-owned")
     _seed_thread(user, "remote-acp", "remote-owned")
     cli = client.patch(
@@ -217,11 +219,16 @@ def test_patch_cli_and_remote_threads_are_forbidden(client, user):
         data=json.dumps({"index": 0, "content": "nope"}),
         content_type="application/json",
     )
-    assert cli.status_code == 403
+    assert cli.status_code == 200
+    assert cli.json()["session_reset"] is True
     cli_get = client.get("/chat/thread/?agent=cli:grok")
     assert cli_get.status_code == 200
     assert cli_get.json()["kind"] == "cli"
-    assert cli_get.json()["editable"] is False
+    assert cli_get.json()["editable"] is True
+    assert (
+        chat_store.load(chat_store.user_key_for(user), "cli-grok")["messages"][0]["content"]
+        == "nope"
+    )
     remote = client.patch(
         "/chat/thread/?agent=remote:acp",
         data=json.dumps({"index": 0, "content": "nope"}),
@@ -231,7 +238,8 @@ def test_patch_cli_and_remote_threads_are_forbidden(client, user):
     remote_get = client.get("/chat/thread/?agent=remote:acp")
     assert remote_get.json()["kind"] == "remote"
     assert remote_get.json()["editable"] is False
-    assert chat_store.load(chat_store.user_key_for(user), "cli-grok")["messages"][0]["content"] == "cli-owned"
+    # CLI edit applied (REQ-808); remote thread stays untouched.
+    assert chat_store.load(chat_store.user_key_for(user), "cli-grok")["messages"][0]["content"] == "nope"
     assert chat_store.load(chat_store.user_key_for(user), "remote-acp")["messages"][0]["content"] == "remote-owned"
 
 
