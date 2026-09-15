@@ -30,3 +30,4 @@ source-lock so the spec cannot silently regress.
 | REQ-847 | Stale-hidden reconciliation (#170) | [REQ-847-hidden-reconciliation.md](./REQ-847-hidden-reconciliation.md) | `tests/unit/test_req847_hidden_reconciliation.py` |
 | REQ-848 | Right-click rail → new section (#173) | [REQ-848-rail-pane-menu.md](./REQ-848-rail-pane-menu.md) | `tests/unit/test_req848_rail_pane_menu.py` |
 | REQ-801 | Bee avatar pack incl. #171 extension | [REQ-801-bee-avatar-pack.md](./REQ-801-bee-avatar-pack.md) | `tests/unit/test_req801_bee_avatar_theme.py` |
+| REQ-871 | `swarm-cli` blueprint lifecycle: compile / launch fallback / delete scope / session | [REQ-871-cli-blueprint-lifecycle.md](./REQ-871-cli-blueprint-lifecycle.md) | `tests/unit/test_req871_cli_blueprint_lifecycle.py` |

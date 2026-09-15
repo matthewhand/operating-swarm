@@ -47,10 +47,12 @@ swarm-cli list
 | Command | Purpose |
 | --- | --- |
 | `list` | List installed executables, bundled blueprints, and user blueprint sources |
-| `install-executable <name>` / `install <name>` | Build a standalone executable for a blueprint (PyInstaller) |
-| `launch <name> [options]` | Run an installed blueprint executable (pre/listen/post hooks optional) |
-| `uninstall <name>` | Remove a compiled blueprint executable from the user bin directory |
-| `add` / `delete` | Add or remove a blueprint from the user blueprint library |
+| `compile <name>` | Compile a blueprint into a standalone executable (PyInstaller) in the user bin directory |
+| `install-executable <name>` / `install <name>` | Aliases for `compile`, kept for older docs and scripts |
+| `launch <name> [options]` | Run the compiled executable, falling back to source when absent (pre/listen/post hooks optional) |
+| `uninstall <name>` | Remove a compiled blueprint executable (alias for `delete --binary`) |
+| `add` / `delete` | Add a blueprint, or remove its source and/or executable (`--source`, `--binary`, `--all`) |
+| `session list` / `session show` | Inspect Swarm-side chat records and the CLI session ids they hold (`--provider` also lists a CLI's own sessions) |
 | `config` | Manage LLM profiles and MCP servers (`list` \| `add` \| `remove`) |
 | `cli-agents` / `agents` | Autodiscover configured agentic CLIs (`--check-auth`, `--init`, `--smoke`, `--suggest`, `--list-models`, …) |
 | `list-models` | Probe a catalogued CLI for the models it actually offers (`{cli, models: [...]}`) |
@@ -114,7 +116,7 @@ Example output (fresh environment):
 ```text
 --- Installed Blueprint Executables (in /home/user/.local/share/swarm/bin) ---
 (No installed blueprint executables found in /home/user/.local/share/swarm/bin)
-Try 'swarm-cli install-executable <blueprint_name>' or see 'swarm-cli list --available'.
+Try 'swarm-cli compile <blueprint_name>' or see 'swarm-cli list --available'.
 
 --- Bundled Blueprints (available from package) ---
 - jeeves (entry: blueprint_jeeves.py)
@@ -144,14 +146,15 @@ cp -r ./my_blueprints/cool_agent ~/.local/share/swarm/blueprints/cool_agent
 swarm-cli list --available
 ```
 
-### Installing Blueprints as Commands (`swarm-cli install`)
+### Installing Blueprints as Commands (`swarm-cli compile`)
 
 Builds a standalone executable (PyInstaller) from a user blueprint source or
 a bundled blueprint, and places it in `~/.local/share/swarm/bin/`.
-`install` and `install-executable` are the same command.
+`compile` is the primary name; `install` and `install-executable` are the same
+command under older names.
 
 ```bash
-swarm-cli install jeeves
+swarm-cli compile jeeves
 # Installing blueprint 'jeeves' as executable...
 #   Source: .../src/swarm/blueprints/jeeves
 #   Entry Point: blueprint_jeeves.py
@@ -202,9 +205,12 @@ swarm-cli tui --once --base-url http://127.0.0.1:8000 --json   # or :8002 on fle
 
 ### Launching Blueprints (`swarm-cli launch`)
 
-Runs a **previously installed** blueprint executable from
-`~/.local/share/swarm/bin/`. If the executable is missing, `launch` exits
-with an error telling you to `swarm-cli install-executable <name>` first.
+Runs a **previously compiled** blueprint executable from
+`~/.local/share/swarm/bin/`. If no executable is present, `launch` falls back
+to running the blueprint's source directly — the installed user source first,
+then the bundled copy — and names the tier it used. The fallback never
+prompts, so hook-driven runs cannot hang; only when no tier resolves does
+`launch` exit with an error telling you to `swarm-cli compile <name>` first.
 
 *   **Single message run:**
     ```bash

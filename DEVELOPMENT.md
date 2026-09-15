@@ -158,11 +158,34 @@ Open Swarm combines a command-line interface (`swarm-cli`) for local management 
 *   **Installation:** `pip install open-swarm`
 *   **Framework:** `typer`.
 *   **Entry Point:** Defined in `pyproject.toml` (`swarm-cli = "swarm.core.swarm_cli:app"`).
-*   **Commands:** `list`, `launch`, `install`, `install-executable`, `config`,
-    `wizard`, `moa`, `cli-agents`, `list-models`, `skills`, … — implemented in
-    `src/swarm/core/swarm_cli.py` (Typer). The legacy argparse trees under
-    `extensions/cli` and `core/cli` were deleted (ROADMAP §3.4b / §4.4).
-*   **Installation (`swarm-cli install`):** Uses `PyInstaller` to create standalone executables from managed blueprints.
+*   **Commands:** `list`, `compile`, `launch`, `delete`, `uninstall`, `session`,
+    `config`, `wizard`, `moa`, `cli-agents`, `list-models`, `skills`, … —
+    implemented in `src/swarm/core/swarm_cli.py` (Typer). `install` and
+    `install-executable` remain aliases for `compile`; `uninstall` is an alias
+    for `delete --binary`. The legacy argparse trees under `extensions/cli` and
+    `core/cli` were deleted (ROADMAP §3.4b / §4.4).
+*   **Blueprint lifecycle** — REQ-871, spec
+    [docs/qa/REQ-871-cli-blueprint-lifecycle.md](./docs/qa/REQ-871-cli-blueprint-lifecycle.md),
+    lock `tests/unit/test_req871_cli_blueprint_lifecycle.py`:
+    *   **`compile <name>`:** resolves the source (user library, then bundled),
+        finds the entry point via `find_entry_point` (`{name}_cli.py` →
+        `{name}.py` → `blueprint_{name}.py`), and runs a `pyinstaller --onefile`
+        build into `get_user_bin_dir()`. One shared body
+        (`_compile_blueprint_executable`) backs `compile`, `install` and
+        `install-executable`. With `SWARM_TEST_MODE=1` it writes a `#!/bin/sh`
+        stub rather than compiling; `list --installed` labels that `(shim)`.
+    *   **`launch <name>`:** runs the compiled binary, else falls back to the
+        installed source and then the bundled source via `sys.executable`
+        (`_source_launch_target`), naming the tier it used. The fallback never
+        prompts — the `--pre` / `--listen` / `--post` hooks cannot answer one.
+        Only when no tier resolves does it exit 1.
+    *   **`delete <name>`:** `--source` / `--binary` / `--all` (default: both),
+        reporting each artefact separately and exiting 1 when nothing was
+        found. Both removals keep the `_require_safe_blueprint_segment` and
+        `_path_is_under_root` guards.
+    *   **`session list` / `session show`:** read-only inspection of the chat
+        store plus a CLI's own session stores (see the XDG section below).
+*   **Installation (`swarm-cli compile`):** Uses `PyInstaller` to create standalone executables from managed blueprints.
 *   **User Data Management:** Uses XDG paths (`platformdirs`).
 *   **ANSI/Styling & Terminal Support:** Use Rich's `Console` to detect terminal capabilities (`console.is_terminal` and `console.color_system`) and apply ANSI color/styling when supported, with graceful fallback.
 *   **Hook Flags:** The `launch` command supports `--pre`, `--listen`, and `--post` flags to run additional blueprints before, during, and after the main invocation.
@@ -189,7 +212,14 @@ Open Swarm combines a command-line interface (`swarm-cli`) for local management 
 *   **Configuration (`swarm_config.json`):** `~/.config/swarm/swarm_config.json`
 *   **Managed Blueprint Sources:** `~/.local/share/swarm/blueprints/`
 *   **Installed CLI Binaries:** `~/.local/share/swarm/bin/` (Needs to be in `PATH`)
-*   **Build Cache (PyInstaller):** `~/.cache/swarm/build/`
+*   **Build Cache (PyInstaller):** `~/.cache/swarm/build/` (spec files under `~/.cache/swarm/specs/`)
+*   **Chat store (SPA threads):** `<user data>/chats/` — `active/<user_key>/<agent_id>.json`
+    plus `trash/`; override the root with `SWARM_CHAT_DIR`. CLI session ids are stored
+    on each record's `cli_sessions` map, which is what `swarm-cli session list` reads.
+*   **No `~/.cache/swarm/sessions`:** that path never existed. Swarm-side ids live in the
+    chat store above; a CLI's own sessions live in that CLI's store (e.g. `~/.grok/sessions`,
+    `~/.qwen/projects`) and are read by `core/cli_session_stores.py` +
+    `core/cli_session_select.py`.
 
 ---
 

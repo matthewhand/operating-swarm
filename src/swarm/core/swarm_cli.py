@@ -1,6 +1,7 @@
 import importlib.resources as pkg_resources
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import typer
@@ -131,10 +132,35 @@ def find_entry_point(blueprint_dir: Path) -> str | None:
     return None
 
 
-@app.command(name="install-executable")
-def install_executable(
-    blueprint_name: str = typer.Argument(..., help="Name of the blueprint directory to install as an executable."),
-):
+def _source_launch_target(blueprint_name: str) -> tuple[Path, str] | None:
+    """Entry point to run when no compiled executable exists.
+
+    Returns ``(entry_point_path, tier)`` for the installed user source, then the
+    bundled source, or None when neither resolves. Read-only: the fallback never
+    builds a binary, so ``compile`` stays the only compile path.
+    """
+    user_root = paths.get_user_blueprints_dir()
+    user_dir = user_root / blueprint_name
+    if user_dir.is_dir() and _path_is_under_root(user_dir, user_root):
+        entry = find_entry_point(user_dir)
+        if entry:
+            return user_dir / entry, "installed source"
+    bundled_base = Path(__file__).resolve().parent.parent / "blueprints"
+    bundled_dir = bundled_base / blueprint_name
+    if bundled_dir.is_dir() and _path_is_under_root(bundled_dir, bundled_base):
+        entry = find_entry_point(bundled_dir)
+        if entry:
+            return bundled_dir / entry, "bundled source"
+    return None
+
+
+def _compile_blueprint_executable(blueprint_name: str) -> None:
+    """Shared body for ``compile`` and its historical ``install*`` aliases.
+
+    Resolves the blueprint source (user library, then bundled), compiles it with
+    a PyInstaller onefile build into ``get_user_bin_dir()``, and refuses to write
+    outside the bin directory or the cache root.
+    """
     blueprint_name = _require_safe_blueprint_segment(blueprint_name)
     user_bp_root = paths.get_user_blueprints_dir()
     source_dir_user = user_bp_root / blueprint_name
@@ -200,18 +226,6 @@ def install_executable(
         str(entry_point_path),
     ]
 
-    if os.environ.get("SWARM_TEST_MODE"):
-        shim = f"#!/usr/bin/env bash\npython3 {entry_point_path} \"$@\"\n"
-        try:
-            with open(output_bin_path, "w") as f:
-                f.write(shim)
-            os.chmod(output_bin_path, 0o755)
-            typer.echo(f"Test-mode shim installed at: {output_bin_path}")
-            return
-        except Exception as e:
-            typer.echo(f"Error installing test-mode shim: {e}")
-            raise typer.Exit(code=1)
-
     typer.echo(f"Running PyInstaller: {' '.join(map(str, pyinstaller_cmd))}")
     try:
         result = subprocess.run(pyinstaller_cmd, check=True, capture_output=True, text=True)
@@ -231,12 +245,28 @@ def install_executable(
         raise typer.Exit(code=1)
 
 
+@app.command(name="compile")
+def compile_cmd(
+    blueprint_name: str = typer.Argument(..., help="Name of the blueprint to compile into a standalone executable."),
+):
+    """Compile an installed blueprint into a standalone executable (PyInstaller)."""
+    _compile_blueprint_executable(blueprint_name)
+
+
+@app.command(name="install-executable")
+def install_executable(
+    blueprint_name: str = typer.Argument(..., help="Alias for 'compile'."),
+):
+    """Alias for ``compile`` (historical name)."""
+    _compile_blueprint_executable(blueprint_name)
+
+
 @app.command(name="install")
 def install(
-    blueprint_name: str = typer.Argument(..., help="Name of the blueprint directory to install as an executable."),
+    blueprint_name: str = typer.Argument(..., help="Alias for 'compile' (README quickstart)."),
 ):
-    """Alias for install-executable to match README quickstart."""
-    install_executable(blueprint_name)
+    """Alias for ``compile`` to match README quickstart."""
+    _compile_blueprint_executable(blueprint_name)
 
 
 @app.command()
@@ -250,16 +280,28 @@ def launch(
     blueprint_name = _require_safe_blueprint_segment(blueprint_name)
     user_bin_dir = paths.get_user_bin_dir()
     executable_path = user_bin_dir / blueprint_name
-    if (
-        not _path_is_under_root(executable_path, user_bin_dir)
-        or not executable_path.is_file()
-        or not os.access(executable_path, os.X_OK)
-    ):
-        typer.echo(f"Error: Blueprint executable not found or not executable: {executable_path}")
+    binary_ready = (
+        _path_is_under_root(executable_path, user_bin_dir)
+        and executable_path.is_file()
+        and os.access(executable_path, os.X_OK)
+    )
+    if binary_ready:
+        launch_base = [str(executable_path)]
+    else:
+        # No compiled binary: run the source instead. Never prompt — the
+        # --pre/--listen/--post hooks below shell out and cannot answer one.
+        fallback = _source_launch_target(blueprint_name)
+        if fallback is None:
+            typer.echo(f"Error: Blueprint executable not found or not executable: {executable_path}")
+            typer.echo(
+                f"Ensure '{blueprint_name}' is compiled using 'swarm-cli compile {blueprint_name}'."
+            )
+            raise typer.Exit(code=1)
+        entry_path, tier = fallback
         typer.echo(
-            f"Ensure '{blueprint_name}' is installed using 'swarm-cli install-executable {blueprint_name}'."
+            f"No compiled executable at {executable_path}; using {tier}: {entry_path}"
         )
-        raise typer.Exit(code=1)
+        launch_base = [sys.executable, str(entry_path)]
 
     def _safe_hook_exe(hook_name: str) -> Path | None:
         safe = _safe_blueprint_segment(hook_name)
@@ -285,7 +327,7 @@ def launch(
                     f"Pre-hook executable '{bp_pre_name}' not found in {user_bin_dir}; skipping."
                 )
 
-    cmd = [str(executable_path)]
+    cmd = list(launch_base)
     if message is not None:
         cmd.extend(["--message", message])
     typer.echo(f"Launching '{blueprint_name}' with: {' '.join(cmd)}")
@@ -845,6 +887,20 @@ def remotes_cmd(
     raise typer.Exit(code=1)
 
 
+def _launcher_kind(path: Path) -> str:
+    """``shim`` for a script launcher, ``executable`` for a compiled binary.
+
+    ``SWARM_TEST_MODE`` installs a ``#!`` shim instead of a real PyInstaller
+    build, so ``list --installed`` must not present the two as the same thing.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(2)
+    except OSError:
+        return "executable"
+    return "shim" if head == b"#!" else "executable"
+
+
 @app.command(name="list")
 def list_blueprints(
     installed: bool = typer.Option(False, "--installed", "-i", help="List only installed blueprint executables."),
@@ -863,14 +919,14 @@ def list_blueprints(
             try:
                 for item in user_bin_dir.iterdir():
                     if item.is_file() and os.access(item, os.X_OK):
-                        typer.echo(f"- {item.name}")
+                        typer.echo(f"- {item.name} ({_launcher_kind(item)})")
                         found_installed = True
             except OSError as e:
                 typer.echo(f"(Warning: Could not read installed directory: {e})")
         if not found_installed:
             typer.echo(f"(No installed blueprint executables found in {user_bin_dir})")
             typer.echo(
-                "Try 'swarm-cli install-executable <blueprint_name>' or see 'swarm-cli list --available'."
+                "Try 'swarm-cli compile <blueprint_name>' or see 'swarm-cli list --available'."
             )
         typer.echo("")
 
@@ -1363,40 +1419,253 @@ def add_cmd(
     typer.echo(f"Added blueprint '{bp_name}' to {dest}")
 
 
-@app.command(name="delete")
-def delete_cmd(
-    blueprint_name: str = typer.Argument(..., help="Blueprint name to delete from user library"),
-):
-    """Delete a blueprint from the user blueprint library."""
-    blueprint_name = _require_safe_blueprint_segment(blueprint_name)
+def _remove_blueprint_source(blueprint_name: str) -> tuple[bool, str]:
+    """Remove the user blueprint source dir. Returns ``(removed, message)``."""
     dest_root = paths.get_user_blueprints_dir()
     dest = dest_root / blueprint_name
     if not _path_is_under_root(dest, dest_root):
         typer.echo(f"Error: Delete path escapes blueprints directory: {dest}", err=True)
         raise typer.Exit(code=1)
     if not dest.exists():
-        typer.echo(f"Blueprint '{blueprint_name}' not found in user library", err=True)
-        raise typer.Exit(code=1)
+        return False, f"No blueprint source at {dest}"
     _shutil.rmtree(dest)
-    typer.echo(f"Deleted blueprint '{blueprint_name}' from {dest}")
+    return True, f"Removed blueprint source: {dest}"
 
 
-@app.command(name="uninstall")
-def uninstall_cmd(
-    blueprint_name: str = typer.Argument(..., help="Blueprint executable to uninstall"),
-):
-    """Uninstall a compiled blueprint executable from the user bin directory."""
-    blueprint_name = _require_safe_blueprint_segment(blueprint_name)
+def _remove_blueprint_binary(blueprint_name: str) -> tuple[bool, str]:
+    """Remove the compiled executable. Returns ``(removed, message)``."""
     bin_dir = paths.get_user_bin_dir()
     exe = bin_dir / blueprint_name
     if not _path_is_under_root(exe, bin_dir):
         typer.echo(f"Error: Uninstall path escapes bin directory: {exe}", err=True)
         raise typer.Exit(code=1)
     if not exe.exists():
-        typer.echo(f"Executable '{blueprint_name}' not found in {bin_dir}", err=True)
+        return False, f"No executable at {exe}"
+    if exe.is_dir():
+        typer.echo(f"Error: Refusing to remove a directory: {exe}", err=True)
         raise typer.Exit(code=1)
     exe.unlink()
+    return True, f"Removed executable: {exe}"
+
+
+@app.command(name="delete")
+def delete_cmd(
+    blueprint_name: str = typer.Argument(..., help="Blueprint name to delete"),
+    source: bool = typer.Option(False, "--source", help="Remove only the user blueprint source."),
+    binary: bool = typer.Option(False, "--binary", help="Remove only the compiled executable."),
+    all_: bool = typer.Option(False, "--all", help="Remove source and executable (the default)."),
+):
+    """Remove a blueprint's source, compiled executable, or both (default).
+
+    Reports each artefact separately; exits 0 when anything was removed and 1
+    when nothing was found, so scripts can rely on the exit code.
+    """
+    blueprint_name = _require_safe_blueprint_segment(blueprint_name)
+    if all_ or not (source or binary):
+        source = binary = True
+    removed_any = False
+    for wanted, remove in (
+        (source, _remove_blueprint_source),
+        (binary, _remove_blueprint_binary),
+    ):
+        if not wanted:
+            continue
+        removed, message = remove(blueprint_name)
+        removed_any = removed_any or removed
+        typer.echo(message)
+    if not removed_any:
+        typer.echo(f"Nothing to remove for '{blueprint_name}'.", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="uninstall")
+def uninstall_cmd(
+    blueprint_name: str = typer.Argument(..., help="Blueprint executable to uninstall"),
+):
+    """Uninstall a compiled blueprint executable (alias for ``delete --binary``)."""
+    blueprint_name = _require_safe_blueprint_segment(blueprint_name)
+    removed, _message = _remove_blueprint_binary(blueprint_name)
+    bin_dir = paths.get_user_bin_dir()
+    if not removed:
+        typer.echo(f"Executable '{blueprint_name}' not found in {bin_dir}", err=True)
+        raise typer.Exit(code=1)
     typer.echo(f"Uninstalled '{blueprint_name}' from {bin_dir}")
+
+
+# --- Session inspection (REQ-871 workstream D) -------------------------------
+# Swarm-side session ids live in the chat store (core/chat_store.py); a CLI's own
+# sessions live in that CLI's store (core/cli_session_stores.py). These commands
+# read those two. They never invent a parallel session DB and never write one.
+
+session_app = typer.Typer(
+    help="Inspect Swarm-side chat records and the CLI session ids they hold.",
+    add_completion=False,
+)
+
+
+def _iter_chat_session_rows() -> list[dict]:
+    """Every active chat-store record, newest first. Read-only; no fake rows."""
+    from swarm.core import chat_store
+
+    root = chat_store.store_dir() / "active"
+    if not root.is_dir():
+        return []
+    rows: list[dict] = []
+    for user_dir in sorted(entry for entry in root.iterdir() if entry.is_dir()):
+        for path in sorted(user_dir.glob("*.json")):
+            agent_id, separator, session_id = path.stem.partition("__")
+            record = chat_store.load(user_dir.name, agent_id, session_id=session_id)
+            if record is None:
+                continue
+            rows.append(
+                {
+                    "user_key": user_dir.name,
+                    "agent_id": agent_id,
+                    "session_id": session_id if separator else "",
+                    "conversation_id": record.get("conversation_id") or "",
+                    "updated_at": record.get("updated_at") or "",
+                    "message_count": len(record.get("messages") or []),
+                    "cli_sessions": record.get("cli_sessions") or {},
+                    "path": str(path),
+                }
+            )
+    rows.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
+    return rows
+
+
+def _format_cli_sessions(cli_sessions: dict) -> str:
+    """``cli=session_id`` pairs, or ``(none)``. Values are already sanitized."""
+    if not cli_sessions:
+        return "(none)"
+    return ", ".join(f"{cli}={sid}" for cli, sid in sorted(cli_sessions.items()))
+
+
+@session_app.command("list")
+def session_list_cmd(
+    agent: str = typer.Option(None, "--agent", help="Only show records for this agent id."),
+    provider: str = typer.Option(
+        None,
+        "--provider",
+        help="Also list this CLI's own sessions (read-only passthrough).",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+):
+    """List Swarm-side session records and the CLI session ids they hold."""
+    import json
+
+    from swarm.core import chat_store
+
+    rows = _iter_chat_session_rows()
+    if agent:
+        rows = [row for row in rows if row["agent_id"] == agent]
+
+    provider_rows: list[dict] | None = None
+    provider_note: str | None = None
+    if provider:
+        from swarm.core.cli_session_select import list_provider_sessions
+
+        can_list, provider_rows, warning = list_provider_sessions(provider)
+        if not can_list:
+            provider_rows = []
+            provider_note = f"{provider}: this CLI can't list sessions"
+        elif warning:
+            provider_note = warning
+
+    if as_json:
+        payload: dict = {"sessions": rows}
+        if provider:
+            payload["provider"] = {"name": provider, "note": provider_note, "rows": provider_rows or []}
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    if not rows:
+        typer.echo(f"No Swarm-side session records found in {chat_store.store_dir() / 'active'}")
+    for row in rows:
+        typer.echo(
+            f"- {row['agent_id']}"
+            f"  session={row['session_id'] or '(default)'}"
+            f"  updated={row['updated_at'] or '?'}"
+            f"  messages={row['message_count']}"
+        )
+        typer.echo(f"    cli_sessions: {_format_cli_sessions(row['cli_sessions'])}")
+        typer.echo(f"    transcript:   {row['path']}")
+
+    if provider:
+        typer.echo(f"--- {provider} provider sessions ---")
+        if provider_note:
+            typer.echo(f"({provider_note})")
+        if not provider_rows:
+            typer.echo("(no provider sessions reported)")
+        for row in provider_rows or []:
+            typer.echo(
+                f"- {row.get('id', '?')}  updated={row.get('updated_at') or '?'}  {row.get('title', '')}"
+            )
+
+
+@session_app.command("show")
+def session_show_cmd(
+    agent: str = typer.Argument(..., help="Agent id (chat-store record stem)."),
+    session: str = typer.Option(
+        "",
+        "--session",
+        help="Concurrent session id (the part of the file stem after '__').",
+    ),
+    user_key: str = typer.Option(None, "--user-key", help="Only consider this user key (e.g. u1)."),
+    provider: str = typer.Option(
+        None,
+        "--provider",
+        help="Check whether this CLI still reports its stored session id.",
+    ),
+):
+    """Show one session record: its CLI session ids and transcript location."""
+    rows = [
+        row
+        for row in _iter_chat_session_rows()
+        if row["agent_id"] == agent
+        and (not session or row["session_id"] == session)
+        and (not user_key or row["user_key"] == user_key)
+    ]
+    if not rows:
+        typer.echo(f"No Swarm-side session record for agent '{agent}'.", err=True)
+        raise typer.Exit(code=1)
+    if len(rows) > 1 and not session:
+        typer.echo(
+            f"Agent '{agent}' has {len(rows)} records; showing the most recent. "
+            "Pass --session to pick one."
+        )
+    row = rows[0]
+    typer.echo(f"agent_id        : {row['agent_id']}")
+    typer.echo(f"user_key        : {row['user_key']}")
+    typer.echo(f"session_id      : {row['session_id'] or '(default)'}")
+    typer.echo(f"conversation_id : {row['conversation_id'] or '(none)'}")
+    typer.echo(f"updated_at      : {row['updated_at'] or '(unknown)'}")
+    typer.echo(f"messages        : {row['message_count']}")
+    typer.echo(f"cli_sessions    : {_format_cli_sessions(row['cli_sessions'])}")
+    typer.echo(f"transcript      : {row['path']}")
+
+    if provider:
+        stored = row["cli_sessions"].get(provider)
+        if not stored:
+            typer.echo(f"{provider}: no stored session id on this record.")
+            return
+        from swarm.core.cli_session_select import list_provider_sessions
+
+        can_list, provider_rows, warning = list_provider_sessions(provider)
+        if not can_list:
+            typer.echo(f"{provider}: this CLI can't list sessions; stored id {stored} (unverified).")
+        elif warning:
+            typer.echo(f"{provider}: {warning}; stored id {stored} (unverified).")
+        else:
+            found = next((item for item in provider_rows if item.get("id") == stored), None)
+            if found:
+                typer.echo(
+                    f"{provider}: stored id {stored} is still reported ({found.get('title', '')})."
+                )
+            else:
+                typer.echo(f"{provider}: stored id {stored} is NOT in the provider's current list.")
+
+
+app.add_typer(session_app, name="session")
 
 
 # REQ-111 Wave 0: Herdr-like TUI client of the same HTTP API as WebUI.
