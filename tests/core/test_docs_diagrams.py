@@ -57,6 +57,67 @@ def _module_exists(rel_path: str) -> bool:
             ],
             id="roles-diagram-names-real-classes-and-modules",
         ),
+        pytest.param(
+            "kind-bases.md",
+            [
+                "BlueprintBase",
+                "KindBase",
+                "ApiKindBase",
+                "CliKindBase",
+                "RemoteKindBase",
+                "base_class_for_kind",
+            ],
+            [
+                "src/swarm/core/kind_bases.py",
+                "src/swarm/core/blueprint_base.py",
+                "src/swarm/core/blueprint_spec.py",
+            ],
+            id="kind-bases-diagram-names-real-classes-and-modules",
+        ),
+        pytest.param(
+            "bubble-themes.md",
+            ["speech", "simple", "irc", "feed", "formatBubbleTime", "ChatMessageBubble"],
+            [
+                "webui/frontend/src/lib/bubbleTheme.ts",
+                "webui/frontend/src/components/ChatMessageBubble.tsx",
+            ],
+            id="bubble-themes-diagram-names-real-themes-and-modules",
+        ),
+        pytest.param(
+            "avatar-themes.md",
+            [
+                "blobs",
+                "bland",
+                "bee",
+                "robot3d",
+                "robots",
+                "resolveAvatarTheme",
+                "stripDisabledAvatarThemes",
+            ],
+            ["webui/frontend/src/lib/avatarTheme.ts"],
+            id="avatar-themes-diagram-names-real-themes-and-modules",
+        ),
+        pytest.param(
+            "abstraction-map.md",
+            [
+                "KindBase",
+                "Role",
+                "ConversationSummary",
+                "skeptic_loop",
+                "team_rosters",
+                "theme.ts",
+            ],
+            [
+                "src/swarm/core/skeptic_loop.py",
+                "src/swarm/core/team_rosters.py",
+                "webui/frontend/src/lib/theme.ts",
+                "docs/diagrams/roles.md",
+                "docs/diagrams/kind-bases.md",
+                "docs/diagrams/bubble-themes.md",
+                "docs/diagrams/avatar-themes.md",
+            ],
+            id="abstraction-map-links-real-diagrams-and-modules",
+        ),
     ],
 )
 def test_diagram_names_real_classes_and_modules(
