@@ -20,10 +20,23 @@ Operating Swarm is simultaneously:
 > **Do not describe OS as only a UI, wrapper, gateway, adapter, or supervisor.**  
 > OS provides its own native agentic execution while orchestrating external harnesses and peer nodes under a common abstraction.
 
-### 1.2 Required Positioning Statement
+### 1.2 Distilled Intent & Official Brand Tagline
+
+> **"Treat external harnesses and peer instances as one common abstraction."**
+
+This tagline captures the purest, best-distilled intent of the project: eliminating artificial architectural divides between native execution runtimes, third-party frameworks, and federated peer instances.
+
+**Header Placement Requirement:**  
+This tagline must be featured directly beneath the project name in the top `README.md` hero header:
+```markdown
+# Operating Swarm (OS)
+> Treat external harnesses and peer instances as one common abstraction.
+```
+
+### 1.3 Required Positioning Statement
 > *"Operating Swarm is a provider-agnostic agent operating layer and harness. It provides its own agentic interface while also connecting to existing harnesses and other Operating Swarm instances. Sessions can persist while switching between providers, harnesses, and remote OS nodes."*
 
-### 1.3 Guardrails (What to Avoid)
+### 1.4 Guardrails (What to Avoid)
 Ensure documentation and user-facing copy avoid implying that:
 - OS is only a frontend for Grok.
 - OS requires Grok or any specific provider.
@@ -125,3 +138,5 @@ The project architecture is structured into seven distinct layers:
 - [ ] Concrete session migration example provided (moving between provider, external harness, native OS harness, and peer OS node).
 - [ ] PyPI deprecation plan for `open-swarm` and reservation plan for `operating-swarm` on PyPI and npm defined.
 - [ ] Brand touchpoints in WebUI, CLI, templates, and `pyproject.toml` inventoried and aligned to OS naming.
+- [ ] The official brand tagline *"Treat external harnesses and peer instances as one common abstraction."* is featured in the top `README.md` hero header and documentation overview.
+
