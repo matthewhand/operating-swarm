@@ -11,6 +11,7 @@ import { FoldVertical, Pencil } from 'lucide-react'
 import { Textarea, LoadingDots } from './DaisyUI'
 import { renderSafeMarkdown } from '../lib/markdown'
 import { setupCodeFenceControls } from '../lib/codeFences'
+import { handleSettingsLinkClick } from '../lib/settingsLinks'
 import { parseSupportNlBlueprintFence } from '../lib/supportNlBlueprint'
 import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
@@ -79,6 +80,11 @@ export const ChatBubbleBody = memo(
       if (!root) return
       // Set up code-copy and collapsible code fence controls (REQ-127, REQ-117)
       setupCodeFenceControls(root, expandedIndicesRef.current)
+      const onClick = (event: globalThis.MouseEvent) => {
+        handleSettingsLinkClick(event)
+      }
+      root.addEventListener('click', onClick)
+      return () => root.removeEventListener('click', onClick)
     }, [text])
 
     if (text.length === 0) {

@@ -56,4 +56,12 @@ describe('renderSafeMarkdown', () => {
     expect(view).toContain('<hr>')
     expect(view).toContain('href="https://example.com/path"')
   })
+
+  it('REQ-868: Manage CLI markdown becomes an in-app settings href', () => {
+    const view = renderSafeMarkdown(
+      'Configure your installed CLIs in [Manage CLI](/chat?settings=cli-agents) (Settings → CLI Agents).',
+    )
+    expect(view).toContain('href="/chat?settings=cli-agents"')
+    expect(view).toContain('Manage CLI')
+  })
 })

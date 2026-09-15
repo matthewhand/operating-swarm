@@ -98,4 +98,7 @@ async def test_node_budget_limiter_caps_total_work():
 async def test_no_cli_configured():
     bp = CliRecurseBlueprint(config={})
     chunks = [c async for c in bp.run([{"role": "user", "content": "q"}])]
-    assert "No CLI is configured" in _final(chunks)
+    final = _final(chunks)
+    assert "No CLI is configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { ChatMessageBubble } from '../ChatMessageBubble'
+import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
 import * as clipboard from '../../lib/clipboard'
 
 describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse', () => {
@@ -456,6 +457,66 @@ describe('REQ-212 inline skill chips', () => {
     expect(row).toHaveAttribute('data-speaker', 'Codey')
     expect(row).toHaveAttribute('data-ts', '2026-09-03T06:54:00Z')
     expect(screen.getByTestId('bubble-time')).toBeInTheDocument()
+  })
+})
+
+describe('REQ-868: settings markdown links open the in-app sheet', () => {
+  const bubbleProps = {
+    role: 'assistant' as const,
+    agentName: 'cli_agent',
+    streaming: false,
+    canEdit: false,
+    editing: false,
+    onStartEdit: () => {},
+    onCancelEdit: () => {},
+    onSaveEdit: () => {},
+  }
+
+  it('clicking Manage CLI opens Settings at cli-agents', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+    window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    render(
+      <ChatMessageBubble
+        {...bubbleProps}
+        text="No CLI agents are configured. Configure your installed CLIs in [Manage CLI](/chat?settings=cli-agents) (Settings → CLI Agents)."
+      />,
+    )
+    const link = screen.getByRole('link', { name: 'Manage CLI' })
+    expect(link).toHaveAttribute('href', '/chat?settings=cli-agents')
+    fireEvent.click(link)
+    expect(opened).toEqual([{ section: 'cli-agents' }])
+    window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+  })
+
+  it('settings:cli-agents protocol also opens the sheet', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+    window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    render(
+      <ChatMessageBubble
+        {...bubbleProps}
+        text="Open [Manage CLI](settings:cli-agents)."
+      />,
+    )
+    fireEvent.click(screen.getByRole('link', { name: 'Manage CLI' }))
+    expect(opened).toEqual([{ section: 'cli-agents' }])
+    window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+  })
+
+  it('ordinary markdown links do not open Settings', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+    window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    render(
+      <ChatMessageBubble
+        {...bubbleProps}
+        text="See [docs](https://example.com/path)."
+      />,
+    )
+    fireEvent.click(screen.getByRole('link', { name: 'docs' }))
+    expect(opened).toEqual([])
+    window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
   })
 })
 

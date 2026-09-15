@@ -382,8 +382,7 @@ class CliAgentBlueprint(CliKindBase):
         chain = support.resolve_failover_chain(config, params, registry)
         if not chain:
             yield support.message_chunk(
-                "No CLI agents are configured. Add a 'cli_agents' block to your "
-                "swarm config (see docs/CLI_FUSION.md).",
+                support.UNCONFIGURED_CLI_AGENTS_MESSAGE,
                 final=True,
             )
             return

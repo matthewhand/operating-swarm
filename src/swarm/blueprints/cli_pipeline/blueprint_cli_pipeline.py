@@ -124,8 +124,7 @@ class CliPipelineBlueprint(CliKindBase):
         stages = self._resolve_stages(params, registry)
         if not stages:
             yield support.message_chunk(
-                "No pipeline stages are configured. Add a 'cli_pipeline' block (or a "
-                "'cli_fusion' preset) to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No pipeline stages are configured"),
                 final=True,
             )
             return
