@@ -3,7 +3,9 @@
 Rail **Plugins** opens a search palette (same chrome family as agent search /
 session picker) over the still-mounted chat. Each row is a discovered tool
 with a visible **On/Off** switch scoped to the **current conversation**.
-Enabled tools sort first; search keeps that order inside matches.
+Enabled tools sort first when the popup opens; toggling On/Off does not
+move rows until it is closed and opened again (#278). Search filters in
+that frozen order.
 
 **Manage servers** opens Settings → Plugins (#502 / #750 add/edit/remove +
 Local MCP / Remote MCP / OpenAPI (mcp-openapi-proxy) + discover). Servers
