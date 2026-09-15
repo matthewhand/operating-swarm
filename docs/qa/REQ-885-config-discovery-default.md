@@ -104,12 +104,48 @@ and the JSON loader itself — used `swarm_config.json`.
 
 ---
 
-## 5. Follow-ups (not part of this requirement)
+## 5. Verified consequences
 
-1. **One resolver, not three.** `_xdg_config_path()` and `find_config_file()` both
+Because this default decided whether `mcpServers` existed at all, the fix changes
+what the MCP provider can see on a host that has servers configured. Measured in
+the dev container (one server, `home-assistant`, `uvx`-based, env values resolved):
+
+| | Before | After |
+|---|---|---|
+| `BlueprintMCPProvider()._mcp_config` | `{}` | `['home-assistant']` |
+| `_start_required_mcp_servers(['home-assistant'])` | `ValueError: MCP server config 'home-assistant' not found in swarm_config.json` | `ValidationError: name — Field required` |
+| Blueprint-compliance status | no change (no blueprint declares this server) | no change |
+
+Two things to take from that:
+
+1. **The false negative is gone.** The old error claimed a server the user *had*
+   configured was missing from `swarm_config.json` — the file it never read.
+2. **The fix exposes a live bug rather than causing one.** The start path cannot
+   succeed for *any* real config: `provider.py:188` builds
+   `MCPServerConfig(**server_cfg_dict)`, but the model requires a `name` field
+   while every real `mcpServers` entry carries its name as the **dict key**.
+   `swarm_config.example.json` (filesystem / memory / brave-search) and
+   `DEVELOPMENT.md:150` both omit `name`. The one test covering the success path
+   passes only because its fixture injects `{"name": "good_server", ...}`, a shape
+   that never occurs in the wild. User-visible outcome is unchanged (MCP tool
+   execution still fails), so this is not a regression — it is the mask coming off.
+3. **The failure detail leaks secrets.** `MCPServerConfig`'s `ValidationError`
+   embeds the whole input dict, `env` included, so logging that exception prints
+   server credentials (observed: a partial token in the rendered error). Any fix
+   should set `hide_input_in_errors=True` on the model or re-raise without the input.
+
+---
+
+## 6. Follow-ups (not part of this requirement)
+
+1. **MCP servers cannot be started at all** — see §5.2. Supply `name` from the dict
+   key (`cfg.setdefault("name", server_name)`), drop the invented `name` from the
+   test fixture, and add a case built from `swarm_config.example.json`'s shape.
+2. **Redact the config model's validation errors** — see §5.3.
+3. **One resolver, not three.** `_xdg_config_path()` and `find_config_file()` both
    know the XDG default; `paths.get_swarm_config_file()` now agrees, but nothing
    prevents a fourth default from appearing. A single `default_config_path()` would
    make this class of drift impossible.
-2. **Log the not-found case louder.** The empty-base-config path is still a
+4. **Log the not-found case louder.** The empty-base-config path is still a
    `debug`-level fact for callers that only want a config read. Callers whose
    behaviour depends on the config being present (MCP provider) should assert it.
