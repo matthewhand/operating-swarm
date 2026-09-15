@@ -31,3 +31,4 @@ source-lock so the spec cannot silently regress.
 | REQ-848 | Right-click rail → new section (#173) | [REQ-848-rail-pane-menu.md](./REQ-848-rail-pane-menu.md) | `tests/unit/test_req848_rail_pane_menu.py` |
 | REQ-801 | Bee avatar pack incl. #171 extension | [REQ-801-bee-avatar-pack.md](./REQ-801-bee-avatar-pack.md) | `tests/unit/test_req801_bee_avatar_theme.py` |
 | REQ-871 | `swarm-cli` blueprint lifecycle: compile / launch fallback / delete scope / session | [REQ-871-cli-blueprint-lifecycle.md](./REQ-871-cli-blueprint-lifecycle.md) | `tests/unit/test_req871_cli_blueprint_lifecycle.py` |
+| REQ-884 | Chat-turn failures name their cause (socket survival + unresolved `${VAR}`) | [REQ-884-chat-turn-failures-name-their-cause.md](./REQ-884-chat-turn-failures-name-their-cause.md) | `tests/unit/test_req884_chat_turn_failures_name_their_cause.py` |
