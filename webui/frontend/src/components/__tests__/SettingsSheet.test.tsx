@@ -74,6 +74,7 @@ describe('SettingsSheet', () => {
     expect(dialog).toHaveClass('modal-end')
     expect(dialog).not.toHaveClass('drawer')
     expect(dialog.className).not.toMatch(/btn-group/)
+    expect(screen.getByText('Open Swarm')).toBeInTheDocument()
 
     const remotesToggle = screen.getByRole('button', { name: 'Remotes' })
     expect(remotesToggle).not.toHaveClass('menu-dropdown-toggle')
@@ -1390,6 +1391,15 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
       upsert: { filesystem: { command: 'npx' } },
     })
     expect(JSON.stringify(patchCall?.[1]?.body)).not.toMatch(/sk-/)
+  })
+
+  it('renders a top-left >> conceal button that closes the sheet', () => {
+    const { onClose } = renderSheet()
+    const conceal = screen.getByRole('button', { name: 'Conceal sidepane' })
+    expect(conceal).toHaveAttribute('title', 'Conceal sidepane')
+    expect(screen.getByText('Open Swarm')).toBeInTheDocument()
+    fireEvent.click(conceal)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 

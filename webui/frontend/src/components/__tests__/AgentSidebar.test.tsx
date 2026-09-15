@@ -2582,4 +2582,50 @@ describe('AgentSidebar drag-to-delete recycle bin', () => {
   })
 })
 
+describe('AgentSidebar REQ-861 conceal', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('renders a mono brand conceal button that collapses the desktop rail', async () => {
+    renderSidebar()
+    const conceal = await screen.findByRole('button', { name: 'Conceal sidebar' })
+    expect(conceal).toHaveAttribute('title', 'Conceal sidebar')
+    expect(conceal.querySelector('.os-brand-mark-geometric')).toBeTruthy()
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'false')
+
+    fireEvent.click(conceal)
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.queryByRole('button', { name: 'Conceal sidebar' })).not.toBeInTheDocument()
+  })
+
+  it('conceals the mobile drawer via the logo button and backdrop', async () => {
+    const onClose = vi.fn()
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AgentSidebar open narrow onClose={onClose} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    const conceal = await screen.findByRole('button', { name: 'Conceal sidebar' })
+    fireEvent.click(conceal)
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    const backdrop = screen.getAllByRole('button', { name: 'Close agents sidebar' })[0]
+    fireEvent.click(backdrop)
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+})
+
 

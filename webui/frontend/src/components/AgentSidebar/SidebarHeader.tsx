@@ -12,6 +12,7 @@ import {
 import type { SidebarDensity } from '../../types/agent'
 import { AVATAR_THEMES, AVATAR_EYES } from '../../types/agent'
 import { useAgentStore } from '../../lib/agent-store'
+import { SidebarConcealButton } from '../SidepaneConceal'
 
 interface SidebarHeaderProps {
   density: SidebarDensity
@@ -100,7 +101,8 @@ export const SidebarHeader = memo(function SidebarHeader({
   }
 
   return (
-    <div className="flex items-center justify-end px-2 py-1.5 border-b border-base-300/60">
+    <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-base-300/60">
+      {isOpen ? <SidebarConcealButton onClick={onToggleOpen} /> : <span />}
       <div className="flex items-center gap-1">
         {/* Density Dropdown */}
         <div className="relative" ref={dropdownRef}>
