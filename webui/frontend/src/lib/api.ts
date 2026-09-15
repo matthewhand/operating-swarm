@@ -400,6 +400,8 @@ export interface LlmProfilesSettings {
   list_models_source?: 'req44' | 'stub'
   cli_model_lists?: Array<{ cli: string; models: string[]; warning?: string }>
   force_env?: boolean
+  /** REQ-853 / #207: effective default profile resolves to a usable LLM endpoint. */
+  default_llm_ready?: boolean
   provenance?: {
     default_llm_profile?: import('./configOwnership').EnvBadge
   }

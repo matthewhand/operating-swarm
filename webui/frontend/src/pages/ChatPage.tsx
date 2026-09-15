@@ -202,12 +202,19 @@ import { workingLabel } from '../lib/chatBubble'
 import { isExperimentalEnabled } from '../experimental/flags'
 import { ChatMessageActions } from '../experimental/ChatMessageActions'
 import { RoleAgentTip } from '../components/RoleAgentTip'
+import { DefaultLlmTip } from '../components/DefaultLlmTip'
 import {
   hydrateRoleAgentTipDismissed,
   persistRoleAgentTipDismissed,
   isRoleAgentTipDismissed,
   shouldShowRoleAgentTip,
 } from '../lib/roleAgentTip'
+import {
+  hydrateDefaultLlmTipDismissed,
+  persistDefaultLlmTipDismissed,
+  isDefaultLlmTipDismissed,
+  shouldShowDefaultLlmTip,
+} from '../lib/defaultLlmTip'
 import { agentRole, exampleRoleAgents, isChiefOfStaff, isExampleRole } from '../lib/agentRoles'
 import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit, loadInferenceList } from '../lib/agentEdits'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
@@ -417,6 +424,7 @@ const ChatPage = () => {
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [recentSlashIds, setRecentSlashIds] = useState<string[]>(() => getRecentSlashIds())
   const [roleTipDismissed, setRoleTipDismissed] = useState(isRoleAgentTipDismissed)
+  const [defaultLlmTipDismissed, setDefaultLlmTipDismissed] = useState(isDefaultLlmTipDismissed)
   const [dynamicSkills, setDynamicSkills] = useState<{ name: string; description?: string }[]>([])
   const [skillCatalog, setSkillCatalog] = useState<SkillRecord[]>([])
   const [openSkillName, setOpenSkillName] = useState<string | null>(null)
@@ -710,6 +718,10 @@ const ChatPage = () => {
   const dismissRoleTip = useCallback(() => {
     void persistRoleAgentTipDismissed()
     setRoleTipDismissed(true)
+  }, [])
+  const dismissDefaultLlmTip = useCallback(() => {
+    void persistDefaultLlmTipDismissed()
+    setDefaultLlmTipDismissed(true)
   }, [])
   useEffect(() => {
     if (!showRoleTip) return
@@ -1163,6 +1175,12 @@ const ChatPage = () => {
   useEffect(() => {
     void hydrateRoleAgentTipDismissed().then((dismissed) => {
       if (dismissed) setRoleTipDismissed(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    void hydrateDefaultLlmTipDismissed().then((dismissed) => {
+      if (dismissed) setDefaultLlmTipDismissed(true)
     })
   }, [])
 
@@ -2641,6 +2659,15 @@ const ChatPage = () => {
     llmProfilesQuery.data?.profiles,
     selectedModelId || llmProfilesQuery.data?.default_llm_profile,
   )
+  // #207: API seats on the default profile get a setup tip when the default
+  // LLM is not usable. Explicit model/profile overrides (pinned seats) and
+  // CLI/remote/team seats are exempt by design.
+  const showDefaultLlmTip = shouldShowDefaultLlmTip({
+    isApiAgent,
+    hasExplicitModelOverride: Boolean(selectedModelId),
+    defaultLlmReady: llmProfilesQuery.data?.default_llm_ready,
+    dismissed: defaultLlmTipDismissed,
+  })
   contextMaxRef.current = contextMax
   const meterMax = contextMax ?? CONTEXT_METER_TOKENS
   const tokenPct = Math.min(100, Math.round((tokenCount / meterMax) * 100))
@@ -3030,6 +3057,7 @@ const ChatPage = () => {
       </header>
 
       {showRoleTip ? <RoleAgentTip onDismiss={dismissRoleTip} /> : null}
+      {showDefaultLlmTip ? <DefaultLlmTip onDismiss={dismissDefaultLlmTip} /> : null}
 
       <span role="status" aria-live="polite" aria-atomic="true" aria-label="Connection status" className="sr-only">
         {statusLabel}

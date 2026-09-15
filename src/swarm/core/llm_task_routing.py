@@ -944,6 +944,78 @@ def persist_named_llm_profile(
     return load_raw_config(config_path)
 
 
+def _template_env_value(value: str) -> str | None:
+    """Resolve ``${VAR}`` / ``${VAR:-fallback}`` env templates to a concrete value."""
+    text = value.strip()
+    if not (text.startswith("${") and text.endswith("}")):
+        return None
+    expr = text[2:-1]
+    default = None
+    if ":-" in expr:
+        var, default = expr.split(":-", 1)
+    else:
+        var = expr
+    var = var.strip()
+    if not var or not var.replace("_", "").isalnum():
+        return None
+    resolved = os.environ.get(var)
+    if resolved is None or resolved == "":
+        return (default or "").strip() or None
+    return resolved
+
+
+def profile_is_usable(profile: dict[str, Any] | None) -> bool:
+    """REQ-853 / #207: does a profile entry resolve to a usable LLM endpoint?
+
+    A profile is usable when it carries a concrete ``model`` (a template that
+    resolves, or a literal id) **and** an api key source — either an api_key
+    literal/env-template or a custom ``base_url`` that owns its own auth
+    (e.g. a local LiteLLM gateway). No secret values are read into the payload
+    path; only presence/absence is inspected.
+    """
+    if not isinstance(profile, dict):
+        return False
+
+    model = profile.get("model")
+    if isinstance(model, str) and model.strip():
+        if model.strip().startswith("${"):
+            if _template_env_value(model) is None:
+                return False
+        # literal model id: usable
+    else:
+        return False
+
+    for key in ("api_key", "apikey", "key"):
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            if value.strip().startswith("${"):
+                return _template_env_value(value) is not None
+            return True
+    if profile.get("base_url"):
+        base_url = profile.get("base_url")
+        if isinstance(base_url, str) and base_url.strip():
+            if base_url.strip().startswith("${"):
+                return _template_env_value(base_url) is not None
+            return True
+    return False
+
+
+def default_llm_ready(config: dict[str, Any] | None = None) -> bool:
+    """REQ-853 / #207: is the effective default profile usable right now?
+
+    Mirrors the runtime fallback (``get_profile_dict`` → literal model id),
+    so the UI tip fires exactly when a turn would fail to resolve a usable
+    endpoint. Unknown ids stay "ready" — the failure mode there is a
+    different, resolver-level error that the turn surfaces honestly.
+    """
+    config = config if config is not None else load_swarm_config()
+    default, _warnings = effective_default_profile(config)
+    profile = get_profile_dict(default, config)
+    if profile is None:
+        return True
+    return profile_is_usable(profile)
+
+
 def settings_public_payload(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """SPA / API payload. Auto-picks fill unsaved defaults. No secrets."""
     from swarm.core import config_ownership as ownership
@@ -989,6 +1061,7 @@ def settings_public_payload(config: dict[str, Any] | None = None) -> dict[str, A
         "warnings": llm_list_models.sanitize_ui_warnings(
             warnings + ([f"Missing profile {mid!r}." for mid in missing] if missing else [])
         ),
+        "default_llm_ready": default_llm_ready(config),
         "routes": routes,
         "task_classes": list(TASK_CLASSES),
         "list_models_source": list_source,
