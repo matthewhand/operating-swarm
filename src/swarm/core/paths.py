@@ -56,10 +56,14 @@ def get_user_config_dir_for_swarm() -> Path:
     return Path(platformdirs.user_config_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
 
 
-def get_swarm_config_file(config_filename: str = "config.yaml") -> Path:
+def get_swarm_config_file(config_filename: str = "swarm_config.json") -> Path:
     """
     Returns the full path to the swarm configuration file.
-    Defaults to config.yaml within the user config directory.
+
+    Defaults to ``swarm_config.json`` within the user config directory — the name
+    every reader and writer uses (``config_loader.DEFAULT_CONFIG_FILENAME``,
+    ``_xdg_config_path``, ``swarm_config.example.json``). It previously claimed
+    ``config.yaml``, which nothing writes and the JSON loader could not read.
     Uses basename only to prevent path traversal.
     """
     config_dir = get_user_config_dir_for_swarm()

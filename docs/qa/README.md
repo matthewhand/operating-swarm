@@ -32,3 +32,4 @@ source-lock so the spec cannot silently regress.
 | REQ-801 | Bee avatar pack incl. #171 extension | [REQ-801-bee-avatar-pack.md](./REQ-801-bee-avatar-pack.md) | `tests/unit/test_req801_bee_avatar_theme.py` |
 | REQ-871 | `swarm-cli` blueprint lifecycle: compile / launch fallback / delete scope / session | [REQ-871-cli-blueprint-lifecycle.md](./REQ-871-cli-blueprint-lifecycle.md) | `tests/unit/test_req871_cli_blueprint_lifecycle.py` |
 | REQ-884 | Chat-turn failures name their cause (socket survival + unresolved `${VAR}`) | [REQ-884-chat-turn-failures-name-their-cause.md](./REQ-884-chat-turn-failures-name-their-cause.md) | `tests/unit/test_req884_chat_turn_failures_name_their_cause.py` |
+| REQ-885 | `load_full_configuration` discovers the config it claims to use | [REQ-885-config-discovery-default.md](./REQ-885-config-discovery-default.md) | `tests/unit/test_req885_config_discovery_default.py` |

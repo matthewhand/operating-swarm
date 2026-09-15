@@ -127,12 +127,16 @@ class TestSwarmConfigFile:
     """Test swarm config file path functionality."""
 
     def test_get_swarm_config_file_default(self):
-        """Test default config file path."""
+        """Test default config file path.
+
+        ``swarm_config.json`` is the name every reader/writer uses; the previous
+        ``config.yaml`` default named a file nothing wrote and loaded as JSON.
+        """
         config_dir = get_user_config_dir_for_swarm()
         config_file = get_swarm_config_file()
 
         assert config_file.parent == config_dir
-        assert config_file.name == "config.yaml"
+        assert config_file.name == "swarm_config.json"
 
     def test_get_swarm_config_file_custom_name(self):
         """Test config file path with custom filename."""
