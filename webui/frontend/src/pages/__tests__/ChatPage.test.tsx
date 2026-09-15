@@ -434,7 +434,9 @@ describe('ChatPage agent header (no blueprint dropdown)', () => {
     expect(avatar).toBeTruthy()
     expect(avatar).toHaveAttribute('data-agent-avatar', 'default')
     expect(avatar).toHaveClass('os-chat-header__avatar')
-    expect(identity.firstElementChild).toBe(avatar)
+    // #224: the avatar sits inside the generations trigger button — still the
+    // header's first child, still preceding the heading.
+    expect(identity.firstElementChild?.contains(avatar!)).toBe(true)
     expect(heading.compareDocumentPosition(avatar!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
     expect(within(identity).getByRole('button', { name: 'Open Codey definition' })).toBeInTheDocument()
   })
@@ -3720,8 +3722,6 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
     expect(screen.getByTestId('routing-pill-effort')).toHaveAttribute('data-value', 'high')
   })
 })
-
-
 describe('ChatPage seat state survives navigation (#229)', () => {
   /** #229 helpers: same wire shape the queued tests use. */
   function startStreaming(ws: MockWebSocket, id = 'message-response-abc123') {
@@ -3905,5 +3905,122 @@ describe('ChatPage seat state survives navigation (#229)', () => {
     unmount()
     expect(runStates.some((s) => s.agentId === 'codey' && s.running === false)).toBe(true)
     window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
+  })
+})
+
+describe('ChatPage generations panel (#224)', () => {
+  function renderSoloChat(initialEntry = '/chat?blueprint=codey') {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <SearchProbe />
+            <Routes>
+              <Route path="/chat" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    window.localStorage.clear()
+    resetConversationThreads()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/chat/thread/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ agent_id: 'codey', conversation_id: '', messages: [] }),
+          } as Response
+        }
+        if (url.includes('/chat/raw-context/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              conversation_id: '',
+              context: [{ role: 'user', content: 'the raw turn' }],
+              summaries_included: [],
+              summaries_excluded: [],
+              cull_offset: 0,
+              raw_turn_count: 1,
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'codey', name: 'Codey', description: 'Code assistant' }],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    resetConversationThreads()
+    window.localStorage.clear()
+  })
+
+  it('header avatar opens the panel with the seat tool calls and raw context', async () => {
+    renderSoloChat('/chat?blueprint=codey')
+    const ws = await act(async () => {
+      MockWebSocket.instances[0]?.open()
+      return MockWebSocket.instances[0]!
+    })
+
+    // Idle: no panel.
+    expect(screen.queryByTestId('generations-panel')).toBeNull()
+
+    // Generate a turn with a tool event so the seat has one call on record.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'use a tool' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-gen1" class="assistant-message"></div></div>',
+        }),
+      )
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'tool_status',
+            id: 'gen-tool-1',
+            name: 'read_file',
+            status: 'done',
+            agent_id: 'codey',
+          }),
+        }),
+      )
+    })
+
+    fireEvent.click(screen.getByTestId('header-avatar-generations'))
+    const panel = screen.getByTestId('generations-panel')
+    expect(panel).toBeTruthy()
+    expect(screen.getByTestId('generations-tool')).toHaveTextContent('read_file')
+
+    fireEvent.click(screen.getByTestId('generations-raw-toggle'))
+    expect(await screen.findByTestId('generations-raw-view')).toHaveTextContent(
+      'the raw turn',
+    )
+
+    fireEvent.click(screen.getByTestId('generations-close'))
+    expect(screen.queryByTestId('generations-panel')).toBeNull()
   })
 })

@@ -3041,3 +3041,27 @@ html:not([data-theme="light"]) .os-composer__send,
     animation: none !important;
   }
 }
+
+/* #224: agent-first generations panel (on-demand workings surface). */
+.os-generations-panel {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 30;
+  width: min(26rem, calc(100vw - 2rem));
+  max-height: 70%;
+  overflow-y: auto;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: var(--color-base-100);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+/* #224: the header avatar is a button (opens the generations panel) but must
+   not alter the avatar's established geometry (REQ-60 contract). */
+.os-chat-header__avatar-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}

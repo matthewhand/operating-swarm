@@ -126,6 +126,7 @@ import {
   type ChatWsEvent,
 } from '../lib/chatWs'
 import { ToolCallPopup } from '../components/ToolCallPopup'
+import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsPanel'
 import { PrOpenedCard } from '../components/PrOpenedCard'
 import { TeammateTaskCard } from '../components/TeammateTaskCard'
 import { SuggestionChips } from '../components/SuggestionChips'
@@ -553,6 +554,8 @@ const ChatPage = () => {
       if (runStateSeatRef.current) notifyCliRunState(runStateSeatRef.current, false)
     }
   }, [activeChatAgentId])
+  // #224: agent-first — workings live in the on-demand panel, not the transcript.
+  const [generationsOpen, setGenerationsOpen] = useState(false)
   const drainLockRef = useRef(false)
   const queued = useQueuedSends(conversationId)
   /** Monotonic counter for collision-free user-echo keys. */
@@ -2300,6 +2303,18 @@ const ChatPage = () => {
 
   const streamingMessage = messages.find((message) => message.streaming)
   const isWorking = Boolean(streamingMessage) || awaitingAssistant
+  // #224: every tool call this seat has produced in the active context.
+  const seatToolCalls = useMemo<PanelToolCall[]>(
+    () => messages.flatMap((message) => message.tools ?? []),
+    [messages],
+  )
+  const generationContexts = useMemo(
+    () =>
+      conversationId
+        ? [{ id: conversationId, label: selectedAgentName || 'Current context' }]
+        : [],
+    [conversationId, selectedAgentName],
+  )
   const chipsDisabled = status !== 'open'
   const supportJourneyChips =
     supportSelected && messages.length === 0 ? supportJourneyKickstart() : []
@@ -2791,15 +2806,25 @@ const ChatPage = () => {
                 size="md"
               />
             ) : !teamFromUrl ? (
-              <AgentAvatar
-                src={selectedAgent?.avatar_path}
-                agentId={agentIdFromBlueprint(selectedBlueprint)}
-                active={isWorking}
-                status={isWorking ? 'working' : 'idle'}
-                size="lg"
-                gl
-                className="os-chat-header__avatar shrink-0"
-              />
+              <button
+                type="button"
+                className="os-chat-header__avatar-btn shrink-0"
+                aria-label={`Show ${selectedAgentName} generations`}
+                aria-haspopup="dialog"
+                aria-expanded={generationsOpen}
+                data-testid="header-avatar-generations"
+                onClick={() => setGenerationsOpen((prev) => !prev)}
+              >
+                <AgentAvatar
+                  src={selectedAgent?.avatar_path}
+                  agentId={agentIdFromBlueprint(selectedBlueprint)}
+                  active={isWorking}
+                  status={isWorking ? 'working' : 'idle'}
+                  size="lg"
+                  gl
+                  className="os-chat-header__avatar"
+                />
+              </button>
             ) : null}
             <h1 className="truncate text-base font-semibold tracking-tight">
               <button
@@ -3722,6 +3747,19 @@ const ChatPage = () => {
           {startFromHereWarning?.copy}
         </p>
       </ConfirmModal>
+
+      <GenerationsPanel
+        open={generationsOpen}
+        onClose={() => setGenerationsOpen(false)}
+        agentId={agentIdFromBlueprint(selectedBlueprint) || selectedBlueprint || ''}
+        agentName={selectedAgentName || 'Agent'}
+        contexts={generationContexts}
+        activeContextId={conversationId}
+        onSwitchContext={() => {
+          /* Single-context today; multi-context switching lands with session history UI. */
+        }}
+        toolCalls={seatToolCalls}
+      />
     </div>
   )
 }

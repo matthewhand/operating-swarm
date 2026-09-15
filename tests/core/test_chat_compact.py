@@ -564,3 +564,80 @@ def test_toggle_endpoint_requires_login():
         content_type="application/json",
     )
     assert response.status_code in (302, 401, 403)
+# --- #224: raw-context view (what the model actually sees) -------------------
+
+
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("stub_compact_llm")
+def test_raw_context_returns_honest_model_context(client, user):
+    cid = "conv-raw-ctx"
+    messages = _turns(
+        ("user", "alpha question"),
+        ("assistant", "alpha answer"),
+        ("user", "beta question"),
+    )
+    _seed_json(user, "jeeves", messages, cid)
+    row, raw = compact_backlog(
+        user=user,
+        conversation_id=cid,
+        agent_id="jeeves",
+        messages=messages,
+        span_end=1,
+    )
+    assert raw is not None
+
+    resp = client.get(f"/chat/raw-context/?agent=jeeves&conversation_id={cid}")
+    assert resp.status_code == 200
+    body = resp.json()
+    # Summarized span is spliced out; the uncovered turn stays raw.
+    assert any(
+        item["role"] == "system" and "alpha question" not in item["content"]
+        for item in body["context"]
+    )
+    assert any(item.get("content") == "beta question" for item in body["context"])
+    assert body["summaries_included"] == [row.id]
+    assert body["summaries_excluded"] == []
+    assert body["raw_turn_count"] == len(messages)
+    # Raw transcript untouched — the raw view is read-only.
+    loaded = chat_store.load(chat_store.user_key_for(user), "jeeves")
+    assert loaded is not None
+    assert [m["content"] for m in loaded["messages"]] == [m["content"] for m in messages]
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("stub_compact_llm")
+def test_raw_context_marks_excluded_summaries(client, user):
+    from swarm.models import ConversationSummary
+
+    cid = "conv-raw-ctx-excl"
+    messages = _turns(("user", "old stuff"), ("assistant", "old reply"))
+    _seed_json(user, "jeeves", messages, cid)
+    compact_backlog(user=user, conversation_id=cid, agent_id="jeeves", messages=messages)
+
+    summary_row = ConversationSummary.objects.get(conversation_id=cid)
+    summary_row.include_in_context = False
+    summary_row.save(update_fields=["include_in_context"])
+
+    resp = client.get(f"/chat/raw-context/?agent=jeeves&conversation_id={cid}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["summaries_excluded"] == [summary_row.id]
+    assert body["summaries_included"] == []
+    # #230 semantics: an excluded summary keeps its span ARCHIVED — the
+    # summary drops out AND its summarised raw turns do not reappear.
+    assert not any(item.get("content") == "old stuff" for item in body["context"])
+    assert not any(item.get("content") == "old reply" for item in body["context"])
+
+
+@pytest.mark.django_db
+def test_raw_context_requires_login():
+    resp = Client().get("/chat/raw-context/?agent=jeeves&conversation_id=x")
+    assert resp.status_code in (302, 403)
+
+
+@pytest.mark.django_db
+def test_raw_context_requires_conversation_id(client):
+    resp = client.get("/chat/raw-context/?agent=jeeves")
+    assert resp.status_code == 400

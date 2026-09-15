@@ -369,6 +369,63 @@ def chat_thread(request):
     return JsonResponse(payload)
 
 
+@login_required
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def chat_raw_context(request):
+    """#224: exactly what the model sees for one conversation — read-only.
+
+    Reuses the production context builder (``context_for_conversation``), so
+    the payload is the honest splice: spliced summary trees (with the #214
+    include-in-context state marked), uncovered raw turns, and the cull
+    offset. No fabrication; no transcript mutation.
+    """
+    from swarm.core.chat_compact import context_for_conversation, list_summaries
+    from swarm.core.transcript_roles import reconstruct_display
+
+    agent = chat_store.normalize_agent_id(request.GET.get("agent"))
+    requested_cid = (request.GET.get("conversation_id") or "").strip()
+    if not requested_cid:
+        return JsonResponse({"error": "conversation_id required"}, status=400)
+    loaded = load_thread(
+        request.user,
+        agent,
+        requested_cid=requested_cid,
+        session_id=requested_cid,
+        default_cid=requested_cid,
+        fresh_task=False,
+    )
+    turns = loaded.turns
+    model_context = context_for_conversation(requested_cid, turns)
+    included_ids: set[int] = set()
+    excluded_ids: list[int] = []
+    for row in list_summaries(requested_cid):
+        summary_id = getattr(row, "id", None)
+        if summary_id is None:
+            continue
+        if getattr(row, "include_in_context", True):
+            included_ids.add(summary_id)
+        else:
+            excluded_ids.append(summary_id)
+    from swarm.core.context_cull_policy import load_context_meta
+
+    try:
+        cull_offset = int(load_context_meta(requested_cid).get("start_offset") or 0)
+    except Exception:
+        cull_offset = 0
+    return JsonResponse(
+        {
+            "conversation_id": requested_cid,
+            "agent_id": agent,
+            "context": model_context,
+            "summaries_included": sorted(included_ids),
+            "summaries_excluded": sorted(excluded_ids),
+            "cull_offset": cull_offset,
+            "raw_turn_count": len(reconstruct_display(turns, loaded.events)),
+        }
+    )
+
+
 @require_http_methods(["POST"])
 def chat_attachment_upload(request):
     """Store one composer file and return its id (REQ-38).
