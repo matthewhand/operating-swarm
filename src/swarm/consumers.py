@@ -573,22 +573,56 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             )
             await self.send(text_data=system_message_html)
 
-            if params and params.get("team"):
-                from swarm.core.team_rosters import blueprint_id_for_team_target
+            # Guard the dispatch itself. The respond_* paths handle their own
+            # generation failures, but anything raised before/around them —
+            # e.g. constructing the model client when OPENAI_API_KEY is unset
+            # or a config ${VAR} never expanded — used to escape
+            # websocket_receive. Uvicorn then aborted the socket with no close
+            # frame, leaving the SPA to report "ASGI is not serving /ws/ or
+            # Origin does not match ALLOWED_HOSTS": a credential/config fault
+            # presented as a connection fault. Surface it as an error partial.
+            try:
+                if params and params.get("team"):
+                    from swarm.core.team_rosters import blueprint_id_for_team_target
 
-                team_blueprint = blueprint_id_for_team_target(
-                    params.get("team"), params.get("target")
-                )
-                if team_blueprint:
+                    team_blueprint = blueprint_id_for_team_target(
+                        params.get("team"), params.get("target")
+                    )
+                    if team_blueprint:
+                        await self.respond_with_blueprint(
+                            team_blueprint, contents_div_id, params=params
+                        )
+                    else:
+                        await self.respond_with_team_stub(
+                            params, message_text, contents_div_id
+                        )
+                elif blueprint_id:
                     await self.respond_with_blueprint(
-                        team_blueprint, contents_div_id, params=params
+                        blueprint_id, contents_div_id, params=params
                     )
                 else:
-                    await self.respond_with_team_stub(params, message_text, contents_div_id)
-            elif blueprint_id:
-                await self.respond_with_blueprint(blueprint_id, contents_div_id, params=params)
-            else:
-                await self.respond_with_default_model(contents_div_id)
+                    await self.respond_with_default_model(contents_div_id)
+            except Exception as e:
+                logger.exception("Chat turn raised outside the respond_* handlers")
+                from swarm.utils.env_utils import client_safe_error_message
+
+                try:
+                    await self.send_error_message(
+                        contents_div_id,
+                        client_safe_error_message(
+                            e,
+                            public=(
+                                "Error: the reply could not be started — the server's "
+                                "model provider is unusable (missing or invalid "
+                                "credentials?)."
+                            ),
+                        ),
+                    )
+                except Exception:
+                    logger.debug(
+                        "turn error partial send failed; socket likely gone",
+                        exc_info=True,
+                    )
 
     async def _emit_new_cli_session_notice(self, blueprint_id, params):
         """REQ-92: send ``Started a new {cli} session.`` before assistant_start.
