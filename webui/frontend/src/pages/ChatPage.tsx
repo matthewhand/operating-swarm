@@ -507,6 +507,24 @@ const ChatPage = () => {
   const [transcriptHeightPx, setTranscriptHeightPx] = useState(0)
   const [queuedHoldIds, setQueuedHoldIds] = useState<string[]>([])
   const [awaitingAssistant, setAwaitingAssistant] = useState(false)
+  // #229: a seat/session switch starts with clean working chrome — the old
+  // seat's in-flight turn must never leak into the new seat's UI. The old
+  // socket's close resets its own thread's streaming flag; this covers the
+  // awaiting side. Stale closes from a replaced socket are harmless because
+  // isWorking also derives from the (per-thread) streaming flag.
+  useEffect(() => {
+    setAwaitingAssistant(false)
+  }, [threadKey, conversationId])
+  // #229: when the seat changes or the page unmounts, clear the working
+  // state published for the departed seat so its rail avatar stops animating
+  // (the working set is cross-seat; nothing else would clear the old id).
+  const runStateSeatRef = useRef<string | null>(null)
+  useEffect(() => {
+    runStateSeatRef.current = activeChatAgentId
+    return () => {
+      if (runStateSeatRef.current) notifyCliRunState(runStateSeatRef.current, false)
+    }
+  }, [activeChatAgentId])
   const drainLockRef = useRef(false)
   const queued = useQueuedSends(conversationId)
   /** Monotonic counter for collision-free user-echo keys. */

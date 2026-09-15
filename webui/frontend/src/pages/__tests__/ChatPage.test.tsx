@@ -10,6 +10,7 @@ import { clearAllQueuedSends } from '../../lib/chatQueue'
 import { AVATAR_THEME_STORAGE_KEY, saveAvatarTheme } from '../../lib/avatarTheme'
 import { OPEN_AGENT_EDITOR_EVENT } from '../../lib/agentSettings'
 import { saveEnabledPluginToolIds } from '../../lib/chatPluginTools'
+import { CLI_RUN_STATE_EVENT, cliRunStateFromEvent } from '../../lib/cliRunState'
 
 type WsHandler = ((ev?: Event) => void) | null
 
@@ -3720,3 +3721,189 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
   })
 })
 
+
+describe('ChatPage seat state survives navigation (#229)', () => {
+  /** #229 helpers: same wire shape the queued tests use. */
+  function startStreaming(ws: MockWebSocket, id = 'message-response-abc123') {
+    ws.onmessage?.(
+      new MessageEvent('message', {
+        data: `<div id="message-list" hx-swap-oob="beforeend"><div id="${id}" class="assistant-message"></div></div>`,
+      }),
+    )
+  }
+
+  function finishStreaming(ws: MockWebSocket, id = 'message-response-abc123', reply = 'done') {
+    ws.onmessage?.(
+      new MessageEvent('message', {
+        data: `<div id="${id}" class="assistant-message" hx-swap-oob="true">${reply}</div>`,
+      }),
+    )
+  }
+
+  function renderSoloChat(initialEntry = '/chat?blueprint=codey') {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <SearchProbe />
+            <Routes>
+              <Route path="/chat" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    window.localStorage.clear()
+    resetConversationThreads()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/chat/thread/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ agent_id: 'codey', conversation_id: '', messages: [] }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'codey', name: 'Codey', description: 'Code assistant' }],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    resetConversationThreads()
+    window.localStorage.clear()
+  })
+
+  it('shows the completed reply after detach/return mid-turn (snapshot re-sync, no TrueForge loss)', async () => {
+    const { unmount } = renderSoloChat('/chat?blueprint=codey')
+    const ws = await act(async () => {
+      MockWebSocket.instances[0]?.open()
+      return MockWebSocket.instances[0]!
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'question before detach' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    // Detach mid-turn: user navigates away while the reply is streaming.
+    await act(async () => {
+      startStreaming(ws, 'message-response-detach1')
+    })
+    unmount()
+
+    // Turn completes server-side while detached; disconnect already saved the
+    // partial turn, and the final content lands in the persisted thread.
+    ;(fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/chat/thread/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              agent_id: 'codey',
+              conversation_id: '',
+              messages: [
+                { role: 'user', content: 'question before detach' },
+                { role: 'assistant', content: 'full reply after detach' },
+              ],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'codey', name: 'Codey', description: 'Code assistant' }],
+          }),
+        } as Response
+      },
+    )
+
+    // Remount: snapshot-on-mount shows the full reply, not a blank/missing turn.
+    renderSoloChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[MockWebSocket.instances.length - 1]?.open()
+    })
+    expect(await screen.findByText('full reply after detach')).toBeInTheDocument()
+    expect(screen.getByText('question before detach')).toBeInTheDocument()
+  })
+
+  it('keeps the rail working animation honest: per-seat start/stop while switching', async () => {
+    renderSoloChat('/chat?blueprint=codey')
+    const ws = await act(async () => {
+      MockWebSocket.instances[0]?.open()
+      return MockWebSocket.instances[0]!
+    })
+
+    const runStates: Array<{ agentId: string; running: boolean }> = []
+    const onRunState = (event: Event) => {
+      const detail = cliRunStateFromEvent(event)
+      if (detail) runStates.push(detail)
+    }
+    window.addEventListener(CLI_RUN_STATE_EVENT, onRunState)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'work the seat' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(runStates.some((s) => s.agentId === 'codey' && s.running === true)).toBe(true)
+
+    // Stream starts, then the turn completes → the seat's working state clears.
+    await act(async () => {
+      startStreaming(ws, 'message-response-mock1')
+    })
+    await act(async () => {
+      finishStreaming(ws, 'message-response-mock1', 'reply done')
+    })
+    await waitFor(() => {
+      expect(runStates.some((s) => s.agentId === 'codey' && s.running === false)).toBe(true)
+    })
+    window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
+  })
+
+  it('stops a departed seat working state on switch-away (no stale rail animation)', async () => {
+    const { unmount } = renderSoloChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'detach while working' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    const runStates: Array<{ agentId: string; running: boolean }> = []
+    const onRunState = (event: Event) => {
+      const detail = cliRunStateFromEvent(event)
+      if (detail) runStates.push(detail)
+    }
+    window.addEventListener(CLI_RUN_STATE_EVENT, onRunState)
+
+    // Seat switch: the component unmounts (new route) — the cleanup must
+    // publish running=false for the departed seat immediately.
+    unmount()
+    expect(runStates.some((s) => s.agentId === 'codey' && s.running === false)).toBe(true)
+    window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
+  })
+})
