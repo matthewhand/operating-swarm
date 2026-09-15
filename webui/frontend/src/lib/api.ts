@@ -612,7 +612,14 @@ export function removeFromLibrary(name: string): Promise<void> {
  * Kind id ``omb`` is labelled OpenMousBot in UI copy — never OMB.
  * Auth is an env-var *name* only; never send a live token.
  */
-export type RemoteKindId = 'hermes' | 'omb' | 'rakazo' | 'herdr' | 'open-swarm' | 'swarm'
+export type RemoteKindId =
+  | 'hermes'
+  | 'anythingllm'
+  | 'omb'
+  | 'rakazo'
+  | 'herdr'
+  | 'open-swarm'
+  | 'swarm'
 
 export interface RemoteKind {
   id: string

@@ -12,6 +12,7 @@ const KINDS = new Set<AgentKind>(['api', 'cli', 'remote', 'blueprint'])
 const REMOTE_IMPL_IDS = new Set([
   'herdr',
   'hermes',
+  'anythingllm',
   'omb',
   'rakazo',
   'openmausbot',

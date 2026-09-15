@@ -11,6 +11,7 @@ export const ADD_REMOTE_VALUE = '__add_remote__'
 
 export const FALLBACK_REMOTE_KINDS: RemoteKind[] = [
   { id: 'hermes', label: 'Hermes' },
+  { id: 'anythingllm', label: 'AnythingLLM' },
   { id: 'omb', label: 'OpenMousBot' },
   { id: 'rakazo', label: 'Rakazo' },
   { id: 'herdr', label: 'Herdr' },

@@ -45,8 +45,8 @@ logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
-REMOTE_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
-REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 
 def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> str:
@@ -78,6 +78,8 @@ def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> st
             return head
     if raw.startswith("trueforge"):
         return "trueforge"
+    if raw.startswith("anythingllm"):
+        return "anythingllm"
     return raw or (remote_id or "")
 
 
@@ -96,9 +98,10 @@ def _instance_slug(remote_id: str, kind: str | None = None) -> str:
     tail = raw[len(k) + 1 :] if (raw.startswith(k) and len(raw) > len(k) and raw[len(k)] in ("-", "_")) else raw
     return re.sub(r"[^a-z0-9]+", "_", tail).strip("_").upper()
 # Kinds that never appear until the user (or env) adds them.
-OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr"})
+OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm"})
 REMOTE_KIND_LABELS: dict[str, str] = {
     "hermes": "Hermes",
+    "anythingllm": "AnythingLLM",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -115,6 +118,8 @@ _KIND_ALIASES: dict[str, str] = {
     "open_swarm": "swarm",
     "true_forge": "trueforge",
     "true-forge": "trueforge",
+    "anything-llm": "anythingllm",
+    "anything_llm": "anythingllm",
 }
 
 # REQ-11 default roster. ``swarm`` is in the catalog but is not auto-placed
@@ -138,6 +143,7 @@ TEAM_VOCABULARY: dict[str, str] = {
 
 _TOOL_NAMES: dict[str, str] = {
     "hermes": "consult_hermes",
+    "anythingllm": "consult_anythingllm",
     "omb": "consult_omb",
     "rakazo": "consult_rakazo",
     "herdr": "consult_herdr",
@@ -231,6 +237,24 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "not required to nest the parent."
         ),
     },
+    "anythingllm": {
+        "title": "AnythingLLM",
+        "host_label": "anythingllm",
+        "base_url": "http://127.0.0.1:3001",
+        "ui_url": "",
+        "api_key": "${ANYTHINGLLM_API_KEY}",
+        "health_path": "/api/v1/workspaces",
+        "version_path": "/api/v1/workspaces",
+        "notes": (
+            "AnythingLLM document workspace (:3001, docker). API key from "
+            "Settings → API keys; point ANYTHINGLLM_BASE_URL at your box. "
+            "GET /api/v1/workspaces lists workspaces with their threads; each "
+            "thread is a resumable session (resume key workspace:thread). "
+            "POST /api/v1/workspace/<slug>/thread/<slug>/chat replies inside "
+            "that thread; send requires a thread session id and never mints "
+            "a new thread. Opt-in: not placed until + Add."
+        ),
+    },
     "trueforge": {
         "title": "TrueForge",
         "host_label": "trueforge",
@@ -257,6 +281,7 @@ _ENV_BASE = {
     "herdr": "HERDR_BASE_URL",
     "swarm": "SWARM_REMOTE_BASE_URL",
     "trueforge": "TRUEFORGE_BASE_URL",
+    "anythingllm": "ANYTHINGLLM_BASE_URL",
 }
 _ENV_KEY = {
     "hermes": "HERMES_API_KEY",
@@ -265,6 +290,7 @@ _ENV_KEY = {
     "herdr": "HERDR_API_KEY",
     "swarm": "SWARM_REMOTE_API_KEY",
     "trueforge": "TRUEFORGE_API_KEY",
+    "anythingllm": "ANYTHINGLLM_API_KEY",
 }
 _ENV_UI = {"rakazo": "RAKAZO_UI_URL", "hermes": "HERMES_UI_URL"}
 _ENV_COOKIE = {"rakazo": "RAKAZO_SESSION_COOKIE"}
@@ -2460,6 +2486,179 @@ def _herdr_interrogate(spec: RemoteSpec, target: str, timeout: float, config: di
     )
 
 
+def _anythingllm_list(spec: RemoteSpec, timeout: float) -> OperateResult:
+    """List AnythingLLM workspace threads as sessions (id = workspace:thread).
+
+    GET /api/v1/workspaces returns each workspace with its ``threads`` array
+    (``slug`` + ``name``). We treat every thread as a resumable session; the
+    workspace slug is the namespace so ids stay unique and unguessable.
+    """
+    from swarm.core.remote_harness import remote_session_from_dict
+
+    headers = _auth_headers(spec)
+    result = http_json(
+        "GET",
+        f"{spec.base_url}/api/v1/workspaces",
+        headers=headers,
+        timeout=timeout,
+    )
+    workspaces: Any
+    body = result.body
+    if isinstance(body, dict):
+        workspaces = body.get("workspaces") or body.get("data") or []
+    elif isinstance(body, list):
+        workspaces = body
+    else:
+        workspaces = []
+    normalized: list[dict[str, Any]] = []
+    for ws in workspaces:
+        if not isinstance(ws, dict):
+            continue
+        ws_slug = str(ws.get("slug") or ws.get("id") or "").strip()
+        ws_name = str(ws.get("name") or ws_slug or "workspace").strip()
+        threads = ws.get("threads")
+        if not isinstance(threads, list):
+            continue
+        for thread in threads:
+            if not isinstance(thread, dict):
+                continue
+            thread_slug = str(thread.get("slug") or thread.get("id") or "").strip()
+            if not ws_slug or not thread_slug:
+                continue
+            session = remote_session_from_dict(
+                {
+                    "id": f"{ws_slug}:{thread_slug}",
+                    "title": str(thread.get("name") or f"{ws_name} thread").strip(),
+                    "snippet": "",
+                    "source": "anythingllm",
+                    "updated_at": str(thread.get("updatedAt") or thread.get("updated_at") or "").strip(),
+                    "channel": ws_name[:128],
+                    "thread_ts": thread_slug[:64],
+                }
+            )
+            if session is not None:
+                normalized.append(session.as_dict())
+    data: dict[str, Any] = {"sessions": normalized, "source": "anythingllm"}
+    if result.status in _UP:
+        return OperateResult(
+            remote="anythingllm",
+            op="list",
+            ok=True,
+            detail=f"listed {len(normalized)} AnythingLLM thread(s) across {len(workspaces)} workspace(s)",
+            http_status=result.status,
+            data=data,
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote="anythingllm",
+            op="list",
+            ok=False,
+            detail=(
+                "AnythingLLM /api/v1/workspaces requires a valid API key. "
+                "Set remotes.anythingllm.api_key or ANYTHINGLLM_API_KEY "
+                "(Settings → API keys on the AnythingLLM box)."
+            ),
+            http_status=result.status,
+            data=data,
+        )
+    return OperateResult(
+        remote="anythingllm",
+        op="list",
+        ok=False,
+        detail=result.error or f"AnythingLLM list failed (http {result.status})",
+        http_status=result.status,
+        data=data,
+    )
+
+
+def _anythingllm_send(
+    spec: RemoteSpec,
+    prompt: str,
+    timeout: float,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+) -> OperateResult:
+    """Send into an existing AnythingLLM thread (never mints a new one).
+
+    ``session_id`` is ``workspace:thread`` — the thread slug comes from the
+    session list. POST /api/v1/workspace/<ws>/thread/<thread>/chat replies
+    inside that thread; AnythingLLM returns ``textResponse`` (or an ``error``
+    string on upstream failures, e.g. a misconfigured chat model).
+    """
+    from dataclasses import replace
+
+    sid = (session_id or target or "").strip()
+    ws_slug, _, thread_slug = sid.partition(":")
+    if not ws_slug or not thread_slug:
+        return OperateResult(
+            remote="anythingllm",
+            op="send",
+            ok=False,
+            detail=(
+                "Pick an AnythingLLM thread. Open Swarm does not mint new "
+                "threads. Pass session_id as workspace:thread "
+                "(list the remote to see available threads)."
+            ),
+            gap="anythingllm_thread_required",
+        )
+    if not prompt.strip():
+        return OperateResult(remote="anythingllm", op="send", ok=False, detail="prompt is required")
+    url = f"{spec.base_url}/api/v1/workspace/{ws_slug}/thread/{thread_slug}/chat"
+    result = http_json(
+        "POST",
+        url,
+        headers=_auth_headers(spec),
+        body={"message": prompt, "mode": "chat"},
+        timeout=timeout,
+    )
+    payload = result.body if isinstance(result.body, dict) else {}
+    text_response = str(payload.get("textResponse") or payload.get("text") or "").strip()
+    gateway_error = str(payload.get("error") or "").strip()
+    if result.status in _UP and text_response:
+        sources = payload.get("sources")
+        data: dict[str, Any] = {
+            "response": text_response,
+            "thread": f"{ws_slug}:{thread_slug}",
+        }
+        if isinstance(sources, list) and sources:
+            data["sources"] = sources[:10]
+        return OperateResult(
+            remote="anythingllm",
+            op="send",
+            ok=True,
+            detail=f"AnythingLLM replied in thread {thread_slug}",
+            http_status=result.status,
+            data=data,
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote="anythingllm",
+            op="send",
+            ok=False,
+            detail="AnythingLLM chat requires a valid API key (Settings → API keys).",
+            http_status=result.status,
+            data=result.body,
+        )
+    if gateway_error:
+        return OperateResult(
+            remote="anythingllm",
+            op="send",
+            ok=False,
+            detail=f"AnythingLLM upstream error: {gateway_error}",
+            http_status=result.status,
+            data=result.body,
+        )
+    return OperateResult(
+        remote="anythingllm",
+        op="send",
+        ok=False,
+        detail=result.error or f"AnythingLLM send failed (http {result.status})",
+        http_status=result.status,
+        data=result.body or result.text,
+    )
+
+
 def operate(
     remote_id: str,
     op: str,
@@ -2525,6 +2724,10 @@ def operate(
             return _hermes_list(spec, timeout) if action == "list" else _hermes_send(
                 spec, prompt, timeout, session_id=resume_id
             )
+        if rkind == "anythingllm":
+            return _anythingllm_list(spec, timeout) if action == "list" else _anythingllm_send(
+                spec, prompt, timeout, session_id=resume_id
+            )
         if rkind == "omb":
             return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
         if rkind == "rakazo":
@@ -2584,6 +2787,18 @@ def _hermes_send_bound(
     session_id: str | None = None,
 ) -> OperateResult:
     return _hermes_send(spec, prompt, timeout, session_id=session_id)
+
+
+def _anythingllm_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    return _anythingllm_send(spec, prompt, timeout, session_id=session_id, target=target)
 
 
 def _omb_send_bound(
@@ -2738,6 +2953,16 @@ def _install_remote_harnesses() -> None:
             health_fn=_bind_health("swarm"),
             list_fn=_bind_http_list(_swarm_list),
             send_fn=_swarm_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="anythingllm",
+            label="AnythingLLM",
+            capabilities=capabilities_for("anythingllm"),
+            health_fn=_bind_health("anythingllm"),
+            list_fn=_bind_http_list(_anythingllm_list),
+            send_fn=_anythingllm_send_bound,
         )
     )
     register_harness(

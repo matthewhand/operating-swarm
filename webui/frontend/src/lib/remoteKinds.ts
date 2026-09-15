@@ -3,6 +3,7 @@ export const OPENMOUSBOT_LABEL = 'OpenMousBot'
 
 export const REMOTE_KIND_LABELS: Record<string, string> = {
   hermes: 'Hermes',
+  anythingllm: 'AnythingLLM',
   omb: OPENMOUSBOT_LABEL,
   rakazo: 'Rakazo',
   herdr: 'Herdr',

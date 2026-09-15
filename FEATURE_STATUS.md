@@ -239,6 +239,7 @@ Shared fleet Success criteria (remote prove, same-origin hydrate, health JSON, h
 | Place remotes in a Team | ✅ | Persist `agent_team.members`; `swarm-cli remotes team\|place\|unplace`; `GET/PATCH /v1/agent-team/`; `remote_harness` attaches `as_tool` only for **placed** members |
 | Herdr remotes kind (REQ-64) | ✅ | Opt-in `kind=herdr` — addable in Settings Remotes. No baked LAN host. Missing config is a clear error. |
 | Herdr SSH-shaped remotes (REQ-100) | ✅ | Local Herdr (no SSH) vs remote Herdr = SSH to the Herdr host, then `herdr` CLI there. Not HTTP like OpenMousBot / Hermes / Rakazo. Health / list / send / interrogate over that hop. Stub SSH in tests; identity env-var name only. Fixes #463. |
+| AnythingLLM kind (threads as sessions) | ✅ | Opt-in HTTP remote (`ANYTHINGLLM_BASE_URL`, docker on your own host). `GET /api/v1/workspaces` lists each workspace's threads; a thread is a resumable session (`workspace:thread`). `POST /api/v1/workspace/<ws>/thread/<thread>/chat` replies inside that thread; send never mints new threads (honest gap without a session id). AnythingLLM `error` bodies surface, never faked. `sessions` capability advertised. Tests: `tests/core/test_anythingllm_remote.py`. |
 
 ---
 

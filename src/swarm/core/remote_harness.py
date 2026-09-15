@@ -20,12 +20,13 @@ USER_FACING_KIND = "remote"
 
 # Catalog impl ids. ``swarm`` is the nested open-swarm remote — not the
 # stored fine kind ``swarm`` (persona/swarm *designs*, which stay API).
-REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 # Ids that classifiers treat as Remote (exclude design-kind ``swarm``).
 REMOTE_IMPL_CLASSIFIER_IDS: frozenset[str] = frozenset(
     {
         "hermes",
+        "anythingllm",
         "omb",
         "rakazo",
         "herdr",
@@ -56,6 +57,7 @@ _IMPL_ALIASES: dict[str, str] = {
 
 REMOTE_IMPL_LABELS: dict[str, str] = {
     "hermes": "Hermes",
+    "anythingllm": "AnythingLLM",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -66,6 +68,7 @@ REMOTE_IMPL_LABELS: dict[str, str] = {
 # Transport as the operator sees it. Herdr is CLI locally and SSH remotely.
 REMOTE_IMPL_TRANSPORT: dict[str, str] = {
     "hermes": "http",
+    "anythingllm": "http",
     "omb": "http",
     "rakazo": "http",
     "herdr": "cli",
@@ -89,10 +92,126 @@ class RemoteCapabilities:
     operate: bool = False
     interrogate: bool = False
     routines: bool = False
+    # List payload carries resumable session rows (Hermes, AnythingLLM threads).
+    sessions: bool = False
     transport: str = "http"
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class RemoteSession:
+    """One remote session row. ``id`` is the resume key (Hermes session id)."""
+
+    id: str
+    title: str = ""
+    snippet: str = ""
+    source: str = ""
+    updated_at: str = ""
+    channel: str = ""
+    thread_ts: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        extra = payload.pop("extra", None) or {}
+        if extra:
+            payload["extra"] = extra
+        return payload
+
+
+_KNOWN_SESSION_KEYS = frozenset(
+    {"id", "title", "snippet", "source", "updated_at", "channel", "thread_ts"}
+)
+
+
+def _session_id_from_row(row: dict[str, Any]) -> str | None:
+    from swarm.core.cli_sessions import sanitize_cli_session_id
+
+    return sanitize_cli_session_id(
+        row.get("id")
+        or row.get("session_id")
+        or row.get("sessionId")
+    )
+
+
+def _iter_session_dicts(data: Any) -> list[dict[str, Any]]:
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if not isinstance(data, dict):
+        return []
+    nested = data.get("sessions")
+    if isinstance(nested, list):
+        return [item for item in nested if isinstance(item, dict)]
+    if isinstance(nested, dict):
+        inner = nested.get("sessions") or nested.get("data") or nested.get("items")
+        if isinstance(inner, list):
+            return [item for item in inner if isinstance(item, dict)]
+        if nested.get("id") or nested.get("session_id"):
+            return [nested]
+    items = data.get("data") or data.get("items")
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
+    if data.get("id") or data.get("session_id"):
+        return [data]
+    return []
+
+
+def remote_session_from_dict(row: dict[str, Any]) -> RemoteSession | None:
+    """Normalize one mapping. Drop rows whose id fails CLI-session sanitize."""
+    sid = _session_id_from_row(row)
+    if not sid:
+        return None
+    origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+    channel = str(
+        row.get("channel")
+        or row.get("chat_id")
+        or row.get("chat_name")
+        or origin.get("channel")
+        or origin.get("chat_id")
+        or origin.get("chat_name")
+        or ""
+    ).strip()
+    thread_ts = str(
+        row.get("thread_ts")
+        or row.get("thread_id")
+        or origin.get("thread_ts")
+        or origin.get("thread_id")
+        or ""
+    ).strip()
+    title = str(row.get("title") or row.get("name") or "").strip()
+    if not title and channel:
+        title = f"{channel} · thread" if thread_ts else channel
+    extra = {
+        key: value
+        for key, value in row.items()
+        if key not in _KNOWN_SESSION_KEYS and key not in {"session_id", "sessionId", "chat_id", "chat_name", "thread_id", "origin", "name"}
+    }
+    return RemoteSession(
+        id=sid,
+        title=(title or sid)[:200],
+        snippet=str(row.get("snippet") or row.get("preview") or "")[:240],
+        source=str(row.get("source") or "").strip(),
+        updated_at=str(row.get("updated_at") or row.get("updatedAt") or "").strip(),
+        channel=channel[:128],
+        thread_ts=thread_ts[:64],
+        extra=extra,
+    )
+
+
+def sessions_from_operate(result: Any) -> list[RemoteSession]:
+    """Typed session rows from an ``OperateResult`` (list payload)."""
+    data = getattr(result, "data", result)
+    out: list[RemoteSession] = []
+    seen: set[str] = set()
+    for row in _iter_session_dicts(data):
+        session = remote_session_from_dict(row)
+        if session is None or session.id in seen:
+            continue
+        seen.add(session.id)
+        out.append(session)
+    return out
 
 
 def capabilities_for(impl_id: str) -> RemoteCapabilities:
@@ -113,6 +232,7 @@ def capabilities_for(impl_id: str) -> RemoteCapabilities:
         operate=computer,
         interrogate=rid == "herdr",
         routines=rid == "trueforge",
+        sessions=rid in {"hermes", "anythingllm"},
         transport=REMOTE_IMPL_TRANSPORT.get(rid, "http"),
     )
 
@@ -437,6 +557,7 @@ __all__ = [
     "BoundRemoteHarness",
     "RemoteCapabilities",
     "RemoteHarness",
+    "RemoteSession",
     "all_harnesses",
     "capabilities_for",
     "computer_operate_stub",
@@ -448,5 +569,7 @@ __all__ = [
     "register_harness",
     "unsupported_operate",
     "unsupported_routines",
+    "remote_session_from_dict",
+    "sessions_from_operate",
     "user_facing_kind",
 ]
