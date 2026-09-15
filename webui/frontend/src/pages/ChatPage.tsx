@@ -219,7 +219,15 @@ import {
   isDefaultLlmTipDismissed,
   shouldShowDefaultLlmTip,
 } from '../lib/defaultLlmTip'
-import { agentRole, exampleRoleAgents, isChiefOfStaff, isExampleRole } from '../lib/agentRoles'
+import {
+  agentHasRole,
+  agentRole,
+  exampleRoleAgents,
+  isChiefOfStaff,
+  isExampleRole,
+  roleBadgeLabel,
+  roleCssClass,
+} from '../lib/agentRoles'
 import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit, loadInferenceList } from '../lib/agentEdits'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
 import { chatFolderParams } from '../lib/agentFolder'
@@ -713,6 +721,18 @@ const ChatPage = () => {
               id: selectedBlueprint,
               name: fallbackAgentName,
             })
+  // #69: the top bar shows the agent NAME; an assigned role rides beside it as
+  // its own badge so a role seat can never look like it renamed the agent.
+  const headerRole = agentRole({
+    id: selectedBlueprint,
+    name: selectedAgentName,
+    role: selectedAgent?.role,
+  })
+  const headerRoleLabel = roleBadgeLabel(headerRole)
+  const showHeaderRole =
+    !teamFromUrl &&
+    !remoteFromUrl &&
+    agentHasRole({ id: selectedBlueprint, name: selectedAgentName, role: selectedAgent?.role })
   const showRoleTip = shouldShowRoleAgentTip({
     teamId: teamFromUrl,
     remoteId: remoteFromUrl,
@@ -2837,14 +2857,10 @@ const ChatPage = () => {
                     })
                     return
                   }
-                  const role = agentRole({
-                    id: selectedBlueprint,
-                    name: selectedAgentName,
-                    role: selectedAgent?.role,
-                  })
                   openSettingsSheet({
                     section: 'definition',
-                    definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
+                    definitionKind:
+                      isExampleRole(headerRole) || isChiefOfStaff(headerRole) ? 'role' : 'blueprint',
                     definitionId: selectedBlueprint,
                     blueprintId: selectedBlueprint,
                   })
@@ -2853,6 +2869,16 @@ const ChatPage = () => {
                 {selectedAgentName}
               </button>
             </h1>
+            {showHeaderRole ? (
+              <span
+                className={`os-agent-role-badge shrink-0 ${roleCssClass(headerRole)}`}
+                data-role={headerRole}
+                data-testid="os-header-role-badge"
+                title={`Role: ${headerRoleLabel}`}
+              >
+                {headerRoleLabel}
+              </span>
+            ) : null}
             {teamFromUrl ? (
               <div className="tooltip tooltip-bottom shrink-0" data-tip="Edit team">
                 <button
