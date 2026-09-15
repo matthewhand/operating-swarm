@@ -950,6 +950,7 @@ const ChatPage = () => {
   }, [cliModelProbe.models, persistedDropdown.model])
   const cliModelWarning = useMemo(() => {
     if (availableCliModels.length > 0) return cliModelProbe.warning
+    if (cliModelsQuery.isFetching || cliModelsQuery.isLoading) return null
     if (cliModelProbe.warning) return cliModelProbe.warning
     if (cliModelsQuery.isError) return 'Model probe failed'
     if (cliModelsQuery.isFetched && currentCli) return 'No models discovered'
@@ -959,6 +960,8 @@ const ChatPage = () => {
     cliModelProbe.warning,
     cliModelsQuery.isError,
     cliModelsQuery.isFetched,
+    cliModelsQuery.isFetching,
+    cliModelsQuery.isLoading,
     currentCli,
   ])
 

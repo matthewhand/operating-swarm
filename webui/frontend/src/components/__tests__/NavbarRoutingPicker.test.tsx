@@ -1,8 +1,16 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NavbarRoutingPicker } from '../NavbarRoutingPicker'
+
+const { fetchCliModelsMock } = vi.hoisted(() => ({
+  fetchCliModelsMock: vi.fn(async (cli: string) => ({ cli, models: [] as string[] })),
+}))
+
+vi.mock('../../lib/api', () => ({
+  fetchCliModels: (...args: [string]) => fetchCliModelsMock(...args),
+}))
 
 const AGY_MODELS = [
   'gemini-3.8-flash-high',
@@ -44,6 +52,8 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     document.documentElement.removeAttribute('dir')
     if (originalMatchMedia) window.matchMedia = originalMatchMedia
     else delete (window as { matchMedia?: unknown }).matchMedia
+    fetchCliModelsMock.mockReset()
+    fetchCliModelsMock.mockImplementation(async (cli: string) => ({ cli, models: [] }))
   })
 
   it('renders one control with three pills and no sibling selects', () => {
@@ -236,14 +246,14 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     )
   })
 
-  it('shows a probe warning instead of option default when models are empty', () => {
+  it('shows a probe warning instead of option default when models are empty', async () => {
     renderPicker({
       models: [],
       selectedModel: '',
       modelWarning: "grok: CLI not installed (no 'grok' on PATH)",
     })
     fireEvent.click(screen.getByTestId('routing-pill-model'))
-    expect(screen.getByTestId('routing-model-warning')).toHaveTextContent(
+    expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
       "grok: CLI not installed (no 'grok' on PATH)",
     )
     expect(screen.queryByRole('menuitem', { name: 'default' })).not.toBeInTheDocument()
@@ -286,5 +296,50 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     fireEvent.keyDown(picker, { key: 'ArrowLeft' })
     expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
     document.documentElement.removeAttribute('dir')
+  })
+
+  it('shows Loading... with a spinner while CLI models are fetching (REQ-870)', async () => {
+    fetchCliModelsMock.mockReturnValue(new Promise(() => {}))
+    renderPicker({ models: [], selectedModel: '', modelWarning: undefined })
+    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    const loading = await screen.findByTestId('routing-model-loading')
+    expect(loading).toHaveTextContent('Loading...')
+    expect(loading.querySelector('.loading-spinner')).toBeTruthy()
+    expect(screen.queryByText('No options')).not.toBeInTheDocument()
+    expect(screen.queryByText('No models discovered')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('routing-model-warning')).not.toBeInTheDocument()
+  })
+
+  it('suppresses a premature empty warning while models are in flight', async () => {
+    fetchCliModelsMock.mockReturnValue(new Promise(() => {}))
+    renderPicker({
+      models: [],
+      selectedModel: '',
+      modelWarning: 'No models discovered',
+    })
+    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    expect(await screen.findByTestId('routing-model-loading')).toHaveTextContent(
+      'Loading...',
+    )
+    expect(screen.queryByTestId('routing-model-warning')).not.toBeInTheDocument()
+    expect(screen.queryByText('No options')).not.toBeInTheDocument()
+  })
+
+  it('replaces Loading... with fetched model options', async () => {
+    let resolveFetch: (value: { cli: string; models: string[] }) => void = () => {}
+    fetchCliModelsMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve
+      }),
+    )
+    renderPicker({ models: [], selectedModel: '' })
+    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    expect(await screen.findByTestId('routing-model-loading')).toBeInTheDocument()
+    resolveFetch({ cli: 'agy', models: ['qwen2.5-coder:32b', 'qwen2.5-coder:7b'] })
+    await waitFor(() => {
+      expect(screen.queryByTestId('routing-model-loading')).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('menuitem', { name: 'qwen2.5-coder:32b' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'qwen2.5-coder:7b' })).toBeInTheDocument()
   })
 })

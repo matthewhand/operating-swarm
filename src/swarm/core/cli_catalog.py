@@ -683,7 +683,7 @@ def with_native_consensus(name: str, n: int = 2) -> dict[str, Any] | None:
 #                                       discontinued Aliyun coding-plan model)
 # qwen: deliberately absent — its current build rejects ``--list-models``
 # ("Unknown arguments") and has no models subcommand, so there is nothing
-# honest to probe; dropdown falls back to the empty + warning path.
+# honest to probe; dropdown falls back to ``CLI_MODELS`` presets via ``cli_models``.
 LIST_MODELS: dict[str, list[str]] = {
     "grok": ["grok", "models"],
     "claude": ["claude", "models"],
@@ -723,9 +723,9 @@ MODEL_FLAG: dict[str, str] = {
     "pi": "--model",       # pi --model <provider/id> (docs + --help; no --provider needed)
 }
 
-# Suggested model ids for the Agent Router CLI-model dropdown. The UI always
-# offers a custom string on top of these; they are starting points, not a
-# live catalog from the host CLI.
+# Suggested model ids for the Agent Router CLI-model dropdown, and the
+# fallback when a live list-models probe is empty, times out, or is
+# unsupported for that CLI. The UI always offers a custom string on top.
 # pi is omitted: Chat / Router must use the live ``pi --list-models`` probe
 # (provider/model ids). Do not invent ``default`` or a discontinued Aliyun
 # DashScope coding-plan slug — an empty probe stays empty + warning.
@@ -741,8 +741,10 @@ CLI_MODELS: dict[str, list[str]] = {
     ],
     "gemini": ["gemini-3-flash-preview", "gemini-3-pro-preview"],
     "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    "codex": ["gpt-5.6-terra", "gpt-5.4-mini"],
     "opencode": ["litellm/orchestration"],
-    "omp": ["litellm/orchestration"],
+    "omp": ["litellm/orchestration", "gemini-2.5-flash", "claude-3-5-sonnet"],
+    "qwen": ["qwen2.5-coder:32b", "qwen2.5-coder:7b", "qwen2.5:72b"],
 }
 
 

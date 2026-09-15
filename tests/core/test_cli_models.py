@@ -183,10 +183,10 @@ def test_unknown_cli_warns_empty_list():
     assert "unknown CLI" in result.as_dict()["warning"]
 
 
-def test_missing_cli_warns_empty_list(monkeypatch):
+def test_missing_cli_falls_back_to_catalog_presets(monkeypatch):
     monkeypatch.setattr("swarm.core.cli_catalog.which_cli", lambda exe: None)
     result = list_models("claude")
-    assert result.models == []
+    assert result.models == list(cli_catalog.CLI_MODELS["claude"])
     assert "not installed" in (result.warning or "")
 
 
@@ -220,19 +220,19 @@ def test_stripped_path_probe_finds_user_local_grok(tmp_path, monkeypatch):
 
 
 def test_timeout_does_not_hang(monkeypatch):
-    # Real sleeper subprocess — must return quickly with empty + warning.
+    # Real sleeper subprocess — must return quickly with presets + warning.
     monkeypatch.setitem(
         cli_catalog.LIST_MODELS, "grok", [PY, "-c", "import time; time.sleep(30)"]
     )
     t0 = time.monotonic()
     result = list_models("grok", timeout=0.4)
     elapsed = time.monotonic() - t0
-    assert result.models == []
+    assert result.models == list(cli_catalog.CLI_MODELS["grok"])
     assert "timed out" in (result.warning or "").lower()
     assert elapsed < 8.0  # TERM_GRACE + buffer; must not wait the full 30s
 
 
-def test_failed_probe_empty_list_no_secrets_in_warning(monkeypatch):
+def test_failed_probe_falls_back_no_secrets_in_warning(monkeypatch):
     async def fake_run(argv, timeout):
         return 2, "", "auth failed sk-thisisafakekeybutlongenough"
 
@@ -240,7 +240,7 @@ def test_failed_probe_empty_list_no_secrets_in_warning(monkeypatch):
         "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/claude"
     )
     result = asyncio_run_probe("claude", fake_run)
-    assert result.models == []
+    assert result.models == list(cli_catalog.CLI_MODELS["claude"])
     assert "sk-thisisafakekeybutlongenough" not in (result.warning or "")
     assert "[REDACTED]" in (result.warning or "")
     assert "failed" in (result.warning or "").lower()
@@ -257,3 +257,46 @@ def test_result_omits_warning_key_when_ok():
         "cli": "grok",
         "models": ["grok-4"],
     }
+
+
+PRESET_CLIS = ("qwen", "omp", "claude", "codex", "gemini", "opencode", "agy", "grok")
+
+
+def test_catalog_presets_cover_all_dropdown_clis():
+    for name in PRESET_CLIS:
+        presets = cli_catalog.CLI_MODELS.get(name) or []
+        assert presets, f"{name} must list catalog model presets"
+    assert cli_catalog.CLI_MODELS["qwen"] == [
+        "qwen2.5-coder:32b",
+        "qwen2.5-coder:7b",
+        "qwen2.5:72b",
+    ]
+    assert cli_catalog.CLI_MODELS["omp"] == [
+        "litellm/orchestration",
+        "gemini-2.5-flash",
+        "claude-3-5-sonnet",
+    ]
+
+
+def test_qwen_falls_back_to_catalog_presets_without_probe():
+    result = list_models("qwen")
+    assert result.models == list(cli_catalog.CLI_MODELS["qwen"])
+    assert "catalog presets" in (result.warning or "")
+
+
+def test_omp_falls_back_to_catalog_presets_without_probe():
+    result = list_models("omp")
+    assert result.models == list(cli_catalog.CLI_MODELS["omp"])
+    assert "catalog presets" in (result.warning or "")
+
+
+async def test_probe_falls_back_to_presets_when_stdout_empty(monkeypatch):
+    async def fake_run(argv, timeout):
+        return 0, "", ""
+
+    monkeypatch.setattr(
+        "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/grok"
+    )
+    result = await probe_list_models("grok", run_exec=fake_run)
+    assert result.models == list(cli_catalog.CLI_MODELS["grok"])
+    assert "no model ids" in (result.warning or "")
