@@ -87,6 +87,14 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "path": "delimiter",
         "notes": "Harness send is a prompt string, not Chat Completions messages.",
     },
+    "remote:anythingllm": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": (
+            "Thread chat POST takes a prompt string and replies with "
+            "textResponse; no Chat Completions message objects."
+        ),
+    },
     "remote:omb": {
         "name_field": "stripped",
         "path": "delimiter",
