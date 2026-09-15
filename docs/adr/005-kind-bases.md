@@ -109,6 +109,11 @@ workflow). The **code it writes for users** subclasses a kind base.
   `cli_*` → `CliKindBase`, `remote_harness` → `RemoteKindBase`).
 - NL builder (#567) consumes the same brief.
 
+> **Addendum (2026-09-14, REQ-851 / #203):** §4 landed. Emitters share
+> `base_class_for_kind()` in `swarm.core.kind_bases` and default to a kind
+> base; the listed in-tree recipes were migrated (API seats with custom
+> non-graph `run()` overrides deferred). Discovery unchanged.
+
 ---
 
 ## 5. Rejected alternatives

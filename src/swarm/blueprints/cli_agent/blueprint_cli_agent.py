@@ -17,7 +17,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapter, CliResult
 from swarm.core.cli_sessions import (
     clear_cli_session,
@@ -32,7 +32,7 @@ from swarm.core.session_policy import resume_cli_session_id
 logger = logging.getLogger(__name__)
 
 
-class CliAgentBlueprint(BlueprintBase):
+class CliAgentBlueprint(CliKindBase):
     """Run one configured agentic CLI as an OpenAI-compatible model."""
 
     metadata: ClassVar[dict[str, Any]] = {

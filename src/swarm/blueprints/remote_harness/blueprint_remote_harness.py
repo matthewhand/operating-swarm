@@ -30,7 +30,7 @@ from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
 from swarm.core import remotes as remotes_core
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import RemoteKindBase
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def _render_operate(result: remotes_core.OperateResult) -> str:
     return f"{result.remote} {result.op}: {'OK' if result.ok else 'FAIL'} — {result.detail}{gap}{data}"
 
 
-class RemoteHarnessBlueprint(BlueprintBase):
+class RemoteHarnessBlueprint(RemoteKindBase):
     """Connect/configure/operate Hermes, OpenMausBot, Rakazo, and nested swarm."""
 
     metadata: ClassVar[dict[str, Any]] = {

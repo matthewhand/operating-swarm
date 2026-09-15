@@ -37,7 +37,7 @@ try:
     from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
     from openai import AsyncOpenAI
 
-    from swarm.core.blueprint_base import BlueprintBase
+    from swarm.core.kind_bases import ApiKindBase
 except ImportError as e:
     print(f"ERROR: Import failed in ChatbotBlueprint: {e}. Check dependencies.")
     print(f"sys.path: {sys.path}")
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- Define the Blueprint ---
-class ChatbotBlueprint(BlueprintBase):
+class ChatbotBlueprint(ApiKindBase):
     def __init__(self, blueprint_id: str, config_path: Path | None = None, **kwargs):
         super().__init__(blueprint_id, config_path=config_path, **kwargs)
         class DummyLLM:

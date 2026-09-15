@@ -13,6 +13,8 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
+from swarm.core.kind_bases import base_class_for_kind
+
 from swarm.core.blueprint_discovery import discover_blueprints
 from swarm.core.paths import get_user_blueprints_dir, get_user_config_dir_for_swarm
 from swarm.core.requirements import evaluate_mcp_compliance, load_active_config
@@ -394,7 +396,8 @@ def blueprint_creator(request):
 
             assist = bool(requirements) and not os.environ.get("PYTEST_CURRENT_TEST")
             blueprint_code = generate_blueprint_code(
-                blueprint_name, description, category, tags, requirements, assist=assist
+                blueprint_name, description, category, tags, requirements, assist=assist,
+                kind=(request.POST.get("kind") or "api").strip() or None,
             )
 
             # Generate avatar if requested and ComfyUI is available
@@ -520,8 +523,13 @@ def generate_blueprint_code(
     tags: list[str] | str,
     _requirements: str,
     assist: bool = False,
+    kind: str | None = "api",
 ) -> str:
-    """Emit a BlueprintBase module. Optionally draft `run()` via the default LLM."""
+    """Emit a blueprint module. Optionally draft `run()` via the default LLM.
+
+    The static template subclasses a kind base resolved via
+    ``base_class_for_kind`` (ADR-005 §4: emit a kind base by default).
+    """
     if isinstance(tags, str):
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     else:
@@ -547,6 +555,7 @@ def generate_blueprint_code(
     req_literal = repr(
         ("\nRequirements:\n" + req_note) if req_note else ""
     ).replace("{", "{{").replace("}", "}}")
+    base_class = base_class_for_kind(kind)
 
     return f'''#!/usr/bin/env python3
 """
@@ -564,10 +573,10 @@ from typing import Any, ClassVar
 
 from openai import AsyncOpenAI
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import {base_class}
 
 
-class {class_name}(BlueprintBase):
+class {class_name}({base_class}):
     """{description}"""
 
     metadata: ClassVar[dict[str, Any]] = {{

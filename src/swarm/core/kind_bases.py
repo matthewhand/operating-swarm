@@ -152,6 +152,22 @@ class RemoteKindBase(KindBase):
     kind: ClassVar[str] = KIND_REMOTE
 
 
+def base_class_for_kind(kind: str | None) -> str:
+    """Return the base class name a generated blueprint should subclass.
+
+    Single source of truth for the codegen emitters (agent creator, CLI
+    wizard, blueprint library) so they cannot drift apart (ADR-005 §4 / REQ-851).
+    Unknown, empty, or ``None`` kinds fall back to the low-level
+    ``BlueprintBase``.
+    """
+    normalized = (kind or "").strip().lower()
+    return {
+        KIND_API: "ApiKindBase",
+        KIND_CLI: "CliKindBase",
+        KIND_REMOTE: "RemoteKindBase",
+    }.get(normalized, "BlueprintBase")
+
+
 __all__ = [
     "ALLOWED_BLUEPRINT_BASE_NAMES",
     "ApiKindBase",
@@ -162,4 +178,5 @@ __all__ = [
     "KIND_REMOTE",
     "KindBase",
     "RemoteKindBase",
+    "base_class_for_kind",
 ]

@@ -1321,12 +1321,18 @@ def wizard_cmd(
         parts = role_spec.split(":", 1)
         rname, rdesc = (parts[0], parts[1]) if len(parts) == 2 else (parts[0], parts[0])
         agents_code += f"        Agent(name='{rname}', instructions='{rdesc}'),\n"
+    # ADR-005 §4: emit a kind base by default (no wizard --kind flag yet;
+    # the scaffolded Agent-graph body is API-kind, so pass "api" explicitly
+    # to stay honest rather than falling through to BlueprintBase).
+    from swarm.core.kind_bases import base_class_for_kind
+
+    base_class = base_class_for_kind("api")
     bp_file = out / f"blueprint_{slug}.py"
     bp_file.write_text(f'''"""Auto-generated blueprint: {team_name}"""
 from agents import Agent
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import {base_class}
 
-class {slug.title().replace("_","")}Blueprint(BlueprintBase):
+class {slug.title().replace("_","")}Blueprint({base_class}):
     metadata = {{"name": "{slug}", "description": "Team blueprint: {team_name}"}}
     async def run(self, messages, **kwargs):
         yield {{"messages": [{{"role": "assistant", "content": "Team {team_name} ready."}}]}}

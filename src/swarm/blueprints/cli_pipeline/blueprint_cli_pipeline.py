@@ -22,7 +22,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ The current draft (produced by an earlier stage) is:
 """
 
 
-class CliPipelineBlueprint(BlueprintBase):
+class CliPipelineBlueprint(CliKindBase):
     """Run a prompt through an ordered chain of CLIs, each refining the last."""
 
     metadata: ClassVar[dict[str, Any]] = {

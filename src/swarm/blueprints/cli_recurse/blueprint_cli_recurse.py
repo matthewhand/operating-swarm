@@ -34,7 +34,7 @@ from types import SimpleNamespace
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -95,7 +95,7 @@ class _Budget:
         self._remaining -= n
 
 
-class CliRecurseBlueprint(BlueprintBase):
+class CliRecurseBlueprint(CliKindBase):
     """Recursively break a problem down to any depth, then synthesize back up."""
 
     metadata: ClassVar[dict[str, Any]] = {

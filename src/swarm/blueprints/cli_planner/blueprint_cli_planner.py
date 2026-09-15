@@ -21,7 +21,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -65,7 +65,7 @@ Write the final answer to the goal, integrating the results. Return only the ans
 """
 
 
-class CliPlannerBlueprint(BlueprintBase):
+class CliPlannerBlueprint(CliKindBase):
     """Plan, delegate, review, re-plan on stall, then synthesize."""
 
     metadata: ClassVar[dict[str, Any]] = {

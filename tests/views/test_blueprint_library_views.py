@@ -1124,7 +1124,9 @@ class TestGenerateBlueprintCode:
         assert "TestAgent" in code
         assert "A test agent" in code
         assert "ai_assistants" in code
-        assert "BlueprintBase" in code
+        # REQ-851: emitters default to a kind base (ApiKindBase for the
+        # OpenAI-streaming template).
+        assert "ApiKindBase" in code
         assert "AsyncGenerator" in code
         assert "yield" in code
         assert "async def run(" in code
@@ -1194,7 +1196,7 @@ class TestGenerateBlueprintCode:
             _requirements="must handle JSON",
             assist=True,
         )
-        assert "class FallbackTeamBlueprint(BlueprintBase)" in code
+        assert "class FallbackTeamBlueprint(ApiKindBase)" in code
         assert "AsyncOpenAI" in code
         assert "must handle JSON" in code
         assert "chat_completion_stream" not in code

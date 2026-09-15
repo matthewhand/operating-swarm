@@ -30,7 +30,7 @@ except ImportError:
     Handoff = Any
 
 from swarm.core.agent_types import AGENT_TYPE_CATALOG, agent_type_for_kind, public_personas
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import ApiKindBase
 from swarm.core.blueprint_spec import BLUEPRINT_AGENT_BRIEF, BLUEPRINT_ONE_LINER
 from swarm.core.cli_catalog import listed_cli_specs
 from swarm.core.remote_teams import listed_remote_specs
@@ -136,7 +136,7 @@ class DesignedAgent:
             setattr(self, key, value)
 
 
-class AgentRouterBlueprint(BlueprintBase):
+class AgentRouterBlueprint(ApiKindBase):
     """Multi-agent router with grouped endpoints and handoff capabilities."""
 
     metadata: ClassVar[dict[str, Any]] = {

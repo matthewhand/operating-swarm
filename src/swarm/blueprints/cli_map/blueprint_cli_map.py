@@ -19,7 +19,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -51,7 +51,7 @@ overlap or contradiction. Return only the combined answer.
 """
 
 
-class CliMapBlueprint(BlueprintBase):
+class CliMapBlueprint(CliKindBase):
     """Plan → map across workers → reduce."""
 
     metadata: ClassVar[dict[str, Any]] = {

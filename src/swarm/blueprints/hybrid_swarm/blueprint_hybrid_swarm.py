@@ -28,7 +28,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import ApiKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.cli_tools import cli_persona, consensus_fn  # granular tool layer
 from swarm.core.consensus import run_consensus  # or call this directly
@@ -36,7 +36,7 @@ from swarm.core.consensus import run_consensus  # or call this directly
 logger = logging.getLogger(__name__)
 
 
-class HybridSwarmBlueprint(BlueprintBase):
+class HybridSwarmBlueprint(ApiKindBase):
     """REST reasoning + grok persona + consensus panel, in one run()."""
 
     metadata: ClassVar[dict[str, Any]] = {
