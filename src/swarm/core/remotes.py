@@ -453,6 +453,9 @@ _ANYTHINGLLM_SEND_TIMEOUT_S = 90.0
 _LETTA_SEND_TIMEOUT_S = 90.0
 _FLOWISE_SEND_TIMEOUT_S = 90.0
 _N8N_SEND_TIMEOUT_S = 30.0
+_TRUEFORGE_SEND_TIMEOUT_S = 60.0
+_TRUEFORGE_DONE_STATES = frozenset({"done", "completed", "finished", "success"})
+_TRUEFORGE_ERROR_STATES = frozenset({"error", "failed", "cancelled", "canceled"})
 
 
 class RemoteError(Exception):
@@ -484,6 +487,7 @@ class RemoteSpec:
     ssh_agent: bool = True
     provenance: dict[str, Any] = field(default_factory=dict)
     kind: str = ""
+    timeout: float | None = None
 
     def origin(self) -> tuple[str, int]:
         parsed = urlparse(self.base_url)
@@ -922,6 +926,12 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             spec.ssh_port = _coerce_ssh_port(block["ssh_port"])
         if "ssh_agent" in block and block["ssh_agent"] is not None:
             spec.ssh_agent = _coerce_bool(block["ssh_agent"], default=True)
+        if "timeout" in block and block["timeout"] is not None:
+            try:
+                loaded_timeout = float(block["timeout"])
+                spec.timeout = loaded_timeout if loaded_timeout > 0 else None
+            except (TypeError, ValueError):
+                pass
         persisted_base = str(block.get("base_url") or "").strip()
         persisted_ui = str(block.get("ui_url") or "").strip()
 
@@ -2769,18 +2779,61 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     )
 
 
+def _trueforge_turn_state(turn_data: dict[str, Any] | None) -> str:
+    """Normalize TrueForge turn ``state`` from a string or ``{"status": ...}`` dict."""
+    if not isinstance(turn_data, dict):
+        return ""
+    raw_state = turn_data.get("state")
+    if isinstance(raw_state, dict):
+        return str(raw_state.get("status") or raw_state.get("state") or "").strip().lower()
+    return str(raw_state or turn_data.get("status") or "").strip().lower()
+
+
+def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | None = None) -> float:
+    """Send/poll budget for TrueForge LLM turns (not health/list probes).
+
+    ``operate()`` send uses ``_OPERATE_SEND_TIMEOUT_S`` (list stays 8s). Treat
+    those generic operate defaults as unset and resolve
+    ``SWARM_TRUEFORGE_TIMEOUT``, then ``spec.timeout``, then 60s.
+    """
+    if timeout is not None:
+        try:
+            explicit = float(timeout)
+        except (TypeError, ValueError):
+            explicit = 0.0
+        if explicit > 0 and explicit not in {_OPERATE_TIMEOUT_S, _OPERATE_SEND_TIMEOUT_S}:
+            return explicit
+    env_raw = os.environ.get("SWARM_TRUEFORGE_TIMEOUT", "").strip()
+    if env_raw:
+        try:
+            env_val = float(env_raw)
+            if env_val > 0:
+                return env_val
+        except ValueError:
+            pass
+    spec_timeout = getattr(spec, "timeout", None) if spec is not None else None
+    if spec_timeout is not None:
+        try:
+            spec_val = float(spec_timeout)
+            if spec_val > 0:
+                return spec_val
+        except (TypeError, ValueError):
+            pass
+    return _TRUEFORGE_SEND_TIMEOUT_S
+
+
 def _trueforge_send(
     spec: RemoteSpec,
     prompt: str,
     target: str = "",
-    timeout: float = _OPERATE_TIMEOUT_S,
+    timeout: float | None = None,
     *,
     session_id: str | None = None,
 ) -> OperateResult:
     if not prompt.strip():
         return OperateResult(remote=spec.id, op="send", ok=False, detail="prompt is required")
     base_url = (spec.base_url or "").rstrip("/")
-    timeout_s = float(timeout or _OPERATE_TIMEOUT_S)
+    timeout_s = _trueforge_send_timeout_s(timeout, spec)
     start_time = time.monotonic()
     deadline = start_time + timeout_s
 
@@ -2900,10 +2953,10 @@ def _trueforge_send(
                 if isinstance(poll_resp.body, dict) and isinstance(poll_resp.body.get("data"), dict)
                 else (poll_resp.body if isinstance(poll_resp.body, dict) else {})
             )
-            last_state = str(turn_data.get("state") or "").strip().lower()
-            if last_state in ("done", "completed", "finished", "success"):
+            last_state = _trueforge_turn_state(turn_data)
+            if last_state in _TRUEFORGE_DONE_STATES:
                 break
-            if last_state in ("error", "failed", "cancelled", "canceled"):
+            if last_state in _TRUEFORGE_ERROR_STATES:
                 err_msg = (
                     turn_data.get("error")
                     or turn_data.get("message")
@@ -2919,7 +2972,7 @@ def _trueforge_send(
                 )
         time.sleep(0.1)
 
-    if last_state not in ("done", "completed", "finished", "success"):
+    if last_state not in _TRUEFORGE_DONE_STATES:
         return OperateResult(
             remote=spec.id,
             op="send",
