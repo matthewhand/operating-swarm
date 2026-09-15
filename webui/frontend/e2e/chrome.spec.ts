@@ -1,5 +1,22 @@
 import { test, expect } from '@playwright/test'
 
+/**
+ * Support ships as the seeded favourite tile (`DEFAULT_PINNED_SUPPORT`), and a
+ * pinned agent is *moved* out of the conversation list (REQ-94), so Support
+ * renders in the pin grid rather than inside `navigation "Agent list"`.
+ */
+function pinGrid(page: import('@playwright/test').Page) {
+  return page.getByLabel('Pinned agents')
+}
+
+/**
+ * Hidden Bots no longer opens a "Hidden agents" dialog: it opens the command
+ * palette in its hidden-only mode, where each row carries an Unhide button.
+ */
+function hiddenPalette(page: import('@playwright/test').Page) {
+  return page.getByRole('dialog', { name: 'Search' })
+}
+
 const BLUEPRINTS = {
   object: 'list',
   data: [
@@ -126,10 +143,12 @@ test('Grok chrome is left rail + chat, not a top-nav product shell', async ({ pa
   await page.goto('/')
 
   const rail = page.getByRole('navigation', { name: 'Agent list' })
-  await expect(rail.getByRole('link', { name: /Support/ })).toBeVisible()
+  await expect(pinGrid(page).getByRole('link', { name: /Support/ })).toBeVisible()
   await expect(rail.getByRole('link', { name: /Codey/ })).toBeVisible()
-  await expect(rail.getByRole('link', { name: /Safety/ })).toHaveCount(0)
-  await expect(rail.getByRole('link', { name: /Skeptic/ })).toHaveCount(0)
+  // Scope hidden-agent assertions by id: the seeded demo teams include a
+  // "Demo SDLC Skeptic Loop" whose row name also matches /Skeptic/.
+  await expect(rail.locator('a[data-agent-id="gate"]')).toHaveCount(0)
+  await expect(rail.locator('a[data-agent-id="skeptic"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Hidden Bots 2' })).toBeVisible()
   await expect(page.getByLabel('Pinned agents')).toBeVisible()
   await expect(page.getByRole('button', { name: /Plugins/i })).toBeVisible()
@@ -144,7 +163,8 @@ test('Grok chrome is left rail + chat, not a top-nav product shell', async ({ pa
     'placeholder',
     'Message …',
   )
-  await expect(page.getByRole('button', { name: 'Add' })).toBeVisible()
+  // "Add agent" in the rail also matches /Add/, so scope to the composer dock.
+  await expect(page.getByTestId('chat-bottom-dock').getByRole('button', { name: 'Add' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Voice input' })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Switch to (light|dark) theme$/ })).toBeVisible()
   await expect(page.getByText(/^Connected$/)).toHaveCount(0)
@@ -247,8 +267,11 @@ test('right-click hide from sidebar persists across reload; unhide restores', as
   await expect(list.getByRole('link', { name: /Stewie/ })).toBeVisible()
 
   await page.getByRole('button', { name: 'Hidden Bots 3' }).click()
-  await expect(page.getByRole('dialog', { name: /Hidden agents/i })).toBeVisible()
-  await page.getByRole('button', { name: /Unhide Codey/i }).click()
+  const hidden = hiddenPalette(page)
+  await expect(hidden).toBeVisible()
+  await hidden.getByRole('button', { name: /Unhide Codey/i }).click()
+  await page.keyboard.press('Escape')
+  await expect(hidden).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Hidden Bots 2' })).toBeVisible()
   await expect(list.getByRole('link', { name: /Codey/ })).toBeVisible()
   expect(jsErrors, `uncaught JS errors: ${jsErrors.join(' | ')}`).toHaveLength(0)
@@ -300,11 +323,12 @@ test('drag any rail row onto Hidden, including Support; Unhide restores; no Hide
   await expect(page.getByRole('button', { name: 'Hidden Bots 2' })).toBeVisible()
   await expect(page.getByRole('button', { name: /Hide all/i })).toHaveCount(0)
 
-  const support = list.getByRole('link', { name: /Support/ })
+  const pins = pinGrid(page)
+  const support = pins.getByRole('link', { name: /Support/ })
   await html5Drag(support, zone, 'highlight')
   await expect(zone).toHaveAttribute('data-drag-over', 'true')
   await html5Drag(support, zone, 'drop')
-  await expect(list.getByRole('link', { name: /Support/ })).toHaveCount(0)
+  await expect(pins.getByRole('link', { name: /Support/ })).toHaveCount(0)
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('swarm_hidden_agents')))
     .toBe(JSON.stringify(['gate', 'skeptic', 'support']))
@@ -319,10 +343,13 @@ test('drag any rail row onto Hidden, including Support; Unhide restores; no Hide
   await expect(page.getByRole('button', { name: 'Hidden Bots 4' })).toBeVisible()
   await expect(page.getByRole('button', { name: /Hide all/i })).toHaveCount(0)
   await page.getByRole('button', { name: 'Hidden Bots 4' }).click()
-  const dialog = page.getByRole('dialog', { name: /Hidden agents/i })
+  const dialog = hiddenPalette(page)
+  await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: /Unhide Support/i }).click()
   await dialog.getByRole('button', { name: /Unhide Codey/i }).click()
-  await expect(list.getByRole('link', { name: /Support/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(pins.getByRole('link', { name: /Support/ })).toBeVisible()
   await expect(list.getByRole('link', { name: /Codey/ })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Hidden Bots 2' })).toBeVisible()
 })
@@ -332,29 +359,31 @@ test('first load seeds Hidden with gate and skeptic; Unhide persists', async ({ 
   await page.goto('/')
 
   const list = page.getByRole('navigation', { name: 'Agent list' })
-  await expect(list.getByRole('link', { name: /Support/ })).toBeVisible()
-  await expect(list.getByRole('link', { name: /Safety/ })).toHaveCount(0)
-  await expect(list.getByRole('link', { name: /Skeptic/ })).toHaveCount(0)
+  await expect(pinGrid(page).getByRole('link', { name: /Support/ })).toBeVisible()
+  await expect(list.locator('a[data-agent-id="gate"]')).toHaveCount(0)
+  await expect(list.locator('a[data-agent-id="skeptic"]')).toHaveCount(0)
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('swarm_hidden_agents')))
     .toBe(JSON.stringify(['gate', 'skeptic']))
 
   await page.getByRole('button', { name: 'Hidden Bots 2' }).click()
-  const dialog = page.getByRole('dialog', { name: /Hidden agents/i })
+  const dialog = hiddenPalette(page)
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: /Unhide Safety/i }).click()
-  await expect(list.getByRole('link', { name: /Safety/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(list.locator('a[data-agent-id="gate"]')).toBeVisible()
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('swarm_hidden_agents')))
     .toBe(JSON.stringify(['skeptic']))
 
   await page.reload()
-  await expect(list.getByRole('link', { name: /Safety/ })).toBeVisible()
-  await expect(list.getByRole('link', { name: /Skeptic/ })).toHaveCount(0)
+  await expect(list.locator('a[data-agent-id="gate"]')).toBeVisible()
+  await expect(list.locator('a[data-agent-id="skeptic"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Hidden Bots 1' })).toBeVisible()
 })
 
-test('hover-edit opens an agent-scoped editor; Blueprint picker persists; Edit blueprint lands on the list', async ({
+test('row menu opens an agent-scoped editor; Blueprint picker persists; Edit blueprint lands on the list', async ({
   page,
 }) => {
   const jsErrors: string[] = []
@@ -363,14 +392,16 @@ test('hover-edit opens an agent-scoped editor; Blueprint picker persists; Edit b
   await page.goto('/')
 
   const list = page.getByRole('navigation', { name: 'Agent list' })
-  const support = list.getByRole('link', { name: /Support/ })
+  // The hover pencils were deliberately removed from rail rows (#694), so the
+  // agent-scoped editor is reached from the row context menu now.
+  const support = pinGrid(page).getByRole('link', { name: /Support/ })
   await expect(support).toBeVisible()
   // REQ-26 seeds gate/skeptic as Hidden on first load; Support stays visible.
-  await expect(list.getByRole('link', { name: /Safety/ })).toHaveCount(0)
-  await expect(list.getByRole('link', { name: /Skeptic/ })).toHaveCount(0)
+  await expect(list.locator('a[data-agent-id="gate"]')).toHaveCount(0)
+  await expect(list.locator('a[data-agent-id="skeptic"]')).toHaveCount(0)
 
-  await support.hover()
-  const edit = page.getByRole('button', { name: 'Edit Support' })
+  await support.click({ button: 'right' })
+  const edit = page.getByRole('menuitem', { name: 'Edit Profile' })
   await expect(edit).toBeVisible()
   await edit.click()
 
@@ -456,7 +487,8 @@ test('composer + Compact borders nested summaries and keeps leftover operator li
   await page.goto('/chat?blueprint=codey')
   await expect(page.getByText('prior question')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Add' }).click()
+  // "Add agent" in the rail also matches /Add/, so scope to the composer dock.
+  await page.getByTestId('chat-bottom-dock').getByRole('button', { name: 'Add' }).click()
   await expect(page.getByRole('menuitem', { name: 'Compact' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Blueprints' })).toHaveCount(0)
   await expect(page.getByRole('menuitem', { name: 'Teams' })).toHaveCount(0)
@@ -467,7 +499,9 @@ test('composer + Compact borders nested summaries and keeps leftover operator li
   await expect(blocks).toHaveCount(2)
   await expect(blocks.first()).toHaveClass(/chat-summary/)
   await expect(page.locator('.chat-summary--nested')).toBeVisible()
-  await expect(page.getByText('Summary').first()).toBeVisible()
+  // Target the card chip: a plain getByText('Summary') also matches the
+  // "Auxiliary (code summary)" option in the routing picker.
+  await expect(page.getByTestId('chat-summary-chip').first()).toBeVisible()
   await expect(page.getByText('outer digest')).toBeVisible()
   await expect(page.getByText('inner digest')).toBeVisible()
   await expect(page.getByText('prior question')).toHaveCount(0)

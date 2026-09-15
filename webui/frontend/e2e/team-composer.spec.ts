@@ -89,7 +89,9 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
   // Grok chrome: no SPA /teams tab. Django Teams stays on the composer + menu.
   await expect(page.getByRole('link', { name: 'Teams', exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Compose team' }).click()
+  // The composer entry point moved to the rail footer (Teams, directly above
+  // Plugins) instead of a navbar "Compose team" button.
+  await page.getByTestId('os-teams-button').click()
   await expect(page.getByRole('heading', { name: /new team/i })).toBeVisible()
 
   const drop = page.getByTestId('team-drop-zone')
@@ -112,8 +114,9 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
 
   await available.getByRole('button', { name: 'Add' }).first().click()
   const roster = page.getByRole('list', { name: /roster members/i })
-  await expect(roster.getByText('jeeves')).toBeVisible()
-  await expect(roster.getByText('API')).toBeVisible()
+  // Each roster row carries the id and the display name, so scope to the first.
+  await expect(roster.getByText('jeeves').first()).toBeVisible()
+  await expect(roster.getByText('API').first()).toBeVisible()
   await expect(cos).toBeEnabled()
   await expect(cos).toHaveValue('')
 
@@ -124,7 +127,10 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
 
   await page.getByLabel(/team name/i).fill('research-squad')
   await page.getByRole('button', { name: /save roster/i }).click()
-  await expect(page.getByRole('status')).toContainText(/team_rosters\.json/i)
+  // Several live regions exist (toasts, meter) — target the save confirmation.
+  await expect(
+    page.getByRole('status').filter({ hasText: /team_rosters\.json/i }),
+  ).toBeVisible()
   await expect(cos).toHaveValue('jeeves')
   await expect(brief).toHaveValue('prefer grok_agent for revision control')
 

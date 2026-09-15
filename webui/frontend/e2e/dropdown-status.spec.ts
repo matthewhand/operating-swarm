@@ -86,7 +86,13 @@ async function stubTeamDropdownPage(page: import('@playwright/test').Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ clis: ['antigravity', 'grok'] }),
+      body: JSON.stringify({
+        clis: ['antigravity', 'grok'],
+        installed: ['antigravity', 'grok'],
+        configured: ['antigravity', 'grok'],
+        native_consensus: {},
+        catalog: {},
+      }),
     })
   })
   await page.route('**/v1/models**', async (route) => {
@@ -109,19 +115,22 @@ test('team dropdown change is a centred status line and survives reload', async 
 
   await page.goto('/chat?team=demo-team')
   const teamSelect = page.getByRole('combobox', { name: 'Team members' })
-  await expect(teamSelect).toHaveValue('all')
+  // #169: a team chat opens on its nominated seat (Chief of Staff, else the first
+  // roster member) — demo-team's first member is Codey — so the transition under
+  // test is Codey → Stewie rather than All members → Codey.
+  await expect(teamSelect).toHaveValue('codey')
   await page.screenshot({
     path: shotPath(testInfo, 'team_dropdown_before.png'),
     fullPage: true,
   })
 
-  await teamSelect.selectOption('codey')
+  await teamSelect.selectOption('stewie')
   await expect(page).toHaveURL(/[?&]team=demo-team/)
-  await expect(page).toHaveURL(/[?&]session=codey/)
-  await expect(teamSelect).toHaveValue('codey')
+  await expect(page).toHaveURL(/[?&]session=stewie/)
+  await expect(teamSelect).toHaveValue('stewie')
   const status = page.getByTestId('chat-status')
   await expect(status).toHaveCount(1)
-  await expect(status).toContainText('Team target: All members → Codey (agent/coder)')
+  await expect(status).toContainText('Team target: Codey (agent/coder) → Stewie (agent/ops)')
   await expect(status).toHaveClass(/os-chat-status/)
   await expect(status).not.toHaveClass(/chat-start|chat-end/)
   await expect(status.locator('.chat-bubble')).toHaveCount(0)
@@ -132,28 +141,28 @@ test('team dropdown change is a centred status line and survives reload', async 
 
   await page.reload()
   const restoredSelect = page.getByRole('combobox', { name: 'Team members' })
-  await expect(restoredSelect).toHaveValue('codey')
-  await expect(page).toHaveURL(/[?&]session=codey/)
+  await expect(restoredSelect).toHaveValue('stewie')
+  await expect(page).toHaveURL(/[?&]session=stewie/)
   await expect(page.getByTestId('chat-status')).toHaveCount(1)
   await expect(page.getByTestId('chat-status')).toContainText(
-    'Team target: All members → Codey (agent/coder)',
+    'Team target: Codey (agent/coder) → Stewie (agent/ops)',
   )
   await expect(page.getByTestId('chat-status')).not.toHaveClass(/chat-start|chat-end/)
 
   const composer = page.getByRole('textbox', { name: 'Chat message' })
   await expect(composer).toBeEnabled()
-  await composer.fill('after reload still codey')
+  await composer.fill('after reload still stewie')
   await page.getByRole('button', { name: /^Send$/i }).click()
   await expect.poll(async () => (await mockInferenceState(page)).lastPrompt).toBe(
-    'after reload still codey',
+    'after reload still stewie',
   )
   expect((await mockInferenceState(page)).lastParams).toMatchObject({
     team: 'demo-team',
-    target: 'codey',
+    target: 'stewie',
   })
 })
 
-test('All members clears ?session= and the next send targets all after reload', async ({
+test('All members clears ?session=; a reload re-defaults to the nominated seat (#169)', async ({
   page,
 }) => {
   await installMockInference(page)
@@ -168,19 +177,22 @@ test('All members clears ?session= and the next send targets all after reload', 
   await expect(teamSelect).toHaveValue('all')
 
   await page.reload()
-  await expect(page.getByRole('combobox', { name: 'Team members' })).toHaveValue('all')
+  // With no ?session= to pin the choice, the team chat re-defaults to its
+  // nominated seat (#169). "All members" is a view choice, not a persisted one
+  // — the ?session= contract has no encoding for it (tracked on #283).
+  await expect(page.getByRole('combobox', { name: 'Team members' })).toHaveValue('codey')
   await expect(page).not.toHaveURL(/[?&]session=/)
 
   const composer = page.getByRole('textbox', { name: 'Chat message' })
   await expect(composer).toBeEnabled()
-  await composer.fill('after reload all members')
+  await composer.fill('after reload back on the nominated seat')
   await page.getByRole('button', { name: /^Send$/i }).click()
   await expect.poll(async () => (await mockInferenceState(page)).lastPrompt).toBe(
-    'after reload all members',
+    'after reload back on the nominated seat',
   )
   expect((await mockInferenceState(page)).lastParams).toMatchObject({
     team: 'demo-team',
-    target: 'all',
+    target: 'codey',
   })
 })
 
@@ -214,7 +226,13 @@ test('CLI dropdown change is a bubble-less status line plus carried context', as
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ clis: ['antigravity', 'grok'] }),
+      body: JSON.stringify({
+        clis: ['antigravity', 'grok'],
+        installed: ['antigravity', 'grok'],
+        configured: ['antigravity', 'grok'],
+        native_consensus: {},
+        catalog: {},
+      }),
     })
   })
   await page.route('**/v1/models**', async (route) => {
