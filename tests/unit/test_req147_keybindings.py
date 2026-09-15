@@ -37,7 +37,10 @@ def test_sidebar_alt_pins_and_tips():
     # Alt/⌥+1…9 navigation
     assert "event.altKey" in sidebar
     assert "/^[1-9]$/.test(event.key)" in sidebar
-    assert "visiblePins[idx]" in sidebar
+    # REQ-172 replaced direct pin indexing with spill-aware targets; the
+    # Alt+1…9 navigation is asserted via the current contract.
+    assert "hotkeyTargets[idx]" in sidebar
+    assert "computeRailHotkeyTargets" in sidebar
 
     # Hover shortcut badge on favourite tiles
     assert "os-fav-tile__shortcut" in sidebar
