@@ -292,7 +292,9 @@ class TestSandboxManagerAndTools:
         assert agent.name == "SandboxWorker"
         assert len(agent.tools) == 4
 
-    def test_blueprint_base_make_agent_sandbox(self):
+    def test_blueprint_base_make_agent_sandbox(self, monkeypatch):
+        # The sandbox tool count contract assumes a real (non-TEST_MODE) run path.
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
         try:
             from agents import Agent
         except ImportError:

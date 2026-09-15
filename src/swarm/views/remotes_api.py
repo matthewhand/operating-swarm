@@ -78,13 +78,16 @@ class RemotesListView(APIView):
     )
     def post(self, request, *_args, **_kwargs):
         body = request.data if isinstance(request.data, dict) else {}
-        kind = body.get("kind") or body.get("id") or body.get("remote_id")
-        if not kind:
+        target_id = body.get("id") or body.get("remote_id") or body.get("kind")
+        kind = body.get("kind")
+        if not target_id:
             return Response(
-                {"error": "Provide kind (hermes, omb, rakazo, herdr, or swarm)."},
+                {"error": "Provide kind (hermes, omb, rakazo, herdr, swarm, or trueforge)."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         kwargs: dict = {}
+        if kind:
+            kwargs["kind"] = str(kind)
         for field in (
             "base_url",
             "api_key",
@@ -103,11 +106,11 @@ class RemotesListView(APIView):
         if "ssh_agent" in body:
             kwargs["ssh_agent"] = body["ssh_agent"]
         try:
-            spec, path = remotes_core.persist_remote(str(kind), **kwargs)
+            spec, path = remotes_core.persist_remote(str(target_id), **kwargs)
         except remotes_core.RemoteError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except OSError as exc:
-            logger.exception("Failed to persist remotes.%s", kind)
+            logger.exception("Failed to persist remotes.%s", target_id)
             return Response(
                 {"error": f"failed to persist: {exc}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

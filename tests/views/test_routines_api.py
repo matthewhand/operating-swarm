@@ -1,6 +1,7 @@
 """API tests for /v1/agents/<id>/routines/ (REQ-80 / #432)."""
 
 import pytest
+from django.conf import settings
 from rest_framework.test import APIClient
 
 from swarm.core import routines as store
@@ -8,7 +9,10 @@ from swarm.core import routines as store
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    client = APIClient()
+    if getattr(settings, "SWARM_API_KEY", None):
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.SWARM_API_KEY}")
+    return client
 
 
 @pytest.fixture(autouse=True)
@@ -134,3 +138,23 @@ def test_unmerged_github_payload_is_rejected(api_client):
     )
     assert response.status_code == 400
     assert "merged" in response.json()["error"].lower()
+
+
+def test_list_all_routines(api_client):
+    api_client.post(
+        "/v1/agents/codey/routines/",
+        {"name": "Codey Routine", "instruction": "Do things"},
+        format="json",
+    )
+    api_client.post(
+        "/v1/agents/api_agent/routines/",
+        {"name": "API Routine", "instruction": "Process data"},
+        format="json",
+    )
+    resp = api_client.get("/v1/routines/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["object"] == "routine_list"
+    names = [r["name"] for r in body["routines"]]
+    assert "Codey Routine" in names
+    assert "API Routine" in names

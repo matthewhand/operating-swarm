@@ -6,6 +6,7 @@ import {
 } from './providerRateLimits'
 import { parseSuggestions } from './suggestions'
 import { parseTeammateTask, type TeammateTaskEvent } from './teammateTask'
+import { parseSubagentFanOut, type SubagentFanOutData } from './subagentFanOut'
 
 /**
  * Client for the Django Channels chat websocket.
@@ -63,6 +64,7 @@ export type ChatWsEvent =
     }
   | { kind: 'pr_opened'; event: PrOpenedEvent }
   | { kind: 'teammate_task'; event: TeammateTaskEvent }
+  | { kind: 'subagent_fan_out'; event: SubagentFanOutData }
   | { kind: 'spa_hello'; spaVersion: string }
   | { kind: 'suggestions'; suggestions: string[] }
   | {
@@ -174,8 +176,16 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
       if (event) return { kind: 'pr_opened', event }
     }
     if (type === 'teammate_task') {
+      if (Array.isArray(payload.subagents) && payload.subagents.length > 0) {
+        const fanOut = parseSubagentFanOut(payload)
+        if (fanOut) return { kind: 'subagent_fan_out', event: fanOut }
+      }
       const event = parseTeammateTask(payload)
       if (event) return { kind: 'teammate_task', event }
+    }
+    if (type === 'subagent_fan_out') {
+      const event = parseSubagentFanOut(payload)
+      if (event) return { kind: 'subagent_fan_out', event }
     }
     if (type === 'spa_hello') {
       const spaVersion = String(payload.spa_version || '').trim()

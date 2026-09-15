@@ -29,6 +29,11 @@ export interface Routine {
   trigger: RoutineTrigger
   history: RoutineHistoryRow[]
   when_to_run?: string
+  schedule?: string
+  cron?: string
+  next_run?: string
+  agent_name?: string
+  agent_kind?: string
 }
 
 export interface RoutineList {
@@ -121,6 +126,15 @@ export function routinePath(agentId: string, routineId: string): string {
 export async function fetchRoutines(agentId: string): Promise<Routine[]> {
   const data = await apiGet<RoutineList>(routinesPath(agentId))
   return Array.isArray(data?.routines) ? data.routines : []
+}
+
+export async function fetchAllRoutines(): Promise<Routine[]> {
+  const data = await apiGet<RoutineList | { routines: Routine[] }>("/v1/routines")
+  return Array.isArray((data as any)?.routines)
+    ? (data as any).routines
+    : Array.isArray(data)
+      ? (data as unknown as Routine[])
+      : []
 }
 
 export async function createRoutine(agentId: string, body: RoutineWrite = {}): Promise<Routine> {

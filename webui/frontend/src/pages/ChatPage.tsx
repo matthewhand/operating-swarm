@@ -137,6 +137,9 @@ import {
   type PrOpenedOpener,
 } from '../lib/prOpened'
 import { parseTeammateTask, type TeammateTaskEvent } from '../lib/teammateTask'
+import SubagentFanOutBlock from '../components/SubagentFanOutBlock'
+import { parseSubagentFanOut, type SubagentFanOutData } from '../lib/subagentFanOut'
+import { registerDynamicSubagent } from '../lib/dynamicSubagents'
 import { TokenDiagnosticsModal } from '../components/TokenDiagnosticsModal'
 import {
   isToolAlwaysAllowed,
@@ -304,6 +307,7 @@ interface ChatMessage {
   prOpened?: PrOpenedEvent
   /** REQ-84 chrome — team task whose worker is a configured remote. */
   teammateTask?: TeammateTaskEvent
+  subagentFanOut?: SubagentFanOutData
   /** REQ-104 — expandable archive of the previous swarm thread. */
   kind?: 'prior_history'
   /** Persist/reload timestamp (ISO). Status/info chrome shows this. */
@@ -325,15 +329,17 @@ function chatMessageFromThreadRow(
 ): ChatMessage {
   const prOpened = parsePrOpened(message.content) ?? undefined
   const teammateTask = parseTeammateTask(message.content) ?? undefined
+  const subagentFanOut = parseSubagentFanOut(message.content) ?? undefined
   const prior = message.kind === 'prior_history'
   return {
     key: `hist-${index}-${message.role}`,
     role: prior ? 'system' : asTranscriptRole(message.role),
-    text: prOpened || teammateTask ? '' : message.content,
+    text: prOpened || teammateTask || subagentFanOut ? '' : message.content,
     streaming: false,
     edited: message.edited === true,
     prOpened,
     teammateTask,
+    subagentFanOut,
     kind: prior ? 'prior_history' : undefined,
     ts: message.ts,
     rateLimit: isRateLimitWait(message.rate_limit) ? message.rate_limit : undefined,
@@ -1509,6 +1515,36 @@ const ChatPage = () => {
         })
         return
       }
+      if (event.kind === 'subagent_fan_out') {
+        setThreads((prev) => {
+          const current = prev[threadKey] ?? []
+          return {
+            ...prev,
+            [threadKey]: [
+              ...current,
+              {
+                key: `subagent-fan-out-${current.length}-${Date.now()}`,
+                role: 'assistant' as const,
+                text: '',
+                streaming: false,
+                subagentFanOut: event.event,
+              },
+            ],
+          }
+        })
+        for (const s of event.event.subagents ?? []) {
+          registerDynamicSubagent({
+            id: s.id,
+            name: s.name,
+            parentAgentId: s.parentAgentId,
+            role: s.role,
+            status: s.status,
+            summary: s.summary,
+            task: s.task,
+          })
+        }
+        return
+      }
       if (event.kind === 'tool_approval') {
         const agentId = event.agentId || selectedBlueprint || threadKey
         if (isToolAlwaysAllowed(agentId, event.name)) {
@@ -1677,7 +1713,10 @@ const ChatPage = () => {
     let ws: WebSocket
     try {
       ws = new WebSocket(
-        buildChatWsUrl(conversationId, teamFromUrl ? undefined : runtimeBlueprint || undefined),
+        buildChatWsUrl(
+          conversationId,
+          teamFromUrl ? undefined : remoteFromUrl ? 'remote_harness' : runtimeBlueprint || undefined,
+        ),
       )
     } catch {
       setStatus('failed')
@@ -1925,6 +1964,17 @@ const ChatPage = () => {
           buildChatWsFrame(trimmed, undefined, {
             team: teamFromUrl,
             target: memberTarget || ALL_MEMBERS_TARGET,
+            ...pluginParams,
+          }),
+        )
+        return true
+      }
+      if (remoteFromUrl) {
+        ws.send(
+          buildChatWsFrame(trimmed, 'remote_harness', {
+            remote: remoteFromUrl,
+            name: remoteFromUrl,
+            op: 'send',
             ...pluginParams,
           }),
         )
@@ -3160,6 +3210,18 @@ const ChatPage = () => {
             if (hiddenMessageKeys.includes(message.key)) return null
             const liveMessage = messages.find((row) => row.key === message.key)
             const teammateTask = liveMessage?.teammateTask
+            const subagentFanOut =
+              liveMessage?.subagentFanOut ||
+              ((teammateTask as any)?.subagents?.length
+                ? (teammateTask as unknown as SubagentFanOutData)
+                : undefined)
+            if (subagentFanOut) {
+              return (
+                <div key={message.key} className="os-subagent-fan-out-wrap my-2">
+                  <SubagentFanOutBlock event={subagentFanOut} />
+                </div>
+              )
+            }
             if (teammateTask) {
               return (
                 <div key={message.key} className="os-teammate-task-wrap my-2">
@@ -3353,6 +3415,11 @@ const ChatPage = () => {
                     handleContextToHere(message)
                   }}
                 >
+                  {message.subagentFanOut ? (
+                    <div className="my-2">
+                      <SubagentFanOutBlock event={message.subagentFanOut} />
+                    </div>
+                  ) : null}
                   {(message.tools ?? []).map((tool) => (
                     <ToolCallPopup
                       key={tool.id}

@@ -15,6 +15,7 @@ export const FALLBACK_REMOTE_KINDS: RemoteKind[] = [
   { id: 'rakazo', label: 'Rakazo' },
   { id: 'herdr', label: 'Herdr' },
   { id: 'open-swarm', label: 'open-swarm' },
+  { id: 'trueforge', label: 'TrueForge' },
 ]
 
 const FALLBACK_LABELS: Record<string, string> = Object.fromEntries(
@@ -94,7 +95,7 @@ export function unusedRemoteKinds(
   response?: RemotesListResponse | null,
 ): RemoteKind[] {
   const used = new Set(configuredRemotes(response).map((remote) => remote.id))
-  return remoteKinds(response).filter((kind) => !used.has(kind.id))
+  return remoteKinds(response).filter((kind) => kind.id === 'trueforge' || !used.has(kind.id))
 }
 
 export function remoteOptionLabel(remote: RemoteConnection, kinds?: RemoteKind[]): string {

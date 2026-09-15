@@ -682,6 +682,7 @@ export interface RemotesListResponse {
 
 export interface AddRemoteRequest {
   kind: string
+  id?: string
   base_url?: string
   api_key_env?: string
   api_key?: string

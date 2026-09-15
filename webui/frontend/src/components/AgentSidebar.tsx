@@ -11,7 +11,9 @@ import {
 } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plug, Plus, Search, Server, Users, X } from 'lucide-react'
+import { Calendar, Plug, Plus, Search, Server, Trash2, Users, X } from 'lucide-react'
+import AgentCalendarView from './AgentCalendarView'
+export const OPEN_CALENDAR_EVENT = 'open-calendar-view'
 import AddAgentWizard, { type AgentKind } from './AddAgentWizard'
 import {
   UNREAD_CHANGED_EVENT,
@@ -38,6 +40,11 @@ import {
   type HerdrAgent,
   type RouterDesign,
 } from '../lib/api'
+import {
+  DYNAMIC_SUBAGENT_SPAWNED_EVENT,
+  loadDynamicSubagents,
+  type DynamicSubagent,
+} from '../lib/dynamicSubagents'
 import { useOptionalToast } from './DaisyUI'
 import {
   CLI_PROCESS_STOPPED_TOAST,
@@ -247,6 +254,7 @@ export interface AgentSidebarProps {
   /** Agent / conversation / team pick — parent may tuck the rail (REQ-54). */
   onPick?: () => void
   onOpenSearch?: () => void
+  blueprints?: Blueprint[]
 }
 
 interface ContextMenuState {
@@ -355,6 +363,25 @@ function toSidebarHerdr(row: HerdrAgent): SidebarAgent {
   }
 }
 
+function toSidebarDynamic(subagent: DynamicSubagent): SidebarAgent {
+  return {
+    id: subagent.id,
+    object: 'blueprint',
+    name: subagent.name || subagent.id,
+    description:
+      subagent.summary || subagent.task || `Dynamic subagent (${subagent.role || 'subagent'})`,
+    abbreviation: null,
+    required_mcp_servers: [],
+    tags: ['subagent', 'dynamic'],
+    installed: true,
+    compiled: true,
+    role: subagent.role || 'subagent',
+    kind: 'subagent',
+    rail: true,
+    avatar_path: subagent.avatar_path,
+  }
+}
+
 interface PickerState {
   title: string
   sessions: MemberSession[]
@@ -366,7 +393,20 @@ export default function AgentSidebar({
   onClose,
   onPick,
   onOpenSearch,
+  blueprints: propBlueprints,
 }: AgentSidebarProps) {
+  const [dynamicSubagents, setDynamicSubagents] = useState<DynamicSubagent[]>(() =>
+    loadDynamicSubagents(),
+  )
+  const [subagentsCollapsed, setSubagentsCollapsed] = useState(false)
+
+  useEffect(() => {
+    const onSpawned = () => {
+      setDynamicSubagents(loadDynamicSubagents())
+    }
+    window.addEventListener(DYNAMIC_SUBAGENT_SPAWNED_EVENT, onSpawned)
+    return () => window.removeEventListener(DYNAMIC_SUBAGENT_SPAWNED_EVENT, onSpawned)
+  }, [])
   const pickOrClose = onPick ?? onClose
   const drawerHidden = Boolean(narrow && !open)
   const { pathname } = useLocation()
@@ -389,10 +429,17 @@ export default function AgentSidebar({
   const [pins, setPins] = useState<PinnedAgent[]>(() => loadOrSeedPinnedAgents())
   const [hoveringHidden, setHoveringHidden] = useState(false)
   const [pluginsOpen, setPluginsOpen] = useState(false)
+  const [calendarOpen, setCalendarOpen] = useState(false)
   const [remotesPopupOpen, setRemotesPopupOpen] = useState(false)
   const [localWsStatus, setLocalWsStatus] = useState<ChatConnectionStatus>(() => getChatConnection())
   const [cliRunningIds, setCliRunningIds] = useState<Set<string>>(() => new Set())
   const toast = useOptionalToast()
+
+  useEffect(() => {
+    const onOpenCalendar = () => setCalendarOpen(true)
+    window.addEventListener(OPEN_CALENDAR_EVENT, onOpenCalendar)
+    return () => window.removeEventListener(OPEN_CALENDAR_EVENT, onOpenCalendar)
+  }, [])
 
   useEffect(() => {
     const onRunState = (event: Event) => {
@@ -455,6 +502,7 @@ export default function AgentSidebar({
   const [dropActive, setDropActive] = useState(false)
   const [listDropActive, setListDropActive] = useState(false)
   const [hideDropActive, setHideDropActive] = useState(false)
+  const [binDragOver, setBinDragOver] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [picker, setPicker] = useState<PickerState | null>(null)
   const [, setEditsTick] = useState(0)
@@ -690,7 +738,7 @@ export default function AgentSidebar({
         })),
     [designsQuery.data],
   )
-  const catalog = blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS
+  const catalog = propBlueprints ?? blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS
   const teams = parseTeamRosters(teamsQuery.data ?? [])
   const remotes = remotesQuery.data ?? []
   const agents = useMemo<SidebarAgent[]>(() => {
@@ -725,7 +773,14 @@ export default function AgentSidebar({
     const fromBlueprintsNoCli = fromBlueprints.filter((a) => !namedIds.has(a.id) && a.id !== 'api_agent')
     // Designed (router) agents join the rail; skip ids a live row already owns.
     const designed = designedAgents.filter((a) => !seen.has(a.id) && !namedIds.has(a.id))
-    const list = [...fromRosters, ...fromBlueprintsNoCli, ...herdr, ...designed]
+    const dynamicSidebar = dynamicSubagents.map(toSidebarDynamic)
+    const list = [
+      ...fromRosters,
+      ...fromBlueprintsNoCli,
+      ...herdr,
+      ...designed,
+      ...dynamicSidebar.filter((a) => !seen.has(a.id) && !namedIds.has(a.id)),
+    ]
     const support = list.filter((a) => isSupportAgent(a))
     // Named api_agent comes from /v1/cli-agents/. Add-agent API customs stay
     // in the catalog with rail+kind and must not be dropped here (REQ-171B).
@@ -740,10 +795,11 @@ export default function AgentSidebar({
       if (a.kind === 'design') return 2
       if (isApiRailAgent(a) || isBlueprintRailAgent(a)) return 2
       if (isChiefOfStaff(roleFromAgent(a))) return 3
+      if (a.kind === 'subagent') return 5
       return 4
     }
     return merged.sort((a, b) => railRank(a) - railRank(b))
-  }, [catalog, cliQuery.data, herdrQuery.data, teams, designedAgents])
+  }, [catalog, cliQuery.data, herdrQuery.data, teams, designedAgents, dynamicSubagents])
   const cliAgentsForActivity = useMemo(
     () =>
       agents
@@ -808,12 +864,13 @@ export default function AgentSidebar({
   // (blueprints, rosters, remotes, cli, herdr) settle so a mid-load drop can
   // neither flash rows visible nor persist a trimmed hide list to prefs.
   const railDataPending =
-    blueprintsQuery.isPending ||
-    teamsQuery.isPending ||
-    remotesQuery.isPending ||
-    cliQuery.isPending ||
-    herdrQuery.isPending ||
-    designsQuery.isPending
+    !propBlueprints &&
+    (blueprintsQuery.isPending ||
+      teamsQuery.isPending ||
+      remotesQuery.isPending ||
+      cliQuery.isPending ||
+      herdrQuery.isPending ||
+      designsQuery.isPending)
   const resolvedHiddenIds = railDataPending
     ? hiddenIds ?? []
     : reconcileHiddenAgentIds(
@@ -940,7 +997,7 @@ export default function AgentSidebar({
   )
   const hiddenCount = hiddenAgents.length + hiddenTeams.length + hiddenRemotes.length
   const visibleCount = visibleAgents.length + visibleTeams.length + visibleRemotes.length
-  const loadingList = blueprintsQuery.isPending && teamsQuery.isPending
+  const loadingList = !propBlueprints && blueprintsQuery.isPending && teamsQuery.isPending
   const loadFailed = blueprintsQuery.isError && teamsQuery.isError && visibleCount === 0
   const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
   const cliAgents = visibleAgents.filter((agent) => isCliRailAgent(agent))
@@ -988,14 +1045,50 @@ export default function AgentSidebar({
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],
   )
-  const sectionBlocks = useMemo(
-    () => partitionRowsBySection(orderedRows, sectionState),
-    [orderedRows, sectionState],
-  )
+  const sectionBlocks = useMemo(() => {
+    const baseBlocks = partitionRowsBySection(orderedRows, sectionState)
+    if (dynamicSubagents.length === 0) return baseBlocks
+
+    const dynamicIds = new Set(dynamicSubagents.map((s) => s.id))
+    const subagentRows: RailRow[] = []
+
+    const updatedBlocks = baseBlocks.map((block) => {
+      if (block.id === UNASSIGNED_SECTION_ID) {
+        const standardRows: RailRow[] = []
+        for (const row of block.rows) {
+          if (dynamicIds.has(row.id)) {
+            subagentRows.push(row)
+          } else {
+            standardRows.push(row)
+          }
+        }
+        return { ...block, rows: standardRows }
+      }
+      return block
+    })
+
+    if (subagentRows.length > 0) {
+      const subagentsBlock = {
+        id: 'subagents',
+        name: 'Subagents',
+        collapsed: subagentsCollapsed,
+        rows: subagentRows,
+        custom: false,
+      }
+      const unassignedIdx = updatedBlocks.findIndex((b) => b.id === UNASSIGNED_SECTION_ID)
+      if (unassignedIdx >= 0) {
+        updatedBlocks.splice(unassignedIdx, 0, subagentsBlock)
+      } else {
+        updatedBlocks.push(subagentsBlock)
+      }
+    }
+
+    return updatedBlocks
+  }, [orderedRows, sectionState, dynamicSubagents, subagentsCollapsed])
   const visibleRowIds = useMemo(() => orderedRows.map((row) => row.id), [orderedRows])
   const knownRailIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents])
   const catalogById = useMemo(() => new Map(catalog.map((row) => [row.id, row])), [catalog])
-  const catalogReady = !blueprintsQuery.isPending
+  const catalogReady = Boolean(propBlueprints) || !blueprintsQuery.isPending
   const visiblePins = useMemo(
     () =>
       pins.filter((pin) => {
@@ -1599,6 +1692,7 @@ export default function AgentSidebar({
     setDropActive(false)
     setListDropActive(false)
     setHideDropActive(false)
+    setBinDragOver(false)
     hideDropDepth.current = 0
   }
 
@@ -1913,6 +2007,60 @@ export default function AgentSidebar({
     }
     await copyTextToClipboard(id)
     closeMenu()
+  }
+
+  const handleDropOnRecycleBin = (fromId: string) => {
+    const row = orderedRows.find((item) => item.id === fromId)
+    const pin = pins.find((p) => p.id === fromId)
+    const agent = agents.find((a) => a.id === fromId)
+    const remote = remotes.find((r) => remoteHideId(r.id) === fromId || r.id === fromId)
+    const team = teams.find((t) => teamHideId(t.id) === fromId || t.id === fromId)
+
+    let kind: RailMenuKind = 'agent'
+    let entityId = fromId
+    let agentName = fromId
+
+    if (row) {
+      if (row.kind === 'remote') {
+        kind = 'remote'
+        entityId = row.remote.id
+        agentName = row.remote.title
+      } else if (row.kind === 'team') {
+        kind = 'team'
+        entityId = row.team.id
+        agentName = row.team.name
+      } else {
+        kind = row.agent.kind === 'cli' ? 'cli' : 'agent'
+        entityId = row.agent.id
+        agentName = row.agent.name
+      }
+    } else if (remote) {
+      kind = 'remote'
+      entityId = remote.id
+      agentName = remote.title
+    } else if (team) {
+      kind = 'team'
+      entityId = team.id
+      agentName = team.name
+    } else if (agent) {
+      kind = agent.kind === 'cli' ? 'cli' : 'agent'
+      entityId = agent.id
+      agentName = agent.name
+    } else if (pin) {
+      agentName = pin.name
+      entityId = pin.id
+    }
+
+    setDeleteConfirm({
+      agentId: fromId,
+      agentName,
+      hidden: false,
+      pinned: isPinnedId(fromId),
+      x: 0,
+      y: 0,
+      kind,
+      entityId,
+    })
   }
 
   const requestDelete = (row: ContextMenuState) => {
@@ -3013,9 +3161,13 @@ export default function AgentSidebar({
                             editing={editingSectionId === block.id}
                             editValue={editingSectionId === block.id ? editingSectionName : block.name}
                             dropActive={sectionDropId === block.id}
-                            onToggle={() =>
-                              setSectionState((current) => toggleSectionCollapsed(current, block.id))
-                            }
+                            onToggle={() => {
+                              if (block.id === 'subagents') {
+                                setSubagentsCollapsed((current) => !current)
+                              } else {
+                                setSectionState((current) => toggleSectionCollapsed(current, block.id))
+                              }
+                            }}
                             onContextMenu={
                               block.custom
                                 ? ({ clientX, clientY }) =>
@@ -3140,94 +3292,148 @@ export default function AgentSidebar({
           ) : null}
         </div>
 
-        <div className="border-t border-base-300/70 px-3 py-3">
-          {/* #182: Teams entry lives in the rail footer, directly above Plugins. */}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
-            onClick={() => window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))}
-            title="Teams"
-            aria-label="Teams"
-            aria-haspopup="dialog"
-            data-testid="os-teams-button"
-          >
-            <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="os-teams-label">Teams</span>
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
-            onClick={() => setPluginsOpen(true)}
-            title="Plugins"
-            aria-label="Plugins"
-            data-testid="os-plugins-button"
-          >
-            <Plug className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="os-plugins-label">Plugins</span>
-          </button>
-          <div className="relative os-rail-hostname-row">
-            <button
-              type="button"
-              className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0 text-base-content/60 hover:text-base-content relative"
-              aria-label="Remote sessions"
-              aria-expanded={remotesPopupOpen}
-              aria-haspopup="menu"
-              data-testid="rail-server-icon"
-              onClick={() => setRemotesPopupOpen((open) => !open)}
+        <div className="border-t border-base-300/70 px-3 py-3" data-testid="sidebar-footer-container">
+          {draggingId ? (
+            <div
+              className={`os-recycle-bin flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed py-3 px-2 transition-all cursor-pointer ${
+                binDragOver
+                  ? 'border-error bg-error/20 text-error scale-[1.02]'
+                  : 'border-error/40 bg-error/5 text-error/80 hover:border-error hover:bg-error/10 hover:text-error'
+              }`}
+              data-testid="os-recycle-bin"
+              role="region"
+              aria-label="Delete"
+              onDragOver={(event) => {
+                event.preventDefault()
+                try {
+                  event.dataTransfer.dropEffect = 'move'
+                } catch {
+                  /* synthetic/jsdom */
+                }
+                setBinDragOver(true)
+              }}
+              onDragLeave={() => setBinDragOver(false)}
+              onDrop={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                setBinDragOver(false)
+                const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id || draggingId
+                if (fromId) {
+                  handleDropOnRecycleBin(fromId)
+                }
+                finishDrag()
+              }}
             >
-              <Server className="h-3.5 w-3.5" aria-hidden="true" />
-              {localWsDown && (
-                <span
-                  data-testid="local-server-status-dot"
-                  className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-error ring-1 ring-base-100"
+              <Trash2 className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span className="text-xs font-semibold uppercase tracking-wider">Delete</span>
+            </div>
+          ) : (
+            <>
+              {/* #182: Teams entry lives in the rail footer, directly above Plugins. */}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                onClick={() => window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))}
+                title="Teams"
+                aria-label="Teams"
+                aria-haspopup="dialog"
+                data-testid="os-teams-button"
+              >
+                <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="os-teams-label">Teams</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                onClick={() => setPluginsOpen(true)}
+                title="Plugins"
+                aria-label="Plugins"
+                data-testid="os-plugins-button"
+              >
+                <Plug className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="os-plugins-label">Plugins</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                onClick={() => setCalendarOpen(true)}
+                title="Calendar"
+                aria-label="Calendar"
+                data-testid="os-calendar-button"
+              >
+                <Calendar className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="os-calendar-label">Calendar</span>
+              </button>
+              <div className="relative os-rail-hostname-row">
+                <button
+                  type="button"
+                  className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0 text-base-content/60 hover:text-base-content relative"
+                  aria-label="Remote sessions"
+                  aria-expanded={remotesPopupOpen}
+                  aria-haspopup="menu"
+                  data-testid="rail-server-icon"
+                  onClick={() => setRemotesPopupOpen((open) => !open)}
+                >
+                  <Server className="h-3.5 w-3.5" aria-hidden="true" />
+                  {localWsDown && (
+                    <span
+                      data-testid="local-server-status-dot"
+                      className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-error ring-1 ring-base-100"
+                    />
+                  )}
+                </button>
+                <label className="sr-only" htmlFor="os-rail-hostname">
+                  Hostname
+                </label>
+                <input
+                  id="os-rail-hostname"
+                  type="text"
+                  className="os-rail-hostname"
+                  value={hostname}
+                  spellCheck={false}
+                  onChange={(event) => setHostname(event.target.value)}
+                  onBlur={() => {
+                    const next = saveHostname(hostname)
+                    setHostname(next)
+                    const override = next === defaultHostname() ? '' : next
+                    saveHostnameOverride(override)
+                    dispatchHostnameChanged(override)
+                    void saveUserPrefs({ hostname_override: override })
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur()
+                    }
+                    if (event.key === 'Escape') {
+                      setHostname(loadHostname() || defaultHostname())
+                      event.currentTarget.blur()
+                    }
+                  }}
                 />
-              )}
-            </button>
-            <label className="sr-only" htmlFor="os-rail-hostname">
-              Hostname
-            </label>
-            <input
-              id="os-rail-hostname"
-              type="text"
-              className="os-rail-hostname"
-              value={hostname}
-              spellCheck={false}
-              onChange={(event) => setHostname(event.target.value)}
-              onBlur={() => {
-                const next = saveHostname(hostname)
-                setHostname(next)
-                const override = next === defaultHostname() ? '' : next
-                saveHostnameOverride(override)
-                dispatchHostnameChanged(override)
-                void saveUserPrefs({ hostname_override: override })
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.currentTarget.blur()
-                }
-                if (event.key === 'Escape') {
-                  setHostname(loadHostname() || defaultHostname())
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-            <UpdateChrome />
-            {remotesPopupOpen && (
-              <RemoteSessionsPopup
-                isOpen={remotesPopupOpen}
-                onClose={() => setRemotesPopupOpen(false)}
-                remotes={configuredRemotesList}
-                onOpenSettingsRemotes={() => {
-                  setRemotesPopupOpen(false)
-                  openSettingsSheet({ section: 'remotes' })
-                }}
-              />
-            )}
-          </div>
+                <UpdateChrome />
+                {remotesPopupOpen && (
+                  <RemoteSessionsPopup
+                    isOpen={remotesPopupOpen}
+                    onClose={() => setRemotesPopupOpen(false)}
+                    remotes={configuredRemotesList}
+                    onOpenSettingsRemotes={() => {
+                      setRemotesPopupOpen(false)
+                      openSettingsSheet({ section: 'remotes' })
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </aside>
 
       <PluginsPopup open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
+      <AgentCalendarView
+        open={calendarOpen}
+        onClose={() => setCalendarOpen(false)}
+        agents={agents}
+      />
 
       <SessionPicker
         open={Boolean(picker)}

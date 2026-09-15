@@ -604,6 +604,18 @@ def prepare_context_before_send(
     persist: bool = True,
 ) -> ContextPrepResult:
     """SPA / websocket / ``/v1/`` hook. Compress vs cull from Settings."""
+    from swarm.core.agent_kind import classify_agent_kind
+
+    raw_agent = agent_id or model_id or ""
+    # Issue #72: compression/cull applies to API seats; blueprint seats keep
+    # it too (issue acceptance). CLI/remote manage their own context.
+    if raw_agent and classify_agent_kind(raw_agent) not in ("api", "blueprint"):
+        return ContextPrepResult(
+            acted=False,
+            reason="non_api_agent",
+            info=None,
+            context=list(messages or []) if messages else [],
+        )
     policy = load_context_policy(user)
     if policy.strategy == STRATEGY_CULL:
         return auto_cull_before_send(

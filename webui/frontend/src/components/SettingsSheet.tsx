@@ -878,6 +878,7 @@ function RemotesCatalogPane({
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(startAdding)
   const [kind, setKind] = useState('')
+  const [remoteId, setRemoteId] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [herdrMode, setHerdrMode] = useState<'local' | 'ssh'>('local')
@@ -915,6 +916,7 @@ function RemotesCatalogPane({
     mutationFn: () =>
       createRemote({
         kind,
+        ...(remoteId.trim() ? { id: remoteId.trim() } : {}),
         ...(addingHerdr
           ? {
               herdr_mode: herdrMode,
@@ -944,6 +946,7 @@ function RemotesCatalogPane({
       void queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
       void queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
       setAdding(false)
+      setRemoteId('')
       setBaseUrl('')
       setApiKeyEnv('')
       setHerdrMode('local')
@@ -1097,6 +1100,16 @@ function RemotesCatalogPane({
                   ))
                 )}
               </Select>
+              <Input
+                label="Remote ID (optional)"
+                name="remote-id"
+                size="sm"
+                value={remoteId}
+                onChange={(event) => setRemoteId(event.target.value)}
+                placeholder={kind === 'trueforge' ? 'e.g. trueforge_prod (defaults to kind)' : 'Defaults to kind'}
+                autoComplete="off"
+                spellCheck={false}
+              />
               {addingHerdr ? (
                 <>
                   <p className="text-sm text-base-content/70">

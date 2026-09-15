@@ -260,6 +260,20 @@ def list_routines(agent_id: str) -> list[dict[str, Any]]:
     return out
 
 
+def list_all_routines() -> list[dict[str, Any]]:
+    store = _read_store()
+    agents = store.get("agents") or {}
+    out: list[dict[str, Any]] = []
+    for agent_id, rows in agents.items():
+        if isinstance(rows, list):
+            for item in rows:
+                if isinstance(item, dict):
+                    routine = public_routine(item)
+                    routine["agent_id"] = agent_id
+                    out.append(routine)
+    return out
+
+
 def get_routine(agent_id: str, routine_id: str) -> dict[str, Any] | None:
     wanted = str(routine_id or "").strip()
     if not wanted:

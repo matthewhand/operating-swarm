@@ -95,8 +95,13 @@ def test_unknown_default_model_falls_back_to_default_when_settings_missing(monke
     assert any("missing-profile" in w for w in warned)
 
 
-def test_unspecified_profile_still_defaults_quietly(monkeypatch):
+def test_unspecified_profile_still_defaults_quietly(monkeypatch, tmp_path):
     """No named request → builtin default without a missing-profile warning."""
+    # Hermeticity: the resolver's global-file fallback reads cwd and ~/.config,
+    # so a developer's real swarm_config.json (default_llm_profile=orchestration)
+    # would leak into this test. Pin HOME/cwd to an empty temp dir.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
     config = {
         "llm": {"default": {"provider": "openai", "model": "gpt-4o", "api_key": "k"}},
         "blueprints": {},

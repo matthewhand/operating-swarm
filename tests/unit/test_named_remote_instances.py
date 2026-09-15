@@ -172,7 +172,9 @@ def test_public_dict_for_instance():
     assert d["impl"] == "trueforge"
     assert d["instance"] == "trueforge-2"
     assert d["label"] == "TrueForge (trueforge-2)"
-    assert d["member"]["talk"] == "consult_trueforge"
+    # REQ-856 superset: named instances get their own consult tool so multiple
+    # TrueForge boxes are individually targetable; bare kinds keep the kind name.
+    assert d["member"]["talk"] == "consult_trueforge_2"
     caps = d["capabilities"]
     assert caps["routines"] is True  # kind capability, not instance
 

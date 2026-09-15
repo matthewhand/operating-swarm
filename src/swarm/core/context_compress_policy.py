@@ -248,6 +248,22 @@ def auto_compact_before_send(
         if threshold_pct is not None
         else load_auto_compress_threshold(user)
     )
+    from swarm.core.agent_kind import classify_agent_kind
+
+    raw_agent = agent_id or model_id or ""
+    # Issue #72: compression applies to API seats; blueprint seats keep it too
+    # (issue acceptance: "API/blueprint chats unchanged"). CLI/remote manage
+    # their own context.
+    if raw_agent and classify_agent_kind(raw_agent) not in ("api", "blueprint"):
+        return AutoCompactResult(
+            acted=False,
+            reason="non_api_agent",
+            info=None,
+            threshold_pct=DEFAULT_AUTO_COMPRESS_PCT,
+            estimated_tokens=0,
+            max_context=None,
+            context=list(messages or []) if messages else [],
+        )
     if pct is None:
         return AutoCompactResult(
             acted=False,

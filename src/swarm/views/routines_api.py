@@ -25,6 +25,7 @@ from swarm.core.routines import (
     delete_routine,
     deliver_github_pr_merged,
     get_routine,
+    list_all_routines,
     list_routines,
     test_run,
     trigger_summary,
@@ -188,6 +189,27 @@ class GithubRoutineMergeAPIView(APIView):
                     for row in fired
                 ],
                 "count": len(fired),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AllRoutinesAPIView(APIView):
+    """GET /v1/routines/ — List all routines across agents."""
+
+    permission_classes = ROUTINES_API_PERMISSIONS
+
+    @extend_schema(
+        operation_id="v1_routines_list_all",
+        summary="List all routines across agents",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, *_args, **_kwargs):
+        rows = list_all_routines()
+        return Response(
+            {
+                "object": "routine_list",
+                "routines": [_routine_payload(r.get("agent_id", ""), r) for r in rows],
             },
             status=status.HTTP_200_OK,
         )

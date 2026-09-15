@@ -2523,4 +2523,63 @@ describe('AgentSidebar REQ-172 — Alt hotkey spill into unpinned rows', () => {
   })
 })
 
+describe('AgentSidebar drag-to-delete recycle bin', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    global.fetch = mockFetch()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders normal footer buttons when not dragging', async () => {
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('os-teams-button')).toBeInTheDocument()
+    expect(screen.getByTestId('os-plugins-button')).toBeInTheDocument()
+    expect(screen.queryByTestId('os-recycle-bin')).not.toBeInTheDocument()
+  })
+
+  it('replaces static menu with recycle bin when dragging an agent row', async () => {
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+
+    const codeyRow = screen.getByRole('link', { name: /codey/i })
+    expect(codeyRow).toBeInTheDocument()
+
+    const dt = {
+      setData: vi.fn(),
+      getData: vi.fn(),
+      clearData: vi.fn(),
+      effectAllowed: 'uninitialized',
+      dropEffect: 'none',
+      types: [],
+    }
+
+    fireEvent.dragStart(codeyRow, { dataTransfer: dt })
+
+    // When dragging, recycle bin replaces Teams & Plugins
+    const bin = screen.getByTestId('os-recycle-bin')
+    expect(bin).toBeInTheDocument()
+    expect(within(bin).getByText('Delete')).toBeInTheDocument()
+    expect(screen.queryByTestId('os-teams-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('os-plugins-button')).not.toBeInTheDocument()
+
+    // Drag over bin
+    fireEvent.dragOver(bin, { dataTransfer: dt })
+
+    // Drop onto bin triggers delete confirmation
+    fireEvent.drop(bin, { dataTransfer: dt })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Delete Codey\?/i)).toBeInTheDocument()
+    })
+  })
+})
+
 

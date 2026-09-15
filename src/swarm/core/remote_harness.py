@@ -117,6 +117,25 @@ def capabilities_for(impl_id: str) -> RemoteCapabilities:
     )
 
 
+def is_trueforge_remote(raw: str | None, kind: str | None = None) -> bool:
+    """Return True if raw or kind represents a TrueForge remote."""
+    if (kind or "").strip().lower() == "trueforge":
+        return True
+    key = (raw or "").strip().lower()
+    if not key:
+        return False
+    if key in {"trueforge", "true_forge", "true-forge"}:
+        return True
+    if key.startswith("trueforge_") or key.startswith("trueforge-") or key.startswith("tf_") or key.startswith("tf-"):
+        return True
+    for sep in ("_", "-"):
+        if sep in key:
+            prefix = key.split(sep, 1)[0]
+            if prefix in {"trueforge", "true_forge", "true-forge"}:
+                return True
+    return False
+
+
 def normalize_impl_id(raw: str | None) -> str | None:
     """Return a catalog impl id, or None if *raw* is not a Remote implementation."""
     key = (raw or "").strip().lower()
@@ -125,6 +144,13 @@ def normalize_impl_id(raw: str | None) -> str | None:
     key = _IMPL_ALIASES.get(key, key)
     if key in REMOTE_IMPL_IDS:
         return key
+    if is_trueforge_remote(key):
+        return "trueforge"
+    for sep in ("_", "-"):
+        if sep in key:
+            prefix = _IMPL_ALIASES.get(key.split(sep, 1)[0], key.split(sep, 1)[0])
+            if prefix in REMOTE_IMPL_IDS:
+                return prefix
     return None
 
 
@@ -135,7 +161,16 @@ def is_remote_impl_id(raw: str | None) -> bool:
         return False
     if key.startswith("herdr:") or key.startswith("remote:"):
         return True
-    return key in REMOTE_IMPL_CLASSIFIER_IDS
+    if key in REMOTE_IMPL_CLASSIFIER_IDS:
+        return True
+    if is_trueforge_remote(key):
+        return True
+    for sep in ("_", "-"):
+        if sep in key:
+            prefix = _IMPL_ALIASES.get(key.split(sep, 1)[0], key.split(sep, 1)[0])
+            if prefix in REMOTE_IMPL_CLASSIFIER_IDS and prefix != "swarm":
+                return True
+    return False
 
 
 def user_facing_kind(_impl_id: str | None = None) -> str:
@@ -408,6 +443,7 @@ __all__ = [
     "get_harness",
     "implementation_catalog",
     "is_remote_impl_id",
+    "is_trueforge_remote",
     "normalize_impl_id",
     "register_harness",
     "unsupported_operate",

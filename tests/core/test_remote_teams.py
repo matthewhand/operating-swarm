@@ -61,6 +61,10 @@ def test_listed_specs_env_url_and_no_invented_ports(monkeypatch):
     monkeypatch.delenv("RAKAZO_BASE_URL", raising=False)
     monkeypatch.delenv("RAKEZO_BASE_URL", raising=False)
     monkeypatch.delenv("OPENMAUSBOT_BASE_URL", raising=False)
+    # Operator shells may export live remote URLs (handover-era env); the
+    # "no invented ports" contract requires unset env for these seats.
+    monkeypatch.delenv("OMB_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENMAUSBOT_UI_URL", raising=False)
     specs = listed_remote_specs({})
     hermes = next(s for s in specs if s["agent_id"] == "hermes")
     rakazo = next(s for s in specs if s["agent_id"] == "rakazo")

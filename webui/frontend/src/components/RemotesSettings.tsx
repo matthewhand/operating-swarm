@@ -58,6 +58,7 @@ export function AddRemoteForm({
         { id: 'herdr', label: 'Herdr' },
       ]
   const [kind, setKind] = useState(options[0]?.id ?? 'omb')
+  const [remoteId, setRemoteId] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [herdrMode, setHerdrMode] = useState<'local' | 'ssh'>('local')
@@ -72,6 +73,7 @@ export function AddRemoteForm({
     mutationFn: () =>
       addRemote({
         kind,
+        ...(remoteId.trim() ? { id: remoteId.trim() } : {}),
         ...(herdr
           ? {
               herdr_mode: herdrMode,
@@ -134,6 +136,15 @@ export function AddRemoteForm({
           </option>
         ))}
       </Select>
+      <Input
+        label="Remote ID (optional)"
+        name="remote-id"
+        value={remoteId}
+        onChange={(event) => setRemoteId(event.target.value)}
+        placeholder={kind === 'trueforge' ? 'e.g. trueforge_prod (defaults to kind)' : 'Defaults to kind'}
+        autoComplete="off"
+        spellCheck={false}
+      />
       {herdr ? (
         <>
           <Select

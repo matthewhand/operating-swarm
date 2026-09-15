@@ -199,7 +199,16 @@ async def _gate_provider_rate_limit(consumer, params=None, blueprint_id=""):
 async def _auto_compress_before_send(consumer, params=None, model_id=None):
     """REQ-87: compact older span when estimated tokens hit N% of known max."""
     try:
+        from swarm.core.agent_kind import classify_agent_kind
         from swarm.core.context_cull_policy import prepare_context_before_send
+
+        active_id = str(
+            getattr(consumer, "active_agent", None)
+            or getattr(consumer, "default_blueprint", "")
+            or ""
+        )
+        if classify_agent_kind(active_id) != "api":
+            return None
 
         inference_entry = None
         mid = model_id
@@ -214,11 +223,7 @@ async def _auto_compress_before_send(consumer, params=None, model_id=None):
         result = await database_sync_to_async(prepare_context_before_send)(
             user=getattr(consumer, "user", None),
             conversation_id=getattr(consumer, "conversation_id", "") or "",
-            agent_id=str(
-                getattr(consumer, "active_agent", None)
-                or getattr(consumer, "default_blueprint", "")
-                or ""
-            ),
+            agent_id=active_id,
             messages=getattr(consumer, "messages", None) or [],
             model_id=str(mid).strip() if isinstance(mid, str) and mid.strip() else None,
             inference_entry=inference_entry,
@@ -522,10 +527,27 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             blueprint_id = text_data_json.get("blueprint") or getattr(
                 self, "default_blueprint", None
             )
-            self.active_agent = blueprint_id or getattr(self, "active_agent", None)
             params = text_data_json.get("params")
             if not isinstance(params, dict):
                 params = None
+
+            if params and params.get("remote") and not blueprint_id:
+                blueprint_id = "remote_harness"
+                params.setdefault("name", str(params["remote"]))
+                params.setdefault("op", "send")
+            elif blueprint_id and (
+                str(blueprint_id).startswith("remote:")
+                or str(blueprint_id).lower() in ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
+            ):
+                remote_name = str(blueprint_id).replace("remote:", "")
+                blueprint_id = "remote_harness"
+                if params is None:
+                    params = {}
+                params.setdefault("name", remote_name)
+                params.setdefault("remote", remote_name)
+                params.setdefault("op", "send")
+
+            self.active_agent = blueprint_id or getattr(self, "active_agent", None)
 
             if params and params.get("new_session"):
                 # REQ-65: CoS/user task asked for an empty session on this socket.

@@ -421,6 +421,10 @@ class {class_name}(ApiKindBase):
             handoffs=[engineer],
         )
         return ba
+
+    async def run(self, messages, **kwargs):
+        async for chunk in super().run(messages, **kwargs):
+            yield chunk
 '''
 
 _SKEPTIC_CLASS_BODY = '''\
@@ -475,6 +479,10 @@ class {class_name}(ApiKindBase):
         tester.handoffs = [skeptic]
         skeptic.handoffs = [engineer]
         return ba
+
+    async def run(self, messages, **kwargs):
+        async for chunk in super().run(messages, **kwargs):
+            yield chunk
 '''
 
 _TEAM_CLASS_BODY = '''\
@@ -522,4 +530,8 @@ class {class_name}(ApiKindBase):
                 )
             )
         return coordinator
+
+    async def run(self, messages, **kwargs):
+        async for chunk in super().run(messages, **kwargs):
+            yield chunk
 '''

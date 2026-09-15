@@ -37,6 +37,8 @@ def resolve_chat_blueprint_id(model_or_agent_id: str | None) -> str:
     raw = (model_or_agent_id or "").strip()
     if raw.lower() == API_AGENT_RAIL_ID:
         return API_AGENT_BLUEPRINT_ID
+    if raw.lower().startswith("remote:") or is_remote_impl_id(raw):
+        return "remote_harness"
     from swarm.core.cli_catalog import cli_from_rail_id
     if cli_from_rail_id(raw):
         return "cli_agent"

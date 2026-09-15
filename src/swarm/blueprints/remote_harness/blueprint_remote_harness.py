@@ -93,6 +93,9 @@ def _render_operate(result: remotes_core.OperateResult) -> str:
     return f"{result.remote} {result.op}: {'OK' if result.ok else 'FAIL'} — {result.detail}{gap}{data}"
 
 
+from swarm.core.kind_bases import RemoteKindBase
+
+
 class RemoteHarnessBlueprint(RemoteKindBase):
     """Connect/configure/operate Hermes, OpenMausBot, Rakazo, and nested swarm."""
 
@@ -220,12 +223,28 @@ class RemoteHarnessBlueprint(RemoteKindBase):
 
         try:
             specialists: dict[str, Any] = {}
+            specialists_meta: dict[str, tuple[Any, str, str]] = {}
             talk_names = []
-            for rid, (agent_name, instructions, tool_name, tool_desc) in specialist_specs.items():
-                if rid not in placed:
-                    continue
+            for rid in placed:
+                if rid in specialist_specs:
+                    agent_name, instructions, tool_name, tool_desc = specialist_specs[rid]
+                else:
+                    k = remotes_core.kind_of_instance(rid)
+                    if k == "trueforge":
+                        slug = rid.replace("-", "_")
+                        cap_slug = "".join(p.capitalize() for p in slug.split("_"))
+                        agent_name = f"{cap_slug}Remote"
+                        instructions = (
+                            f"You operate the remote TrueForge agent server ({rid}) via tools. "
+                            "Never pretend to be TrueForge locally."
+                        )
+                        tool_name = f"consult_{slug}"
+                        tool_desc = f"Hand off to the TrueForge ({rid}) remote operator (health/list/send)."
+                    else:
+                        continue
                 agent = _agent(agent_name, instructions, shared)
                 specialists[rid] = agent
+                specialists_meta[rid] = (agent, tool_name, tool_desc)
                 talk_names.append(tool_name)
             talk_hint = ", ".join(talk_names) if talk_names else "remote_* function tools"
             coordinator = _agent(
@@ -239,8 +258,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 list(shared),
             )
             coordinator.tools = list(coordinator.tools or [])
-            for rid, agent in specialists.items():
-                _name, _instr, tool_name, tool_desc = specialist_specs[rid]
+            for rid, (agent, tool_name, tool_desc) in specialists_meta.items():
                 if hasattr(agent, "as_tool"):
                     coordinator.tools.append(
                         agent.as_tool(tool_name=tool_name, tool_description=tool_desc)
@@ -259,24 +277,30 @@ class RemoteHarnessBlueprint(RemoteKindBase):
 
     def _parse(self, messages: list[dict[str, Any]]) -> tuple[str, str, str, str]:
         params = dict(self._params)
-        if params.get("op"):
-            return (
-                str(params["op"]).lower(),
-                str(params.get("name") or ""),
-                str(params.get("prompt") or ""),
-                str(params.get("target") or params.get("bot_id") or ""),
-            )
-        text = self._last_user_text(messages)
+        name = str(params.get("name") or params.get("remote") or "").strip()
+        op = str(params.get("op") or "").strip().lower()
+        target = str(params.get("target") or params.get("bot_id") or "").strip()
+        last_text = self._last_user_text(messages)
+        prompt = str(params.get("prompt") or last_text or "").strip()
+
+        if op:
+            return op, name, prompt, target
+
+        text = last_text
         parts = text.split()
         head = (parts[0].lower() if parts else "health").rstrip(":")
         if head in ("health", "status", "check", "probe"):
-            return "health", (parts[1] if len(parts) > 1 else ""), "", ""
+            return "health", (parts[1] if len(parts) > 1 else name), "", ""
         if head in ("list", "ls", "config"):
-            return "list", (parts[1] if len(parts) > 1 else ""), "", ""
+            return "list", (parts[1] if len(parts) > 1 else name), "", ""
         if head in ("send", "start", "job", "run"):
-            name = parts[1] if len(parts) > 1 else ""
-            prompt = " ".join(parts[2:]) if len(parts) > 2 else ""
-            return "send", name, prompt, ""
+            parsed_name = parts[1] if len(parts) > 1 else name
+            parsed_prompt = " ".join(parts[2:]) if len(parts) > 2 else prompt
+            return "send", parsed_name, parsed_prompt, target
+
+        if name:
+            return "send", name, text, target
+
         return "health", "", "", ""
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:

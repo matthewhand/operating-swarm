@@ -14,10 +14,6 @@ import pytest
 from django.urls import resolve, reverse
 from rest_framework import status
 
-# Ensure deterministic blueprint output regardless of how the suite is launched.
-os.environ.setdefault("SWARM_TEST_MODE", "1")
-
-
 def test_responses_urls_accept_trailing_slash():
     """Slash + no-slash twins (same pattern as /v1/blueprints and /v1/teams)."""
     assert resolve("/v1/responses").url_name == "responses"

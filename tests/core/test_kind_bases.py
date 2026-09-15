@@ -150,10 +150,10 @@ def test_migrated_blueprints_subclass_kind_base(module_name, class_name, expecte
         ("remote_harness", "RemoteHarnessBlueprint", "remote"),
     ],
 )
-def test_migrated_blueprints_stamp_expected_kind(module_name, class_name, expected_kind):
-    import os
-
-    os.environ.setdefault("SWARM_TEST_MODE", "1")
+def test_migrated_blueprints_stamp_expected_kind(module_name, class_name, expected_kind, monkeypatch):
+    # Scoped to this test — a bare os.environ.setdefault here leaked
+    # SWARM_TEST_MODE into every later test file in the session.
+    monkeypatch.setenv("SWARM_TEST_MODE", "1")
     config = {"llm": {}}
     if module_name == "sdlc_handoff":
         config = {"llm": {}, "sdlc_handoff": {"variant": "pipeline"}}
