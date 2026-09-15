@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import SettingsSheet from '../SettingsSheet'
+import SettingsSheet, { settingsDetailFromQuery } from '../SettingsSheet'
 import { ToastProvider } from '../DaisyUI'
 import {
   BUMP_COMPLETED_KEY,
@@ -43,6 +43,18 @@ function renderSheet({
   )
   return { ...view, onClose, client }
 }
+
+describe('settingsDetailFromQuery (#254)', () => {
+  it('maps the Django dump banner and named sections onto the SPA sheet', () => {
+    expect(settingsDetailFromQuery(null)).toBeNull()
+    expect(settingsDetailFromQuery('')).toBeNull()
+    expect(settingsDetailFromQuery('true')).toEqual({})
+    expect(settingsDetailFromQuery('1')).toEqual({})
+    expect(settingsDetailFromQuery('cli-agents')).toEqual({ section: 'cli-agents' })
+    expect(settingsDetailFromQuery('llm-profiles')).toEqual({ section: 'llm-profiles' })
+    expect(settingsDetailFromQuery('not-a-section')).toEqual({})
+  })
+})
 
 describe('SettingsSheet', () => {
   afterEach(() => {

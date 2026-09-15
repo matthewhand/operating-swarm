@@ -16,7 +16,7 @@ import { ArrowUp, FoldVertical, Layers, Mic, PanelLeft, Pencil, Plus, Reply, Set
 import AgentAvatar from '../components/AgentAvatar'
 import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
-import { OPEN_SETTINGS_EVENT, openSettingsSheet } from '../components/SettingsSheet'
+import { OPEN_SETTINGS_EVENT, openSettingsSheet, settingsDetailFromQuery } from '../components/SettingsSheet'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
 import { isRateLimitWait, type RateLimitWait } from '../lib/providerRateLimits'
 import { OPEN_TEAM_COMPOSER_EVENT } from '../components/TeamComposer'
@@ -294,7 +294,6 @@ import {
   isCliBlueprintId,
   preferredChatCli,
   MANAGE_CLI_VALUE,
-  MANAGE_CLI_HREF,
 } from '../lib/cliAgentContext'
 import { isHiddenRoutingLabel } from '../lib/routingPath'
 
@@ -394,6 +393,20 @@ const ChatPage = () => {
   // #288: an explicit "All members" pick rides `?members=all` so a reload keeps it
   // instead of re-defaulting to the team's nominated seat.
   const allMembersFromUrl = isAllMembersChoice(searchParams.get(ALL_MEMBERS_PARAM))
+  const settingsQuery = searchParams.get('settings')
+  const settingsQueryOpenedRef = useRef(false)
+  useEffect(() => {
+    if (settingsQueryOpenedRef.current) return
+    const detail = settingsDetailFromQuery(settingsQuery)
+    if (detail == null) return
+    settingsQueryOpenedRef.current = true
+    openSettingsSheet(detail)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('settings')
+      return next
+    }, { replace: true })
+  }, [settingsQuery, setSearchParams])
   const selectedBlueprint = teamFromUrl || remoteFromUrl
     ? ''
     : defaultBlueprintId(searchParams.get('blueprint'))
@@ -3057,10 +3070,8 @@ const ChatPage = () => {
               preferredEffort={persistedDropdown.effort}
               footerAction={{
                 id: MANAGE_CLI_VALUE,
-                label: 'Manage Cli',
-                onSelect: () => {
-                  window.location.assign(MANAGE_CLI_HREF)
-                },
+                label: 'Manage CLI',
+                onSelect: () => openSettingsSheet({ section: 'cli-agents' }),
               }}
               onChange={applyCliRoutingChange}
             />
@@ -3088,6 +3099,11 @@ const ChatPage = () => {
               }
               models={[]}
               selectedModel=""
+              footerAction={{
+                id: '__manage_api__',
+                label: 'Manage API',
+                onSelect: () => openSettingsSheet({ section: 'llm-profiles' }),
+              }}
               onChange={applyApiRoutingChange}
             />
           ) : null}

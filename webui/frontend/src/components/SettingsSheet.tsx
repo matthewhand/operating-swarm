@@ -135,6 +135,41 @@ export function openSettingsSheet(detail?: OpenSettingsDetail): void {
   window.dispatchEvent(new CustomEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, { detail }))
 }
 
+const SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  'general',
+  'definition',
+  'blueprint',
+  'remotes',
+  'retention',
+  'hostname',
+  'llm-profiles',
+  'mcp',
+  'cli-agents',
+  'roles',
+  'sandboxes',
+  'rail',
+  'image-gen',
+  'speech',
+  'system',
+  'plugins',
+]
+
+export function isSettingsSection(value: string): value is SettingsSection {
+  return (SETTINGS_SECTIONS as readonly string[]).includes(value)
+}
+
+/** Parse `/chat?settings=true` or `/chat?settings=cli-agents` (Django dump banner). */
+export function settingsDetailFromQuery(
+  raw: string | null | undefined,
+): OpenSettingsDetail | null {
+  if (raw == null) return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  if (trimmed === 'true' || trimmed === '1') return {}
+  if (isSettingsSection(trimmed)) return { section: trimmed }
+  return {}
+}
+
 export interface SettingsSheetProps {
   isOpen: boolean
   onClose: () => void
