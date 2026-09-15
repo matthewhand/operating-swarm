@@ -59,6 +59,7 @@ describe('RailContextMenu viewport clamping (#74)', () => {
         x={VIEWPORT.width - 2}
         y={VIEWPORT.height - 2}
         items={items}
+        onSelect={() => {}}
       />,
     )
 
@@ -77,7 +78,7 @@ describe('RailContextMenu viewport clamping (#74)', () => {
 
   it('keeps an in-viewport position untouched', () => {
     stubMenuBox(200)
-    render(<RailContextMenu agentName="Codey" x={120} y={140} items={items} />)
+    render(<RailContextMenu agentName="Codey" x={120} y={140} items={items} onSelect={() => {}} />)
 
     expect(styleOf(screen.getByTestId('rail-context-menu'))).toEqual({ left: 120, top: 140 })
   })
@@ -90,6 +91,7 @@ describe('RailContextMenu viewport clamping (#74)', () => {
         x={VIEWPORT.width - 2}
         y={VIEWPORT.height - 2}
         items={items}
+        onSelect={() => {}}
       />,
     )
 

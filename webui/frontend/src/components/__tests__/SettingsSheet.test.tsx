@@ -836,6 +836,62 @@ describe('SettingsSheet blueprint editor', () => {
     expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument()
   })
 
+  it('#87: pre-selects the handed blueprint when a section is handed as well', async () => {
+    // AgentEditor's "Edit blueprint…" hands {section: 'blueprint', blueprintId}.
+    // The open effect used to take the initialSection branch and skip the
+    // selection, leaving every option aria-selected=false.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/source')) {
+          return { ok: false, status: 404, json: async () => ({}) } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'list',
+            data: [
+              {
+                id: 'codey',
+                object: 'blueprint',
+                name: 'Codey',
+                description: 'Code assistant',
+                abbreviation: null,
+                required_mcp_servers: [],
+                tags: [],
+                installed: true,
+                compiled: true,
+              },
+            ],
+          }),
+        } as Response
+      }),
+    )
+    // The sheet lives mounted in the app; the id/section arrive when the user
+    // opens it from AgentEditor, i.e. after the initial (id-less) mount.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const tree = (isOpen: boolean, handOff?: { blueprintId: string; section: 'blueprint' }) => (
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <SettingsSheet
+            isOpen={isOpen}
+            onClose={vi.fn()}
+            blueprintId={handOff?.blueprintId}
+            initialSection={handOff?.section}
+          />
+        </ToastProvider>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(tree(false))
+    rerender(tree(true, { blueprintId: 'codey', section: 'blueprint' }))
+    const list = await screen.findByRole('listbox', { name: 'Blueprints' })
+    const selected = await within(list).findByRole('option', { name: 'Codey' })
+    expect(selected).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: 'Blueprints' })).toHaveClass('menu-active')
+  })
+
   it('REQ-75: catalog shows a role badge and omits a webui kind', async () => {
     vi.stubGlobal(
       'fetch',

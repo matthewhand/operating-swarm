@@ -210,6 +210,10 @@ export default function SettingsSheet({
     setBumpCompleted(loadBumpCompleted())
     if (initialSection) {
       setSection(initialSection)
+      // #87: a handed blueprintId must still pre-select when a section is
+      // also handed — the `else if (blueprintId)` branch below is otherwise
+      // unreachable for callers like AgentEditor's "Edit blueprint…".
+      if (blueprintId) setSelectedBlueprintId(blueprintId)
     } else if (initialProviderId) {
       const kind = initialProviderId.split(':')[0]
       if (kind === 'cli') setSection('cli-agents')
