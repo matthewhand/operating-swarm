@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-
-const ARTIFACTS = process.env.ARTIFACTS_DIR || '/opt/cursor/artifacts'
+import { artifactsDir } from './helpers/artifacts'
 
 const BLUEPRINTS = {
   object: 'list',
@@ -75,8 +73,7 @@ async function stubApis(page: import('@playwright/test').Page, githubTag: string
 }
 
 function shot(name: string): string {
-  mkdirSync(ARTIFACTS, { recursive: true })
-  return path.join(ARTIFACTS, name)
+  return path.join(artifactsDir(), name)
 }
 
 test('REQ-78 XOR chrome sits right of the system name', async ({ page }) => {

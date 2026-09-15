@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { artifactsDir } from './helpers/artifacts'
 
 const BLUEPRINTS = {
   object: 'list',
@@ -93,7 +94,7 @@ test('CLI chat shows one cascading picker with agent / model / effort pills', as
   await expect(page.getByTestId('routing-pill-effort')).toHaveText(/high/)
   await expect(page.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'agy')
   await page.screenshot({
-    path: `${process.env.ARTIFACTS_DIR || '/opt/cursor/artifacts'}/navbar-routing-picker-pills.png`,
+    path: `${artifactsDir()}/navbar-routing-picker-pills.png`,
   })
 })
 
