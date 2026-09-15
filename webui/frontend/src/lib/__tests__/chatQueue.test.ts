@@ -4,6 +4,7 @@ import {
   QUEUED_PANE_MAX_HEIGHT_STYLE,
   QUEUED_PREVIEW_MAX_CHARS,
   QUEUED_SENDS_KEY,
+  clearQueuedSends,
   enqueueQueuedSend,
   generationIsInFlight,
   loadQueuedSends,
@@ -92,6 +93,24 @@ describe('chatQueue (REQ-90)', () => {
   it('restores a failed drain at the front', () => {
     const row = enqueueQueuedSend([], 'retry-me')[0]!
     expect(prependQueuedSend([], row)[0]).toEqual(row)
+  })
+
+  // #223 — "Clear all" drops every row for one conversation, leaving others intact
+  it('clears all rows for one conversation without touching other conversations', () => {
+    saveQueuedSends('conv-a', enqueueQueuedSend([], 'a1'))
+    saveQueuedSends('conv-a', [...loadQueuedSends('conv-a'), ...enqueueQueuedSend([], 'a2')])
+    saveQueuedSends('conv-b', enqueueQueuedSend([], 'b1'))
+
+    clearQueuedSends('conv-a')
+
+    expect(loadQueuedSends('conv-a')).toEqual([])
+    expect(loadQueuedSends('conv-b').map((row) => row.text)).toEqual(['b1'])
+  })
+
+  it('is a no-op for an unknown conversation', () => {
+    saveQueuedSends('conv-b', enqueueQueuedSend([], 'b1'))
+    clearQueuedSends('missing')
+    expect(loadQueuedSends('conv-b')).toHaveLength(1)
   })
 
   // #198 — 80-char single-line previews with hover-reveal

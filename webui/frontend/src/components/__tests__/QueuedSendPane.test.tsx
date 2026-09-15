@@ -125,4 +125,42 @@ describe('QueuedSendPane (#198 preview + interrupt hint)', () => {
     )
     expect(screen.getAllByTestId('queued-interrupt-hint')).toHaveLength(1)
   })
+
+  // #223 — "Clear all" affordance
+  it('hides Clear all for a single row and with no handler', () => {
+    const { rerender } = render(
+      <QueuedSendPane
+        rows={[row('q1', 'only row')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('queued-clear-all')).toBeNull()
+    rerender(
+      <QueuedSendPane
+        rows={[row('q1', 'first'), row('q2', 'second')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('queued-clear-all')).toBeNull()
+  })
+
+  it('Clear all invokes the handler once', () => {
+    const onClearAll = vi.fn()
+    render(
+      <QueuedSendPane
+        rows={[row('q1', 'first'), row('q2', 'second')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+        onClearAll={onClearAll}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('queued-clear-all'))
+    expect(onClearAll).toHaveBeenCalledTimes(1)
+  })
 })

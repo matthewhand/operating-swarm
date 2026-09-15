@@ -90,6 +90,16 @@ export function saveQueuedSends(conversationId: string, rows: QueuedSendRow[]): 
   saveQueuedSendsMap(all)
 }
 
+/** #223: drop every queued row for one conversation ("Clear all"). */
+export function clearQueuedSends(conversationId: string): void {
+  const id = conversationId.trim()
+  if (!id) return
+  const all = loadQueuedSendsMap()
+  if (!all[id]) return
+  delete all[id]
+  saveQueuedSendsMap(all)
+}
+
 export function enqueueQueuedSend(
   rows: QueuedSendRow[],
   text: string,
@@ -178,6 +188,8 @@ export function useQueuedSends(conversationId: string): {
   enqueue: (text: string) => void
   update: (id: string, text: string) => void
   remove: (id: string) => void
+  /** #223: drop every queued row for this conversation. */
+  clearAll: () => void
   restore: (row: QueuedSendRow) => void
 } {
   const [rows, setRows] = useState<QueuedSendRow[]>(() => loadQueuedSends(conversationId))
@@ -206,12 +218,17 @@ export function useQueuedSends(conversationId: string): {
     setRows((prev) => removeQueuedSend(prev, id))
   }, [])
 
+  const clearAll = useCallback(() => {
+    setRows(() => [])
+    clearQueuedSends(conversationId)
+  }, [conversationId])
+
   const restore = useCallback((row: QueuedSendRow) => {
     setRows((prev) => prependQueuedSend(prev, row))
   }, [])
 
   return useMemo(
-    () => ({ rows, enqueue, update, remove, restore }),
-    [rows, enqueue, update, remove, restore],
+    () => ({ rows, enqueue, update, remove, clearAll, restore }),
+    [rows, enqueue, update, remove, clearAll, restore],
   )
 }

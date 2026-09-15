@@ -1844,6 +1844,13 @@ pre:focus-within .os-code-copy {
 .os-composer__send:hover {
   opacity: 0.92;
 }
+/* #223: stop button — square stop icon, danger-tinted so it reads as interrupt. */
+.os-composer__stop {
+  color: color-mix(in srgb, var(--color-error) 75%, var(--color-base-content));
+}
+.os-composer__stop:hover {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+}
 html:not([data-theme="light"]) .os-composer__send,
 [data-theme="dark"] .os-composer__send {
   background: #fff;

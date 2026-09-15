@@ -357,3 +357,79 @@ describe('ChatPage queued sends (#198 enter-to-interrupt)', () => {
     })
   })
 })
+
+describe('ChatPage stop button (#223)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    clearAllQueuedSends()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearAllQueuedSends()
+    resetConversationThreads()
+  })
+
+  it('shows a stop button while generating and sends cancel_turn on click', async () => {
+    renderChat()
+    const ws = await openSocket()
+
+    // Idle: no stop affordance.
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
+
+    await act(async () => {
+      startStreaming(ws)
+    })
+
+    const stop = screen.getByTestId('composer-stop')
+    fireEvent.click(stop)
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+      type: 'cancel_turn',
+    })
+  })
+
+  it('keeps the stop button until the generation finishes, then hides it', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    expect(screen.getByTestId('composer-stop')).toBeTruthy()
+
+    await act(async () => {
+      finishStreaming(ws)
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('composer-stop')).toBeNull()
+    })
+  })
+
+  it('stop leaves queued sends intact (stop ≠ clear)', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'still queued' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(screen.getByTestId('queued-row')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('composer-stop'))
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+      type: 'cancel_turn',
+    })
+    expect(screen.getByTestId('queued-row')).toHaveTextContent('still queued')
+  })
+})

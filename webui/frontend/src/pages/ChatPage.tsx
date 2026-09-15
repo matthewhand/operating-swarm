@@ -12,7 +12,7 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, FoldVertical, Layers, Mic, PanelLeft, Pencil, Plus, Reply, Settings, Users } from 'lucide-react'
+import { ArrowUp, FoldVertical, Layers, Mic, PanelLeft, Pencil, Plus, Reply, Settings, Square, Users } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
@@ -3348,6 +3348,7 @@ const ChatPage = () => {
           maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
           onChangeText={queued.update}
           onDelete={queued.remove}
+          onClearAll={queued.clearAll}
           onHoldIdsChange={setQueuedHoldIds}
           interruptible={
             status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
@@ -3514,6 +3515,18 @@ const ChatPage = () => {
                     <span className="sr-only" data-testid="stt-path">
                       Voice input used {describeSpeechPath(sttPathUsed, 'stt')}
                     </span>
+                  ) : null}
+                  {status === 'open' && generationIsInFlight(messages, awaitingAssistant) ? (
+                    <button
+                      type="button"
+                      className="os-composer__icon os-composer__stop"
+                      aria-label="Stop generating"
+                      title="Stop the generation in flight (queued sends stay queued)"
+                      data-testid="composer-stop"
+                      onClick={interruptRunningTurn}
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                    </button>
                   ) : null}
                   {hasSendableDraft ? (
                     <button

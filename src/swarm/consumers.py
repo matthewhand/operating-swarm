@@ -1098,9 +1098,14 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             or os.environ.get("DEFAULT_LLM")
         )
         if not model:
-            from swarm.core.llm_task_routing import model_id_for_profile, resolve_chat_model
+            from swarm.core.llm_task_routing import (
+                load_swarm_config,
+                model_id_for_profile,
+                resolve_chat_model,
+            )
 
-            model = model_id_for_profile(resolve_chat_model().profile)
+            config = load_swarm_config()
+            model = model_id_for_profile(resolve_chat_model(config).profile, config)
 
         from openai import AsyncOpenAI
 
@@ -1295,10 +1300,15 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             or os.environ.get("DEFAULT_LLM")
         )
         if not model:
-            from swarm.core.llm_task_routing import model_id_for_profile, resolve_chat_model
+            from swarm.core.llm_task_routing import (
+                load_swarm_config,
+                model_id_for_profile,
+                resolve_chat_model,
+            )
 
-            route = resolve_chat_model()
-            model = model_id_for_profile(route.profile)
+            config = load_swarm_config()
+            route = resolve_chat_model(config)
+            model = model_id_for_profile(route.profile, config)
             if route.warning:
                 logger.warning("Default chat model: %s", route.warning)
         client = _cls(**client_kwargs)
