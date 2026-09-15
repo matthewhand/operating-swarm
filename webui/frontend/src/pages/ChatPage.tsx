@@ -157,11 +157,13 @@ import {
 import { publishExpectedSpaVersion } from '../lib/spaHello'
 import { maybeNotifyAgentTurn } from '../lib/agentNotifications'
 import {
+  ALL_MEMBERS_PARAM,
   ALL_MEMBERS_TARGET,
   MANAGE_TEAMS_HREF,
   MANAGE_TEAMS_VALUE,
   applyTeamMemberSessionParam,
   fetchTeamRosters,
+  isAllMembersChoice,
   parseTeamRosters,
   memberOptionLabel,
   teamHideId,
@@ -389,6 +391,9 @@ const ChatPage = () => {
   const teamFromUrl = searchParams.get('team') ?? ''
   const remoteFromUrl = searchParams.get('remote') ?? ''
   const sessionFromUrl = searchParams.get('session') ?? ''
+  // #288: an explicit "All members" pick rides `?members=all` so a reload keeps it
+  // instead of re-defaulting to the team's nominated seat.
+  const allMembersFromUrl = isAllMembersChoice(searchParams.get(ALL_MEMBERS_PARAM))
   const selectedBlueprint = teamFromUrl || remoteFromUrl
     ? ''
     : defaultBlueprintId(searchParams.get('blueprint'))
@@ -1075,10 +1080,16 @@ const ChatPage = () => {
     // configured Chief of Staff, else the first roster member ("First") — the
     // same REQ-130 policy the sidebar picker uses. An explicit pick wins.
     if (teamDefaultedRef.current === teamFromUrl) return
+    // An explicit All members pick outranks the nominated-seat default (#288).
+    if (allMembersFromUrl) {
+      teamDefaultedRef.current = teamFromUrl
+      setMemberTarget(ALL_MEMBERS_TARGET)
+      return
+    }
     if (!selectedTeam) return
     teamDefaultedRef.current = teamFromUrl
     setMemberTarget(defaultSessionForTeam(selectedTeam)?.memberId ?? ALL_MEMBERS_TARGET)
-  }, [teamFromUrl, sessionFromUrl, selectedTeam])
+  }, [teamFromUrl, sessionFromUrl, allMembersFromUrl, selectedTeam])
 
   // #794: persist the selected swarm conversation (CLI or Django) so remount
   // and rail browse-back restore the same id — not the prior default.

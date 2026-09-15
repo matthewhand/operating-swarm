@@ -162,7 +162,7 @@ test('team dropdown change is a centred status line and survives reload', async 
   })
 })
 
-test('All members clears ?session=; a reload re-defaults to the nominated seat (#169)', async ({
+test('All members clears ?session=, marks ?members=all and survives a reload (#288)', async ({
   page,
 }) => {
   await installMockInference(page)
@@ -174,25 +174,25 @@ test('All members clears ?session=; a reload re-defaults to the nominated seat (
   await teamSelect.selectOption('all')
   await expect(page).toHaveURL(/[?&]team=demo-team/)
   await expect(page).not.toHaveURL(/[?&]session=/)
+  await expect(page).toHaveURL(/[?&]members=all/)
   await expect(teamSelect).toHaveValue('all')
 
   await page.reload()
-  // With no ?session= to pin the choice, the team chat re-defaults to its
-  // nominated seat (#169). "All members" is a view choice, not a persisted one
-  // — the ?session= contract has no encoding for it (tracked on #283).
-  await expect(page.getByRole('combobox', { name: 'Team members' })).toHaveValue('codey')
+  // #288: the explicit All members pick rides ?members=all, so it survives the
+  // reload instead of re-defaulting to the nominated seat (#169).
+  await expect(page.getByRole('combobox', { name: 'Team members' })).toHaveValue('all')
   await expect(page).not.toHaveURL(/[?&]session=/)
 
   const composer = page.getByRole('textbox', { name: 'Chat message' })
   await expect(composer).toBeEnabled()
-  await composer.fill('after reload back on the nominated seat')
+  await composer.fill('after reload still all members')
   await page.getByRole('button', { name: /^Send$/i }).click()
   await expect.poll(async () => (await mockInferenceState(page)).lastPrompt).toBe(
-    'after reload back on the nominated seat',
+    'after reload still all members',
   )
   expect((await mockInferenceState(page)).lastParams).toMatchObject({
     team: 'demo-team',
-    target: 'codey',
+    target: 'all',
   })
 })
 
