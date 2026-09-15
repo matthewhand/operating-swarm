@@ -1,6 +1,6 @@
 # REQ-874 — Complete Queued Chat UI Above Input Box with Send Now, Edit, and Delete (#265)
 
-> Anchors a dedicated queued messages panel directly above the chat composer input box, providing explicit per-message actions for Send Now (interrupt & send), Edit (refine prompt), and Delete.
+> Anchors a dedicated queued messages panel directly above the chat composer input box, providing explicit per-message actions for Send Now (interrupt & send), Edit (refine prompt), and Delete, plus Enter on empty input to force the oldest queued send.
 
 **Issue:** [#265](https://github.com/matthewhand/open-swarm-private/issues/265)
 
@@ -13,6 +13,7 @@ When backend access is lost (offline websocket / disconnected ASGI server) or wh
 While a toast and status banner inform the user that messages are queued, the visual interface for managing queued messages is incomplete:
 1. **Docking Position**: In [`ChatPage.tsx`](../../webui/frontend/src/pages/ChatPage.tsx), `QueuedSendPane` is currently positioned above the bottom dock rather than anchored directly above the composer input box inside `.os-chat-bottom-dock`. As a result, when long transcripts are scrolled, queued messages can be pushed out of immediate focus.
 2. **Missing Action Controls**: In [`QueuedSendPane.tsx`](../../webui/frontend/src/components/QueuedSendPane.tsx), rows display only preview text and a single `X` remove icon. Users lack an explicit **"Edit"** button to refine their queued prompts before sending, and lack a dedicated **"Send Now"** button to immediately interrupt an in-flight generation and dispatch a specific queued prompt.
+3. **Empty Input Enter Behavior**: Pressing Enter on an empty input field should force-send the oldest queued message (interrupting any in-flight turn and sending immediately).
 
 ---
 
@@ -51,7 +52,14 @@ Each queued message row must provide three dedicated interactive controls:
    - **Action**:
      - Discards the message from the queue immediately without sending.
 
-### 2.3 Offline & Reconnect Integration
+### 2.3 Keyboard Shortcut: Enter on Empty Input Forces Oldest Queued Send
+- When the composer input field is empty (`input.trim().length === 0`) and the user presses `Enter`:
+  - If there are queued messages:
+    - Locate the oldest drainable queued message (the top item, `nextDrainableQueuedSend(queued.rows, queuedHoldIds)`).
+    - Force-send it immediately: if an assistant generation turn is in flight, interrupt it (`interruptRunningTurn()`); then immediately dispatch and send this oldest queued message.
+    - Removes this message from the queue upon dispatch.
+
+### 2.4 Offline & Reconnect Integration
 1. **Offline Visibility**:
    - When offline (`status !== 'open'`), any message submitted through the composer appears immediately in this queued pane.
    - A subtle status chip or indicator reflects that the messages are staged locally awaiting reconnect.
@@ -67,10 +75,12 @@ Each queued message row must provide three dedicated interactive controls:
 - [ ] Clicking **Send Now** interrupts any running turn (if active) and sends that specific queued prompt immediately.
 - [ ] Clicking **Edit** opens an inline textarea allowing the operator to refine the prompt text, with Save and Cancel actions.
 - [ ] Clicking **Delete** removes the item from the queue.
+- [ ] Pressing **Enter on an empty input field** force-sends the oldest queued message (interrupting in-flight turn if active).
 - [ ] When offline, typed messages queue into this pane immediately.
 - [ ] **Tests**:
   - [ ] Vitest test in `QueuedSendPane.test.tsx` verifying the presence and behavior of Send Now, Edit, and Delete buttons.
   - [ ] Vitest test in `ChatPage.queued.test.tsx` verifying Send Now interrupts an in-flight generation and sends the selected prompt.
+  - [ ] Vitest test in `ChatPage.queued.test.tsx` verifying Enter on an empty input field interrupts and forces the oldest queued message.
 
 ---
 
@@ -79,6 +89,6 @@ Each queued message row must provide three dedicated interactive controls:
 | File | Role | Planned Modification |
 | :--- | :--- | :--- |
 | `webui/frontend/src/components/QueuedSendPane.tsx` | Queued messages component | Add explicit Send Now, Edit, and Delete action buttons to every row with inline edit state. |
-| `webui/frontend/src/pages/ChatPage.tsx` | Main chat view | Dock `QueuedSendPane` directly inside bottom dock above input box; pass `onSendNow` callback handling turn interruption and immediate dispatch. |
+| `webui/frontend/src/pages/ChatPage.tsx` | Main chat view | Dock `QueuedSendPane` directly inside bottom dock above input box; pass `onSendNow` callback; handle Enter on empty input to force oldest queued send. |
 | `webui/frontend/src/components/__tests__/QueuedSendPane.test.tsx` | Component test suite | Add test coverage for the three row action buttons. |
-| `webui/frontend/src/pages/__tests__/ChatPage.queued.test.tsx` | Integration test suite | Verify Send Now interrupt-and-send behavior in full chat flow. |
+| `webui/frontend/src/pages/__tests__/ChatPage.queued.test.tsx` | Integration test suite | Verify Send Now and Enter-on-empty interrupt-and-send behavior in full chat flow. |
