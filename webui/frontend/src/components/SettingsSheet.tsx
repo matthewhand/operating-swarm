@@ -271,7 +271,7 @@ export default function SettingsSheet({
               height={28}
               className="os-brand-mark-geometric shrink-0"
             />
-            <span className="text-sm font-semibold tracking-tight">Open Swarm</span>
+            <span className="text-sm font-semibold tracking-tight">Operating Swarm</span>
           </div>
           <ul className="menu menu-md w-full rounded-none p-2">
             <li>

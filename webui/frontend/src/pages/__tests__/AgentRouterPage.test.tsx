@@ -717,12 +717,12 @@ describe('AgentRouterPage integration', () => {
   it('populates input from quick prompt starter pill', async () => {
     renderPage()
 
-    const pill = screen.getByRole('button', { name: /Explain Open Swarm/i })
+    const pill = screen.getByRole('button', { name: /Explain Operating Swarm/i })
     fireEvent.click(pill)
 
     const input = getChatInput()
     expect(input).toHaveValue(
-      'Explain Open Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
+      'Explain Operating Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
     )
   })
 

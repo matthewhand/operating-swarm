@@ -8,7 +8,9 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Open Swarm OpenAI-compatible API server")
+    parser = argparse.ArgumentParser(
+        description="Operating Swarm API (OS Server) — OpenAI-compatible endpoint"
+    )
     parser.add_argument(
         "--port",
         type=int,
@@ -57,7 +59,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         raise SystemExit(1) from e
 
-    print(f"Launching Open Swarm ASGI (uvicorn) on {args.host}:{args.port}")
+    print(f"Launching Operating Swarm API (OS Server) on {args.host}:{args.port}")
     uvicorn.run(
         "swarm.asgi:application",
         host=args.host,

@@ -34,7 +34,7 @@ try:
 except Exception:
     pass
 
-app = typer.Typer(help="Swarm CLI tool", add_completion=False)
+app = typer.Typer(help="Operating Swarm CLI (OS CLI)", add_completion=False)
 
 
 def _safe_blueprint_segment(name: str) -> str | None:

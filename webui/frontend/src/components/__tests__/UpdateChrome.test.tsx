@@ -44,7 +44,7 @@ describe('UpdateChrome (REQ-78)', () => {
     render(<UpdateChrome openUrl={openUrl} />)
     const btn = screen.getByTestId('rail-update-chrome')
     expect(btn).toHaveAttribute('data-kind', 'idle')
-    expect(btn).toHaveAttribute('aria-label', 'Open Swarm issues')
+    expect(btn).toHaveAttribute('aria-label', 'Operating Swarm issues')
     fireEvent.click(btn)
     expect(openUrl).toHaveBeenCalledWith(GITHUB_ISSUES_URL)
     expect(screen.queryByTestId('rail-update-chrome')).toHaveAttribute('data-kind', 'idle')
@@ -74,7 +74,7 @@ describe('UpdateChrome (REQ-78)', () => {
     act(() => {
       publishExpectedSpaVersion('0.5.4')
     })
-    const btn = await screen.findByLabelText('Newer Open Swarm release available')
+    const btn = await screen.findByLabelText('Newer Operating Swarm release available')
     expect(btn).toHaveAttribute('data-kind', 'upstream')
     expect(btn).toHaveClass('os-rail-update-chrome--upstream')
     fireEvent.click(btn)
