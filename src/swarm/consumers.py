@@ -741,6 +741,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 new_cli_session_notice_if_needed,
                 transcript_already_has_notice,
             )
+            from swarm.core.transcript_roles import reconstruct_display
 
             user_key = None
             if getattr(self.user, "is_authenticated", False):
@@ -756,7 +757,24 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 params=thread_params,
                 user_key=user_key,
             )
-            if not notice or transcript_already_has_notice(_display_rows(self), notice):
+            if not notice:
+                return
+            if transcript_already_has_notice(_display_rows(self), notice):
+                return
+            # REQ-866: hop notice may have been persisted via REST while this
+            # socket still holds the pre-hop in-memory transcript.
+            persisted = _load_agent_record(
+                self.user,
+                blueprint_id,
+                conversation_id=getattr(self, "conversation_id", "") or "",
+            )
+            persisted_rows = reconstruct_display(
+                persisted.get("messages") or [],
+                persisted.get("ui_events") or [],
+            )
+            if persisted_rows and transcript_already_has_notice(
+                persisted_rows, notice
+            ):
                 return
             await self.send(text_data=_status_line_html(notice))
             _record_status(self, notice, ts=_message_ts())

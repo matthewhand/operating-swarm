@@ -40,14 +40,52 @@ def _last_user_index(messages: list[dict[str, Any]]) -> int:
     return last
 
 
+def _same_turn_notice(blob: str, needle: str) -> bool:
+    """Exact match, or a hop notice that already announced this new session."""
+    if not blob or not needle:
+        return False
+    if blob == needle:
+        return True
+    return _hop_notice_covers(blob, needle)
+
+
+def _hop_notice_covers(blob: str, needle: str) -> bool:
+    """True when ``blob`` is a hop notice for the same ``Started a new {cli}``.
+
+    REQ-866: ``Started a new {cli} session (from → to). …`` already announced
+    the short ``Started a new {cli} session.`` pre-emit. A prior-turn short
+    line must not suppress a later turn (REQ-92).
+    """
+    if not blob or not needle:
+        return False
+    if not _NEW_SESSION_RE.match(needle):
+        return False
+    prefix = needle.rstrip(".")
+    return blob.startswith(prefix) and " → " in blob
+
+
 def transcript_already_has_notice(messages: list[dict[str, Any]], text: str) -> bool:
-    """True when this turn already recorded the same status line."""
+    """True when this turn already recorded the same status line.
+
+    Hop notices are written at dropdown time (before the next user send), so a
+    later ``Started a new {cli} session.`` pre-emit must treat them as present.
+    """
     needle = (text or "").strip()
     if not needle:
         return False
     last_user = _last_user_index(messages)
     for row in messages[last_user + 1 :]:
-        if (row.get("role") or "") == "status" and _status_text(row) == needle:
+        if (row.get("role") or "") == "status" and _same_turn_notice(
+            _status_text(row), needle
+        ):
+            return True
+    if not _NEW_SESSION_RE.match(needle):
+        return False
+    prior = messages[: last_user + 1] if last_user >= 0 else messages
+    for row in prior:
+        if (row.get("role") or "") == "status" and _hop_notice_covers(
+            _status_text(row), needle
+        ):
             return True
     return False
 

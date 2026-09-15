@@ -1317,6 +1317,85 @@ class TestBlueprintSelection:
         )
 
     @pytest.mark.asyncio
+    async def test_receive_skips_new_session_notice_when_hop_already_recorded(
+        self, consumer, tmp_path, monkeypatch
+    ):
+        """REQ-866: hop notice already in the transcript suppresses the short line."""
+        monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+        hop = (
+            "Started a new grok session (qwen → grok). "
+            "No prior context to carry from qwen."
+        )
+        consumer.messages = []
+        consumer.ui_events = [{"role": "status", "content": hop, "seq": 0}]
+        consumer.conversation_id = "conv-cli-hop"
+
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock):
+                with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                    await consumer.receive(
+                        json.dumps(
+                            {
+                                "message": "hello",
+                                "blueprint": "cli_agent",
+                                "params": {"cli": "grok"},
+                            }
+                        )
+                    )
+                    frames = [
+                        call.kwargs.get("text_data") or call.args[0]
+                        for call in mock_send.await_args_list
+                    ]
+
+        assert all("Started a new grok session." not in str(frame) for frame in frames)
+        assert all(
+            m.get("content") != "Started a new grok session."
+            for m in getattr(consumer, "ui_events", [])
+        )
+
+    @pytest.mark.asyncio
+    async def test_receive_skips_new_session_notice_when_hop_persisted(
+        self, consumer, tmp_path, monkeypatch
+    ):
+        """REQ-866: REST hop on disk suppresses the prompt-time line on a stale socket."""
+        monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+        hop = (
+            "Started a new grok session (qwen → grok). "
+            "No prior context to carry from qwen."
+        )
+        consumer.messages = []
+        consumer.ui_events = []
+        consumer.conversation_id = "conv-cli-hop-disk"
+        persisted = {
+            "messages": [],
+            "ui_events": [{"role": "status", "content": hop}],
+        }
+
+        with patch("swarm.consumers._load_agent_record", return_value=persisted):
+            with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+                with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock):
+                    with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                        await consumer.receive(
+                            json.dumps(
+                                {
+                                    "message": "hello",
+                                    "blueprint": "cli_agent",
+                                    "params": {"cli": "grok"},
+                                }
+                            )
+                        )
+                        frames = [
+                            call.kwargs.get("text_data") or call.args[0]
+                            for call in mock_send.await_args_list
+                        ]
+
+        assert all("Started a new grok session." not in str(frame) for frame in frames)
+        assert all(
+            m.get("content") != "Started a new grok session."
+            for m in getattr(consumer, "ui_events", [])
+        )
+
+    @pytest.mark.asyncio
     async def test_blueprint_run_uses_compacted_context(self, consumer, monkeypatch):
         """REQ-37: blueprint.run sees the summary tree, not covered raw turns."""
         monkeypatch.delenv("SWARM_TEST_MODE", raising=False)

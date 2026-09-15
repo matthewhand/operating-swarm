@@ -1137,7 +1137,6 @@ const ChatPage = () => {
           },
           { replace: true },
         )
-        recordDropdownChange('cli', next.previous.agent, next.agent)
         const fromCli = (next.previous.agent || '').trim()
         const toCli = (next.agent || '').trim()
         if (fromCli && toCli && fromCli !== toCli) {
@@ -1192,6 +1191,8 @@ const ChatPage = () => {
                 [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
               }))
             })
+        } else {
+          recordDropdownChange('cli', next.previous.agent, next.agent)
         }
         return
       }

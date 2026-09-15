@@ -3630,7 +3630,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
               token_budget: 4000,
               omitted: ['secrets', 'tool_noise'],
               empty: false,
-              status: `Carried summary context from ${fromCli} → ${toCli} (12 tokens).`,
+              status: `Started a new ${toCli} session (${fromCli} → ${toCli}). Carried summary context (12 tokens).`,
               export_warning: null,
               import: 'swarm',
               injection: { text: 'seed', mode: 'summary', tokens: 12, empty: false },
@@ -3708,7 +3708,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     expect(screen.getAllByTestId('chat-status')).toHaveLength(1)
   })
 
-  it('appends one CLI status event (antigravity → grok) that is not a bubble', async () => {
+  it('emits one consolidated hop status on CLI change (REQ-866)', async () => {
     const store = { messages: [] as { role: string; content: string }[] }
     stubWithThreadStore(store)
 
@@ -3721,16 +3721,21 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     fireEvent.click(cliPill)
     fireEvent.click(await screen.findByRole('menuitem', { name: 'grok' }))
 
-    const statuses = await screen.findAllByTestId('chat-status')
-    expect(statuses[0]).toHaveTextContent('CLI: antigravity → grok')
-    expect(statuses[0].className).not.toMatch(/chat-start|chat-end/)
-    expect(statuses[0].querySelector('.chat-bubble')).toBeNull()
-    const carried = await screen.findByText(/Carried summary context from antigravity → grok/)
-    expect(carried.closest('[data-testid="chat-status"]')).toHaveClass('os-chat-status')
-    expect(carried.closest('[data-testid="chat-status"]')?.className).not.toMatch(
-      /chat-start|chat-end/,
+    const status = await screen.findByTestId('chat-status')
+    expect(status).toHaveTextContent(
+      'Started a new grok session (antigravity → grok). Carried summary context (12 tokens).',
     )
-    expect(screen.getAllByTestId('chat-status').length).toBeGreaterThanOrEqual(2)
+    expect(status).toHaveClass('os-chat-status')
+    expect(status.className).not.toMatch(/chat-start|chat-end/)
+    expect(status.querySelector('.chat-bubble')).toBeNull()
+    expect(screen.queryByText(/CLI: antigravity → grok/)).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('chat-status')).toHaveLength(1)
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0]).toEqual({
+      role: 'status',
+      content:
+        'Started a new grok session (antigravity → grok). Carried summary context (12 tokens).',
+    })
   })
 
   it('renders one CLI routing picker and hides API and Remotes controls (REQ-133 / REQ-200)', async () => {

@@ -15,7 +15,9 @@ describe('cliSessionHop', () => {
 
   it('formats a carried-context line distinct from the dropdown-change chrome', () => {
     const line = formatContextCarriedStatus('grok', 'agy', 'summary', 847)
-    expect(line).toBe('Carried summary context from grok → agy (847 tokens).')
+    expect(line).toBe(
+      'Started a new agy session (grok → agy). Carried summary context (847 tokens).',
+    )
     expect(isContextCarriedStatus(line)).toBe(true)
     expect(isContextCarriedStatus('CLI: grok → agy')).toBe(false)
   })
@@ -41,7 +43,8 @@ describe('cliSessionHop', () => {
         token_budget: 4000,
         omitted: ['secrets', 'tool_noise'],
         empty: false,
-        status: 'Carried summary context from grok → agy (12 tokens).',
+        status:
+          'Started a new agy session (grok → agy). Carried summary context (12 tokens).',
         export_warning: null,
         import: 'swarm',
         injection: { text: 'seed', mode: 'summary', tokens: 12, empty: false },

@@ -90,7 +90,8 @@ describe('CliSessionSwitcher', () => {
       token_budget: 800,
       omitted: [],
       empty: false,
-      status: 'Carried summary context from grok → claude (12 tokens).',
+      status:
+        'Started a new claude session (grok → claude). Carried summary context (12 tokens).',
       export_warning: null,
       import: 'transcript',
       injection: { text: '', mode: 'summary', tokens: 12, empty: false },

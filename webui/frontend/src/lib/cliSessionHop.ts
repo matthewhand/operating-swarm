@@ -12,7 +12,7 @@ import { loadHopPrefs } from './sessionHopPrefs'
 export const CLI_SESSION_HOPPED_EVENT = 'swarm:cli-session-hopped'
 
 export const CONTEXT_CARRIED_RE =
-  /^Carried (summary|full) context from \S+ → \S+ \(\d+ tokens\)\./
+  /^Started a new \S+ session \(\S+ → \S+\)\. Carried (summary|full) context \(\d+ tokens\)\./
 
 export type HopMode = 'summary' | 'full'
 
@@ -68,7 +68,7 @@ export function formatContextCarriedStatus(
   mode: HopMode,
   tokens: number,
 ): string {
-  return `Carried ${mode} context from ${fromCli} → ${toCli} (${tokens} tokens).`
+  return `Started a new ${toCli} session (${fromCli} → ${toCli}). Carried ${mode} context (${tokens} tokens).`
 }
 
 export function isContextCarriedStatus(text: string | null | undefined): boolean {

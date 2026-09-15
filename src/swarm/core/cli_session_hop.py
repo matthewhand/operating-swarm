@@ -208,20 +208,16 @@ def hop_notice_text(
     empty: bool = False,
     export_warning: str | None = None,
 ) -> str:
-    """Status line distinct from the #362 dropdown-change chrome."""
-    if empty and export_warning:
-        return (
-            f"{session_notice_text(to_cli, resumed=False)} {export_warning} "
-            "Nothing to carry."
-        )
-    if empty:
-        return (
-            f"{session_notice_text(to_cli, resumed=False)} "
-            f"No prior context to carry from {from_cli}."
-        )
-    line = (
-        f"Carried {mode} context from {from_cli} → {to_cli} ({tokens} tokens)."
+    """Single CLI-toggle status line (REQ-866). Includes ``(from → to)``."""
+    head = (
+        f"{session_notice_text(to_cli, resumed=False).rstrip('.')} "
+        f"({from_cli} → {to_cli})."
     )
+    if empty and export_warning:
+        return f"{head} {export_warning} Nothing to carry."
+    if empty:
+        return f"{head} No prior context to carry from {from_cli}."
+    line = f"{head} Carried {mode} context ({tokens} tokens)."
     if export_warning:
         return f"{line} {export_warning}"
     return line
@@ -229,7 +225,9 @@ def hop_notice_text(
 
 def is_context_carried_notice(text: str | None) -> bool:
     blob = (text or "").strip()
-    return blob.startswith("Carried ") and " context from " in blob and " → " in blob
+    if " → " not in blob or "Carried " not in blob:
+        return False
+    return " context (" in blob or " context from " in blob
 
 
 def hop_capability_row(name: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
