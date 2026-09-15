@@ -105,7 +105,10 @@ def test_computer_operate_stub_honest():
 def test_herdr_is_remote_impl_not_fifth_kind():
     assert "herdr" not in AGENT_TYPES
     assert AGENT_TYPES == ("api", "cli", "remote")
+    # classify_agent_kind grew the stored-design kind "blueprint" (REQ-49);
+    # user-facing AGENT_TYPES stay three — blueprint maps to api.
     assert set(get_args(AgentKind)) == {"api", "cli", "remote", "blueprint"}
+    assert agent_type_for_kind("blueprint") == "api"
     assert agent_type_for_kind("herdr") == "remote"
     assert classify_agent_kind("herdr") == "remote"
     assert classify_agent_kind("w3:p1", explicit="herdr") == "remote"

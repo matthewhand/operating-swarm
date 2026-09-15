@@ -78,6 +78,7 @@ def test_public_payload_marks_empty_and_lists_registry():
         "context_strategy",
         "context_cull_trigger_pct",
         "context_cull_fraction_pct",
+        "context_compress_api_only",
     ]
     assert payload["context_auto_compress_pct"] == 80
     assert payload["context_strategy"] == "compress"

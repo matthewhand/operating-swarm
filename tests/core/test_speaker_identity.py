@@ -114,6 +114,11 @@ def test_adapter_table_covers_shipped_cli_and_remotes():
         assert ADAPTER_NAME_FIELD[key]["name_field"] == "stripped"
         assert ADAPTER_NAME_FIELD[key]["path"] == "delimiter"
         assert speaker_path_for(key) == "delimiter"
+    # Later catalog additions (omp #193, qwen) must carry explicit rows too.
+    for cli in ("omp", "qwen"):
+        key = f"cli:{cli}"
+        assert ADAPTER_NAME_FIELD[key]["name_field"] == "stripped"
+        assert ADAPTER_NAME_FIELD[key]["path"] == "delimiter"
     for remote in REMOTE_IDS:
         key = f"remote:{remote}"
         assert key in ADAPTER_NAME_FIELD, f"missing remote adapter row: {key}"
