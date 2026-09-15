@@ -6,7 +6,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react'
-import { FoldVertical, Pencil } from 'lucide-react'
 import { Textarea, LoadingDots } from './DaisyUI'
 import { renderSafeMarkdown } from '../lib/markdown'
 import { setupCodeFenceControls } from '../lib/codeFences'
@@ -24,14 +23,9 @@ export interface ChatMessageBubbleProps {
   text: string
   streaming: boolean
   edited?: boolean
-  canEdit: boolean
   editing: boolean
-  onStartEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: (text: string) => void
-  onCompressToHere?: () => void
-  canCompress?: boolean
-  contextStrategy?: 'compress' | 'cull'
   children?: ReactNode
   isSystemPreload?: boolean
   skillCatalog?: SkillInfo[]
@@ -46,9 +40,8 @@ export interface ChatMessageBubbleProps {
 }
 
 /**
- * One chat bubble. On API-agent threads, hover reveals Edit; that control
- * is the only way to enter in-place edit. CLI/remote pass ``canEdit={false}``
- * so the control is not offered.
+ * One chat bubble. Inline edit is entered from MessageRowActions (REQ-869);
+ * the bubble itself never starts edit on click (REQ-867).
  */
 export const ChatBubbleBody = memo(
   function ChatBubbleBody({
@@ -149,14 +142,9 @@ export function ChatMessageBubble({
   text,
   streaming,
   edited,
-  canEdit,
   editing,
-  onStartEdit,
   onCancelEdit,
   onSaveEdit,
-  onCompressToHere,
-  canCompress,
-  contextStrategy = 'compress',
   children,
   isSystemPreload,
   skillCatalog,
@@ -166,8 +154,6 @@ export function ChatMessageBubble({
   avatar,
   theme,
 }: ChatMessageBubbleProps) {
-  const startFromHere = contextStrategy === 'cull'
-  const contextActionLabel = startFromHere ? 'Start context from here' : 'Compress to here'
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -286,34 +272,6 @@ export function ChatMessageBubble({
       {placement === 'below' && timeEl ? (
         <div className="chat-footer os-bubble-time-below" data-testid="bubble-time-slot">
           {timeEl}
-        </div>
-      ) : null}
-      {(!streaming && !editing && (canEdit || (canCompress && onCompressToHere))) ? (
-        <div className="mt-0.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-          {canEdit ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs gap-1"
-              aria-label="Edit message"
-              onClick={onStartEdit}
-            >
-              <Pencil className="h-3 w-3" aria-hidden="true" />
-              Edit
-            </button>
-          ) : null}
-          {canCompress && onCompressToHere ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs gap-1"
-              aria-label={contextActionLabel}
-              title={startFromHere ? 'Start context from here.' : 'Compress to here'}
-              data-testid={startFromHere ? 'start-context-from-here' : 'compress-to-here'}
-              onClick={onCompressToHere}
-            >
-              <FoldVertical className="h-3 w-3" aria-hidden="true" />
-              {contextActionLabel}
-            </button>
-          ) : null}
         </div>
       ) : null}
     </div>

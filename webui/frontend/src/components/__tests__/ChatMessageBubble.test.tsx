@@ -36,9 +36,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={shortCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -59,9 +57,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -86,9 +82,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -110,9 +104,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -137,9 +129,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -157,9 +147,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -184,9 +172,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -210,9 +196,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="User"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -234,11 +218,9 @@ describe('REQ-121: Start context from here hover action', () => {
         agentName="You"
         text="later turn"
         streaming={false}
-        canEdit={false}
         canCompress={true}
         contextStrategy="cull"
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         onCompressToHere={onStart}
@@ -261,10 +243,8 @@ describe('REQ-87: Compress to here hover action', () => {
         agentName="You"
         text="older turn"
         streaming={false}
-        canEdit={false}
         canCompress={true}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         onCompressToHere={onCompress}
@@ -284,9 +264,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Stewie"
         text="Hello world"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -304,9 +282,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Stewie"
         text="Hello from assistant"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -325,9 +301,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         text="Edited message"
         streaming={false}
         edited={true}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -345,9 +319,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Support"
         text="**Agents**\n- Support · support\n\n**Inference** ready."
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -371,9 +343,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Support"
         text="preload body"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -396,9 +366,7 @@ describe('REQ-212 inline skill chips', () => {
         agentName="API agent"
         text="See skills/conventional-commit/SKILL.md for the contract."
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         skillCatalog={[
@@ -426,9 +394,7 @@ describe('REQ-212 inline skill chips', () => {
         agentName="You"
         text="/skill nope-not-real please"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         skillCatalog={[]}
@@ -445,9 +411,7 @@ describe('REQ-212 inline skill chips', () => {
         agentName="Codey"
         text="hello"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         ts="2026-09-03T06:54:00Z"
@@ -465,9 +429,7 @@ describe('REQ-868: settings markdown links open the in-app sheet', () => {
     role: 'assistant' as const,
     agentName: 'cli_agent',
     streaming: false,
-    canEdit: false,
     editing: false,
-    onStartEdit: () => {},
     onCancelEdit: () => {},
     onSaveEdit: () => {},
   }
@@ -533,9 +495,7 @@ describe('#217: per-theme timestamp placement and message layout', () => {
         agentName="Codey"
         text="hello"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         ts={ts}
@@ -584,38 +544,27 @@ describe('#217: per-theme timestamp placement and message layout', () => {
   })
 })
 
-describe('REQ-867: bubble click selects text; Edit button starts edit', () => {
+describe('REQ-867: bubble click selects text; Edit lives in MessageRowActions', () => {
   const defaultProps = {
     role: 'user' as const,
     agentName: 'You',
     text: 'Hello world to select',
     streaming: false,
-    canEdit: true,
     editing: false,
-    onStartEdit: () => {},
     onCancelEdit: () => {},
     onSaveEdit: () => {},
   }
 
   it('does not start edit when the bubble is clicked or double-clicked', () => {
-    const onStartEdit = vi.fn()
-    render(<ChatMessageBubble {...defaultProps} onStartEdit={onStartEdit} />)
+    render(<ChatMessageBubble {...defaultProps} />)
 
     const bubble = screen.getByTestId('chat-bubble')
     expect(bubble).toHaveClass('select-text')
     fireEvent.click(bubble)
     fireEvent.doubleClick(bubble)
 
-    expect(onStartEdit).not.toHaveBeenCalled()
     expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument()
-  })
-
-  it('starts edit from the hover Edit button', () => {
-    const onStartEdit = vi.fn()
-    render(<ChatMessageBubble {...defaultProps} onStartEdit={onStartEdit} />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
-    expect(onStartEdit).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument()
   })
 
   it('cancels on Escape and saves on Cmd+Enter while editing', () => {
