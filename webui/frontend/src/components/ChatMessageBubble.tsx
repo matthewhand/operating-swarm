@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type MouseEvent,
   type ReactNode,
 } from 'react'
 import { FoldVertical, Pencil } from 'lucide-react'
@@ -46,19 +45,10 @@ export interface ChatMessageBubbleProps {
   avatar?: ReactNode
 }
 
-function selectionIsActive(): boolean {
-  try {
-    const sel = window.getSelection()
-    return Boolean(sel && !sel.isCollapsed)
-  } catch {
-    return false
-  }
-}
-
 /**
- * One chat bubble. On API-agent threads, hover reveals Edit and clicking
- * the bubble (or the control) enters in-place edit. CLI/remote pass
- * ``canEdit={false}`` so neither control nor click-to-edit is offered.
+ * One chat bubble. On API-agent threads, hover reveals Edit; that control
+ * is the only way to enter in-place edit. CLI/remote pass ``canEdit={false}``
+ * so the control is not offered.
  */
 export const ChatBubbleBody = memo(
   function ChatBubbleBody({
@@ -198,14 +188,6 @@ export function ChatMessageBubble({
     )
   }
 
-  const handleBubbleClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!canEdit || streaming || editing) return
-    const target = event.target as HTMLElement | null
-    if (target?.closest('a, button, textarea, input')) return
-    if (selectionIsActive()) return
-    onStartEdit()
-  }
-
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -291,7 +273,6 @@ export function ChatMessageBubble({
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
           }`}
           data-testid="chat-bubble"
-          onClick={handleBubbleClick}
         >
           <ChatBubbleBody
             text={text}
