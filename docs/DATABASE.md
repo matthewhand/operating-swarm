@@ -57,6 +57,12 @@ with a redacted, operator-facing message. systemd units already set
 `RestartPreventExitStatus=78`. Compose caps `swarm` at `restart: on-failure:5`
 so a bad cloud URL does not loop silently.
 
+The **dev overlay** ([`docker-compose.dev.yml`](../docker-compose.dev.yml),
+`make dev`, host `:8002`) is the one deliberate exception: it overrides the
+cap to `restart: unless-stopped` so the dev endpoint self-heals. That assumes
+the compose-local Postgres — never pair the dev overlay with a cloud
+`DATABASE_URL`, or you get back the crash-loop the cap exists to prevent.
+
 Escape hatch (emergency only): `SWARM_SKIP_DB_HEALTH=1`.
 
 ## Migrations

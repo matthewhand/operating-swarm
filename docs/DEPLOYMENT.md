@@ -74,6 +74,25 @@ docker compose up -d
 # — when LiteLLM already owns host :8000.
 ```
 
+**Dev stack restart policy (`make dev`, host `:8002`):**
+[`docker-compose.dev.yml`](../docker-compose.dev.yml) overrides `swarm` to
+`restart: unless-stopped`, so a LAN endpoint that dies comes back by itself.
+The base file deliberately keeps the `restart: on-failure:5` cap — see
+[DATABASE.md](./DATABASE.md#fail-fast) and
+[RUNBOOK_NEON_QUOTA_CRASH_LOOP.md](./RUNBOOK_NEON_QUOTA_CRASH_LOOP.md) — so a
+dev stack pointed at a cloud `DATABASE_URL` does **not** inherit that
+protection. Note that `docker kill` / `docker stop` is a *manual* stop: Docker
+will not restart the container until it is started again, whatever the policy.
+
+**Boot:** [`deploy/systemd/open-swarm-dev.service`](../deploy/systemd/open-swarm-dev.service)
+brings the dev stack up at boot. Install it as root and replace `YOURUSER`:
+
+```bash
+sudo cp deploy/systemd/open-swarm-dev.service /etc/systemd/system/
+sudo sed -i "s|YOURUSER|$USER|g" /etc/systemd/system/open-swarm-dev.service
+sudo systemctl daemon-reload && sudo systemctl enable --now open-swarm-dev
+```
+
 **SPA (`/` + `/chat`, ADR-001):** `webui/frontend/dist/` is gitignored. After
 `git pull` on a source checkout, run **`make frontend`** (wraps
 `./scripts/build_frontend.sh`) once so `/` serves the React dashboard; without

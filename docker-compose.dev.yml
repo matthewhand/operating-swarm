@@ -30,6 +30,14 @@ services:
     # bind (and collide with whatever holds :8000 on the host).
     ports: !override
       - "8002:8000"
+    # Dev only. The base file caps `swarm` at `restart: on-failure:5` so a
+    # permanently-unusable DATABASE_URL (e.g. Neon quota) fails fast instead of
+    # crash-looping — see docs/RUNBOOK_NEON_QUOTA_CRASH_LOOP.md. This overlay's
+    # database is the compose-local Postgres (itself `unless-stopped`), so it
+    # self-heals instead: a LAN endpoint that comes back on its own is worth
+    # more here than fail-fast. Do NOT pair this overlay with a cloud
+    # DATABASE_URL and expect the cap to protect you.
+    restart: unless-stopped
     # Image CMD is migrate-then-uvicorn without --reload. Override so saves under
     # the bind-mount restart the ASGI app. --reload requires a single process.
     # Port 8000 is the in-container listen port (host maps 8002:8000). The
