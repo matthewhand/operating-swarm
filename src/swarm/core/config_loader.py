@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,58 @@ def _substitute_env_vars(value: Any) -> Any:
 
 # Backwards-compatible alias (formerly in swarm.extensions.config.config_loader).
 _substitute_env_vars_recursive = _substitute_env_vars
+
+# ``os.path.expandvars`` leaves an unknown reference untouched, so a surviving
+# ``${NAME}`` means NAME was never set. Braced form only: an unbraced ``$NAME``
+# can legitimately appear inside a literal secret and would false-positive.
+_UNRESOLVED_ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def unresolved_env_placeholders(value: Any) -> list[str]:
+    """Env var names referenced as ``${NAME}`` that substitution left behind.
+
+    Walks strings, dict values and list/tuple items and returns a sorted,
+    de-duplicated list of names. Used to refuse a literal ``"${NAME}"`` before
+    it reaches a provider client as a bogus URL, key or model id.
+    """
+    names: set[str] = set()
+
+    def _walk(item: Any) -> None:
+        if isinstance(item, str):
+            names.update(_UNRESOLVED_ENV_RE.findall(item))
+        elif isinstance(item, dict):
+            for child in item.values():
+                _walk(child)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                _walk(child)
+
+    _walk(value)
+    return sorted(names)
+
+
+def drop_unresolved_env_values(
+    profile: dict, keys: tuple[str, ...] = ("api_key", "base_url")
+) -> tuple[dict, list[str]]:
+    """Strip profile values that are still ``${NAME}`` placeholders.
+
+    Returns ``(cleaned_profile, missing_env_vars)``. Dropping the value (rather
+    than passing the literal through) matters: a literal ``"${LITELLM_BASE_URL}"``
+    is a *valid* string to the OpenAI SDK, so it becomes a request target and
+    fails much later as an opaque URL/auth error that never names the variable.
+    Dropping ``api_key`` also restores the SDK's own ``OPENAI_API_KEY`` lookup.
+    """
+    unresolved = {
+        key: profile[key]
+        for key in keys
+        if isinstance(profile.get(key), str) and unresolved_env_placeholders(profile[key])
+    }
+    if not unresolved:
+        return profile, []
+    missing = sorted({n for value in unresolved.values() for n in unresolved_env_placeholders(value)})
+    cleaned = {k: v for k, v in profile.items() if k not in unresolved}
+    return cleaned, missing
+
 
 def _hint(msg: str) -> str:
     """Format a concise, actionable hint for CLI surfaces."""
@@ -463,6 +516,22 @@ def get_resolved_llm_profile(
 
     # Apply overrides
     resolved = _apply_litellm_overrides(profile)
+
+    # Env overrides above substitute the real values when present, so a value
+    # still braced here points at a variable that is not set. Never hand that
+    # literal to a provider client — name the variable and drop the value.
+    resolved, missing_env = drop_unresolved_env_values(resolved)
+    if missing_env:
+        names = ", ".join(missing_env)
+        logger.warning(
+            "LLM profile %r references %s, but %s not set; ignoring those values. "
+            "Set %s in the environment (e.g. .env or ~/.config/swarm/.env), or "
+            "replace the placeholder in swarm_config.json.",
+            name,
+            names,
+            "that variable is" if len(missing_env) == 1 else "those variables are",
+            names,
+        )
 
     return resolved
 

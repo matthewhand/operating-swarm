@@ -295,6 +295,11 @@ class TestSandboxManagerAndTools:
     def test_blueprint_base_make_agent_sandbox(self, monkeypatch):
         # The sandbox tool count contract assumes a real (non-TEST_MODE) run path.
         monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        # Building the agent builds a model instance, which needs a credential:
+        # this module's autouse fixture clears the ambient ones, and an unset
+        # ``${...}`` placeholder in the developer's swarm_config.json is ignored
+        # rather than passed through as a literal key.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-sandbox")
         try:
             from agents import Agent
         except ImportError:
