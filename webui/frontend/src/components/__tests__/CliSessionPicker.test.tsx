@@ -95,6 +95,18 @@ describe('CliSessionPicker', () => {
     expect(screen.getByTestId('cli-session-empty')).toHaveTextContent('No sessions found')
   })
 
+  it('ends with a divider then Manage Session', () => {
+    const onManageSession = vi.fn()
+    const { onClose } = renderPicker({ onManageSession })
+    const divider = screen.getByTestId('manage-surface-divider')
+    expect(divider).toHaveAttribute('role', 'separator')
+    const manage = screen.getByRole('button', { name: 'Manage Session' })
+    expect(manage.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    fireEvent.click(manage)
+    expect(onManageSession).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalled()
+  })
+
   it('Start new session fires onStartNew', () => {
     const { onStartNew, onClose } = renderPicker()
     fireEvent.click(screen.getByTestId('cli-session-start-new'))

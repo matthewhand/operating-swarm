@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../DaisyUI'
 import CliSessionSwitcher from '../CliSessionSwitcher'
@@ -131,6 +131,14 @@ describe('CliSessionSwitcher', () => {
       conversationId: 'conv-9',
       status: 'ok',
     })
+  })
+
+  it('shows a divider and Manage Session in the picker footer', async () => {
+    renderSwitcher()
+    fireEvent.click(screen.getByRole('button', { name: 'Select cli_agent session' }))
+    const picker = await screen.findByTestId('os-cli-session-picker')
+    expect(within(picker).getByTestId('manage-surface-divider')).toHaveAttribute('role', 'separator')
+    expect(within(picker).getByRole('button', { name: 'Manage Session' })).toBeInTheDocument()
   })
 
   it('starts a new session from the picker footer', async () => {

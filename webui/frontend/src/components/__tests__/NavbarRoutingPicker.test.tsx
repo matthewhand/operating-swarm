@@ -250,6 +250,34 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     expect(screen.queryByRole('menuitem', { name: 'Default' })).not.toBeInTheDocument()
   })
 
+  it('puts a separator then Manage CLI last without a nested model flyout', () => {
+    const onSelect = vi.fn()
+    renderPicker({
+      footerAction: { id: '__manage_cli__', label: 'Manage CLI', onSelect },
+    })
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    const menu = screen.getByTestId('routing-menu-agent')
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.map((item) => item.getAttribute('data-testid'))).toEqual([
+      'routing-option-agent-agy',
+      'routing-option-agent-grok',
+      'routing-option-agent-__manage_cli__',
+    ])
+    expect(items[items.length - 1]).toHaveAccessibleName('Manage CLI')
+    const divider = within(menu).getByTestId('manage-surface-divider')
+    expect(divider).toHaveAttribute('role', 'separator')
+    const manage = items[items.length - 1]
+    expect(manage.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    expect(manage).not.toHaveAttribute('aria-haspopup')
+    expect(within(manage).queryByText('›')).not.toBeInTheDocument()
+    fireEvent.mouseEnter(manage)
+    fireEvent.keyDown(screen.getByTestId('navbar-routing-picker'), { key: 'ArrowRight' })
+    expect(manage).not.toHaveAttribute('aria-haspopup')
+    fireEvent.click(manage)
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+  })
+
   it('opens nested menus toward inline-start in RTL', () => {
     document.documentElement.setAttribute('dir', 'rtl')
     renderPicker()

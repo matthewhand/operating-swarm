@@ -1935,6 +1935,8 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
       .map((opt) => opt.textContent)
     expect(options).toContain('OpenMousBot')
     expect(options).toContain('Add remote')
+    expect(options[options.length - 1]).toBe('Add remote')
+    expect(within(menu).getByTestId('manage-surface-divider')).toHaveAttribute('role', 'separator')
     expect(options).not.toContain('Hermes')
     expect(options).not.toContain('Rakazo')
     expect(options).not.toContain('OMB')
