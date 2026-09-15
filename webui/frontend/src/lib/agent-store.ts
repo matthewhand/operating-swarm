@@ -38,6 +38,7 @@ import {
   AVATAR_THEME_SET_EVENT,
   AVATAR_THEMES_ENABLED_EVENT,
   dispatchAvatarTheme,
+  loadEnabledAvatarThemes,
   stripDisabledAvatarThemes,
 } from './avatarTheme'
 
@@ -341,6 +342,8 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         updated.map((a) => a.agent_id),
         state.avatarThemeByAgent,
         state.avatarEyesByAgent,
+        // #128: the deck is the installed set × eye styles, never a disabled pack.
+        { themes: loadEnabledAvatarThemes() },
       )
       saveStored('agent_avatar_theme_by_agent', looks.themes)
       saveStored('agent_avatar_eyes_by_agent', looks.eyes)
@@ -742,7 +745,8 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         state.agents.map((a) => a.agent_id),
         state.avatarThemeByAgent,
         state.avatarEyesByAgent,
-        { reassignAll: true },
+        // #128: restamp from the installed set only.
+        { reassignAll: true, themes: loadEnabledAvatarThemes() },
       )
       saveStored('agent_avatar_theme_by_agent', looks.themes)
       saveStored('agent_avatar_eyes_by_agent', looks.eyes)
@@ -806,6 +810,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         updated.map((a) => a.agent_id),
         next.avatarThemeByAgent,
         next.avatarEyesByAgent,
+        { themes: loadEnabledAvatarThemes() },
       )
       saveStored('agent_avatar_theme_by_agent', looks.themes)
       saveStored('agent_avatar_eyes_by_agent', looks.eyes)
