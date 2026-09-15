@@ -414,7 +414,11 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         if self.user.is_authenticated:
-            await self.save_conversation(self.conversation_id, self.messages)
+            from swarm.core.cli_session_error import is_uncontinued_fatal_init
+
+            # A first-turn CLI/config failure is not a history thread (#274).
+            if not is_uncontinued_fatal_init(self.messages):
+                await self.save_conversation(self.conversation_id, self.messages)
 
             # Delete conversation from DB and memory if empty
             if not self.messages and not getattr(self, "ui_events", None):
@@ -1027,6 +1031,8 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 if message is None:
                     continue
                 final_message = message
+                if isinstance(chunk, dict) and isinstance(chunk.get("meta"), dict):
+                    final_message = {**message, "_meta": chunk["meta"]}
                 if _chunk_is_final(chunk):
                     break
         except Exception as e:
@@ -1136,7 +1142,16 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             return
         await self.send(text_data=_oob_append_html(contents_div_id, full_message))
 
-        _record_turn(self, "assistant", full_message, ts=_message_ts())
+        from swarm.core.cli_session_error import fatal_config_error_extra
+
+        chunk_meta = final_message.get("_meta") if isinstance(final_message, dict) else None
+        _record_turn(
+            self,
+            "assistant",
+            full_message,
+            ts=_message_ts(),
+            **fatal_config_error_extra(full_message, chunk_meta if isinstance(chunk_meta, dict) else None),
+        )
         await self._emit_pr_opened_from_text(full_message)
 
         final_message_html = render_to_string(
@@ -1433,11 +1448,17 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
 
         Disconnect still saves (idempotent replace). Status and edit keep
         their own immediate save. Load order is unchanged (H5).
+        A first-turn fatal CLI/config failure is not persisted as history
+        unless the user continues (#274).
         """
         if not getattr(self.user, "is_authenticated", False):
             return
         conversation_id = getattr(self, "conversation_id", None)
         if not conversation_id:
+            return
+        from swarm.core.cli_session_error import is_uncontinued_fatal_init
+
+        if is_uncontinued_fatal_init(self.messages):
             return
         try:
             await self.save_conversation(conversation_id, self.messages)

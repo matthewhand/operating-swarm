@@ -145,6 +145,8 @@ export interface AgentThreadMessage {
   kind?: 'prior_history'
   /** ISO timestamp so status/info chrome can show when it occurred after reload. */
   ts?: string
+  /** Terminal CLI/config failure — Chat shows a recovery banner (#274). */
+  fatal_config_error?: boolean
 }
 
 export interface AgentThread {
@@ -194,6 +196,7 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
     ts?: unknown
     timestamp?: unknown
     created_at?: unknown
+    fatal_config_error?: unknown
   }
   if (typeof row.role !== 'string' || typeof row.content !== 'string') return null
   if (row.edited !== undefined && row.edited !== true) return null
@@ -216,6 +219,7 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
   if (row.edited === true) parsed.edited = true
   const ts = row.ts || row.timestamp || row.created_at
   if (typeof ts === 'string' && ts.trim()) parsed.ts = ts.trim()
+  if (row.fatal_config_error === true) parsed.fatal_config_error = true
   return parsed
 }
 
@@ -288,6 +292,35 @@ export async function patchAgentMessage(
     kind,
     editable: data?.editable === true || (data?.editable !== false && kind === 'api'),
     cli_session_reset: data?.cli_session_reset === true,
+  }
+}
+
+/** POST /chat/thread/?agent= — wipe a poisoned thread (#274). */
+export async function clearAgentThread(
+  agentId: string,
+  conversationId?: string,
+): Promise<AgentThread> {
+  const agent = agentIdFromBlueprint(agentId)
+  await ensureCsrfCookie()
+  const data = await apiPost<AgentThread>(
+    `/chat/thread/?agent=${encodeURIComponent(agent)}${conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : ''}`,
+    { action: 'clear', conversation_id: conversationId },
+  )
+  const reconstructed = messagesFromThreadPayload(data || {})
+  const messages = reconstructed
+    .map(parseThreadMessage)
+    .filter((row): row is AgentThreadMessage => row != null)
+  const kind = classifyAgentKind(agent, data?.kind)
+  return {
+    agent_id: typeof data?.agent_id === 'string' ? data.agent_id : agent,
+    conversation_id:
+      typeof data?.conversation_id === 'string' && data.conversation_id
+        ? data.conversation_id
+        : conversationId || conversationIdForAgent(agent),
+    messages,
+    summaries: parseSummaries(data?.summaries),
+    kind,
+    editable: data?.editable === true || (data?.editable !== false && kind === 'api'),
   }
 }
 

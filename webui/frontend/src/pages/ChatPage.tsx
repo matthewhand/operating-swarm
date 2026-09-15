@@ -114,6 +114,7 @@ import {
   AGENT_CONVERSATION_EVENT,
   agentIdFromBlueprint,
   appendAgentMessage,
+  clearAgentThread,
   compactAgentThread,
   conversationIdForAgent,
   conversationIdForTask,
@@ -146,6 +147,7 @@ import {
   buildChatWsFrame,
   buildChatWsUrl,
   buildToolDecisionFrame,
+  newConversationId,
   parseChatWsMessage,
   summarizeUnknownWsFrame,
   type ChatWsEvent,
@@ -253,6 +255,8 @@ import { isExperimentalEnabled } from '../experimental/flags'
 import { ChatMessageActions } from '../experimental/ChatMessageActions'
 import { RoleAgentTip } from '../components/RoleAgentTip'
 import { DefaultLlmTip } from '../components/DefaultLlmTip'
+import { CliSessionRecoveryBanner } from '../components/CliSessionRecoveryBanner'
+import { lastTurnNeedsRecovery } from '../lib/cliSessionRecovery'
 import {
   hydrateRoleAgentTipDismissed,
   persistRoleAgentTipDismissed,
@@ -369,6 +373,8 @@ interface ChatMessage {
   ts?: string
   /** REQ-88 — provider queue wait; click opens that provider's rate-limit fields. */
   rateLimit?: RateLimitWait
+  /** Terminal CLI/config failure — recovery banner (#274). */
+  fatalConfigError?: boolean
 }
 
 function chatMessageFromThreadRow(
@@ -379,6 +385,7 @@ function chatMessageFromThreadRow(
     kind?: string
     ts?: string
     rate_limit?: RateLimitWait
+    fatal_config_error?: boolean
   },
   index: number,
 ): ChatMessage {
@@ -398,6 +405,7 @@ function chatMessageFromThreadRow(
     kind: prior ? 'prior_history' : undefined,
     ts: message.ts,
     rateLimit: isRateLimitWait(message.rate_limit) ? message.rate_limit : undefined,
+    fatalConfigError: message.fatal_config_error === true,
   }
 }
 
@@ -2373,6 +2381,35 @@ const ChatPage = () => {
     [addToast, awaitingAssistant, messages, queued, sendText, status],
   )
 
+  const startFreshCliSession = useCallback(() => {
+    const agent = agentIdFromBlueprint(selectedBlueprint)
+    const minted = newConversationId()
+    setConversationIdForAgent(agent, minted)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (agent && agent !== DEFAULT_AGENT_ID) next.set('blueprint', agent)
+      next.set('session', minted)
+      return next
+    })
+  }, [selectedBlueprint, setSearchParams])
+
+  const retryCliSession = useCallback(() => {
+    const lastUser = [...messages].reverse().find((row) => row.role === 'user')
+    const text = (lastUserTextRef.current || lastUser?.text || '').trim()
+    if (text) submitUserText(text)
+  }, [messages, submitUserText])
+
+  const clearCliSessionHistory = useCallback(() => {
+    const agent = agentIdFromBlueprint(selectedBlueprint)
+    const previousId = conversationId
+    setThreads((prev) => ({ ...prev, [threadKey]: [] }))
+    void clearAgentThread(agent, previousId).catch(() => undefined)
+    startFreshCliSession()
+  }, [conversationId, selectedBlueprint, startFreshCliSession, threadKey])
+
+  const showCliSessionRecovery =
+    threadReady && !awaitingAssistant && lastTurnNeedsRecovery(messages)
+
   /**
    * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
    * The drain effect promotes the top queued row automatically once the
@@ -3802,6 +3839,13 @@ const ChatPage = () => {
           })}
           </>
         )}
+        {showCliSessionRecovery ? (
+          <CliSessionRecoveryBanner
+            onStartFresh={startFreshCliSession}
+            onRetry={retryCliSession}
+            onClearHistory={clearCliSessionHistory}
+          />
+        ) : null}
         {awaitingAssistant && !streamingMessage && (
           <div
             className="os-chat-message os-chat-message--assistant group/osrow flex flex-col gap-1 items-start my-2"

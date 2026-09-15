@@ -8,6 +8,7 @@ from swarm.core.cli_sessions import (
     extract_session_id,
     get_cli_session,
     is_resume_failure,
+    is_resume_failure_text,
     put_cli_session,
     resolve_thread,
     sanitize_cli_session_id,
@@ -99,6 +100,8 @@ def test_resume_failure_detects_missing_session():
     assert is_resume_failure(miss) is True
     assert is_resume_failure(ok) is False
     assert is_resume_failure(other) is False
+    assert is_resume_failure_text("session not found") is True
+    assert is_resume_failure_text("model overloaded") is False
 
 
 def test_session_notice_is_honest():
