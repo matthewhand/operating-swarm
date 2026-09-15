@@ -759,6 +759,60 @@ def _default_provider_store_dir(cli_name: str) -> str | Path | None:
     return os.path.expanduser(raw) if raw else None
 
 
+def provider_store_dir(cli_name: str) -> str | None:
+    """On-disk session-store root for a provider CLI, or ``None`` when unknown."""
+    raw = _default_provider_store_dir(cli_name)
+    return str(raw) if raw else None
+
+
+def _walk_existing_dir(base: Path, segments: list[str]) -> str | None:
+    """Longest-first filesystem walk with backtracking (see below)."""
+    if not segments:
+        return str(base)
+    for take in range(len(segments), 0, -1):
+        candidate = base / "-".join(segments[:take])
+        try:
+            if candidate.is_dir():
+                resolved = _walk_existing_dir(candidate, segments[take:])
+                if resolved:
+                    return resolved
+        except OSError:
+            continue
+    return None
+
+
+def resolve_escaped_project_dir(
+    hint: str | None, store_dir: str | Path | None
+) -> str | None:
+    """Resolve a provider's escaped project-dir hint to a real directory (#71).
+
+    qwen names each project directory after the session cwd with every
+    non-alphanumeric replaced by ``-`` (``-home-me-proj``), which is ambiguous
+    on its own — literal hyphens are indistinguishable from separators. Resolve
+    it against the filesystem instead of guessing: walk from ``/`` preferring
+    the longest existing directory name at each step, with backtracking.
+
+    ``store_dir`` must be the provider's own store root and the hint must name
+    a directory inside it, so we never invent a path for an unrelated provider.
+    Returns ``None`` when nothing matches — callers fall back to the agent
+    folder / temp rather than erroring.
+    """
+    raw = str(hint or "").strip()
+    if not raw or raw.startswith(("/", "~", ".")):
+        return None
+    if not store_dir:
+        return None
+    try:
+        if not (Path(store_dir) / raw).is_dir():
+            return None
+    except OSError:
+        return None
+    segments = [part for part in raw.strip("-").split("-") if part]
+    if not segments:
+        return None
+    return _walk_existing_dir(Path("/"), segments)
+
+
 PROVIDER_TRANSCRIPT_READERS: dict[str, TranscriptReader] = {
     "qwen": read_qwen_transcript,
     "agy": read_agy_transcript,

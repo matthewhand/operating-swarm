@@ -309,3 +309,41 @@ def test_agy_transcript_reader_extracts_user_and_final(tmp_path):
     }
     assert res["turns"][1]["role"] == "assistant"
     assert "Finding one" in res["turns"][1]["content"]
+
+
+def test_resolve_escaped_project_dir_finds_real_cwd(tmp_path):
+    """#71: qwen's escaped project dir name resolves to the real directory.
+
+    The hint is only the *name* of the project dir (non-alphanumerics → "-"),
+    so resolution has to walk the filesystem with backtracking — literal
+    hyphens are indistinguishable from separators.
+    """
+    from swarm.core.cli_session_stores import resolve_escaped_project_dir
+
+    real = tmp_path / "home" / "me" / "open-litellm-private"
+    real.mkdir(parents=True)
+    hint = "-" + str(real).strip("/").replace("/", "-")
+    store = tmp_path / "projects"
+    (store / hint).mkdir(parents=True)
+
+    assert resolve_escaped_project_dir(hint, store) == str(real)
+
+
+def test_resolve_escaped_project_dir_refuses_unknown_and_real_paths(tmp_path):
+    """Never invent a path: unknown hints, real paths, and no store all → None."""
+    from swarm.core.cli_session_stores import resolve_escaped_project_dir
+
+    store = tmp_path / "projects"
+    store.mkdir()
+    assert resolve_escaped_project_dir("-not-a-project-dir", store) is None
+    assert resolve_escaped_project_dir("/abs/path", store) is None
+    assert resolve_escaped_project_dir("~/home", store) is None
+    assert resolve_escaped_project_dir("", store) is None
+    assert resolve_escaped_project_dir("-anything", None) is None
+
+
+def test_provider_store_dir_is_public(tmp_path, monkeypatch):
+    from swarm.core.cli_session_stores import provider_store_dir
+
+    monkeypatch.setenv("SWARM_QWEN_PROJECTS_DIR", str(tmp_path / "qwen"))
+    assert provider_store_dir("qwen") == str(tmp_path / "qwen")
