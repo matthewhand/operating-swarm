@@ -31,6 +31,10 @@ export type TeamMemberRole =
   | 'advisor'
   | 'chief_of_staff'
   | 'suggestions'
+  | 'engineer'
+
+/** Canonical composer roles (issue #104). `default` is unassigned; `advisor` stays on TEAM_MEMBER_ROLES. */
+export type ComposableTeamRole = Exclude<TeamMemberRole, 'default' | 'advisor'>
 
 export const TEAM_MEMBER_ROLES: readonly TeamMemberRole[] = [
   'default',
@@ -40,6 +44,16 @@ export const TEAM_MEMBER_ROLES: readonly TeamMemberRole[] = [
   'advisor',
   'chief_of_staff',
   'suggestions',
+  'engineer',
+]
+
+export const COMPOSABLE_TEAM_ROLES: readonly ComposableTeamRole[] = [
+  'support',
+  'gate',
+  'skeptic',
+  'chief_of_staff',
+  'suggestions',
+  'engineer',
 ]
 
 export const DEFAULT_TEAM_WIRES = { handoff: true, as_tool: true } as const
@@ -53,6 +67,13 @@ export const KIND_LABEL: Record<MemberKind, string> = {
 }
 
 export const DRAG_MIME = 'application/x-swarm-team-agent'
+export const ROLE_DRAG_MIME = 'application/x-swarm-team-role'
+
+export interface RoleSlot {
+  id: string
+  role: ComposableTeamRole
+  memberKey: string | null
+}
 
 export const COS_ELIGIBLE_KINDS: readonly MemberKind[] = ['api', 'cli']
 
@@ -242,6 +263,88 @@ export function setMemberRole(
   return members.map((row) => (memberKey(row) === key ? { ...row, role } : row))
 }
 
+export function isComposableTeamRole(value: unknown): value is ComposableTeamRole {
+  return typeof value === 'string' && (COMPOSABLE_TEAM_ROLES as readonly string[]).includes(value)
+}
+
+export function isUnassignedRole(role: string | undefined | null): boolean {
+  return !role || role === 'default'
+}
+
+export function unassignedMembers(members: TeamRosterMember[]): TeamRosterMember[] {
+  return members.filter((row) => isUnassignedRole(row.role))
+}
+
+export function memberByKey(
+  members: TeamRosterMember[],
+  key: string | null | undefined,
+): TeamRosterMember | undefined {
+  if (!key) return undefined
+  return members.find((row) => memberKey(row) === key)
+}
+
+export function newRoleSlot(
+  role: ComposableTeamRole,
+  assignedKey: string | null = null,
+  id?: string,
+): RoleSlot {
+  return {
+    id: id ?? `role-slot-${role}-${Math.random().toString(36).slice(2, 10)}`,
+    role,
+    memberKey: assignedKey,
+  }
+}
+
+export function slotsFromMembers(members: TeamRosterMember[]): RoleSlot[] {
+  return members
+    .filter((row) => isComposableTeamRole(row.role))
+    .map((row) => newRoleSlot(row.role, memberKey(row)))
+}
+
+export function canAddRoleSlot(slots: RoleSlot[], role: ComposableTeamRole): boolean {
+  if (role === 'chief_of_staff') {
+    return !slots.some((slot) => slot.role === 'chief_of_staff')
+  }
+  return true
+}
+
+export function addRoleSlot(slots: RoleSlot[], role: ComposableTeamRole): RoleSlot[] {
+  if (!canAddRoleSlot(slots, role)) return slots
+  return [...slots, newRoleSlot(role)]
+}
+
+export function removeRoleSlot(slots: RoleSlot[], slotId: string): RoleSlot[] {
+  return slots.filter((slot) => slot.id !== slotId)
+}
+
+export function assignRoleSlot(
+  slots: RoleSlot[],
+  slotId: string,
+  nextMemberKey: string | null,
+): RoleSlot[] {
+  return slots.map((slot) => (slot.id === slotId ? { ...slot, memberKey: nextMemberKey } : slot))
+}
+
+export function unassignSlotsForMember(
+  slots: RoleSlot[],
+  agent: Pick<TeamRosterMember, 'kind' | 'id' | 'source'>,
+): RoleSlot[] {
+  const key = memberKey(agent)
+  return slots.map((slot) => (slot.memberKey === key ? { ...slot, memberKey: null } : slot))
+}
+
+export function applySlotMemberChange(
+  members: TeamRosterMember[],
+  slot: RoleSlot,
+  nextMember: TeamRosterMember | null,
+): TeamRosterMember[] {
+  let next = members
+  const prev = memberByKey(members, slot.memberKey)
+  if (prev) next = setMemberRole(next, prev, 'default')
+  if (nextMember) next = setMemberRole(next, nextMember, slot.role)
+  return next
+}
+
 export function encodeDragAgent(agent: TeamAgent): string {
   return JSON.stringify({
     id: agent.id,
@@ -271,12 +374,60 @@ export function parseDragAgent(raw: string): TeamAgent | null {
   }
 }
 
+export function encodeDragRole(role: ComposableTeamRole): string {
+  return JSON.stringify({ role })
+}
+
+export function parseDragRole(raw: string): ComposableTeamRole | null {
+  if (!raw || !raw.trim()) return null
+  try {
+    const row = JSON.parse(raw) as Record<string, unknown>
+    const role = String(row.role || '').trim()
+    return isComposableTeamRole(role) ? role : null
+  } catch {
+    return null
+  }
+}
+
+export function dataTransferHasType(
+  dt: Pick<DataTransfer, 'types' | 'getData'> | null | undefined,
+  mime: string,
+): boolean {
+  if (!dt) return false
+  const types = Array.from(dt.types || [])
+  if (types.includes(mime)) return true
+  if (types.length === 0) {
+    try {
+      return Boolean(dt.getData(mime))
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
 export function isCosEligibleKind(kind: string | undefined): boolean {
   return Boolean(kind && (COS_ELIGIBLE_KINDS as readonly string[]).includes(kind))
 }
 
 export function isCosEligibleMember(member: Pick<TeamRosterMember, 'kind'>): boolean {
   return isCosEligibleKind(member.kind)
+}
+
+export function assignableMembersForSlot(
+  members: TeamRosterMember[],
+  slot: RoleSlot,
+): TeamRosterMember[] {
+  const used = new Set(
+    members
+      .filter((row) => !isUnassignedRole(row.role) && memberKey(row) !== slot.memberKey)
+      .map((row) => memberKey(row)),
+  )
+  const candidates = members.filter((row) => !used.has(memberKey(row)))
+  if (slot.role === 'chief_of_staff') {
+    return candidates.filter(isCosEligibleMember)
+  }
+  return candidates
 }
 
 export function cosIneligibleReason(member: Pick<TeamRosterMember, 'kind'>): string | null {

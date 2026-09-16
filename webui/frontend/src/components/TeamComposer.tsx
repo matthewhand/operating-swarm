@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Users } from 'lucide-react'
+import { Plus, Tags, Users } from 'lucide-react'
 import { Alert, Badge, Button, Input, Modal, Textarea } from './DaisyUI'
 import { MarketplaceScanSection } from './MarketplaceScanSection'
 import {
@@ -9,33 +9,47 @@ import {
   fetchTeamRosters,
   updateTeamRoster,
   type TeamAgent,
-  type TeamMemberRole,
   type TeamRosterRecord,
 } from '../lib/api'
 import {
   addMember,
   agentDisplayName,
+  applySlotMemberChange,
+  assignableMembersForSlot,
+  assignRoleSlot,
+  canAddRoleSlot,
+  COMPOSABLE_TEAM_ROLES,
   COS_EMPTY_ROSTER_HINT,
   COS_INSTRUCTIONS_HELPER,
-  cosIneligibleReason,
+  dataTransferHasType,
   DEFAULT_COS_STARTER,
   DEFAULT_TEAM_WIRES,
   DRAG_MIME,
   eligibleCosMembers,
   emptyRosterDraft,
   encodeDragAgent,
+  encodeDragRole,
   isCosEligibleMember,
   KIND_LABEL,
+  memberByKey,
+  memberKey,
+  newRoleSlot,
   NO_COS_VALUE,
   parseDragAgent,
+  parseDragRole,
   parseRosterMember,
   PLACEHOLDER_TEAM_AGENTS,
   removeMember,
+  removeRoleSlot,
   restoreCosId,
+  ROLE_DRAG_MIME,
   rosterHasMember,
   setMemberRole,
+  slotsFromMembers,
   stampCosRole,
-  TEAM_MEMBER_ROLES,
+  unassignSlotsForMember,
+  type ComposableTeamRole,
+  type RoleSlot,
   type TeamRosterMember,
 } from '../lib/teamRoster'
 
@@ -70,10 +84,13 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const [cosInstructions, setCosInstructions] = useState(DEFAULT_COS_STARTER)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [roleDragOver, setRoleDragOver] = useState(false)
+  const [roleSlots, setRoleSlots] = useState<RoleSlot[]>([])
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const cosChoices = useMemo(() => eligibleCosMembers(members), [members])
+  const rolesUnlocked = members.length > 0
 
   const agentsQuery = useQuery({
     queryKey: ['team-agents'],
@@ -112,6 +129,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     setWires({ ...draft.wires })
     setChiefOfStaffId(draft.chiefOfStaffId)
     setCosInstructions(draft.chiefOfStaffInstructions)
+    setRoleSlots([])
     setSavedId(null)
     setStatus(null)
   }, [])
@@ -142,7 +160,19 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
 
   const applyChiefOfStaff = useCallback((nextId: string | null) => {
     setChiefOfStaffId(nextId)
-    setMembers((prev) => stampCosRole(prev, nextId))
+    setMembers((prev) => {
+      const stamped = stampCosRole(prev, nextId)
+      const holder = nextId ? stamped.find((row) => row.id === nextId) : undefined
+      const nextKey = holder ? memberKey(holder) : null
+      setRoleSlots((slots) =>
+        slots.map((slot) => {
+          if (slot.role === 'chief_of_staff') return { ...slot, memberKey: nextKey }
+          if (nextKey && slot.memberKey === nextKey) return { ...slot, memberKey: null }
+          return slot
+        }),
+      )
+      return stamped
+    })
     setCosInstructions((prev) => (prev.trim() ? prev : DEFAULT_COS_STARTER))
     setStatus(null)
   }, [])
@@ -153,28 +183,72 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     closeMenu()
   }, [closeMenu])
 
+  const addFromRole = useCallback(
+    (role: ComposableTeamRole) => {
+      if (members.length === 0) return
+      setRoleSlots((prev) => {
+        if (!canAddRoleSlot(prev, role)) return prev
+        let assigned: string | null = null
+        if (role === 'chief_of_staff' && chiefOfStaffId) {
+          const holder = members.find((row) => row.id === chiefOfStaffId)
+          if (holder) assigned = memberKey(holder)
+        }
+        return [...prev, newRoleSlot(role, assigned)]
+      })
+      closeMenu()
+    },
+    [members, chiefOfStaffId, closeMenu],
+  )
+
   const removeFromAgent = useCallback((agent: Pick<TeamRosterMember, 'kind' | 'id' | 'source'>) => {
     setMembers((prev) => {
       const next = removeMember(prev, agent)
       if (chiefOfStaffId && agent.id === chiefOfStaffId) {
         setChiefOfStaffId(null)
       }
+      if (next.length === 0) {
+        setRoleSlots([])
+      } else {
+        setRoleSlots((slots) => unassignSlotsForMember(slots, agent))
+      }
       return next
     })
     closeMenu()
   }, [chiefOfStaffId, closeMenu])
 
-  const onDragStart = (event: React.DragEvent<HTMLElement>, agent: TeamAgent) => {
-    try {
-      event.dataTransfer.clearData('text/uri-list')
-      event.dataTransfer.clearData('URL')
-      event.dataTransfer.clearData('text/html')
-    } catch {
-      /* ignore */
-    }
-    event.dataTransfer.setData(DRAG_MIME, encodeDragAgent(agent))
-    event.dataTransfer.setData('text/plain', encodeDragAgent(agent))
-    event.dataTransfer.effectAllowed = 'copy'
+  const removeSlot = useCallback(
+    (slot: RoleSlot) => {
+      if (slot.role === 'chief_of_staff') {
+        if (slot.memberKey) applyChiefOfStaff(null)
+      } else if (slot.memberKey) {
+        const prev = memberByKey(members, slot.memberKey)
+        if (prev) setMembers((current) => setMemberRole(current, prev, 'default'))
+      }
+      setRoleSlots((slots) => removeRoleSlot(slots, slot.id))
+    },
+    [applyChiefOfStaff, members],
+  )
+
+  const onAssignSlot = useCallback(
+    (slot: RoleSlot, nextKey: string) => {
+      const nextMember = memberByKey(members, nextKey) ?? null
+      if (slot.role === 'chief_of_staff') {
+        if (nextMember && !isCosEligibleMember(nextMember)) return
+        applyChiefOfStaff(nextMember?.id ?? null)
+        return
+      }
+      setMembers((prev) => applySlotMemberChange(prev, slot, nextMember))
+      if (nextMember && chiefOfStaffId === nextMember.id) {
+        applyChiefOfStaff(null)
+      }
+      setRoleSlots((slots) =>
+        assignRoleSlot(slots, slot.id, nextMember ? memberKey(nextMember) : null),
+      )
+    },
+    [applyChiefOfStaff, chiefOfStaffId, members],
+  )
+
+  const clearForeignDrag = (event: React.DragEvent<HTMLElement>) => {
     try {
       event.dataTransfer.clearData('text/uri-list')
       event.dataTransfer.clearData('URL')
@@ -184,8 +258,34 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     }
   }
 
+  const onDragStart = (event: React.DragEvent<HTMLElement>, agent: TeamAgent) => {
+    clearForeignDrag(event)
+    event.dataTransfer.setData(DRAG_MIME, encodeDragAgent(agent))
+    event.dataTransfer.setData('text/plain', encodeDragAgent(agent))
+    event.dataTransfer.effectAllowed = 'copy'
+    clearForeignDrag(event)
+  }
+
+  const onRoleDragStart = (event: React.DragEvent<HTMLElement>, role: ComposableTeamRole) => {
+    if (members.length === 0) {
+      event.preventDefault()
+      return
+    }
+    clearForeignDrag(event)
+    event.dataTransfer.setData(ROLE_DRAG_MIME, encodeDragRole(role))
+    event.dataTransfer.setData('text/plain', encodeDragRole(role))
+    event.dataTransfer.effectAllowed = 'copy'
+    clearForeignDrag(event)
+  }
+
   const onDragOver = (event: React.DragEvent<HTMLElement>) => {
     event.preventDefault()
+    if (dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, DRAG_MIME)) {
+      event.dataTransfer.dropEffect = 'none'
+      setDragOver(false)
+      return
+    }
     event.dataTransfer.dropEffect = 'copy'
     setDragOver(true)
   }
@@ -198,9 +298,57 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const onDrop = (event: React.DragEvent<HTMLElement>) => {
     event.preventDefault()
     setDragOver(false)
+    if (
+      dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, DRAG_MIME)
+    ) {
+      return
+    }
     const raw = event.dataTransfer.getData(DRAG_MIME) || event.dataTransfer.getData('text/plain')
+    if (parseDragRole(raw) && !parseDragAgent(raw)) return
     const agent = parseDragAgent(raw)
     if (agent) addFromAgent(agent)
+  }
+
+  const onRoleDragOver = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    if (!rolesUnlocked) {
+      event.dataTransfer.dropEffect = 'none'
+      setRoleDragOver(false)
+      return
+    }
+    if (
+      dataTransferHasType(event.dataTransfer, DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME)
+    ) {
+      event.dataTransfer.dropEffect = 'none'
+      setRoleDragOver(false)
+      return
+    }
+    event.dataTransfer.dropEffect = 'copy'
+    setRoleDragOver(true)
+  }
+
+  const onRoleDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node)) return
+    setRoleDragOver(false)
+  }
+
+  const onRoleDrop = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    setRoleDragOver(false)
+    if (!rolesUnlocked) return
+    if (
+      dataTransferHasType(event.dataTransfer, DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME)
+    ) {
+      return
+    }
+    const raw =
+      event.dataTransfer.getData(ROLE_DRAG_MIME) || event.dataTransfer.getData('text/plain')
+    if (parseDragAgent(raw) && !parseDragRole(raw)) return
+    const role = parseDragRole(raw)
+    if (role) addFromRole(role)
   }
 
   const saveMutation = useMutation({
@@ -237,6 +385,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       setCosInstructions(
         nextCos ? roster.chief_of_staff_instructions || DEFAULT_COS_STARTER : DEFAULT_COS_STARTER,
       )
+      setRoleSlots(slotsFromMembers(stampCosRole(nextMembers, nextCos)))
       queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
       setStatus(`Saved roster “${roster.name}” to team_rosters.json.`)
     },
@@ -257,6 +406,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     setCosInstructions(
       nextCos ? roster.chief_of_staff_instructions || DEFAULT_COS_STARTER : DEFAULT_COS_STARTER,
     )
+    setRoleSlots(slotsFromMembers(stampCosRole(nextMembers, nextCos)))
     setWires({
       handoff: roster.wires?.handoff ?? true,
       as_tool: roster.wires?.as_tool ?? true,
@@ -478,51 +628,6 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                         <Badge type={kindBadgeType(member.kind)} size="sm">
                           {KIND_LABEL[member.kind]}
                         </Badge>
-                        {isCosEligibleMember(member) ? (
-                          <label className="flex items-center gap-1 text-xs">
-                            <input
-                              type="radio"
-                              name="team-chief-of-staff"
-                              className="radio radio-xs"
-                              checked={chiefOfStaffId === member.id}
-                              aria-label={`Chief of Staff: ${member.id}`}
-                              onChange={() => applyChiefOfStaff(member.id)}
-                            />
-                            <span className="text-base-content/60">CoS</span>
-                          </label>
-                        ) : (
-                          <span
-                            className="text-[11px] text-base-content/40"
-                            title={cosIneligibleReason(member) ?? undefined}
-                          >
-                            CoS n/a
-                          </span>
-                        )}
-                        <label className="sr-only" htmlFor={`role-${member.kind}-${member.id}`}>
-                          Role for {member.id}
-                        </label>
-                        <select
-                          id={`role-${member.kind}-${member.id}`}
-                          className="select select-xs"
-                          value={member.role}
-                          onChange={(event) => {
-                            const role = event.target.value as TeamMemberRole
-                            if (role === 'chief_of_staff') {
-                              if (isCosEligibleMember(member)) applyChiefOfStaff(member.id)
-                              return
-                            }
-                            setMembers((prev) => setMemberRole(prev, member, role))
-                            if (chiefOfStaffId === member.id) applyChiefOfStaff(null)
-                          }}
-                        >
-                          {TEAM_MEMBER_ROLES.filter(
-                            (role) => role !== 'chief_of_staff' || isCosEligibleMember(member),
-                          ).map((role) => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </select>
                         <button
                           type="button"
                           className="btn btn-ghost btn-xs ml-auto"
@@ -611,6 +716,125 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                   </div>
                 ))}
               </div>
+            )}
+          </section>
+        </div>
+
+        <div
+          className={`grid gap-4 lg:grid-cols-2 ${rolesUnlocked ? '' : 'opacity-60'}`}
+          data-testid="team-roles-pane"
+          aria-disabled={!rolesUnlocked}
+        >
+          <section
+            aria-label="Team roles drop zone"
+            data-testid="team-roles-drop-zone"
+            onDragOver={onRoleDragOver}
+            onDragLeave={onRoleDragLeave}
+            onDrop={onRoleDrop}
+            className={`min-h-[12rem] rounded-xl border-2 border-dashed px-4 py-4 transition-colors ${
+              roleDragOver && rolesUnlocked
+                ? 'border-primary bg-base-200'
+                : 'border-base-content/25 bg-base-200/70'
+            }`}
+          >
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-base-content/70">
+              <Tags className="h-4 w-4" aria-hidden="true" />
+              Roles
+            </div>
+            {!rolesUnlocked ? (
+              <p className="text-sm text-base-content/45" data-testid="team-roles-locked-hint">
+                {COS_EMPTY_ROSTER_HINT}
+              </p>
+            ) : roleSlots.length === 0 ? (
+              <div className="flex h-[8rem] flex-col items-center justify-center text-center text-base-content/45">
+                <p className="text-sm font-medium tracking-wide">drop roles here</p>
+                <p className="mt-1 max-w-xs text-xs">
+                  Drag from the available list, or use Add. Assign an unroled roster agent to each
+                  slot.
+                </p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2 os-scrollable-picker-list pr-1" aria-label="Role slots">
+                {roleSlots.map((slot) => {
+                  const choices = assignableMembersForSlot(members, slot)
+                  return (
+                    <li key={slot.id}>
+                      <article
+                        className="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2"
+                        data-testid="team-role-slot"
+                        data-role={slot.role}
+                      >
+                        <span className="font-medium">{slot.role}</span>
+                        <label className="sr-only" htmlFor={`role-slot-${slot.id}`}>
+                          Assign {slot.role}
+                        </label>
+                        <select
+                          id={`role-slot-${slot.id}`}
+                          className="select select-xs"
+                          value={slot.memberKey ?? ''}
+                          aria-label={`Assign ${slot.role}`}
+                          data-testid={`team-role-assign-${slot.role}`}
+                          onChange={(event) => onAssignSlot(slot, event.target.value)}
+                        >
+                          <option value="">
+                            {slot.role === 'chief_of_staff' ? 'No Chief of Staff' : 'Unassigned'}
+                          </option>
+                          {choices.map((member) => (
+                            <option key={memberKey(member)} value={memberKey(member)}>
+                              {agentDisplayName(member)}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs ml-auto"
+                          aria-label={`Remove ${slot.role} role`}
+                          onClick={() => removeSlot(slot)}
+                        >
+                          Remove
+                        </button>
+                      </article>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section aria-label="Available roles" className="min-h-[12rem]">
+            <div className="mb-3 text-sm font-medium text-base-content/70">Available roles</div>
+            {!rolesUnlocked ? (
+              <p className="text-sm text-base-content/45">{COS_EMPTY_ROSTER_HINT}</p>
+            ) : (
+              <ul
+                className="flex max-h-[14rem] flex-col gap-1 os-scrollable-picker-list overflow-y-auto pr-1"
+                aria-label="Available roles list"
+                role="list"
+              >
+                {COMPOSABLE_TEAM_ROLES.map((role) => {
+                  const blocked = !canAddRoleSlot(roleSlots, role)
+                  return (
+                    <li
+                      key={role}
+                      draggable={!blocked}
+                      onDragStart={(event) => onRoleDragStart(event, role)}
+                      className="flex cursor-grab items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2 active:cursor-grabbing"
+                      data-testid={`available-role-${role}`}
+                    >
+                      <span className="min-w-0 flex-1 truncate font-medium">{role}</span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        disabled={blocked}
+                        aria-label={`Add ${role} role`}
+                        onClick={() => addFromRole(role)}
+                      >
+                        Add
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
             )}
           </section>
         </div>

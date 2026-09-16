@@ -136,7 +136,8 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
 
   const cos = page.getByTestId('team-cos-select')
   await expect(cos).toBeDisabled()
-  await expect(page.getByText(/add agents first/i)).toBeVisible()
+  await expect(page.getByTestId('team-roles-locked-hint')).toBeVisible()
+  await expect(page.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'true')
 
   await available.getByRole('button', { name: 'Add' }).first().click()
   const roster = page.getByRole('list', { name: /roster members/i })
