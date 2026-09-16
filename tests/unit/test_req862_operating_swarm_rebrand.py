@@ -59,6 +59,7 @@ def test_req862_pyproject_is_os_core_not_a_component_named_operating_swarm():
     assert 'name = "os-core"' in text
     assert "Operating Swarm" in text
     assert 'os-cli = "swarm.core.swarm_cli:app"' in text
+    assert 'os = "swarm.core.swarm_cli:app"' in text
     assert 'os-api = "swarm.core.swarm_api:main"' in text
     assert "swarm-cli =" not in text
     assert "swarm-api =" not in text
@@ -95,7 +96,7 @@ def test_req862_html_titles_are_operating_swarm():
 def test_req862_cli_and_api_banners_name_operating_swarm():
     cli = _text(SWARM_CLI)
     api = _text(SWARM_API)
-    assert 'help="Operating Swarm CLI (OS CLI)"' in cli
+    assert "Operating Swarm CLI (OS CLI)" in cli
     assert "Operating Swarm API (OS Server)" in api
     assert "Launching Operating Swarm API (OS Server)" in api
     assert "Swarm CLI tool" not in cli

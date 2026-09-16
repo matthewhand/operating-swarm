@@ -143,6 +143,7 @@ def _non_interactive(
 
 def register_tui(app: typer.Typer) -> None:
     app.command(name="tui")(tui_cmd)
+    app.command(name="chat")(tui_cmd)
 
 
 # Re-export default for tests that assert we never bake :8001.

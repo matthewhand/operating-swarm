@@ -70,6 +70,7 @@ Changelog = "https://github.com/matthewhand/operating-swarm/blob/main/CHANGELOG.
 
 [project.scripts]
 os-cli = "swarm.core.swarm_cli:app"
+os = "swarm.core.swarm_cli:app"
 os-api = "swarm.core.swarm_api:main"
 codey = "swarm.blueprints.codey.codey_cli:main"
 suggestion = "swarm.blueprints.suggestion.suggestion_cli:main"
