@@ -589,8 +589,8 @@ describe('SidebarHeader', () => {
         onSelectDensity={vi.fn()}
       />,
     )
-    const conceal = screen.getByRole('button', { name: 'Conceal sidebar' })
-    expect(conceal).toHaveAttribute('title', 'Conceal sidebar')
+    const conceal = screen.getByRole('button', { name: 'Collapse sidebar' })
+    expect(conceal).toHaveAttribute('title', 'Collapse sidebar')
     fireEvent.click(conceal)
     expect(handleToggle).toHaveBeenCalledTimes(1)
   })
