@@ -111,6 +111,7 @@ describe('remotes catalog (REQ-59)', () => {
     expect(ids).toContain('omb')
     expect(ids).toContain('rakazo')
     expect(ids).toContain('herdr')
+    expect(ids).toContain('slack')
     expect(impls.every((kind) => kind.kind === 'remote')).toBe(true)
     expect(impls.find((kind) => kind.id === 'herdr')?.impl).toBe('herdr')
   })

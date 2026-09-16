@@ -175,7 +175,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "n8n", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "n8n", "slack", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -199,6 +199,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "FLOWISE_API_KEY",
             "N8N_BASE_URL",
             "N8N_API_KEY",
+            "SLACK_BASE_URL",
+            "SLACK_BOT_TOKEN",
         ],
     }
 
@@ -313,6 +315,16 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_letta",
                 "Hand off to the Letta remote operator (health/list/send).",
+            ),
+            "slack": (
+                "SlackRemote",
+                (
+                    "You operate Slack via the bot API. List threads as sessions "
+                    "and send into an existing channel/thread. Never mint a new "
+                    "Slack app."
+                ),
+                "consult_slack",
+                "Hand off to the Slack remote operator (health/list/send).",
             ),
             "n8n": (
                 "N8nRemote",
