@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { QueryClientContext } from '@tanstack/react-query'
 import { FileCode2, EyeOff } from 'lucide-react'
 import { Button, Textarea } from './DaisyUI'
@@ -7,6 +7,7 @@ import {
   VIEW_EDIT_CODE_LABEL,
   type SupportNlBlueprintCard,
 } from '../lib/supportNlBlueprint'
+import { focusAgentChat } from '../lib/agentNotifications'
 
 export interface SupportCreatedBlueprintCardProps {
   card: SupportNlBlueprintCard
@@ -20,12 +21,20 @@ export default function SupportCreatedBlueprintCard({
 }: SupportCreatedBlueprintCardProps) {
   const [revealed, setRevealed] = useState(false)
   const queryClient = useContext(QueryClientContext)
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (queryClient) {
       void queryClient.invalidateQueries({ queryKey: ['blueprints'] })
     }
   }, [queryClient, card.id])
+
+  const openInChat = () => {
+    const href = card.chatHref || `/chat?blueprint=${encodeURIComponent(card.id)}`
+    void queryClient?.invalidateQueries({ queryKey: ['blueprints'] })
+    navigate(href)
+    focusAgentChat(card.id)
+  }
 
   return (
     <div
@@ -52,13 +61,18 @@ export default function SupportCreatedBlueprintCard({
           not write Python.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Link
-            to={card.chatHref}
+          <button
+            type="button"
             className="btn btn-primary btn-xs"
             data-testid="support-nl-open-chat"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openInChat()
+            }}
           >
             Open in chat
-          </Link>
+          </button>
           <Button
             type="button"
             variant="outline"
