@@ -22,6 +22,7 @@ import {
   fetchBlueprints,
   fetchCustomBlueprints,
   fetchConfigOwnership,
+  fetchCliAgents,
   fetchLlmProfiles,
   fetchLocalStore,
   fetchRemotes,
@@ -68,6 +69,13 @@ import {
   loadHostnameOverride,
   saveBumpCompleted,
 } from '../lib/settingsPrefs'
+import {
+  PRODUCT_MODE_KEYS,
+  PRODUCT_MODE_LABELS,
+  PRODUCT_MODE_LIMITATIONS,
+  resolveProductModes,
+  type ProductModes,
+} from '../lib/productModes'
 import { HOSTNAME_CHANGED_EVENT, dispatchHostnameChanged } from '../lib/hostname'
 import { agentLabel, catalogLabel } from '../lib/supportAgent'
 import {
@@ -1597,6 +1605,26 @@ function RailPane({
   bumpCompleted: boolean
   onBumpCompleted: (next: boolean) => void
 }) {
+  const queryClient = useQueryClient()
+  const { success, error: toastError } = useToast()
+  const modesQuery = useQuery({
+    queryKey: ['cli-agents'],
+    queryFn: fetchCliAgents,
+    retry: 1,
+  })
+  const modes = resolveProductModes(modesQuery.data)
+  const limitations = modesQuery.data?.mode_limitations ?? PRODUCT_MODE_LIMITATIONS
+  const saveModes = useMutation({
+    mutationFn: (next: ProductModes) =>
+      patchConfigSection('settings', { upsert: { product_modes: next } }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['cli-agents'] })
+      success('Product modes saved')
+    },
+    onError: () => {
+      toastError('Could not save product modes')
+    },
+  })
   return (
     <div className="space-y-4">
       <div>
@@ -1606,6 +1634,33 @@ function RailPane({
           Favourite tiles keep their own order.
         </p>
       </div>
+      <fieldset className="space-y-3" data-testid="product-modes">
+        <legend className="text-sm font-semibold">Manage surfaces</legend>
+        <p className="text-sm text-base-content/70">
+          Fresh install starts CLI-only from discovered host CLIs. Enable API,
+          Blueprint, Team, or Remote to show those rail/navbar affordances.
+        </p>
+        {PRODUCT_MODE_KEYS.map((key) => (
+          <label key={key} className="flex cursor-pointer items-start gap-4">
+            <input
+              type="checkbox"
+              className="toggle mt-0.5"
+              checked={modes[key]}
+              disabled={saveModes.isPending}
+              aria-label={`Manage ${PRODUCT_MODE_LABELS[key]}`}
+              onChange={(event) =>
+                saveModes.mutate({ ...modes, [key]: event.target.checked })
+              }
+            />
+            <span>
+              <span className="label-text">Manage {PRODUCT_MODE_LABELS[key]}</span>
+              <p className="mt-0.5 text-xs text-base-content/60">
+                {limitations[key] || PRODUCT_MODE_LIMITATIONS[key]}
+              </p>
+            </span>
+          </label>
+        ))}
+      </fieldset>
       <label className="label cursor-pointer justify-start gap-4">
         <input
           type="checkbox"

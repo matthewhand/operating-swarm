@@ -1369,6 +1369,15 @@ export interface CliAgentsInfo {
   /** Discovered-minus-configured catalog entries for one-click add. */
   suggestions?: Record<string, Record<string, unknown>>
   default_cli?: string
+  /** CLI-first product modes (#151). Missing → client treats as legacy all-on. */
+  modes?: {
+    cli?: boolean
+    api?: boolean
+    blueprint?: boolean
+    team?: boolean
+    remote?: boolean
+  }
+  mode_limitations?: Record<string, string>
   native_consensus: Record<string, string[]>
   catalog: Record<string, Record<string, unknown>>
   rail?: CliRailAgent[]

@@ -93,10 +93,11 @@ describe('isApiBlueprintId', () => {
 })
 
 describe('discoverChatClis', () => {
-  it('lists only configured names, not every PATH-discovered binary', () => {
+  it('lists discovered host CLIs plus configured names, never the static catalog', () => {
     expect(
       discoverChatClis({
-        clis: ['claude', 'codex', 'gemini', 'grok', 'opencode'],
+        clis: ['claude', 'codex', 'gemini', 'grok', 'opencode', 'pi'],
+        known: ['claude', 'codex', 'gemini', 'grok', 'opencode', 'pi'],
         installed: ['grok', 'claude'],
         discovered: ['grok', 'claude'],
         configured: ['grok', 'my_custom_cli'],
@@ -114,20 +115,21 @@ describe('discoverChatClis', () => {
           },
         ],
       }),
-    ).toEqual(['grok', 'my_custom_cli'])
+    ).toEqual(['grok', 'claude', 'my_custom_cli'])
   })
 
-  it('stays empty when nothing is configured (no catalog fallback)', () => {
+  it('starts from discovered CLIs when nothing is configured (pi absent stays absent)', () => {
     expect(
       discoverChatClis({
-        clis: ['grok', 'claude'],
+        clis: ['grok', 'claude', 'pi'],
+        known: ['grok', 'claude', 'pi'],
         installed: ['grok'],
         discovered: ['grok'],
         configured: [],
         native_consensus: {},
         catalog: {},
       }),
-    ).toEqual([])
+    ).toEqual(['grok'])
   })
 
   it('returns empty when the payload is missing', () => {

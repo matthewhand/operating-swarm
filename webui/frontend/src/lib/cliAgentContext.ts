@@ -52,12 +52,12 @@ export function isApiBlueprintId(id: string | null | undefined): boolean {
 }
 
 /**
- * CLIs the chat dropdown should list (REQ-157 / #565).
+ * CLIs the chat dropdown should list (#149 / REQ-157).
  *
- * Only **configured** names (Settings / + add). Discovered PATH binaries stay
- * off the dropdown until the user adds them — same opt-in as remotes.
- * Always include the selected / running CLI so a mid-chat switch stays visible.
- * Do not fall back to the static catalog (that was surprise clutter).
+ * Starting set is **discovered** host CLIs (PATH seed). Configured names that
+ * are not on PATH still appear after the user adds them. Always include the
+ * selected / running CLI so a mid-chat switch stays visible.
+ * Do not fall back to the static catalog (`known` / `clis`) — pi absent stays absent.
  */
 export function discoverChatClis(
   info: CliAgentsInfo | null | undefined,
@@ -77,6 +77,9 @@ export function discoverChatClis(
     if (!trimmed || trimmed === MANAGE_CLI_VALUE || seen.has(trimmed)) return
     seen.add(trimmed)
     out.push(trimmed)
+  }
+  for (const name of info?.discovered ?? info?.installed ?? []) {
+    push(name)
   }
   for (const name of info?.configured ?? []) {
     push(name)

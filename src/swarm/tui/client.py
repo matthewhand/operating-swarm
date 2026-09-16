@@ -286,6 +286,43 @@ def _dedupe(seats: list[RailSeat]) -> list[RailSeat]:
     return out
 
 
+def _modes_from_cli_payload(payload: dict[str, Any] | None) -> dict[str, bool] | None:
+    """CLI-first modes from GET /v1/cli-agents/. None = legacy payload, do not filter."""
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("modes")
+    if not isinstance(raw, dict):
+        return None
+    from swarm.core.cli_catalog import PRODUCT_MODE_KEYS, default_product_modes
+
+    modes = default_product_modes()
+    for key in PRODUCT_MODE_KEYS:
+        if key in raw:
+            modes[key] = bool(raw[key])
+    return modes
+
+
+def _seat_allowed_for_modes(seat: RailSeat, modes: dict[str, bool] | None) -> bool:
+    """Keep Support; hide disabled manage surfaces (#151)."""
+    if modes is None:
+        return True
+    sid = (seat.id or "").strip().lower()
+    if sid == "support":
+        return True
+    kind = (seat.kind or "").strip().lower()
+    if kind == "cli" or sid == "cli_agent":
+        return bool(modes.get("cli", True))
+    if kind == "api" or sid == "api_agent":
+        return bool(modes.get("api", False))
+    if kind == "team" or sid.startswith("team:"):
+        return bool(modes.get("team", False))
+    if kind in {"remote", "herdr"} or sid.startswith("herdr:"):
+        return bool(modes.get("remote", False))
+    if kind == "blueprint":
+        return bool(modes.get("blueprint", False))
+    return True
+
+
 # --- Wave 2a: hydrate one seat's real transcript (GET /chat/thread/) --------
 
 
@@ -588,4 +625,5 @@ def list_rail_agents(
     if herdr_payload is not None:
         seats.extend(_seats_from_herdr_agents(herdr_payload))
 
-    return _dedupe(seats)
+    modes = _modes_from_cli_payload(cli_payload)
+    return [seat for seat in _dedupe(seats) if _seat_allowed_for_modes(seat, modes)]

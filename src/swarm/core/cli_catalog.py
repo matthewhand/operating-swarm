@@ -13,6 +13,13 @@ user-local dirs) and prepopulates the **suggested / addable** set. Discovery
 is ``which`` / ``stat`` only — never ``auth_check``, never a login probe,
 never a network call.
 
+CLI-first product modes (#151 / #149): shipped defaults turn **CLI on** and
+**API / Blueprint / Team / Remote off** until Settings enables them. The rail
+and agent picker start from **discovered host CLIs only** — a known catalog
+name that is not on PATH (pi absent) stays absent. ``known`` is the full
+catalog; ``discovered`` / ``installed`` is the PATH seed; ``configured`` is
+opt-in.
+
 Known catalog names (agy is the antigravity CLI): grok, agy, claude, gemini,
 codex, opencode, kilocode, pi, omp, qwen.
 
@@ -922,40 +929,113 @@ def cli_from_rail_id(agent_id: str | None) -> str | None:
     return None
 
 
-def rail_cli_rows() -> list[dict[str, Any]]:
-    """Named kind rows for the conversation rail: ``cli_agent`` + ``api_agent``.
+# CLI-first product modes (#151). Only CLI is on until Settings enables more.
+PRODUCT_MODE_KEYS: tuple[str, ...] = ("cli", "api", "blueprint", "team", "remote")
+DEFAULT_PRODUCT_MODES: dict[str, bool] = {
+    "cli": True,
+    "api": False,
+    "blueprint": False,
+    "team": False,
+    "remote": False,
+}
+PRODUCT_MODE_LIMITATIONS: dict[str, str] = {
+    "cli": (
+        "On: rail and navbar list discovered host CLIs only. "
+        "Known catalog names that are not on PATH stay absent. "
+        "Off: no CLI rail seat or Manage CLI footer."
+    ),
+    "api": (
+        "On: api_agent rail seat and Manage API navbar footer (LiteLLM profiles). "
+        "Off: API seats stay out of the default rail/navbar."
+    ),
+    "blueprint": (
+        "On: blueprint rail seats and Manage Blueprint. "
+        "Off: blueprint catalog seats stay off the default rail/navbar."
+    ),
+    "team": (
+        "On: team rail rows and Manage Team. "
+        "Off: teams stay out of the default rail/navbar."
+    ),
+    "remote": (
+        "On: remote rail rows and Manage Remote. "
+        "Off: remotes stay out of the default rail/navbar."
+    ),
+}
 
-    Host CLIs (grok/agy/opencode/pi) are picked from the chat CLI dropdown, not
-    as four separate rail ids. ``grok_agent``-style ids still map via
+
+def default_product_modes() -> dict[str, bool]:
+    """Shipped CLI-first defaults: CLI on, every other manage surface off."""
+    return dict(DEFAULT_PRODUCT_MODES)
+
+
+def product_modes(config: dict[str, Any] | None = None) -> dict[str, bool]:
+    """Resolve ``settings.product_modes`` against shipped CLI-first defaults.
+
+    Missing keys keep the default. Unknown keys are ignored.
+    """
+    out = default_product_modes()
+    settings = (config or {}).get("settings")
+    raw = settings.get("product_modes") if isinstance(settings, dict) else None
+    if not isinstance(raw, dict):
+        return out
+    for key in PRODUCT_MODE_KEYS:
+        if key in raw:
+            out[key] = bool(raw[key])
+    return out
+
+
+def _discovered_default_cli(discovered: list[str]) -> str:
+    """First discovered catalog CLI; never invent a missing executable."""
+    found = [name for name in discovered if name in CATALOG]
+    for name in SIDEBAR_CLIS:
+        if name in found:
+            return name
+    return found[0] if found else ""
+
+
+def rail_cli_rows(
+    config: dict[str, Any] | None = None,
+    *,
+    discovered: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Named kind rows for the conversation rail.
+
+    Fresh/default config (#151 / #149): CLI on, API off. ``cli`` is a
+    PATH-discovered catalog name or empty — never a fake grok/pi that is not
+    installed. Host CLIs are picked from the chat CLI dropdown, not as four
+    separate rail ids. ``grok_agent``-style ids still map via
     :func:`cli_from_rail_id` for old bookmarks.
     """
-    default_cli = next(
-        (name for name in SIDEBAR_CLIS if name in CATALOG and which_cli(CATALOG[name]["cmd"][0])),
-        SIDEBAR_CLIS[0] if SIDEBAR_CLIS else "grok",
-    )
-    installed = any(
-        name in CATALOG and which_cli(CATALOG[name]["cmd"][0]) for name in SIDEBAR_CLIS
-    )
-    return [
-        {
-            "id": "cli_agent",
-            "object": "cli.agent",
-            "name": "cli_agent",
-            "cli": default_cli,
-            "kind": "cli",
-            "description": "Host CLI — pick grok, agy, opencode, or pi in the header.",
-            "installed": installed,
-        },
-        {
-            "id": "api_agent",
-            "object": "cli.agent",
-            "name": "api_agent",
-            "cli": "",
-            "kind": "api",
-            "description": "LiteLLM — pick a profile (orchestration, auxiliary, …).",
-            "installed": True,
-        },
-    ]
+    modes = product_modes(config)
+    if discovered is None:
+        discovered = discover_host_clis()
+    default_cli = _discovered_default_cli(discovered)
+    rows: list[dict[str, Any]] = []
+    if modes["cli"]:
+        rows.append(
+            {
+                "id": "cli_agent",
+                "object": "cli.agent",
+                "name": "cli_agent",
+                "cli": default_cli,
+                "kind": "cli",
+                "description": "Host CLI — pick a discovered catalog CLI in the header.",
+                "installed": bool(default_cli),
+            }
+        )
+    if modes["api"]:
+        rows.append(
+            {
+                "id": "api_agent",
+                "object": "cli.agent",
+                "name": "api_agent",
+                "cli": "",
+                "kind": "api",
+                "description": "LiteLLM — pick a profile (orchestration, auxiliary, …).",
+                "installed": True,
+            }
+        )
+    return rows
 
 
 def session_policy(name: str) -> dict[str, Any] | None:
@@ -1017,13 +1097,20 @@ def suggested_cli_agents(config: dict[str, Any] | None = None) -> dict[str, dict
 def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Public ``GET /v1/cli-agents/`` body: configured vs discovered candidates.
 
+    ``known`` / ``clis`` is the full catalog (documentation, not the start set).
     ``configured`` is opt-in (empty until add). ``discovered`` / ``installed``
-    are the PATH seed. ``suggestions`` is discovered-minus-configured with a
-    ready catalog entry for one-click add. Never includes secrets.
+    are the PATH seed and the CLI-first starting set (#149). ``suggestions`` is
+    discovered-minus-configured with a ready catalog entry for one-click add.
+    ``modes`` is CLI-first (#151): API/Blueprint/Team/Remote off until enabled.
+    Never includes secrets. Never invents a missing executable.
     """
     configured = configured_cli_names(config)
     discovered = discover_host_clis()
     suggestions = suggested_cli_agents(config)
+    modes = product_modes(config)
+    default_cli = next((name for name in configured if name), "") or _discovered_default_cli(
+        discovered
+    )
     return {
         "clis": catalog_names(),
         "known": list(KNOWN_CLIS),
@@ -1031,10 +1118,12 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
         "discovered": discovered,
         "installed": discovered,
         "suggestions": suggestions,
-        "default_cli": next((name for name in configured if name), ""),
+        "default_cli": default_cli,
+        "modes": modes,
+        "mode_limitations": dict(PRODUCT_MODE_LIMITATIONS),
         "native_consensus": dict(NATIVE_CONSENSUS),
         "catalog": {name: catalog_entry(name) for name in catalog_names()},
-        "rail": rail_cli_rows(),
+        "rail": rail_cli_rows(config, discovered=discovered),
         "list_models": {
             name: list_models_argv(name)
             for name in catalog_names()
@@ -1110,8 +1199,9 @@ def build_starter_config(installed: list[str] | None = None) -> dict[str, Any]:
     judge/router/reducer/planner roles prefer ``grok`` (then ``claude``, then the
     first available); the panels include *every* installed CLI, so the other
     agents are only engaged for the multi-agent paths. Includes a default ``llm``
-    block so the config passes validation. When nothing is installed, returns
-    just the llm + an empty ``cli_agents`` block.
+    block so the config passes validation and CLI-first ``settings.product_modes``
+    (#151). When nothing is installed, returns just the llm + empty
+    ``cli_agents`` + product-mode defaults — never invents absent CLIs (#149).
     """
     if installed is None:
         installed = installed_catalog_clis()
@@ -1127,6 +1217,7 @@ def build_starter_config(installed: list[str] | None = None) -> dict[str, Any]:
             }
         },
         "cli_agents": agents,
+        "settings": {"product_modes": default_product_modes()},
     }
     if names:
         primary = next((c for c in ("grok", "claude") if c in names), names[0])

@@ -323,6 +323,7 @@ import {
   preferredChatCli,
   MANAGE_CLI_VALUE,
 } from '../lib/cliAgentContext'
+import { resolveProductModes } from '../lib/productModes'
 import { isHiddenRoutingLabel } from '../lib/routingPath'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
@@ -858,7 +859,11 @@ const ChatPage = () => {
     tags: (selectedAgent as { tags?: string[] })?.tags,
   }) || Boolean(selectedRemote)
 
-  const showRemotesControl = isRemoteAgent || isRemoteBackedTeam
+  const productModes = useMemo(
+    () => resolveProductModes(cliQuery.data),
+    [cliQuery.data],
+  )
+  const showRemotesControl = productModes.remote && (isRemoteAgent || isRemoteBackedTeam)
   const bindingAgentId = remoteFromUrl || (showRemotesControl ? selectedBlueprint : '')
   const persistedRemote = bindingAgentId ? loadAgentRemoteBinding(bindingAgentId) : null
   const remotesCatalog = remotesListForSelect(
@@ -3119,7 +3124,7 @@ const ChatPage = () => {
               selectedModel=""
               footerAction={{
                 id: ADD_REMOTE_VALUE,
-                label: 'Add remote',
+                label: 'Manage Remote',
                 onSelect: () => openSettingsSheet({ section: 'remotes' }),
               }}
               onChange={(next) => {
@@ -3147,7 +3152,7 @@ const ChatPage = () => {
               }}
             />
           ) : null}
-          {teamFromUrl ? (
+          {productModes.team && teamFromUrl ? (
             <select
               className="select select-sm h-8 max-w-[12rem] border border-base-300 bg-base-100"
               value={memberTarget}
@@ -3189,7 +3194,7 @@ const ChatPage = () => {
               <option value={MANAGE_TEAMS_VALUE}>Manage Team</option>
             </select>
           ) : null}
-          {isCliAgent ? (
+          {productModes.cli && isCliAgent ? (
             <NavbarRoutingPicker
               seatKind="cli"
               aria-label="CLI"
@@ -3254,7 +3259,7 @@ const ChatPage = () => {
               </select>
             </label>
           ) : null}
-          {isApiAgent ? (
+          {productModes.api && isApiAgent ? (
             /* #108: API seats route through LLM profiles, not host CLIs. */
             <NavbarRoutingPicker
               seatKind="api"
