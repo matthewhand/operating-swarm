@@ -4145,3 +4145,175 @@ describe('ChatPage generations panel (#224)', () => {
     expect(screen.queryByTestId('generations-panel')).toBeNull()
   })
 })
+
+const API_PALETTE_PROFILES = {
+  object: 'llm_profiles',
+  profiles: [
+    {
+      id: 'orchestration',
+      object: 'llm_profile',
+      source: 'test',
+      owned_by: 'test',
+      name: 'Orchestration',
+      model: 'gpt-4o',
+    },
+    {
+      id: 'orchestration-mini',
+      object: 'llm_profile',
+      source: 'test',
+      owned_by: 'test',
+      name: 'Orchestration Mini',
+    },
+    {
+      id: 'claude-work',
+      object: 'llm_profile',
+      source: 'test',
+      owned_by: 'test',
+      name: 'Claude Work',
+      model: 'anthropic/claude-3-5-sonnet',
+    },
+  ],
+  default_llm_profile: 'orchestration',
+  default_is_auto: false,
+  override_per_task: false,
+  task_llm_profiles: {},
+  auto_picks: {},
+  aliases_used: [],
+  warnings: [],
+  routes: {},
+  task_classes: ['orchestration', 'auxiliary', 'delegation'],
+}
+
+describe('ChatPage API model palette (#281)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/llm-profiles')) {
+          return { ok: true, status: 200, json: async () => API_PALETTE_PROFILES } as Response
+        }
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              clis: [],
+              known: [],
+              configured: [],
+              discovered: [],
+              installed: [],
+              suggestions: {},
+              default_cli: '',
+              native_consensus: {},
+              catalog: {},
+              list_models: {},
+              rail: [
+                {
+                  id: 'api_agent',
+                  object: 'cli.agent',
+                  name: 'api_agent',
+                  cli: '',
+                  kind: 'api',
+                  description: 'LiteLLM',
+                  installed: true,
+                },
+              ],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'api_agent', name: 'API agent', description: 'LiteLLM' }],
+            messages: [],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+    resetConversationThreads()
+  })
+
+  it('opens the searchable palette on API pill click, not a dropdown', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const pill = await screen.findByTestId('routing-pill-agent')
+    expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'api')
+    expect(pill).toHaveTextContent('Orchestration')
+    fireEvent.click(pill)
+    const palette = await screen.findByTestId('os-model-search-palette')
+    expect(palette).toHaveClass('os-search-palette')
+    expect(screen.getByRole('combobox', { name: 'Filter models' })).toBeInTheDocument()
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+  })
+
+  it('filters models via search and selects one via click', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter models' }), {
+      target: { value: 'claude' },
+    })
+    expect(screen.getByTestId('os-model-row-claude-work')).toBeInTheDocument()
+    expect(screen.getByTestId('os-model-row-anthropic/claude-3-5-sonnet')).toBeInTheDocument()
+    expect(screen.queryByTestId('os-model-row-gpt-4o')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('os-model-row-claude-work'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'claude-work')
+  })
+
+  it('selects a filtered model via Enter', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter models' }), {
+      target: { value: 'mini' },
+    })
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => {
+      expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute(
+      'data-value',
+      'orchestration-mini',
+    )
+  })
+
+  it('launches Settings from Manage API in Settings', async () => {
+    const opened: Array<{ section?: string }> = []
+    const onOpen = (event: Event) => {
+      opened.push((event as CustomEvent<{ section?: string }>).detail ?? {})
+    }
+    window.addEventListener('swarm:open-settings', onOpen)
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-manage-api'))
+    window.removeEventListener('swarm:open-settings', onOpen)
+    await waitFor(() => {
+      expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+    })
+    expect(opened).toEqual([{ section: 'llm-profiles' }])
+  })
+})
