@@ -334,9 +334,9 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
     (REQ-171A-3 / #603). Overlapping frames queue on ``_chat_turn_lock``
     so ``self.messages`` and HTML frames cannot interleave. SPA composer
     queue chrome is REQ-90 / #447 — this lock is the transcript-correctness
-    boundary. ``tool_decision``, ``status``, and ``edit`` frames stay off
-    that lock so an in-flight ``respond_with_*`` can still elicit tool
-    approval.
+    boundary. ``tool_decision``, ``question_answer``, ``status``, and
+    ``edit`` frames stay off that lock so an in-flight ``respond_with_*``
+    can still elicit tool approval or an ``ask_user`` question.
     """
 
     def _ensure_chat_turn_lock(self):
@@ -375,6 +375,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 await self._send_spa_hello()
                 self.active_agent = self.default_blueprint
                 self._pending_tool_decisions = {}
+                self._pending_question_answers = {}
                 try:
                     self.messages = await self.fetch_conversation(self.conversation_id)
                     if getattr(self, "ui_events", None) is None:
@@ -460,6 +461,10 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             await self.resolve_tool_decision(text_data_json)
             return
 
+        if text_data_json.get("type") == "question_answer":
+            await self.resolve_question_answer(text_data_json)
+            return
+
         # #198: enter-to-interrupt — a queued-send promote cancels the turn
         # in flight before the new message runs.
         if text_data_json.get("type") == "cancel_turn":
@@ -513,6 +518,10 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         the next turn clears the flag at entry.
         """
         self._cancel_event().set()
+        pending_questions = getattr(self, "_pending_question_answers", {}) or {}
+        for future in list(pending_questions.values()):
+            if future is not None and not future.done():
+                future.set_result("interrupted")
         try:
             await self.send(text_data=json.dumps({"type": TURN_CANCELLED_TYPE}))
         except Exception:
@@ -946,6 +955,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
 
         final_message = None
         token = None
+        ask_token = None
         try:
             from swarm.core.safety import (
                 SafetySession,
@@ -969,6 +979,29 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 emit_fn=self.emit_tool_event,
             )
             token = install_safety_session(session)
+            try:
+                from swarm.core.ask_user import (
+                    AskUserSession,
+                    elicit_questions_enabled,
+                    install_ask_user_for_runtime,
+                    install_ask_user_session,
+                )
+
+                runtime_params = params if isinstance(params, dict) else {}
+                if elicit_questions_enabled(runtime_params, channel=channel):
+                    ask_session = AskUserSession(
+                        agent_id=str(blueprint_id),
+                        channel=channel,
+                        elicit_fn=self.elicit_user_question,
+                    )
+                    ask_token = install_ask_user_session(ask_session)
+                    install_ask_user_for_runtime(
+                        blueprint_instance,
+                        params=runtime_params,
+                        channel=channel,
+                    )
+            except Exception:
+                logger.exception("Failed to install ask_user tools")
             compact_result = await _auto_compress_before_send(self, params=params)
             if compact_result is not None and compact_result.context and (
                 compact_result.acted or getattr(compact_result, "strategy", "") == "cull"
@@ -1082,6 +1115,10 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 from swarm.core.safety import reset_safety_session
 
                 reset_safety_session(token)
+            if ask_token is not None:
+                from swarm.core.ask_user import reset_ask_user_session
+
+                reset_ask_user_session(ask_token)
 
         # #198: a cancel that landed mid-turn (possibly with partial chunks
         # already streamed, or the generator having stopped on its own cancel
@@ -1501,7 +1538,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             logger.debug("suggestions emit skipped", exc_info=True)
 
     async def emit_tool_event(self, payload: dict) -> None:
-        """JSON tool-status / approval / PR-opened / teammate-task / suggestions frames."""
+        """JSON tool-status / approval / user_question / PR-opened / teammate-task / suggestions frames."""
         try:
             from swarm.core.pr_opened import persist_pr_opened_message
             from swarm.core.teammate_task import persist_teammate_task_message
@@ -1559,6 +1596,48 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         finally:
             pending.pop(approval_id, None)
         return str(decision or "deny")
+
+    async def elicit_user_question(self, question: dict) -> str:
+        """Pause the API-agent run until the chat sends a ``question_answer``."""
+        from swarm.core.ask_user import (
+            INTERRUPTED_RESULT,
+            TIMEOUT_RESULT,
+            TIMEOUT_SEC,
+            normalize_answer,
+            question_event,
+        )
+
+        question_id = str(question.get("id") or uuid.uuid4().hex)
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        pending = getattr(self, "_pending_question_answers", None)
+        if pending is None:
+            pending = {}
+            self._pending_question_answers = pending
+        pending[question_id] = future
+        event = question_event(question, agent_id=getattr(self, "active_agent", None) or "")
+        event["id"] = question_id
+        await self.emit_tool_event(event)
+        try:
+            answer = await asyncio.wait_for(future, timeout=TIMEOUT_SEC)
+        except TimeoutError:
+            answer = TIMEOUT_RESULT
+        finally:
+            pending.pop(question_id, None)
+        if self._cancel_event().is_set():
+            return INTERRUPTED_RESULT
+        return normalize_answer(answer) or TIMEOUT_RESULT
+
+    async def resolve_question_answer(self, payload: dict) -> None:
+        from swarm.core.ask_user import normalize_answer
+
+        question_id = str(payload.get("id") or "")
+        answer = normalize_answer(payload.get("answer"))
+        pending = getattr(self, "_pending_question_answers", {}) or {}
+        future = pending.get(question_id)
+        if future is None or future.done():
+            return
+        future.set_result(answer)
 
     async def resolve_tool_decision(self, payload: dict) -> None:
         approval_id = str(payload.get("id") or "")

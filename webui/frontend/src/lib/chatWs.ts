@@ -1,4 +1,5 @@
 import { parseContextUsage, type ContextUsage } from './contextUsage'
+import { questionFromPayload, type DecisionQuestion } from './decisionQuestion'
 import { parsePrOpened, type PrOpenedEvent } from './prOpened'
 import {
   isRateLimitWait,
@@ -56,6 +57,11 @@ export type ChatWsEvent =
       kind: 'tool_approval'
       id: string
       name: string
+      agentId?: string
+    }
+  | {
+      kind: 'user_question'
+      question: DecisionQuestion
       agentId?: string
     }
   | {
@@ -132,6 +138,11 @@ export function buildToolDecisionFrame(
   return JSON.stringify({ type: 'tool_decision', id, decision })
 }
 
+/** Resume an in-flight ``ask_user`` tool (issue #221). */
+export function buildQuestionAnswerFrame(id: string, answer: string): string {
+  return JSON.stringify({ type: 'question_answer', id, answer })
+}
+
 /** Build the JSON frame that edits an existing transcript turn (REQ-49). */
 export function buildChatWsEditFrame(index: number, content: string): string {
   return JSON.stringify({ edit: { index, content } })
@@ -187,6 +198,16 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
         id,
         name,
         agentId: payload.agent_id ? String(payload.agent_id) : undefined,
+      }
+    }
+    if (type === 'user_question') {
+      const question = questionFromPayload(payload)
+      if (question) {
+        return {
+          kind: 'user_question',
+          question,
+          agentId: payload.agent_id ? String(payload.agent_id) : undefined,
+        }
       }
     }
     if (type === 'pr_opened') {

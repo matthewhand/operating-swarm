@@ -27,7 +27,7 @@ export function QuestionCard({
   return (
     <div
       className={`os-question-card${disabled ? ' os-question-card--answered' : ''}`}
-      role="group"
+      role="radiogroup"
       aria-label={question.ask}
       data-testid="question-card"
       data-question-id={question.id}
@@ -38,6 +38,8 @@ export function QuestionCard({
           <button
             key={choice}
             type="button"
+            role="radio"
+            aria-checked="false"
             className="os-question-choice"
             disabled={disabled}
             onClick={() => onChoose(choice)}

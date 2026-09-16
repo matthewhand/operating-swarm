@@ -145,6 +145,7 @@ import {
   buildChatWsEditFrame,
   buildChatWsFrame,
   buildChatWsUrl,
+  buildQuestionAnswerFrame,
   buildToolDecisionFrame,
   parseChatWsMessage,
   summarizeUnknownWsFrame,
@@ -156,6 +157,13 @@ import {
   publishContextUsage,
   type ContextUsage,
 } from '../lib/contextUsage'
+import { QuestionCard } from '../components/QuestionCard'
+import {
+  parseDecisionQuestion,
+  stripDecisionQuestion,
+  type DecisionQuestion,
+} from '../lib/decisionQuestion'
+import { loadElicitQuestions } from '../lib/elicitQuestions'
 import { ToolCallPopup } from '../components/ToolCallPopup'
 import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsPanel'
 import { PrOpenedCard } from '../components/PrOpenedCard'
@@ -357,6 +365,10 @@ interface ChatMessage {
   /** True while the assistant message is still streaming. */
   streaming: boolean
   tools?: ToolCallState[]
+  /** Blocking ``ask_user`` card or a non-blocking ```question fence. */
+  question?: DecisionQuestion
+  questionBlocking?: boolean
+  questionAnswered?: boolean
   edited?: boolean
   /** REQ-71 chrome — structured PR-opened tool result, not markdown. */
   prOpened?: PrOpenedEvent
@@ -1725,6 +1737,49 @@ const ChatPage = () => {
     ws.send(buildToolDecisionFrame(id, decision))
   }, [])
 
+  const sendQuestionAnswer = useCallback((id: string, answer: string) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(buildQuestionAnswerFrame(id, answer))
+  }, [])
+
+  const attachQuestionToThread = useCallback(
+    (question: DecisionQuestion, blocking: boolean) => {
+      setThreads((prev) => {
+        const current = prev[threadKey] ?? []
+        const targetIndex = [...current]
+          .reverse()
+          .findIndex((message) => message.role === 'assistant')
+        const index = targetIndex === -1 ? -1 : current.length - 1 - targetIndex
+        const patch = {
+          question,
+          questionBlocking: blocking,
+          questionAnswered: false,
+        }
+        if (index === -1) {
+          return {
+            ...prev,
+            [threadKey]: [
+              ...current,
+              {
+                key: `question-host-${question.id}`,
+                role: 'assistant' as const,
+                text: '',
+                streaming: true,
+                ...patch,
+              },
+            ],
+          }
+        }
+        const next = [...current]
+        const host = next[index]!
+        next[index] = { ...host, ...patch }
+        return { ...prev, [threadKey]: next }
+      })
+    },
+    [threadKey],
+  )
+
   const jumpToPrOpener = useCallback(
     (opener: PrOpenedOpener) => {
       setSearchParams(openerChatSearch(opener))
@@ -1755,6 +1810,10 @@ const ChatPage = () => {
           agentId: event.agentId,
           needsApproval: false,
         })
+        return
+      }
+      if (event.kind === 'user_question') {
+        attachQuestionToThread(event.question, true)
         return
       }
       if (event.kind === 'suggestions') {
@@ -1883,9 +1942,17 @@ const ChatPage = () => {
             )
             break
           case 'assistant_final':
-            next = current.map((m) =>
-              m.key === event.id ? { ...m, text: event.text, streaming: false } : m,
-            )
+            next = current.map((m) => {
+              if (m.key !== event.id) return m
+              const fence = parseDecisionQuestion(event.text)
+              return {
+                ...m,
+                text: fence ? stripDecisionQuestion(event.text) : event.text,
+                streaming: false,
+                question: m.question ?? fence ?? undefined,
+                questionBlocking: m.questionBlocking ?? false,
+              }
+            })
             break
           case 'status':
             if (
@@ -1932,7 +1999,15 @@ const ChatPage = () => {
         }
       }
     },
-    [activeChatAgentId, attachToolToThread, sendToolDecision, threadKey, useSuggestions, seatUnread],
+    [
+      activeChatAgentId,
+      attachQuestionToThread,
+      attachToolToThread,
+      sendToolDecision,
+      threadKey,
+      useSuggestions,
+      seatUnread,
+    ],
   )
 
   useEffect(() => {
@@ -2266,6 +2341,10 @@ const ChatPage = () => {
       const sessionRemote =
         (searchParams.get('cli_remote') ?? '').trim() ||
         (seatRemote?.box || remoteEndpointLabel(seatRemote) || '')
+      const elicitParams =
+        isApiAgent && loadElicitQuestions(agentIdForInference)
+          ? { elicit_questions: true }
+          : undefined
       const cliParams = isCliAgent
         ? {
             cli: currentCli,
@@ -2309,6 +2388,7 @@ const ChatPage = () => {
           inferenceParams ||
           pluginParams ||
           folderParams ||
+          elicitParams ||
           Object.keys(skillParams).length              ? {
                   ...cliParams,
                   ...inferenceParams,
@@ -2317,6 +2397,7 @@ const ChatPage = () => {
                   ...folderParams,
                   ...skillParams,
                   ...sectionParams,
+                  ...elicitParams,
                 }
             : undefined,
         ),
@@ -3763,6 +3844,33 @@ const ChatPage = () => {
                       }}
                     />
                   ))}
+                  {message.question ? (
+                    <QuestionCard
+                      question={message.question}
+                      disabled={
+                        message.questionAnswered === true ||
+                        (message.tools ?? []).some((tool) => tool.needsApproval)
+                      }
+                      onChoose={(value) => {
+                        if (message.questionBlocking) {
+                          sendQuestionAnswer(message.question!.id, value)
+                        } else {
+                          sendText(value)
+                        }
+                        setThreads((prev) => {
+                          const current = prev[threadKey] ?? []
+                          return {
+                            ...prev,
+                            [threadKey]: current.map((row) =>
+                              row.key === message.key
+                                ? { ...row, questionAnswered: true }
+                                : row,
+                            ),
+                          }
+                        })
+                      }}
+                    />
+                  ) : null}
                 </ChatMessageBubble>
                 {showRowActions ? (
                   <MessageRowActions
