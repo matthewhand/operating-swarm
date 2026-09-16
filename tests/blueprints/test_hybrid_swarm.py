@@ -137,7 +137,9 @@ async def test_no_cli_agents_still_runs_rest_step():
     chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
     final = _final_content(chunks)
     assert "[rest-plan] hi" in final  # REST half is deterministic on its own
-    assert "no CLI agents configured" in final
+    assert "No CLI agents are configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
     assert chunks[-1].get("final") is True
 
 

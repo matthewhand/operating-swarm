@@ -121,8 +121,7 @@ class CliMapBlueprint(CliKindBase):
         planner, workers, reducer = self._resolve(params, registry)
         if not workers:
             yield support.message_chunk(
-                "No worker CLIs are configured for map. Add a 'cli_map' block (or a "
-                "'cli_fusion' preset) to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No worker CLIs are configured for map"),
                 final=True,
             )
             return

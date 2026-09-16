@@ -290,7 +290,12 @@ async def test_blueprint_stages_skill_assets_into_workdir(tmp_path, monkeypatch)
 async def test_blueprint_no_agents_configured():
     bp = CliAgentBlueprint(blueprint_id="cli_agent", config={})
     chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
-    assert "No CLI agents are configured" in _final_content(chunks)
+    text = _final_content(chunks)
+    assert text == (
+        "No CLI agents are configured. Configure your installed CLIs in "
+        "[Manage CLI](/chat?settings=cli-agents) (Settings → CLI Agents)."
+    )
+    assert "docs/CLI_FUSION.md" not in text
 
 
 async def test_blueprint_empty_prompt():

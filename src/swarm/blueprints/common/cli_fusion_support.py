@@ -31,6 +31,24 @@ PARAM_CONSENSUS = "consensus"  # single-CLI: per-request consensus override (boo
 PARAM_SKILL = "skill"        # apply a named skill's instructions to the prompt
 PARAM_PROFILE = "profile"    # desired inference traits {intelligence,speed,cost} 0..1
 
+# REQ-868: in-app Manage CLI pointer (Settings → CLI Agents).
+MANAGE_CLI_HREF = "/chat?settings=cli-agents"
+MANAGE_CLI_LINK = f"[Manage CLI]({MANAGE_CLI_HREF})"
+MANAGE_CLI_HINT = (
+    f"Configure your installed CLIs in {MANAGE_CLI_LINK} (Settings → CLI Agents)."
+)
+UNCONFIGURED_CLI_AGENTS_MESSAGE = f"No CLI agents are configured. {MANAGE_CLI_HINT}"
+
+
+def unconfigured_cli_message(lead: str | None = None) -> str:
+    """Chat error when a CLI blueprint has no adapter to run (REQ-868 / #258)."""
+    text = (lead or "").strip()
+    if not text:
+        return UNCONFIGURED_CLI_AGENTS_MESSAGE
+    if not text.endswith("."):
+        text += "."
+    return f"{text} {MANAGE_CLI_HINT}"
+
 
 def resolve_workdir(
     params: dict[str, Any] | None,

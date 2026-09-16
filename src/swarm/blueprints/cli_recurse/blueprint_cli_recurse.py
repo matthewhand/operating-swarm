@@ -215,8 +215,7 @@ class CliRecurseBlueprint(CliKindBase):
         synthesizer = self._pick("synthesizer", params, registry)
         if not (decomposer and solver and synthesizer):
             yield support.message_chunk(
-                "No CLI is configured for cli_recurse. Add a 'cli_recurse' block (or a "
-                "'cli_fusion' default) to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No CLI is configured for cli_recurse"),
                 final=True,
             )
             return

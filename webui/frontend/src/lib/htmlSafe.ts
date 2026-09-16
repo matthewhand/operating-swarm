@@ -68,6 +68,8 @@ function isSafeUrl(value: string): boolean {
   const v = raw.trim()
   if (!v) return false
   if (/^(https?:|mailto:)/i.test(v)) return true
+  // REQ-868: in-app Settings deep-link (`settings:cli-agents`).
+  if (/^settings:[a-z0-9-]+$/i.test(v)) return true
   if (v.startsWith('/') || v.startsWith('#') || v.startsWith('./') || v.startsWith('../')) {
     return true
   }

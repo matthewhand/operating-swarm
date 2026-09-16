@@ -100,6 +100,8 @@ async def test_no_debaters_configured():
     bp = CliRoundtableBlueprint(config={})
     final = _final(await _collect(bp.run([{"role": "user", "content": "q"}])))
     assert "No debater CLIs are configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
 
 
 async def test_falls_back_to_fusion_preset():

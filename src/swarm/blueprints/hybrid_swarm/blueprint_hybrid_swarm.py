@@ -184,9 +184,7 @@ class HybridSwarmBlueprint(ApiKindBase):
             if registry.names():
                 parts.append("(CLI persona produced no text)")
             else:
-                parts.append(
-                    "(no CLI agents configured — add a 'cli_agents' block; see docs/CLI_FUSION.md)"
-                )
+                parts.append(support.UNCONFIGURED_CLI_AGENTS_MESSAGE)
         if not parts:
             parts.append(
                 "(planner returned no usable text — check the orchestration LLM profile)"

@@ -93,6 +93,8 @@ async def test_no_stages_configured():
     bp = CliPipelineBlueprint(config={})
     final = _final(await _collect(bp.run([{"role": "user", "content": "t"}])))
     assert "No pipeline stages are configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
 
 
 async def test_all_stages_fail():

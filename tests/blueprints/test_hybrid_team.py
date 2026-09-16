@@ -150,7 +150,9 @@ async def test_no_cli_agents_still_returns_rest_plan():
     final = _final_content(chunks)
     assert chunks[-1].get("final") is True
     assert "[rest-plan] solo" in final
-    assert "no CLI agents configured" in final
+    assert "No CLI agents are configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
 
 
 # --------------------------------------------------------------------------- #
