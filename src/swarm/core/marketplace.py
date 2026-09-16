@@ -57,7 +57,7 @@ class MarketplaceResult:
         }
 
 
-def _github_headers() -> dict[str, str]:
+def github_headers() -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -67,6 +67,11 @@ def _github_headers() -> dict[str, str]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+def public_item_name(row: dict) -> str:
+    """Display name for a GitHub scan row (never a secret)."""
+    return str(row.get("name") or row.get("full_name") or "").strip()
 
 
 def _normalize_item(repo: dict) -> dict:
@@ -114,7 +119,7 @@ def scan_marketplace(
         try:
             status_code, payload = fetch(
                 GITHUB_SEARCH_URL,
-                _github_headers(),
+                github_headers(),
                 {
                     "q": f"topic:{topic}",
                     "sort": "stars",
@@ -151,13 +156,27 @@ def scan_marketplace(
     ).as_dict()
 
 
-def _fetch_json_urllib(url: str, headers: dict, params: dict):
-    """Default transport: stdlib urllib, no extra dependencies."""
+def fetch_json_urllib(url: str, headers: dict, params: dict | None = None):
+    """Default transport: stdlib urllib. Returns ``(status, payload)`` on HTTP errors too."""
     import json as _json
+    import urllib.error
     import urllib.parse
     import urllib.request
 
-    query = urllib.parse.urlencode(params)
-    request = urllib.request.Request(f"{url}?{query}", headers=headers)
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_S) as response:
-        return response.status, _json.loads(response.read().decode("utf-8"))
+    query = urllib.parse.urlencode(params or {})
+    target = f"{url}?{query}" if query else url
+    request = urllib.request.Request(target, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_S) as response:
+            return response.status, _json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            payload = _json.loads(body) if body else {"message": str(exc)}
+        except _json.JSONDecodeError:
+            payload = {"message": body or str(exc)}
+        return int(exc.code), payload
+
+
+def _fetch_json_urllib(url: str, headers: dict, params: dict):
+    return fetch_json_urllib(url, headers, params)

@@ -47,3 +47,4 @@ source-lock so the spec cannot silently regress.
 | REQ-885 | `load_full_configuration` discovers the config it claims to use | [REQ-885-config-discovery-default.md](./REQ-885-config-discovery-default.md) | `tests/unit/test_req885_config_discovery_default.py` |
 | REQ-862 | Operating Swarm (OS) identity lock (`os-*`, README hero) | [REQ-862-rebrand-swarm-bot.md](./REQ-862-rebrand-swarm-bot.md) | `tests/unit/test_req862_operating_swarm_rebrand.py` |
 | REQ-882 | Public demo site, mocked inference, scripted flows (#279) | [REQ-882-demo-site-mocked-inference.md](./REQ-882-demo-site-mocked-inference.md) | `tests/unit/test_req882_demo_site_mocked_inference.py` |
+| REQ-887 | Teams + Plugins marketplaces (MCP Registry + Agent Skills + OS team packs) | [REQ-887-teams-plugins-marketplaces.md](./REQ-887-teams-plugins-marketplaces.md) | `tests/unit/test_req887_marketplace.py` |

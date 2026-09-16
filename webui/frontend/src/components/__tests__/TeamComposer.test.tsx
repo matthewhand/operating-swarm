@@ -96,6 +96,20 @@ describe('TeamComposer first-launch overlay', () => {
             json: async () => ({ object: 'list', data: [] }),
           } as Response
         }
+        if (url.includes('/v1/marketplace')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'marketplace_catalog',
+              kind: 'teams',
+              sources: ['os_team_pack'],
+              external: true,
+              items: [],
+              warnings: [],
+            }),
+          } as Response
+        }
         return { ok: false, status: 404, json: async () => ({}) } as Response
       }),
     )

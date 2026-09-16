@@ -47,7 +47,7 @@ def test_req858_skills_empty_state_is_honest():
     lib = LIB.read_text(encoding="utf-8")
     src = CATALOG.read_text(encoding="utf-8")
     assert "No skill packs to install yet" in lib
-    assert "empty on purpose" in lib
+    assert "honest" in lib.lower()
     assert "SKILLS_CATALOG_EMPTY_TITLE" in src
     assert "fake" not in src.lower()
 

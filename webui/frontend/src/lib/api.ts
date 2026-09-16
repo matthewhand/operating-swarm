@@ -1643,3 +1643,80 @@ export function discoverMcpPluginTools(
 ): Promise<McpPluginDiscoverPayload> {
   return apiPost<McpPluginDiscoverPayload>('/v1/mcp-plugins/discover/', body)
 }
+
+export type MarketplaceCatalogKind = 'teams' | 'plugins' | 'skills'
+
+export interface MarketplaceCatalogItem {
+  id: string
+  kind: MarketplaceCatalogKind
+  name: string
+  summary: string
+  source: string
+  source_label: string
+  external: boolean
+  installable: boolean
+  installed: boolean
+  install_hint?: string
+  html_url?: string
+  stars?: number
+  topics?: string[]
+  required_env?: string[]
+  tools_provided?: string[]
+  danger_notes?: string[]
+  plugin?: {
+    name?: string
+    kind?: 'local' | 'remote'
+    command?: string
+    args?: string[]
+    url?: string
+    env?: Record<string, string>
+  }
+  skill?: Record<string, unknown>
+  team?: Record<string, unknown>
+}
+
+export interface MarketplaceCatalogResponse {
+  object: 'marketplace_catalog'
+  kind: MarketplaceCatalogKind
+  sources: string[]
+  external: boolean
+  items: MarketplaceCatalogItem[]
+  warnings: string[]
+}
+
+export interface MarketplaceInstallResponse {
+  object: 'marketplace_install'
+  kind: MarketplaceCatalogKind
+  id: string
+  installed: boolean
+  already_installed?: boolean
+  health?: 'up' | 'down' | 'unknown'
+  message?: string
+  required_env?: string[]
+  tools?: { name: string; description?: string }[]
+  skill?: { name: string; assets?: string[] }
+  roster?: Record<string, unknown>
+  needs_configuration?: { id: string; reason: string }[]
+}
+
+export function fetchMarketplaceCatalog(
+  kind: MarketplaceCatalogKind,
+): Promise<MarketplaceCatalogResponse> {
+  return apiGet<MarketplaceCatalogResponse>(`/v1/marketplace/catalog/?kind=${kind}`)
+}
+
+export function previewMarketplaceItem(
+  kind: MarketplaceCatalogKind,
+  id: string,
+): Promise<Record<string, unknown>> {
+  return apiGet<Record<string, unknown>>(
+    `/v1/marketplace/preview/?kind=${kind}&id=${encodeURIComponent(id)}`,
+  )
+}
+
+export function installMarketplaceItem(
+  kind: MarketplaceCatalogKind,
+  id: string,
+): Promise<MarketplaceInstallResponse> {
+  return apiPost<MarketplaceInstallResponse>('/v1/marketplace/install/', { kind, id })
+}

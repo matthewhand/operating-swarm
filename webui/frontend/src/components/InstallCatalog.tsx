@@ -4,7 +4,10 @@ import { Badge, Button, LoadingSpinner } from './DaisyUI'
 import {
   deleteMcpPlugin,
   discoverMcpPluginTools,
+  fetchMarketplaceCatalog,
   fetchMcpPlugins,
+  installMarketplaceItem,
+  previewMarketplaceItem,
   upsertMcpPlugin,
 } from '../lib/api'
 import {
@@ -14,6 +17,7 @@ import {
   filterCatalogItems,
   installAndProbe,
   mergeCatalog,
+  usesBackendInstall,
   type CatalogKindFilter,
   type CatalogSurface,
   type HealthDot,
@@ -21,16 +25,39 @@ import {
   type InstallOutcome,
   type InstallStatus,
 } from '../lib/installCatalog'
-import { fetchMarketplaceScan } from './MarketplaceScanSection'
 import { serversFromApi } from '../lib/mcpServers'
 
-const KIND_FILTERS: { id: CatalogKindFilter; label: string }[] = [
+const TOOL_FILTERS: { id: CatalogKindFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'local', label: 'Local' },
   { id: 'remote', label: 'Remote' },
   { id: 'community', label: 'Community' },
   { id: 'installed', label: 'Installed' },
 ]
+
+const SKILL_FILTERS: { id: CatalogKindFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'community', label: 'Community' },
+  { id: 'installed', label: 'Installed' },
+]
+
+const TEAM_FILTERS: { id: CatalogKindFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'community', label: 'Community' },
+  { id: 'installed', label: 'Installed' },
+]
+
+function filtersFor(surface: CatalogSurface) {
+  if (surface === 'skills') return SKILL_FILTERS
+  if (surface === 'teams') return TEAM_FILTERS
+  return TOOL_FILTERS
+}
+
+function catalogKind(surface: CatalogSurface): 'plugins' | 'skills' | 'teams' {
+  if (surface === 'skills') return 'skills'
+  if (surface === 'teams') return 'teams'
+  return 'plugins'
+}
 
 export interface InstallCatalogProps {
   surface: CatalogSurface
@@ -78,6 +105,7 @@ export default function InstallCatalog({
   const [installStates, setInstallStates] = useState<Record<string, InstallStatus>>({})
   const [healthById, setHealthById] = useState<Record<string, HealthDot>>({})
   const [messages, setMessages] = useState<Record<string, string>>({})
+  const [previewNotes, setPreviewNotes] = useState<string[]>([])
 
   useEffect(() => {
     if (itemsProp) setLoaded(itemsProp)
@@ -88,25 +116,31 @@ export default function InstallCatalog({
   }, [warningsProp])
 
   useEffect(() => {
-    if (!autoLoad || surface !== 'tools' || itemsProp) return
+    if (!autoLoad || itemsProp) return
     let cancelled = false
     setLoading(true)
     void (async () => {
-      let scan = null
       const scanWarnings: string[] = []
+      let backend = null
       try {
-        scan = await fetchMarketplaceScan('plugins')
+        backend = await fetchMarketplaceCatalog(catalogKind(surface))
       } catch (err) {
-        scanWarnings.push(err instanceof Error ? err.message : 'Marketplace scan failed.')
+        scanWarnings.push(err instanceof Error ? err.message : 'Marketplace catalog failed.')
       }
       let installed = [] as ReturnType<typeof serversFromApi>
-      try {
-        installed = serversFromApi(await fetchMcpPlugins())
-      } catch {
-        scanWarnings.push('Could not load installed MCP servers.')
+      if (surface === 'tools') {
+        try {
+          installed = serversFromApi(await fetchMcpPlugins())
+        } catch {
+          scanWarnings.push('Could not load installed MCP servers.')
+        }
       }
       if (cancelled) return
-      const merged = mergeCatalog({ marketplace: scan, installed })
+      const merged = mergeCatalog({
+        backend,
+        installed,
+        includeTemplates: surface === 'tools',
+      })
       setLoaded(merged.items)
       setWarnings([...scanWarnings, ...merged.warnings])
       setLoading(false)
@@ -126,10 +160,14 @@ export default function InstallCatalog({
     async (item: InstallCatalogItem) => {
       setInstallStates((prev) => ({ ...prev, [item.id]: 'installing' }))
       setMessages((prev) => ({ ...prev, [item.id]: 'Installing…' }))
-      const runner = onInstall || ((next) => installAndProbe(next, {
-        upsert: upsertMcpPlugin,
-        discover: discoverMcpPluginTools,
-      }))
+      const runner =
+        onInstall ||
+        ((next) =>
+          installAndProbe(next, {
+            upsert: upsertMcpPlugin,
+            discover: discoverMcpPluginTools,
+            install: installMarketplaceItem,
+          }))
       try {
         const outcome = await runner(item)
         setInstallStates((prev) => ({ ...prev, [item.id]: outcome.status }))
@@ -174,8 +212,53 @@ export default function InstallCatalog({
     [onRemove],
   )
 
+  useEffect(() => {
+    if (!selected || !usesBackendInstall(selected) || selected.kind !== 'team') {
+      setPreviewNotes([])
+      return
+    }
+    if ((selected.members || []).length > 0) {
+      setPreviewNotes([])
+      return
+    }
+    let cancelled = false
+    void previewMarketplaceItem('teams', selected.id)
+      .then((payload) => {
+        if (cancelled) return
+        const roster = (payload.roster || {}) as {
+          members?: InstallCatalogItem['members']
+          wires?: InstallCatalogItem['wires']
+          chief_of_staff_id?: string | null
+          needs_configuration?: InstallCatalogItem['needsConfiguration']
+        }
+        setLoaded((prev) =>
+          prev.map((row) =>
+            row.id === selected.id
+              ? {
+                  ...row,
+                  members: roster.members,
+                  wires: roster.wires,
+                  chiefOfStaffId: roster.chief_of_staff_id ?? null,
+                  needsConfiguration: roster.needs_configuration,
+                }
+              : row,
+          ),
+        )
+        setPreviewNotes([])
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setPreviewNotes([err instanceof Error ? err.message : 'Preview failed.'])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selected?.id, selected?.kind])
+
   const emptySkills = surface === 'skills' && loaded.length === 0
   const emptyFilter = !emptySkills && !loading && visible.length === 0
+  const kindFilters = filtersFor(surface)
 
   return (
     <section
@@ -183,41 +266,37 @@ export default function InstallCatalog({
       data-testid="os-install-catalog"
       data-surface={surface}
     >
-      {surface === 'tools' ? (
-        <>
-          <div className="os-install-catalog__search">
-            <Search className="h-4 w-4 shrink-0 text-base-content/45" aria-hidden="true" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search catalog"
-              aria-label="Search catalog"
-              data-testid="os-install-search"
-              className="os-search-palette__input"
-              autoComplete="off"
-            />
-          </div>
-          <div
-            className="os-install-kind-filters join"
-            role="toolbar"
-            aria-label="Kind filters"
-            data-testid="os-install-kind-filters"
+      <div className="os-install-catalog__search">
+        <Search className="h-4 w-4 shrink-0 text-base-content/45" aria-hidden="true" />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search catalog"
+          aria-label="Search catalog"
+          data-testid="os-install-search"
+          className="os-search-palette__input"
+          autoComplete="off"
+        />
+      </div>
+      <div
+        className="os-install-kind-filters join"
+        role="toolbar"
+        aria-label="Kind filters"
+        data-testid="os-install-kind-filters"
+      >
+        {kindFilters.map((filter) => (
+          <button
+            key={filter.id}
+            type="button"
+            className={`btn btn-xs join-item ${kind === filter.id ? 'btn-primary' : 'btn-ghost'}`}
+            aria-pressed={kind === filter.id}
+            onClick={() => setKind(filter.id)}
           >
-            {KIND_FILTERS.map((filter) => (
-              <button
-                key={filter.id}
-                type="button"
-                className={`btn btn-xs join-item ${kind === filter.id ? 'btn-primary' : 'btn-ghost'}`}
-                aria-pressed={kind === filter.id}
-                onClick={() => setKind(filter.id)}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : null}
+            {filter.label}
+          </button>
+        ))}
+      </div>
 
       {warnings.map((warning) => (
         <p key={warning} className="px-4 text-xs text-warning" role="status">
@@ -233,7 +312,13 @@ export default function InstallCatalog({
       ) : null}
 
       <div className="os-install-catalog__body">
-        <ul className="os-install-cards" role="list" aria-label={surface === 'skills' ? 'Skill packs' : 'Tool catalog'}>
+        <ul
+          className="os-install-cards"
+          role="list"
+          aria-label={
+            surface === 'skills' ? 'Skill packs' : surface === 'teams' ? 'Team packs' : 'Tool catalog'
+          }
+        >
           {emptySkills ? (
             <li className="os-search-empty" data-testid="os-install-empty">
               <p className="font-medium">{SKILLS_CATALOG_EMPTY_TITLE}</p>
@@ -354,6 +439,48 @@ export default function InstallCatalog({
                 </ul>
               )}
             </div>
+            {selected.kind === 'team' ? (
+              <div className="mt-2" data-testid="os-install-team-preview">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-base-content/45">
+                  Roster preview
+                </p>
+                {previewNotes.map((note) => (
+                  <p key={note} className="text-xs text-warning" role="status">
+                    {note}
+                  </p>
+                ))}
+                {selected.chiefOfStaffId ? (
+                  <p className="text-xs">Chief of Staff: {selected.chiefOfStaffId}</p>
+                ) : (
+                  <p className="text-xs text-base-content/60">No Chief of Staff in this pack.</p>
+                )}
+                {selected.wires ? (
+                  <p className="text-xs">
+                    Wires: handoff {selected.wires.handoff ? 'on' : 'off'}, as_tool{' '}
+                    {selected.wires.as_tool ? 'on' : 'off'}
+                  </p>
+                ) : null}
+                {(selected.members || []).length === 0 ? (
+                  <p className="text-xs text-base-content/60">Open the pack to load members before install.</p>
+                ) : (
+                  <ul className="text-xs" aria-label="Team members">
+                    {(selected.members || []).map((member) => (
+                      <li key={member.id}>
+                        {member.name || member.id} ({member.kind}
+                        {member.role ? ` · ${member.role}` : ''})
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {(selected.needsConfiguration || []).length > 0 ? (
+                  <ul className="mt-1 text-xs text-warning" aria-label="Needs configuration">
+                    {(selected.needsConfiguration || []).map((row) => (
+                      <li key={row.id}>{row.reason}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
             {selected.dangerNotes.length > 0 ? (
               <div className="mt-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-warning">
