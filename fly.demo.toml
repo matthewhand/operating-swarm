@@ -1,0 +1,44 @@
+# Isolated public demo app (REQ-882 / #279).
+# Operator-gated: `python scripts/deploy_demo_site.py` no-ops without Fly credentials.
+#
+#   fly deploy --config fly.demo.toml
+#
+# SWARM_DEMO_MODE intercepts chat turns (no paid LLM, no local CLI subprocess).
+# SWARM_ALLOW_ANONYMOUS lets visitors use the WebUI without an account.
+
+app = 'open-swarm-demo'
+primary_region = 'syd'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  PORT = '8000'
+  SWARM_DEMO_MODE = '1'
+  SWARM_ALLOW_ANONYMOUS = '1'
+  SWARM_ALLOW_NO_AUTH = 'true'
+  DJANGO_DEBUG = 'false'
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[http_service.checks]]
+  grace_period = "120s"
+  interval = "30s"
+  timeout = "15s"
+  method = "GET"
+  path = "/health"
+
+[deploy]
+  wait_timeout = "20m"
+  release_command_timeout = "10m"
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1

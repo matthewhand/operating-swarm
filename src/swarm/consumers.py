@@ -590,7 +590,13 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             # Origin does not match ALLOWED_HOSTS": a credential/config fault
             # presented as a connection fault. Surface it as an error partial.
             try:
-                if params and params.get("team"):
+                from swarm.demo import is_demo_mode
+
+                if is_demo_mode():
+                    await self.respond_with_demo(
+                        contents_div_id, message_text, params=params
+                    )
+                elif params and params.get("team"):
                     from swarm.core.team_rosters import blueprint_id_for_team_target
 
                     team_blueprint = blueprint_id_for_team_target(
@@ -699,6 +705,36 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=final_html)
         await self._persist_completed_turn()
         await self._emit_suggestions_if_enabled(None)
+
+    async def respond_with_demo(self, contents_div_id, message_text, params=None):
+        """REQ-882: canned streaming demo — no LLM, no local CLI subprocess."""
+        from swarm.demo import demo_chips_payload, demo_stream_delay_s, iter_demo_frames
+
+        _ = params
+        delay = demo_stream_delay_s()
+        assembled: list[str] = []
+        for frame in iter_demo_frames(message_text):
+            if self._cancel_event().is_set():
+                break
+            if delay:
+                await asyncio.sleep(delay)
+            if frame.kind == "status":
+                await self.send(text_data=_status_line_html(frame.text))
+                _record_status(self, frame.text, ts=_message_ts())
+            elif frame.kind == "json" and frame.payload:
+                await self.emit_tool_event(frame.payload)
+            elif frame.kind == "chunk":
+                assembled.append(frame.text)
+                await self.send(text_data=_oob_append_html(contents_div_id, frame.text))
+        canned = "".join(assembled)
+        _record_turn(self, "assistant", canned, ts=_message_ts())
+        final_html = render_to_string(
+            "websocket_partials/final_system_message.html",
+            {"contents_div_id": contents_div_id, "message": canned},
+        )
+        await self.send(text_data=final_html)
+        await self._persist_completed_turn()
+        await self.emit_tool_event(demo_chips_payload())
 
     async def _emit_teammate_task_cards(self, params, message_text):
         """REQ-84: Open-in-{remote} chrome when a team tasks a remote member."""

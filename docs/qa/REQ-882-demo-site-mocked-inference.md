@@ -1,6 +1,6 @@
 # REQ-882 — Public Demo Site with Mocked Inference and Scripted Demo Flows (#279)
 
-> Defines the architecture, mock inference engine, scripted scenario catalog, and deployment strategy (Fly.io vs. Pure Static Jamstack) for hosting a zero-cost, safe, high-fidelity public demo site of **Swarm Bot**.
+> Defines the architecture, mock inference engine, scripted scenario catalog, and deployment strategy (Fly.io vs. Pure Static Jamstack) for hosting a zero-cost, safe, high-fidelity public demo site of **Operating Swarm**. Branding stays Operating Swarm (do not rename to Swarm Bot).
 
 **Issue:** [#279](https://github.com/matthewhand/open-swarm-private/issues/279)
 
@@ -8,7 +8,7 @@
 
 ## 1. Context & Objectives
 
-To showcase **Swarm Bot** to prospective users, contributors, and enterprise evaluators, a publicly accessible, interactive demonstration site is needed. 
+To showcase **Operating Swarm** to prospective users, contributors, and enterprise evaluators, a publicly accessible, interactive demonstration site is needed. 
 
 However, exposing live inference with real LLM API keys (OpenAI, OpenRouter, Anthropic) or local CLI processes (`agy`, `qwen`, `omp`) on the public internet introduces severe risks:
 1. **Unbounded Inference Costs**: Public internet traffic could exhaust API balances rapidly.
@@ -17,7 +17,7 @@ However, exposing live inference with real LLM API keys (OpenAI, OpenRouter, Ant
 
 ### Primary Objectives
 1. **Mocked Inference Engine**: Deliver a rich, realistic, zero-cost streaming experience mimicking real multi-agent coordination without calling external LLMs or spawning local OS subprocesses.
-2. **Scripted Demo Flows ("Forced / Guided Prompts")**: Guide visitors through curated showcase scenarios that highlight Swarm Bot's core differentiators (cross-framework agentic communication, dynamic blueprints with `openai-agents` handoffs, team communication via sections, and CLI/remote agent bridging).
+2. **Scripted Demo Flows ("Forced / Guided Prompts")**: Guide visitors through curated showcase scenarios that highlight Operating Swarm's core differentiators (cross-framework agentic communication, dynamic blueprints with `openai-agents` handoffs, team communication via sections, and CLI/remote agent bridging).
 3. **Hosting Feasibility Analysis**: Evaluate hosting via the existing Fly.io infrastructure (`fly.toml`) versus pure static client-side hosting (GitHub Pages, Cloudflare Pages, Vercel), outlining pros, cons, and recommendations.
 
 ---
@@ -28,7 +28,7 @@ In Demo Mode, the user experience is steered to showcase specific high-value wor
 
 ```
 +-----------------------------------------------------------------------------------+
-|  [DEMO MODE] Interactive Showcase: Explore Swarm Bot capabilities with zero setup |
+|  [DEMO MODE] Interactive Showcase: Explore Operating Swarm with zero setup |
 |  [Scenario 1: Multi-Agent SDLC] [Scenario 2: CLI Shell] [Scenario 3: Team Sections] |
 +-----------------------------------------------------------------------------------+
 |  Chat Messages Stream (Realistic chunked typing, tool calls, and agent hops)      |
@@ -58,7 +58,7 @@ The demo mode features four primary pre-scripted scenarios:
    - High-contrast suggestion chips above the composer (e.g. `[Build a REST API with SDLC team]`, `[Simulate CLI git refactor]`, `[Review PR security with Skeptic]`).
 3. **Arbitrary User Input Handling**:
    - If a visitor types an arbitrary custom prompt (e.g., *"Write a poem about rust"*), Demo Mode provides a graceful fallback:
-     - An informational notice: *"In Public Demo Mode, Swarm Bot uses curated mock inference to demonstrate agent orchestration. Here is how our multi-agent team coordinates on a sample task..."*
+     - An informational notice: *"In public demo mode, Operating Swarm uses curated mock inference to demonstrate agent orchestration. Here is how our multi-agent team coordinates on a sample task..."*
      - Followed by fuzzy-matching the query to the closest rich demo scenario or returning an engaging pre-canned multi-agent demonstration.
 
 ---
@@ -175,11 +175,28 @@ flowchart TD
 
 ---
 
-## 6. Acceptance Criteria
+## 6. Implementation (shipped in-repo)
 
-- [ ] Issue ticket [#279](https://github.com/matthewhand/open-swarm-private/issues/279) created and linked to REQ-882.
-- [ ] Specification outlines the 4 primary showcase scenarios (SDLC handoff, CLI simulation, Remote harness, Team sections).
-- [ ] User steerage and prompt-forcing mechanisms (banner, suggestion chips, fallback handlers) are clearly defined.
-- [ ] Architectural trade-offs between Fly.io container deployment and Pure Static Jamstack hosting are analyzed with cost, latency, and isolation metrics.
-- [ ] Implementation blueprint covers both backend `SWARM_DEMO_MODE` and frontend `VITE_DEMO_MODE` paths.
+Dual-mode, as designed:
+
+| Path | Flag | Entry |
+|------|------|--------|
+| Fly.io / Django ASGI | `SWARM_DEMO_MODE=1` (implies anonymous unless `SWARM_ALLOW_ANONYMOUS=0`) | `src/swarm/demo/` + `DjangoChatConsumer.respond_with_demo` |
+| Static SPA | `VITE_DEMO_MODE=true` (`npm run build:demo`) | `webui/frontend/src/lib/demo/demoMockInference.ts` installed from `main.tsx` |
+
+Steerage: `DemoTourBanner`, suggestion chips, guided-tour prompt, fallback notice for arbitrary input.
+
+**Hosting is operator-gated.** `scripts/deploy_demo_site.py` / `make demo-deploy` publishes to Fly (`fly.demo.toml`, app `open-swarm-demo`) or Cloudflare/GitHub Pages only when `FLY_API_TOKEN` / `flyctl auth whoami` / `CLOUDFLARE_API_TOKEN` / `GITHUB_PAGES_DEPLOY` is present. Missing credentials prints `SKIP:` and exits 0 — the mocked site still ships in-repo.
+
+Lock tests: `tests/unit/test_req882_demo_site_mocked_inference.py`. Behaviour: `test_demo_script_engine.py`, `test_consumer_demo_mode.py`, `test_deploy_demo_site.py`, Vitest `src/lib/demo/__tests__/*`.
+
+## 7. Acceptance Criteria
+
+- [x] Issue ticket [#279](https://github.com/matthewhand/open-swarm-private/issues/279) created and linked to REQ-882.
+- [x] Specification outlines the 4 primary showcase scenarios (SDLC handoff, CLI simulation, Remote harness, Team sections).
+- [x] User steerage and prompt-forcing mechanisms (banner, suggestion chips, fallback handlers) are clearly defined.
+- [x] Architectural trade-offs between Fly.io container deployment and Pure Static Jamstack hosting are analyzed with cost, latency, and isolation metrics.
+- [x] Implementation blueprint covers both backend `SWARM_DEMO_MODE` and frontend `VITE_DEMO_MODE` paths.
+- [x] Mocked site shipped in-repo; hosting deploy operator-gated when credentials are missing.
+- [x] Operating Swarm branding unchanged (demo copy does not revert to Swarm Bot).
 - [ ] REQ document committed and pushed to `origin/main`.

@@ -153,6 +153,9 @@ import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsP
 import { PrOpenedCard } from '../components/PrOpenedCard'
 import { TeammateTaskCard } from '../components/TeammateTaskCard'
 import { SuggestionChips } from '../components/SuggestionChips'
+import { DemoTourBanner } from '../components/DemoTourBanner'
+import { isDemoMode } from '../lib/demo/mode'
+import { demoSuggestionChips } from '../lib/demo/scenarios'
 import {
   openerChatSearch,
   parsePrOpened,
@@ -2523,10 +2526,14 @@ const ChatPage = () => {
     [conversationId, selectedAgentName],
   )
   const chipsDisabled = status !== 'open'
+  const demoMode = isDemoMode()
+  const demoChips = demoMode ? demoSuggestionChips() : []
   const supportJourneyChips =
     supportSelected && messages.length === 0 ? supportJourneyKickstart() : []
-  const showSupportJourneyChips = supportJourneyChips.length > 0
+  const showSupportJourneyChips = !demoMode && supportJourneyChips.length > 0
+  const showDemoChips = demoMode && demoChips.length > 0
   const showSuggestionChips =
+    !demoMode &&
     !showSupportJourneyChips &&
     shouldShowSuggestionChips({
       enabled: useSuggestions,
@@ -3294,7 +3301,9 @@ const ChatPage = () => {
         ) : messages.length === 0 && threadReady ? (
           <div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 text-center text-base-content/45">
             <p className="text-sm">Message {selectedAgentName}</p>
-            {showSupportJourneyChips ? (
+            {demoMode ? (
+              <DemoTourBanner disabled={chipsDisabled} onChoose={chooseSuggestion} />
+            ) : showSupportJourneyChips ? (
               <>
                 <p className="max-w-sm text-xs text-base-content/50">
                   Start with a team, a remote, or a CLI — one pane, no Settings maze.
@@ -3645,7 +3654,13 @@ const ChatPage = () => {
           className="os-chat-bottom-dock sticky bottom-0 z-20 -mx-2 sm:-mx-3 -mb-3 bg-base-100 border-t border-base-content/5"
           data-testid="chat-bottom-dock"
         >
-          {showSuggestionChips ? (
+          {showDemoChips ? (
+            <SuggestionChips
+              chips={demoChips}
+              disabled={chipsDisabled}
+              onChoose={chooseSuggestion}
+            />
+          ) : showSuggestionChips ? (
             <SuggestionChips
               chips={suggestionChips}
               disabled={chipsDisabled}

@@ -17,9 +17,10 @@ function readPyprojectVersion(): string {
 const spaVersion = readPyprojectVersion()
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
     define: {
         'import.meta.env.VITE_SPA_VERSION': JSON.stringify(spaVersion),
+        ...(mode === 'demo' ? { 'import.meta.env.VITE_DEMO_MODE': JSON.stringify('true') } : {}),
     },
     plugins: [
         react(),
@@ -150,4 +151,4 @@ export default defineConfig({
         include: ['src/**/*.{test,spec}.{ts,tsx}'],
         exclude: ['**/node_modules/**', '**/dist/**'],
     }
-})
+}))
