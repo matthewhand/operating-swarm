@@ -162,10 +162,16 @@ def test_resolve_database_url_precedence():
     )
 
 
-def test_django_databases_sqlite_and_postgres():
+def test_django_databases_sqlite_and_postgres(tmp_path, monkeypatch):
+    from swarm.core.paths import get_user_data_dir_for_swarm
+
+    monkeypatch.setenv("SWARM_USER_DATA_DIR", str(tmp_path / "xdg-data"))
     sqlite = django_databases({})
     assert sqlite["default"]["ENGINE"] == "django.db.backends.sqlite3"
-    assert sqlite["default"]["NAME"] == "/tmp/db.sqlite3"
+    expected = get_user_data_dir_for_swarm() / "db.sqlite3"
+    assert sqlite["default"]["NAME"] == str(expected)
+    assert expected.parent.is_dir()
+    assert (expected.parent.stat().st_mode & 0o777) == 0o700
     named = django_databases({"DJANGO_DB_NAME": "/var/data/app.sqlite3"})
     assert named["default"]["NAME"] == "/var/data/app.sqlite3"
     assert sqlite_name({"SQLITE_DB_PATH": "/tmp/alt.sqlite3"}) == "/tmp/alt.sqlite3"
@@ -173,6 +179,19 @@ def test_django_databases_sqlite_and_postgres():
     assert "postgres" in pg["default"]["ENGINE"]
     assert pg["default"]["NAME"] == "db"
     assert pg["default"]["HOST"] == "h"
+
+
+def test_sqlite_pytest_env_is_isolated_not_tmp_or_xdg():
+    from swarm.core.paths import get_user_data_dir_for_swarm
+
+    db = django_databases({"PYTEST_VERSION": "8.0.0"})
+    name = db["default"]["NAME"]
+    assert name != "/tmp/db.sqlite3"
+    assert str(get_user_data_dir_for_swarm()) not in name
+    assert "swarm-pytest-" in name
+    test_name = db["default"]["TEST"]["NAME"]
+    assert test_name != "/tmp/test_db.sqlite3"
+    assert "swarm-pytest-" in test_name
 
 
 def test_postgres_selected_without_target_is_config_error():

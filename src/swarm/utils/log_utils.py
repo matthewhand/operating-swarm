@@ -16,7 +16,9 @@ _initialized_loggers = set()
 
 # Helper to get settings from environment with defaults
 def get_env_log_level() -> str:
-    return os.getenv('SWARM_LOG_LEVEL', 'DEBUG')
+    from swarm.utils.env_utils import get_swarm_log_level
+
+    return get_swarm_log_level()
 
 def get_env_log_format() -> LogFormat:
     format_str = os.getenv('SWARM_LOG_FORMAT', 'VERBOSE').upper()

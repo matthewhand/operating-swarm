@@ -270,6 +270,7 @@ Shared fleet Success criteria (remote prove, same-origin hydrate, health JSON, h
 | Cloud override | ✅ | `DATABASE_URL` wins; `POSTGRES_*` when URL empty. [docs/DATABASE.md](docs/DATABASE.md), `.env.example`. |
 | Fail-fast | ✅ | `swarm.core.database_config.check_database_or_exit` → exit 78; compose `restart: on-failure:5`. |
 | CI | ✅ | pytest remains SQLite; `postgres-migrate` job uses Actions Postgres. No live Neon. Fixes #508. |
+| Native / PyPI SQLite (#323) | ✅ | Default `<get_user_data_dir_for_swarm()>/db.sqlite3` when no Postgres. Parent dir 0700. Compose still injects Postgres. Pytest uses an isolated temp file, not `/tmp/db.sqlite3`. |
 
 ## 15. Desktop package (REQ-151) — 📋 planned
 
