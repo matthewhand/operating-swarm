@@ -680,6 +680,7 @@ export interface RemoteCapabilities {
   operate?: boolean
   interrogate?: boolean
   routines?: boolean
+  sessions?: boolean
   transport?: string
 }
 
@@ -808,6 +809,7 @@ export async function operateRemote(
     prompt?: string
     target?: string
     session_id?: string
+    query?: string
   },
   options?: OperateRemoteOptions,
 ): Promise<RemoteOperateResult> {

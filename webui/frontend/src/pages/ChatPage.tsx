@@ -75,6 +75,13 @@ import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
+import SessionPicker from '../components/SessionPicker'
+import {
+  fetchRemoteThreadSessions,
+  remoteChatTurnParams,
+  remoteListsSessions,
+} from '../lib/remoteSessions'
+import type { MemberSession } from '../lib/sessionPicker'
 import { SystemPreloadPill } from '../components/SystemPreloadPill'
 import { CompactSummaryCard } from '../components/CompactSummaryCard'
 import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
@@ -569,6 +576,7 @@ const ChatPage = () => {
   const [, setEditsTick] = useState(0)
   const [dropdownTick, setDropdownTick] = useState(0)
   const [selectedRemoteId, setSelectedRemoteId] = useState('')
+  const [remoteThreadPicker, setRemoteThreadPicker] = useState<MemberSession[] | null>(null)
   const [conversationId, setConversationId] = useState(() =>
     teamFromUrl
       ? teamThreadId(teamFromUrl)
@@ -1380,6 +1388,33 @@ const ChatPage = () => {
     selectedAgent,
     remotesCatalog,
   ])
+
+  useEffect(() => {
+    if (!remoteFromUrl) {
+      setRemoteThreadPicker(null)
+      return
+    }
+    if (sessionFromUrl) {
+      setRemoteThreadPicker(null)
+      return
+    }
+    if (!remoteListsSessions({ id: remoteFromUrl, kind: remoteFromUrl })) return
+    let cancelled = false
+    void fetchRemoteThreadSessions({
+      id: remoteFromUrl,
+      kind: remoteFromUrl,
+      title: remoteFromUrl,
+    })
+      .then((sessions) => {
+        if (!cancelled) setRemoteThreadPicker(sessions)
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteThreadPicker([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [remoteFromUrl, sessionFromUrl])
 
   useEffect(() => {
     if (!showEmptyRemoteChrome) return
@@ -2365,23 +2400,46 @@ const ChatPage = () => {
         return true
       }
       if (remoteFromUrl) {
-        const target = isOpenMousBotKind(remoteFromUrl)
-          ? ombSendTarget(sessionFromUrl, remoteFromUrl)
-          : (sessionFromUrl || '').trim()
-        if (isOpenMousBotKind(remoteFromUrl) && !target) {
+        if (isOpenMousBotKind(remoteFromUrl)) {
+          const target = ombSendTarget(sessionFromUrl, remoteFromUrl)
+          if (!target) {
+            addToast({
+              type: 'warning',
+              title: 'Select an OpenMousBot agent',
+              message: `${OMB_SELECT_AGENT_WARNING} gap=${OMB_BOT_REQUIRED_GAP}`,
+            })
+            return false
+          }
+          ws.send(
+            buildChatWsFrame(trimmed, 'remote_harness', {
+              remote: remoteFromUrl,
+              name: remoteFromUrl,
+              op: 'send',
+              target,
+              ...pluginParams,
+              ...sectionParams,
+            }),
+          )
+          return true
+        }
+        if (remoteListsSessions({ id: remoteFromUrl, kind: remoteFromUrl }) && !sessionFromUrl) {
+          void fetchRemoteThreadSessions({
+            id: remoteFromUrl,
+            kind: remoteFromUrl,
+            title: remoteFromUrl,
+          })
+            .then((sessions) => setRemoteThreadPicker(sessions))
+            .catch(() => setRemoteThreadPicker([]))
           addToast({
-            type: 'warning',
-            title: 'Select an OpenMousBot agent',
-            message: `${OMB_SELECT_AGENT_WARNING} gap=${OMB_BOT_REQUIRED_GAP}`,
+            type: 'info',
+            title: 'Pick a session',
+            message: 'Choose an AnythingLLM workspace or thread to resume, then send.',
           })
           return false
         }
         ws.send(
           buildChatWsFrame(trimmed, 'remote_harness', {
-            remote: remoteFromUrl,
-            name: remoteFromUrl,
-            op: 'send',
-            ...(target ? { target } : {}),
+            ...remoteChatTurnParams(remoteFromUrl, sessionFromUrl),
             ...pluginParams,
             ...sectionParams,
           }, attachArg),
@@ -4468,6 +4526,27 @@ const ChatPage = () => {
           /* Single-context today; multi-context switching lands with session history UI. */
         }}
         toolCalls={seatToolCalls}
+      />
+
+      <SessionPicker
+        open={remoteThreadPicker !== null}
+        title={remoteFromUrl || 'Remote'}
+        sessions={remoteThreadPicker ?? []}
+        onClose={() => setRemoteThreadPicker(null)}
+        onSelect={(session) => {
+          const resumeId = String(session.memberId || session.id || '').trim()
+          if (!resumeId || !remoteFromUrl) return
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev)
+              next.set('remote', remoteFromUrl)
+              next.set('session', resumeId)
+              return next
+            },
+            { replace: true },
+          )
+          setRemoteThreadPicker(null)
+        }}
       />
     </div>
   )

@@ -142,6 +142,75 @@ def test_render_operate_omb_timeout_is_named_error_not_uuid_ack():
     assert "79b5852c" not in out
 
 
+@pytest.mark.asyncio
+async def test_send_passes_session_id(bp):
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.operate",
+        return_value=OperateResult(remote="hermes", op="send", ok=True, detail="resumed"),
+    ) as op:
+        out = await _ask(
+            bp,
+            "",
+            params={
+                "op": "send",
+                "name": "hermes",
+                "prompt": "hi",
+                "session_id": "sess-99",
+            },
+        )
+    assert "OK" in out
+    assert op.call_args.kwargs.get("session_id") == "sess-99"
+
+
+@pytest.mark.asyncio
+async def test_anythingllm_send_streams_deltas(bp):
+    def _fake_iter(*_args, **_kwargs):
+        yield ("Hel", False, None)
+        yield ("lo", True, None)
+
+    bp.set_params(
+        {
+            "op": "send",
+            "name": "anythingllm",
+            "prompt": "hi",
+            "session_id": "docs:t1",
+        }
+    )
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.kind_of_instance",
+        return_value="anythingllm",
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.load_remote",
+        return_value=object(),
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.iter_anythingllm_chat",
+        side_effect=lambda *a, **k: _fake_iter(),
+    ):
+        chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
+    texts = []
+    for chunk in chunks:
+        msgs = chunk.get("messages") if isinstance(chunk, dict) else None
+        if msgs and msgs[0].get("content"):
+            texts.append(msgs[0]["content"])
+    assert "Hel" in texts
+    assert texts[-1] == "Hello"
+    assert chunks[-1].get("final") is True
+
+
+@pytest.mark.asyncio
+async def test_as_tool_anythingllm_when_placed():
+    bp = RemoteHarnessBlueprint(
+        config={"llm": {}, "agent_team": {"members": ["anythingllm"]}}
+    )
+    agents = bp._build_agents()
+    assert "anythingllm" in agents
+    names = []
+    for tool in getattr(agents["coordinator"], "tools", []) or []:
+        names.append(getattr(tool, "name", None) or getattr(tool, "__name__", ""))
+    joined = " ".join(str(n) for n in names)
+    assert "consult_anythingllm" in joined
+
+
 def test_render_operate_not_added_is_natural_sentence(monkeypatch):
     monkeypatch.delenv("HERMES_BASE_URL", raising=False)
     monkeypatch.delenv("HERMES_API_KEY", raising=False)

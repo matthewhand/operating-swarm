@@ -1086,6 +1086,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             logger.exception("Failed to install CoS section/topology tools")
 
         final_message = None
+        streamed_any = False
         token = None
         ask_token = None
         try:
@@ -1172,6 +1173,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                             f"_Skill `{name}` not found — running without it._",
                         )
                     )
+            streamed_any = False
             async for chunk in blueprint_instance.run(model_messages):
                 # #198: enter-to-interrupt — stop before processing the next
                 # chunk once a cancel was requested; finalization re-checks
@@ -1195,6 +1197,12 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 final_message = message
                 if isinstance(chunk, dict) and isinstance(chunk.get("meta"), dict):
                     final_message = {**message, "_meta": chunk["meta"]}
+                piece = str(message.get("content") or "")
+                if piece and not _chunk_is_final(chunk):
+                    streamed_any = True
+                    await self.send(
+                        text_data=_oob_append_html(contents_div_id, piece)
+                    )
                 if _chunk_is_final(chunk):
                     break
         except Exception as e:
@@ -1306,7 +1314,8 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 + ". Check the profile's model/base_url in Settings → LLM profiles.",
             )
             return
-        await self.send(text_data=_oob_append_html(contents_div_id, full_message))
+        if not streamed_any:
+            await self.send(text_data=_oob_append_html(contents_div_id, full_message))
 
         from swarm.core.cli_session_error import fatal_config_error_extra
 

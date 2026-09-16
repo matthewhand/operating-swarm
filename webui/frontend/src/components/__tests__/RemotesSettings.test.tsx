@@ -172,6 +172,36 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
     })
   })
 
+  it('lists AnythingLLM sessions from operate and lets the operator pick one', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'anythingllm',
+      op: 'list',
+      ok: true,
+      detail: 'listed 2',
+      data: {
+        sessions: [
+          { id: 'docs', title: 'Docs' },
+          { id: 'docs:t1', title: 'latest hacker news?' },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'anythingllm',
+      label: 'AnythingLLM',
+      base_url: 'http://127.0.0.1:3001',
+      capabilities: { sessions: true, list: true, send: true },
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /list/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/docs:t1 · latest hacker news/i)).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /docs:t1/i }))
+    expect(screen.getByLabelText(/target/i)).toHaveValue('docs:t1')
+  })
+
   it('does not render routines section when capabilities.routines is false', () => {
     renderPane({
       id: 'omb',

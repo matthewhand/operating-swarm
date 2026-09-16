@@ -260,11 +260,16 @@ class RemoteOperateView(APIView):
                 "session_id": serializers.CharField(
                     required=False,
                     allow_blank=True,
-                    help_text="AnythingLLM workspace:thread (same as target)",
+                    help_text="Resume key (AnythingLLM workspace or workspace:thread)",
                 ),
                 "timeout": serializers.FloatField(
                     required=False,
                     help_text="Operate timeout in seconds. List stays short; send may be longer.",
+                ),
+                "query": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text="Optional session search filter for list",
                 ),
             },
         ),
@@ -289,6 +294,7 @@ class RemoteOperateView(APIView):
             "prompt": str(body.get("prompt") or ""),
             "target": target,
             "session_id": session_id,
+            "query": str(body.get("query") or ""),
         }
         if timeout is not None:
             kwargs["timeout"] = timeout

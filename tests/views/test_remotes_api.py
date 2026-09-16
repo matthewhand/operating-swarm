@@ -253,6 +253,26 @@ class TestRemoteOperate:
         assert kwargs["prompt"] == "hi"
 
     @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_send_forwards_session_id_and_query(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="anythingllm", op="send", ok=True, detail="replied"
+        )
+        resp = api_client.post(
+            "/v1/remotes/anythingllm/operate/",
+            {
+                "op": "send",
+                "prompt": "hi",
+                "session_id": "docs:thread-1",
+                "query": "hacker",
+            },
+            format="json",
+        )
+        assert resp.status_code == 200
+        kwargs = mock_op.call_args.kwargs
+        assert kwargs["session_id"] == "docs:thread-1"
+        assert kwargs["query"] == "hacker"
+
+    @patch("swarm.views.remotes_api.remotes_core.operate")
     def test_swarm_send(self, mock_op, api_client):
         mock_op.return_value = OperateResult(
             remote="swarm",

@@ -67,4 +67,17 @@ describe('sessionPicker (REQ-68 / REQ-66 shared)', () => {
     expect(shouldShowSelectAgent(pair)).toBe(true)
     expect(pair.map((row) => row.title)).toEqual(['Rakazo A', 'Rakazo B'])
   })
+
+  it('does not invent a fake AnythingLLM session when threads load via operate', () => {
+    const empty = sessionsForRemote({
+      id: 'anythingllm',
+      kind: 'anythingllm',
+      title: 'AnythingLLM',
+      configured: true,
+      agents: [],
+      capabilities: { sessions: true },
+    })
+    expect(empty).toEqual([])
+    expect(shouldShowSelectAgent(empty)).toBe(false)
+  })
 })
