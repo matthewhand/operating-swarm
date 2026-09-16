@@ -108,7 +108,7 @@ The differentiator is a **programmatic graph** — not “let chat figure it out
 
 **Under the hood** a team/workflow is a **Python blueprint class** ([ADR-005](docs/adr/005-kind-bases.md)). That is the power-user path.
 
-**Happy path:** ask **Support** in natural language — “Create a BA → Engineer → Tester workflow.” Support persists a usable seat. You do **not** write Python. Code stays hidden unless you choose **View / edit code**. The product bootstraps more of itself this way (REQ-158 / #567). Guided path + checklist (GitHub-only): [docs/SUPPORT_NL_BLUEPRINTS.md](docs/SUPPORT_NL_BLUEPRINTS.md).
+**Happy path:** ask **Support** in natural language. Underspecified “create a team” is Socratic; “Create a BA → Engineer → Tester workflow” drafts immediately. You do **not** write Python. **Add as agent** or **Save as blueprint** persists the draft. Code stays hidden unless you choose **View / edit code**. The product bootstraps more of itself this way (REQ-158 / #567 / #440). Guided path + checklist (GitHub-only): [docs/SUPPORT_NL_BLUEPRINTS.md](docs/SUPPORT_NL_BLUEPRINTS.md).
 
 Mermaid, kind bases, and the `:8001` seed live on [docs/DEVELOPER.md](docs/DEVELOPER.md). Worked configs: [docs/examples/openai-agents-handoff-graphs/](docs/examples/openai-agents-handoff-graphs/README.md) (REQ-156 / #564). Demo roster names (Mode A kind-clear vs Mode B personas): [docs/SHOWOFF_DEMO_AGENTS.md](docs/SHOWOFF_DEMO_AGENTS.md) (REQ-135 / #526). Kind-base ADR: [ADR-005](docs/adr/005-kind-bases.md) (REQ-159 / #570).
 

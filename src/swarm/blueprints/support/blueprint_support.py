@@ -27,8 +27,8 @@ from swarm.core.support_context import (
 )
 from swarm.core.support_nl_blueprint import (
     create_nl_blueprint,
+    nl_create_or_socratic,
     wants_code_reveal,
-    wants_nl_create,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,9 +42,15 @@ Goals:
 - Guide the open-swarm journey in natural language + kickstart chips
   (Create a team, Create a BA → Engineer → Tester workflow, Add a remote,
   Wire a CLI) — not a form maze.
-- Happy path: when they ask to create a team or workflow, call
-  create_blueprint_from_nl. They do **not** write Python. Do **not** dump
-  a ```python fence unless they ask to view / edit code.
+- Happy path: underspecified “create a team” → one Socratic ```question
+  (purpose/shape). Read get_quickstart(section="team") and list_create_paths
+  (ADR-005 kind bases) before drafting. Specified asks (BA → Engineer →
+  Tester, skeptic loop) may draft immediately. Call create_blueprint_from_nl
+  only after you know the shape — it returns a **draft** card, not a rail
+  seat. They do **not** write Python. Do **not** dump a ```python fence
+  unless they ask to view / edit code.
+- The card CTAs are **Add as agent** (rail) and **Save as blueprint**
+  (library). Do not tell them to Open in chat.
 - Under the hood a team is a Python ApiKindBase class (ADR-005). Say that
   briefly. Code stays hidden; the UI offers View / edit code.
 - Help them create a local team: personas, optional Chief of Staff (CoS).
@@ -61,7 +67,8 @@ Goals:
   overlay /profiles/ — never invent credentials, ports, or a live host.
 
 Tools:
-- create_blueprint_from_nl: persist a usable team/workflow from NL (no user Python).
+- create_blueprint_from_nl: draft a team/workflow from NL (no user Python;
+  persist is Add as agent / Save as blueprint on the card).
 - get_live_context: current agents + inference status.
 - get_quickstart: existing quickstart excerpts (inference / team / blueprint / run).
 - list_create_paths: in-product paths to create agents, blueprints, and teams.
@@ -174,8 +181,11 @@ def list_create_paths() -> str:
 
 @_function_tool
 def create_blueprint_from_nl(request: str) -> str:
-    """Create a usable team/workflow from natural language. User does not write Python."""
-    created = create_nl_blueprint(request)
+    """Draft a team/workflow from natural language. User does not write Python.
+
+    Does not persist. The chat card offers Add as agent / Save as blueprint.
+    """
+    created = create_nl_blueprint(request, persist=False)
     return created.user_reply(include_code_fence=False)
 
 
@@ -257,11 +267,23 @@ class SupportBlueprint(BlueprintBase):
             logger.debug("Support as_tool wiring skipped: %s", exc)
         return coordinator
 
-    def _deterministic_reply(self, user_text: str, session_kind: str = "api") -> str:
+    def _deterministic_reply(
+        self,
+        user_text: str,
+        session_kind: str = "api",
+        messages: list[dict[str, Any]] | None = None,
+    ) -> str:
         if session_kind in ("cli", "remote"):
             return support_turn_reply(None, session_kind)
         if not user_text:
             return create_paths_markdown()
+        designed = nl_create_or_socratic(
+            user_text,
+            messages,
+            include_code_fence=wants_code_reveal(user_text),
+        )
+        if designed:
+            return designed
         lowered = user_text.lower()
         parts = [user_text]
         if "create a team" in lowered or "first team" in lowered:
@@ -292,9 +314,6 @@ class SupportBlueprint(BlueprintBase):
                     "Open Swarm — no click-to-edit.",
                 ]
             )
-        if wants_nl_create(user_text):
-            created = create_nl_blueprint(user_text)
-            return created.user_reply(include_code_fence=wants_code_reveal(user_text))
         if wants_code_reveal(user_text) or any(
             word in lowered for word in ("blueprint", "code", "python", "write")
         ):
@@ -309,7 +328,8 @@ class SupportBlueprint(BlueprintBase):
         # Chat-load / empty turn and test mode never hit a live model.
         if os.environ.get("SWARM_TEST_MODE") or not user_text:
             yield fusion.message_chunk(
-                self._deterministic_reply(user_text, session_kind), final=True
+                self._deterministic_reply(user_text, session_kind, messages),
+                final=True,
             )
             return
 
@@ -329,5 +349,5 @@ class SupportBlueprint(BlueprintBase):
             yield fusion.message_chunk(text, final=True)
         except Exception as exc:
             logger.warning("Support LLM path failed; falling back to welcome: %s", exc)
-            fallback = self._deterministic_reply(user_text, session_kind)
+            fallback = self._deterministic_reply(user_text, session_kind, messages)
             yield fusion.message_chunk(fallback, final=True)

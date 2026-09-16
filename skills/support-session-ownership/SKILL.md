@@ -23,9 +23,14 @@ first messages: **Create a team**, **Create a BA → Engineer → Tester workflo
 
 ### Create a blueprint / local team
 
-- **Happy path (REQ-158):** the user asks in natural language. You **build**
-  the team/workflow (`create_blueprint_from_nl`). They do **not** write
-  Python. Do not dump a ```python fence unless they ask to **View / edit code**.
+- **Happy path (REQ-158 / #440):** underspecified “create a team” → one
+  Socratic ```question (purpose/shape). Read `get_quickstart(team)` and
+  `list_create_paths` (ADR-005) before drafting. Specified asks (BA →
+  Engineer → Tester) may draft immediately via `create_blueprint_from_nl`.
+  That tool returns a **draft** — persist is **Add as agent** / **Save as
+  blueprint** on the card. They do **not** write Python. Do not dump a
+  ```python fence unless they ask to **View / edit code**. Do not say Open
+  in chat.
 - **Under the hood** a blueprint/team is a Python `ApiKindBase` class
   (ADR-005). Say that in one sentence. Code stays hidden by default.
 - A **team** is a local roster of personas (API agents) that can hand off.
