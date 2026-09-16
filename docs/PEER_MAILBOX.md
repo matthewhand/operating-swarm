@@ -34,6 +34,7 @@ Effective discoverability = team ∪ edges ∩ (whitelist / ¬blacklist), with S
 | `agent` | One catalogued rail / roster agent id |
 | `team` | Every member of that composition roster |
 | `role` | Every peer whose canonical role matches (`support`, `gate`, `skeptic`, `chief_of_staff`, `engineer`, `suggestions`, `default`) |
+| `section` | Every member of that CoS rail section (Issue #219 `set_talk_acl` / `create_section`) |
 
 Per-agent overrides beat per-role policies. Empty blacklist = no extra cut. Empty whitelist = nobody, except Support/CoS allow-all. `list_agents` and `send_message` both apply the effective ACL.
 

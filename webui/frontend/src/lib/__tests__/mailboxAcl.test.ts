@@ -21,7 +21,7 @@ describe('mailboxAcl (REQ-162)', () => {
     expect(acl.allow_all).toBe(false)
   })
 
-  it('parses agent/team/role entries and rejects junk', () => {
+  it('parses agent/team/role/section entries and rejects junk', () => {
     expect(parseMailboxAclEntry({ kind: 'team', id: 'office' })).toEqual({
       kind: 'team',
       id: 'office',
@@ -29,6 +29,10 @@ describe('mailboxAcl (REQ-162)', () => {
     expect(parseMailboxAclEntry({ kind: 'role', id: 'support' })).toEqual({
       kind: 'role',
       id: 'support',
+    })
+    expect(parseMailboxAclEntry({ kind: 'section', id: 'sec_review' })).toEqual({
+      kind: 'section',
+      id: 'sec_review',
     })
     expect(parseMailboxAclEntry({ kind: 'channel', id: 'x' })).toBeNull()
     expect(parseMailboxAclEntry({ kind: 'agent' })).toBeNull()

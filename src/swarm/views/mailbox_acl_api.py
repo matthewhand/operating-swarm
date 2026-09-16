@@ -1,8 +1,8 @@
 """Mailbox ACL REST (REQ-162 / #573).
 
 GET/PUT/DELETE over ``agent_mailbox_acl.json``. Per-agent or per-role
-whitelist XOR blacklist. Entry kinds: agent, team, role. Support defaults
-to whitelist everything. No secrets. No Neon.
+whitelist XOR blacklist. Entry kinds: agent, team, role, section. Support
+defaults to whitelist everything. No secrets. No Neon.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ class MailboxAclStoreAPIView(APIView):
         summary="List mailbox ACL policies (per-agent and per-role)",
         description=(
             "Whitelist XOR blacklist for peer mailbox list_agents / send_message. "
-            "Entries target agent, team, or role. Support defaults to whitelist everything."
+            "Entries target agent, team, role, or section. Support defaults to whitelist everything."
         ),
         responses={200: OpenApiTypes.OBJECT},
     )
