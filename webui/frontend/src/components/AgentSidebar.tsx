@@ -2285,9 +2285,6 @@ export default function AgentSidebar({
         className={`os-agent-role-badge shrink-0 ${roleCssClass(role)}`}
         data-role={role}
         data-definition-id={agent.id}
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${role} settings`}
         style={{
           fontSize: '0.55rem',
           padding: '0 0.25rem',
@@ -2295,18 +2292,6 @@ export default function AgentSidebar({
           height: '0.9rem',
           boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
           whiteSpace: 'nowrap',
-        }}
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          openDefinition('role', agent.id, { blueprintId: agent.id })
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            openDefinition('role', agent.id, { blueprintId: agent.id })
-          }
         }}
       >
         {badge}

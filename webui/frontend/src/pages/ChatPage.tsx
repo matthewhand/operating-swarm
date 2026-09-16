@@ -33,7 +33,12 @@ import {
 import { openTeamEditor } from '../components/TeamEditor'
 import PersonaRoster from '../components/PersonaRoster'
 import { declaredRosterForTeam } from '../lib/declaredRoster'
-import { fetchUserPrefs, persistAgentDropdownChoice } from '../lib/userPrefs'
+import {
+  fetchUserPrefs,
+  persistAgentDropdownChoice,
+  USER_PREFS_CHANGED_EVENT,
+  type UserPrefs,
+} from '../lib/userPrefs'
 import {
   DEFAULT_CONTEXT_STRATEGY,
   DEFAULT_CULL_TRIGGER_PCT,
@@ -1092,11 +1097,20 @@ const ChatPage = () => {
 
   useEffect(() => {
     // REQ-28: a selected composition team uses ?team=; do not clobber it
-    // with the Support default (REQ-23 owns send-to-all).
-    if (searchParams.get('team') || searchParams.get('remote')) return
-    if (!searchParams.get('blueprint')) {
-      setSearchParams({ blueprint: SUPPORT_AGENT_ID }, { replace: true })
+    // with the Support default (REQ-23 owns send-to-all). Merge blueprint
+    // onto the existing query so ?cli= / ?model= / ?session= survive.
+    if (searchParams.get('team') || searchParams.get('remote') || searchParams.get('blueprint')) {
+      return
     }
+    setSearchParams(
+      (prev) => {
+        if (prev.get('team') || prev.get('remote') || prev.get('blueprint')) return prev
+        const next = new URLSearchParams(prev)
+        next.set('blueprint', SUPPORT_AGENT_ID)
+        return next
+      },
+      { replace: true },
+    )
   }, [searchParams, setSearchParams])
 
   // #169: remember which team already got the seat default, so roster
@@ -1234,19 +1248,35 @@ const ChatPage = () => {
       }
     }
     window.addEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    let cancelled = false
     void fetchAgentSettings(agent).then((settings) => {
+      if (cancelled) return
+      if (settings.agent_id && settings.agent_id !== agent) return
       setNewChatPerTask(settings.new_chat_per_task)
       setUseSuggestions(settings.use_suggestions)
     })
-    return () => window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    return () => {
+      cancelled = true
+      window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    }
   }, [selectedBlueprint, teamFromUrl])
 
   useEffect(() => {
-    void fetchUserPrefs().then((server) => {
-      if (!server) return
+    let cancelled = false
+    const applyPrefs = (server: UserPrefs | null | undefined) => {
+      if (cancelled || !server) return
       setContextStrategy(parseContextStrategy(server.context_strategy))
       setCullTriggerPct(parseCullTriggerPct(server.context_cull_trigger_pct))
-    })
+    }
+    void fetchUserPrefs().then(applyPrefs)
+    const onPrefs = (event: Event) => {
+      applyPrefs((event as CustomEvent<UserPrefs>).detail)
+    }
+    window.addEventListener(USER_PREFS_CHANGED_EVENT, onPrefs)
+    return () => {
+      cancelled = true
+      window.removeEventListener(USER_PREFS_CHANGED_EVENT, onPrefs)
+    }
   }, [])
 
   useEffect(() => {
@@ -1745,7 +1775,12 @@ const ChatPage = () => {
           setConnectAttempt((n) => n + 1)
         }, delay)
       }
-      return
+      return () => {
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current)
+          reconnectTimerRef.current = null
+        }
+      }
     }
     wsRef.current = ws
 
@@ -2363,8 +2398,18 @@ const ChatPage = () => {
         setPlusOpen(false)
       }
     }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setPlusOpen(false)
+      }
+    }
     window.addEventListener('mousedown', onPointer)
-    return () => window.removeEventListener('mousedown', onPointer)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onPointer)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [plusOpen])
 
   const streamingMessage = messages.find((message) => message.streaming)
@@ -2694,6 +2739,11 @@ const ChatPage = () => {
     }
 
     if (event.key === 'Escape') {
+      if (plusOpen) {
+        event.preventDefault()
+        setPlusOpen(false)
+        return
+      }
       if (replyTarget) {
         event.preventDefault()
         setReplyTarget(null)
@@ -2803,66 +2853,10 @@ const ChatPage = () => {
             </button>
           ) : null}
           <div
-            className="os-navbar-identity-card flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10 cursor-pointer"
+            className="os-navbar-identity-card flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10"
             data-testid="selected-agent-header"
-            role="button"
-            tabIndex={0}
+            role="group"
             aria-label={`Agent identity: ${selectedAgentName}`}
-            onClick={() => {
-              if (!teamFromUrl && selectedBlueprint) {
-                openAgentEditor({
-                  agentId: selectedBlueprint,
-                })
-                return
-              }
-              if (teamFromUrl) {
-                openTeamEditor({
-                  teamId: teamFromUrl,
-                  teamName: selectedTeam?.name || teamFromUrl,
-                })
-                return
-              }
-              const role = agentRole({
-                id: selectedBlueprint,
-                name: selectedAgentName,
-                role: selectedAgent?.role,
-              })
-              openSettingsSheet({
-                section: 'definition',
-                definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
-                definitionId: selectedBlueprint,
-                blueprintId: selectedBlueprint,
-              })
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                if (!teamFromUrl && selectedBlueprint) {
-                  openAgentEditor({
-                    agentId: selectedBlueprint,
-                  })
-                  return
-                }
-                if (teamFromUrl) {
-                  openTeamEditor({
-                    teamId: teamFromUrl,
-                    teamName: selectedTeam?.name || teamFromUrl,
-                  })
-                  return
-                }
-                const role = agentRole({
-                  id: selectedBlueprint,
-                  name: selectedAgentName,
-                  role: selectedAgent?.role,
-                })
-                openSettingsSheet({
-                  section: 'definition',
-                  definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
-                  definitionId: selectedBlueprint,
-                  blueprintId: selectedBlueprint,
-                })
-              }
-            }}
           >
             {teamFromUrl && teamDeclaredRoster ? (
               <PersonaRoster
@@ -2879,7 +2873,10 @@ const ChatPage = () => {
                 aria-haspopup="dialog"
                 aria-expanded={generationsOpen}
                 data-testid="header-avatar-generations"
-                onClick={() => setGenerationsOpen((prev) => !prev)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setGenerationsOpen((prev) => !prev)
+                }}
               >
                 <AgentAvatar
                   src={selectedAgent?.avatar_path}

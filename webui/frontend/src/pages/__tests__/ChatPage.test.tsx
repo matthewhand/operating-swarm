@@ -244,6 +244,121 @@ describe('ChatPage Unavailable / Sign-in CTA + connection status', () => {
   })
 })
 
+describe('ChatPage websocket constructor-failure reconnect (#334)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  it('clears the reconnect timer when the constructor-failure effect unmounts', async () => {
+    const reconnectIds: ReturnType<typeof setTimeout>[] = []
+    const origSetTimeout = globalThis.setTimeout.bind(globalThis)
+    const origClearTimeout = globalThis.clearTimeout.bind(globalThis)
+    const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: TimerHandler,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
+      const id = origSetTimeout(fn, ms, ...args)
+      if (ms === 1000) reconnectIds.push(id)
+      return id
+    }) as typeof setTimeout)
+    const cleared: ReturnType<typeof setTimeout>[] = []
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((
+      id?: ReturnType<typeof setTimeout>,
+    ) => {
+      if (id !== undefined) cleared.push(id)
+      return origClearTimeout(id as Parameters<typeof origClearTimeout>[0])
+    }) as typeof clearTimeout)
+
+    class ThrowSocket {
+      constructor() {
+        throw new Error('constructor failed')
+      }
+    }
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', ThrowSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+
+    const { unmount } = renderChat()
+    expect(await screen.findByText(/Unavailable — websocket unreachable/i)).toBeInTheDocument()
+    expect(reconnectIds.length).toBeGreaterThan(0)
+    unmount()
+    expect(cleared.some((id) => reconnectIds.includes(id))).toBe(true)
+    setSpy.mockRestore()
+    clearSpy.mockRestore()
+  })
+})
+
+describe('ChatPage default Support query (#336)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  it('keeps cli/model/session params when injecting the Support blueprint', async () => {
+    class MockWs {
+      static instances: MockWs[] = []
+      url: string
+      onopen: WsHandler = null
+      onmessage: WsHandler = null
+      onclose: WsHandler = null
+      send = vi.fn()
+      close = vi.fn()
+      constructor(url: string) {
+        this.url = url
+        MockWs.instances.push(this)
+      }
+    }
+    MockWs.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWs as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+
+    function QueryProbe() {
+      const [params] = useSearchParams()
+      return <div data-testid="chat-query">{params.toString()}</div>
+    }
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?cli=grok&model=x&session=s1']}>
+            <QueryProbe />
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      const qs = screen.getByTestId('chat-query').textContent || ''
+      const params = new URLSearchParams(qs)
+      expect(params.get('blueprint')).toBe('support')
+      expect(params.get('cli')).toBe('grok')
+      expect(params.get('model')).toBe('x')
+      expect(params.get('session')).toBe('s1')
+    })
+  })
+})
+
 describe('ChatPage disconnect toasts (REQ-112 #489)', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
@@ -1505,6 +1620,10 @@ describe('ChatPage Grok composer and per-agent threads', () => {
       'placeholder',
       'Message …',
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('menuitem', { name: 'Compact' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     expect(screen.getByRole('menuitem', { name: 'Compact' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Blueprints' })).not.toBeInTheDocument()

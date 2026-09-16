@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act, fireEvent } from '@testing-library/react'
+import { render, screen, act, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../../components/DaisyUI'
@@ -46,7 +46,7 @@ describe('REQ-214: Navbar agent identity hover card', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders hover card wrapping avatar, name, and pencil; whole card is clickable', async () => {
+  it('renders hover card wrapping avatar, name, and pencil; avatar does not open the editor', async () => {
     const openEditorSpy = vi.spyOn(agentEditorModule, 'openAgentEditor')
 
     const client = new QueryClient({
@@ -73,6 +73,9 @@ describe('REQ-214: Navbar agent identity hover card', () => {
     expect(card).toHaveClass('hover:bg-base-200/50')
     expect(card).toHaveClass('hover:border-base-content/10')
 
+    expect(card).toHaveAttribute('role', 'group')
+    expect(card).not.toHaveAttribute('role', 'button')
+
     // Avatar, name, and pencil are inside the card
     const avatar = card.querySelector('.os-chat-header__avatar')
     expect(avatar).toBeInTheDocument()
@@ -80,14 +83,15 @@ describe('REQ-214: Navbar agent identity hover card', () => {
     const pencil = card.querySelector('.os-navbar-edit-btn')
     expect(pencil).toBeInTheDocument()
 
-    // Clicking anywhere on the card (including clicking the avatar) opens editor
-    fireEvent.click(avatar!)
-    expect(openEditorSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: 'support' })
-    )
+    fireEvent.click(screen.getByTestId('header-avatar-generations'))
+    expect(openEditorSpy).not.toHaveBeenCalled()
+    expect(screen.getByTestId('generations-panel')).toBeInTheDocument()
 
     openEditorSpy.mockClear()
     fireEvent.click(card)
+    expect(openEditorSpy).not.toHaveBeenCalled()
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit agent' }))
     expect(openEditorSpy).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: 'support' })
     )
