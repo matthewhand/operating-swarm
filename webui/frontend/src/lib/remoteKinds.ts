@@ -6,6 +6,7 @@ export const REMOTE_KIND_LABELS: Record<string, string> = {
   anythingllm: 'AnythingLLM',
   letta: 'Letta',
   openwebui: 'Open WebUI',
+  flowise: 'Flowise',
   omb: OPENMOUSBOT_LABEL,
   rakazo: 'Rakazo',
   herdr: 'Herdr',

@@ -116,6 +116,11 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
             "chat id. Not Operating Swarm's own WebUI."
         ),
     },
+    "remote:flowise": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "Flowise prediction stream; resume key is flowId or flowId:chatId.",
+    },
     "remote:omb": {
         "name_field": "stripped",
         "path": "delimiter",

@@ -19,6 +19,8 @@ const REMOTE_IMPL_IDS = new Set([
   'open-webui',
   'open_webui',
   'owui',
+  'flowise',
+  'flowiseai',
   'omb',
   'rakazo',
   'openmausbot',

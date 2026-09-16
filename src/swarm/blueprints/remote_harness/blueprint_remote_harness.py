@@ -90,6 +90,8 @@ def _send_tool(
         kwargs["timeout"] = remotes_core._ANYTHINGLLM_SEND_TIMEOUT_S
     elif kind == "letta":
         kwargs["timeout"] = remotes_core._LETTA_SEND_TIMEOUT_S
+    elif kind == "flowise":
+        kwargs["timeout"] = remotes_core._FLOWISE_SEND_TIMEOUT_S
     elif kind == "openwebui":
         from swarm.core.openwebui_remote import send_timeout
 
@@ -171,7 +173,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -191,6 +193,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "LETTA_API_KEY",
             "OPENWEBUI_BASE_URL",
             "OPENWEBUI_API_KEY",
+            "FLOWISE_BASE_URL",
+            "FLOWISE_API_KEY",
         ],
     }
 
@@ -438,8 +442,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta|openwebui> <prompt>"
-                elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta", "openwebui"}:
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta|openwebui|flowise> <prompt>"
+                elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta", "openwebui", "flowise"}:
                     stream_kind = remotes_core.kind_of_instance(name)
                     session_id = str(params.get("session_id") or target or "").strip()
                     assembled = ""
@@ -456,6 +460,10 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                         from swarm.core.openwebui_remote import iter_openwebui_chat
 
                         iterator = iter_openwebui_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
+                    elif stream_kind == "flowise":
+                        iterator = remotes_core.iter_flowise_chat(
                             spec, prompt, session_id=session_id, target=target
                         )
                     else:
@@ -483,6 +491,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                             if stream_kind == "letta"
                             else "Open WebUI returned an empty reply. Pick a chat session and try again."
                             if stream_kind == "openwebui"
+                            else "Flowise returned an empty reply. Pick a chatflow session and try again."
+                            if stream_kind == "flowise"
                             else "AnythingLLM returned an empty reply. Pick a "
                             "workspace or thread session and try again."
                         )

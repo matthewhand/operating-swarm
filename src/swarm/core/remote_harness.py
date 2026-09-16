@@ -20,7 +20,7 @@ USER_FACING_KIND = "remote"
 
 # Catalog impl ids. ``swarm`` is the nested open-swarm remote — not the
 # stored fine kind ``swarm`` (persona/swarm *designs*, which stay API).
-REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 # Ids that classifiers treat as Remote (exclude design-kind ``swarm``).
 REMOTE_IMPL_CLASSIFIER_IDS: frozenset[str] = frozenset(
@@ -33,6 +33,8 @@ REMOTE_IMPL_CLASSIFIER_IDS: frozenset[str] = frozenset(
         "open-webui",
         "open_webui",
         "owui",
+        "flowise",
+        "flowiseai",
         "omb",
         "rakazo",
         "herdr",
@@ -63,6 +65,8 @@ _IMPL_ALIASES: dict[str, str] = {
     "open-webui": "openwebui",
     "open_webui": "openwebui",
     "owui": "openwebui",
+    "flowiseai": "flowise",
+    "flowise-ai": "flowise",
 }
 
 REMOTE_IMPL_LABELS: dict[str, str] = {
@@ -70,6 +74,7 @@ REMOTE_IMPL_LABELS: dict[str, str] = {
     "anythingllm": "AnythingLLM",
     "letta": "Letta",
     "openwebui": "Open WebUI",
+    "flowise": "Flowise",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -83,6 +88,7 @@ REMOTE_IMPL_TRANSPORT: dict[str, str] = {
     "anythingllm": "http",
     "letta": "http",
     "openwebui": "http",
+    "flowise": "http",
     "omb": "http",
     "rakazo": "http",
     "herdr": "cli",
@@ -246,7 +252,7 @@ def capabilities_for(impl_id: str) -> RemoteCapabilities:
         operate=computer,
         interrogate=rid == "herdr",
         routines=rid == "trueforge",
-        sessions=rid in {"hermes", "anythingllm", "letta", "openwebui"},
+        sessions=rid in {"hermes", "anythingllm", "letta", "openwebui", "flowise"},
         transport=REMOTE_IMPL_TRANSPORT.get(rid, "http"),
     )
 

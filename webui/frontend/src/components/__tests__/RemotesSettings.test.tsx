@@ -202,6 +202,36 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
     expect(screen.getByLabelText(/target/i)).toHaveValue('docs:t1')
   })
 
+  it('lists Flowise sessions and selects a resume key', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'flowise',
+      op: 'list',
+      ok: true,
+      detail: 'listed',
+      data: {
+        sessions: [
+          { id: 'support-bot', title: 'Support Bot' },
+          { id: 'support-bot:chat-hn', title: 'latest hacker news?' },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'flowise',
+      label: 'Flowise',
+      base_url: 'http://127.0.0.1:3000',
+      capabilities: { sessions: true, list: true, send: true },
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /list/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/support-bot:chat-hn · latest hacker news/i)).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /support-bot:chat-hn/i }))
+    expect(screen.getByLabelText(/target/i)).toHaveValue('support-bot:chat-hn')
+  })
+
   it('does not render routines section when capabilities.routines is false', () => {
     renderPane({
       id: 'omb',
