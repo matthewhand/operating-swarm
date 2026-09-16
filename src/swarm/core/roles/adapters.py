@@ -167,7 +167,9 @@ class ChiefOfStaffRole(Role):
     """Orchestrator seat with cross-team scope (REQ-28).
 
     The only ``allowed_everywhere`` role. Lifecycle permission helpers stay
-    in ``agent_roles`` this phase (they cover Support too).
+    in ``agent_roles`` (they cover Support too). Section / talk-ACL tools
+    attach here (Issue #219) so CoS is the tool-attach surface, not
+    blueprint ad-hoc wiring.
     """
 
     id: ClassVar[str] = "chief_of_staff"
@@ -185,6 +187,24 @@ class ChiefOfStaffRole(Role):
     mechanism_detail: ClassVar[str] = (
         "Orchestrator seat with cross-team communication and mailbox-wide scope (REQ-28)."
     )
+
+    def attach_as_tool(self, coordinator: Any, topology: Any = None) -> list[str]:
+        """Attach persistent section/topology tools to the CoS seat."""
+        from swarm.core.cos_topology import install_topology_on_blueprint
+
+        if coordinator is None or topology is None:
+            return []
+        return install_topology_on_blueprint(coordinator, topology)
+
+    def as_tool(self, ctx: RoleContext) -> Any | None:
+        from swarm.core.cos_topology import TopologyContext, attach_to_agent
+
+        target = ctx.agent or ctx.coordinator
+        topology = ctx.params.get("topology")
+        if target is None or not isinstance(topology, TopologyContext):
+            return None
+        attached = attach_to_agent(target, topology)
+        return attached or None
 
 
 @register_role

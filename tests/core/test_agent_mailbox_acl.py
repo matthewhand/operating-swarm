@@ -73,6 +73,7 @@ def test_empty_support_whitelist_stays_allow_all():
 def test_normalize_entry_kinds_and_rejects_unknown_role():
     assert normalize_entry({"kind": "team", "id": "office"}).kind == "team"
     assert normalize_entry({"kind": "role", "id": "helper"}).id == "support"
+    assert normalize_entry({"kind": "section", "id": "sec_review"}).kind == "section"
     with pytest.raises(ValueError, match="kind"):
         normalize_entry({"kind": "channel", "id": "x"})
     with pytest.raises(ValueError, match="Unknown role"):
@@ -91,7 +92,7 @@ def test_store_path_is_acl_json_not_teams():
     store = public_store()
     assert store["object"] == "mailbox_acl_store"
     kinds = {row["kind"] for row in store["entry_kinds"]}
-    assert kinds == {"agent", "team", "role"}
+    assert kinds == {"agent", "team", "role", "section"}
     assert store["defaults"]["support"]["allow_all"] is True
 
 

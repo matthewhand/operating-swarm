@@ -67,7 +67,7 @@ ERROR_KIND_FILTER = "kind_not_supported"
 ERROR_SECTION_LOCKED = "section_internal_only"
 
 AclMode = Literal["whitelist", "blacklist"]
-AclEntryKind = Literal["agent", "team", "role"]
+AclEntryKind = Literal["agent", "team", "role", "section"]
 
 
 class PeerMailboxError(Exception):
@@ -84,7 +84,7 @@ class PeerMailboxError(Exception):
 
 @dataclass(frozen=True)
 class AclEntry:
-    """One allow/deny entry. Kinds: agent, team, role (REQ-162 model)."""
+    """One allow/deny entry. Kinds: agent, team, role, section (REQ-162 / #219)."""
 
     kind: AclEntryKind
     id: str
@@ -99,7 +99,7 @@ class AclEntry:
         if not isinstance(raw, dict):
             return None
         kind = str(raw.get("kind") or "agent").strip().lower()
-        if kind not in ("agent", "team", "role"):
+        if kind not in ("agent", "team", "role", "section"):
             return None
         ident = str(raw.get("id") or raw.get("name") or "").strip()
         if not ident:
@@ -156,6 +156,7 @@ class Peer:
     kind: AgentKind
     role: str = "default"
     teams: set[str] = field(default_factory=set)
+    sections: set[str] = field(default_factory=set)
     archived: bool = False
     source: str = ""
 
@@ -212,11 +213,13 @@ def catalog_from_rosters(
                 kind=peer.kind,
                 role=peer.role,
                 teams=set(peer.teams),
+                sections=set(peer.sections),
                 archived=peer.archived,
                 source=peer.source,
             )
             continue
         existing.teams.update(peer.teams)
+        existing.sections.update(peer.sections)
         if is_chief_of_staff(peer.role) or normalize_agent_role(peer.role) == ROLE_SUPPORT:
             existing.role = peer.role
         existing.archived = existing.archived or peer.archived
@@ -228,6 +231,8 @@ def _side_agent_ids(kind: str, ident: str, catalog: dict[str, Peer]) -> set[str]
         return {ident} if ident in catalog else set()
     if kind == "team":
         return {peer.id for peer in catalog.values() if ident in peer.teams}
+    if kind == "section":
+        return {peer.id for peer in catalog.values() if ident in peer.sections}
     return set()
 
 
@@ -256,6 +261,15 @@ def _entry_matches(entry: AclEntry, peer: Peer) -> bool:
         return normalize_agent_role(peer.role) == normalize_agent_role(entry.id)
     if entry.kind == "team":
         return entry.id in peer.teams
+    if entry.kind == "section":
+        if entry.id in peer.sections:
+            return True
+        try:
+            from swarm.core.agent_sections import section_id_for_agent
+
+            return section_id_for_agent(peer.id) == entry.id
+        except Exception:
+            return False
     return False
 
 
@@ -327,7 +341,18 @@ class MailboxContext:
                     teams=teams_containing(self.caller_id, self.rosters),
                 )
             )
-        return catalog_from_rosters(self.rosters, extra=extra)
+        catalog = catalog_from_rosters(self.rosters, extra=extra)
+        try:
+            from swarm.core.agent_sections import membership_map
+
+            members = membership_map()
+        except Exception:
+            members = {}
+        for peer in catalog.values():
+            sid = members.get(peer.id)
+            if sid:
+                peer.sections.add(sid)
+        return catalog
 
     def caller(self) -> Peer:
         catalog = self.catalog()

@@ -839,6 +839,10 @@ class BlueprintBase(ABC):
         if lifecycle_ctx is not None:
             extra = lifecycle_ctx.tool_objects()
             tools = tools + extra
+        topology_ctx = getattr(self, "_topology_context", None)
+        if topology_ctx is not None:
+            extra = topology_ctx.tool_objects()
+            tools = tools + extra
 
         # Optional sandbox harness integration: attach sandbox execution tools
         # if requested (REQ-860 / REQ-863: Settings provider drives the backend.

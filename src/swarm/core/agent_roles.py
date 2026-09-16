@@ -125,6 +125,7 @@ __all__ = [
     "apply_blueprint_role",
     "is_chief_of_staff",
     "can_manage_agent_lifecycle",
+    "can_manage_topology",
     "role_css_class",
     "role_badge_label",
     "role_from_agent",
@@ -233,6 +234,11 @@ def can_manage_agent_lifecycle(role: Any) -> bool:
     """True for Support / CoS — the only roles that get create/archive tools (REQ-154)."""
     canonical = normalize_agent_role(role)
     return canonical == ROLE_SUPPORT or canonical == ROLE_CHIEF_OF_STAFF or is_chief_of_staff(role)
+
+
+def can_manage_topology(role: Any) -> bool:
+    """True for CoS only — section/talk-ACL tools (Issue #219). Support stays lifecycle-only."""
+    return is_chief_of_staff(role)
 
 
 def role_css_class(role: Any) -> str:

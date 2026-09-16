@@ -931,6 +931,17 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             )
         except Exception:
             logger.exception("Failed to install Support/CoS lifecycle tools")
+        try:
+            from swarm.core.cos_topology import install_topology_for_runtime
+
+            install_topology_for_runtime(
+                blueprint_instance,
+                caller_id=str(blueprint_id or ""),
+                user=getattr(self, "user", None),
+                params=params if isinstance(params, dict) else {},
+            )
+        except Exception:
+            logger.exception("Failed to install CoS section/topology tools")
 
         final_message = None
         token = None
