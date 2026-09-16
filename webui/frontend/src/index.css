@@ -2259,6 +2259,7 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 
 .os-bubble-theme-submenu {
+  display: none;
   position: absolute;
   left: calc(100% + 0.25rem);
   top: 0;
@@ -2270,6 +2271,11 @@ html:not([data-theme="light"]) .os-composer__send,
   border: 1px solid var(--color-base-300);
   background: var(--color-base-100);
   box-shadow: 0 12px 24px color-mix(in srgb, var(--color-base-content) 16%, transparent);
+}
+.os-bubble-theme-item:hover > .os-bubble-theme-submenu,
+.os-bubble-theme-item:focus-within > .os-bubble-theme-submenu,
+.os-bubble-theme-item[data-open="true"] > .os-bubble-theme-submenu {
+  display: block;
 }
 @media (max-width: 40rem) {
   .os-bubble-theme-submenu {

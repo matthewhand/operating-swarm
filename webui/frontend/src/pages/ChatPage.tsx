@@ -12,7 +12,7 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, FoldVertical, Layers, Mic, PanelLeft, Pencil, Plus, Reply, Settings, Square, Users } from 'lucide-react'
+import { ArrowUp, Check, ChevronRight, FoldVertical, Layers, Mic, Palette, PanelLeft, Pencil, Plus, Reply, Settings, Square, Users } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
@@ -55,6 +55,13 @@ import { useRailChrome } from '../components/RailChrome'
 import { ComputerControlStub } from '../components/ComputerControlStub'
 import { NavbarRoutingPicker, type RoutingPathChange } from '../components/NavbarRoutingPicker'
 import { ChatMessageBubble } from '../components/ChatMessageBubble'
+import {
+  BUBBLE_THEME_LABELS,
+  BUBBLE_THEMES,
+  loadBubbleTheme,
+  saveBubbleTheme,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
 import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
@@ -461,6 +468,8 @@ const ChatPage = () => {
   const sttStopRef = useRef<(() => void) | null>(null)
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
+  const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
+  const [bubbleThemeMenuOpen, setBubbleThemeMenuOpen] = useState(false)
   /** REQ-213: view-only hide. Raw transcript / summary tree on disk stay. */
   const [hiddenSummaryIds, setHiddenSummaryIds] = useState<number[]>([])
   const [hiddenMessageKeys, setHiddenMessageKeys] = useState<string[]>([])
@@ -662,7 +671,10 @@ const ChatPage = () => {
   }, [threadKey])
 
   useEffect(() => {
-    if (!contextMenu) return
+    if (!contextMenu) {
+      setBubbleThemeMenuOpen(false)
+      return
+    }
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') {
         setContextMenu(null)
@@ -3181,6 +3193,7 @@ const ChatPage = () => {
         }
         data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
         data-composer-inset={composerInsetPx}
+        data-bubble-theme={bubbleTheme}
         tabIndex={0}
         onScroll={handleTranscriptScroll}
       >
@@ -3416,6 +3429,7 @@ const ChatPage = () => {
                   text={message.text}
                   streaming={message.streaming}
                   edited={message.edited}
+                  ts={message.ts}
                   avatar={bubbleAvatar}
                   skillCatalog={skillCatalog}
                   onOpenSkill={setOpenSkillName}
@@ -3794,6 +3808,60 @@ const ChatPage = () => {
                 {contextStrategy === 'cull' ? START_CONTEXT_FROM_HERE_LABEL : 'Compress to here'}
               </button>
             ) : null}
+            <div
+              className="os-bubble-theme-item relative"
+              data-testid="context-menu-bubble-theme-item"
+              data-open={bubbleThemeMenuOpen ? 'true' : undefined}
+              onMouseEnter={() => setBubbleThemeMenuOpen(true)}
+              onMouseLeave={() => setBubbleThemeMenuOpen(false)}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                aria-expanded={bubbleThemeMenuOpen}
+                className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
+                data-testid="context-menu-bubble-theme"
+                onClick={() => setBubbleThemeMenuOpen((open) => !open)}
+              >
+                <Palette className="h-4 w-4 opacity-70" aria-hidden="true" />
+                <span className="flex-1">Bubble theme</span>
+                <ChevronRight className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+              </button>
+              {bubbleThemeMenuOpen ? (
+                <ul
+                  role="menu"
+                  aria-label="Bubble theme"
+                  className="os-bubble-theme-submenu"
+                  data-testid="context-menu-bubble-theme-submenu"
+                >
+                  {BUBBLE_THEMES.map((id) => {
+                    const selected = bubbleTheme === id
+                    return (
+                      <li key={id}>
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={selected}
+                          className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
+                          data-testid={`context-menu-bubble-theme-${id}`}
+                          onClick={() => {
+                            setBubbleTheme(saveBubbleTheme(id))
+                            setContextMenu(null)
+                          }}
+                        >
+                          <Check
+                            className={`h-4 w-4 ${selected ? '' : 'opacity-0'}`}
+                            aria-hidden="true"
+                          />
+                          {BUBBLE_THEME_LABELS[id]}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+            </div>
           </div>
         </>
       )}
