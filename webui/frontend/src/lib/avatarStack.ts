@@ -115,3 +115,16 @@ export function selectStackedFaces<T extends StackFace>(
 export function isAvatarStack(faceCount: number, remainder = 0): boolean {
   return faceCount > 1 || remainder > 0
 }
+
+/** Overlay live run-state onto stacked faces (pinned team workers, #432). */
+export function markStackWorking<T extends StackFace>(
+  faces: readonly T[],
+  isRunning: (id: string) => boolean,
+): { faces: T[]; anyWorking: boolean } {
+  const next = faces.map((face) => {
+    const ids = [face.id, face.agentId].filter((id): id is string => Boolean(id))
+    const working = Boolean(face.working) || ids.some((id) => isRunning(id))
+    return { ...face, working }
+  })
+  return { faces: next, anyWorking: next.some((face) => face.working) }
+}

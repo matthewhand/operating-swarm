@@ -9,6 +9,7 @@ import {
   selectStackedFaces,
   stackAnimationDelayMs,
   teamSidepaneStack,
+  markStackWorking,
   type StackFace,
 } from '../avatarStack'
 
@@ -73,6 +74,14 @@ describe('avatarStack', () => {
     expect(isAvatarStack(1, 0)).toBe(false)
     expect(isAvatarStack(2, 0)).toBe(true)
     expect(isAvatarStack(1, 1)).toBe(true)
+  })
+
+  it('#432 markStackWorking flags faces whose id is running', () => {
+    const faces = [face('ada', 1), face('bea', 2)]
+    const marked = markStackWorking(faces, (id) => id === 'bea')
+    expect(marked.anyWorking).toBe(true)
+    expect(marked.faces.map((row) => row.working)).toEqual([false, true])
+    expect(markStackWorking(faces, () => false).anyWorking).toBe(false)
   })
 
   it('parses startedAt from a number, ISO string, or fallback index', () => {
