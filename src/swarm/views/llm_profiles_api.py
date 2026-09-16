@@ -4,6 +4,7 @@ GET    /v1/llm-profiles/     configured profiles + effective default / map
 POST   /v1/llm-profiles/     upsert a named profile (id + model + optional base_url)
 PUT    /v1/llm-profiles/     same as POST
 PATCH  /v1/llm-profiles/     persist settings.default_llm_profile (+ override)
+POST   /v1/llm-profiles/test live key/model probe (REQ-854). Never persists.
 
 Permissions follow ``api_permission_classes()`` — never guest-only. Responses
 never include api keys or other secrets.
@@ -209,3 +210,55 @@ class LlmProfilesView(APIView):
         payload = _payload(cfg)
         payload["persisted_to"] = str(path)
         return Response(payload)
+
+
+class LlmProfilesTestView(APIView):
+    """POST /v1/llm-profiles/test — live provider probe. Never persists."""
+
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    @extend_schema(
+        operation_id="v1_llm_profiles_test",
+        summary="Test an LLM provider key and optionally list models (never persisted)",
+        request=inline_serializer(
+            name="LlmProfilesTestRequest",
+            fields={
+                "base_url": serializers.CharField(),
+                "api_key_env": serializers.CharField(required=False, allow_blank=True),
+                "api_key_ref": serializers.CharField(required=False, allow_blank=True),
+                "model": serializers.CharField(required=False, allow_blank=True),
+                "action": serializers.CharField(required=False, allow_blank=True),
+            },
+        ),
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, *_args, **_kwargs):
+        from swarm.core.config_ownership import ConfigOwnershipError
+        from swarm.core.llm_profile_probe import probe_llm_profile
+
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            result = probe_llm_profile(
+                base_url=body.get("base_url"),
+                api_key_env=body.get("api_key_env"),
+                api_key_ref=body.get("api_key_ref"),
+                api_key=body.get("api_key"),
+                model=body.get("model"),
+                action=body.get("action") or "test",
+            )
+        except ConfigOwnershipError as exc:
+            return Response(
+                {
+                    "object": "llm_profile_probe",
+                    "ok": False,
+                    "latency_ms": 0,
+                    "error_class": "invalid",
+                    "hint": str(exc),
+                    "state": "error",
+                    "error": str(exc),
+                    "code": exc.code,
+                },
+                status=exc.status,
+            )
+        return Response(result)

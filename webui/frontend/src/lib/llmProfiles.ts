@@ -86,6 +86,51 @@ export const LLM_PROFILE_PROVIDERS = [
   'openrouter',
 ] as const
 
+export type LlmProbeErrorClass =
+  | 'auth'
+  | 'dns'
+  | 'timeout'
+  | 'bad_model'
+  | 'model_missing'
+  | 'ssrf'
+  | 'unreachable'
+  | 'missing_key'
+  | 'invalid'
+
+export type LlmProbeState = 'idle' | 'testing' | 'ok' | 'warn' | 'error'
+
+/** TrueForge-style classified hints. Keep ticket jargon out of the copy. */
+export const LLM_PROBE_HINTS: Record<LlmProbeErrorClass, string> = {
+  auth: 'check key',
+  dns: 'could not resolve host',
+  timeout: 'is the host up?',
+  bad_model: 'model not found',
+  model_missing: 'reachable, but that model is not on the provider',
+  ssrf: 'that base URL is not allowed',
+  unreachable: 'could not reach host',
+  missing_key: 'set the API key env var first',
+  invalid: 'base URL is required',
+}
+
+export function probeHint(
+  errorClass: string | null | undefined,
+  fallback = '',
+): string {
+  if (!errorClass) return fallback
+  return LLM_PROBE_HINTS[errorClass as LlmProbeErrorClass] || fallback || errorClass
+}
+
+export function probeStateFromResult(result: {
+  ok?: boolean
+  error_class?: string | null
+  state?: string
+} | null | undefined): LlmProbeState {
+  if (!result) return 'idle'
+  if (result.state === 'warn' || result.error_class === 'model_missing') return 'warn'
+  if (result.ok) return 'ok'
+  return 'error'
+}
+
 export interface LlmProfileDraft {
   name: string
   provider: string

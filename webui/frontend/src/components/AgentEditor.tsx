@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
+import LlmProfileAddForm from './LlmProfileAddForm'
 import InferenceOrderList, { type InferenceCatalogOption } from './InferenceOrderList'
 import {
   fetchBlueprints,
@@ -124,6 +125,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [githubRepo, setGithubRepo] = useState('')
   const [repoError, setRepoError] = useState<string | null>(null)
   const [attachedSkills, setAttachedSkills] = useState<string[]>([])
+  const [addingProfile, setAddingProfile] = useState(false)
 
   const blueprintsQuery = useQuery({
     queryKey: ['blueprints'],
@@ -747,6 +749,25 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
                 </select>
               </div>
             </div>
+            {addingProfile ? (
+              <LlmProfileAddForm
+                className="space-y-3 rounded-box border border-base-300 bg-base-100 p-3"
+                onCancel={() => setAddingProfile(false)}
+                onSaved={async () => {
+                  setAddingProfile(false)
+                  await llmProfilesQuery.refetch()
+                }}
+              />
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAddingProfile(true)}
+              >
+                Add LLM profile
+              </Button>
+            )}
           </div>
         )}
 

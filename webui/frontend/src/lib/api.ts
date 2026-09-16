@@ -448,6 +448,34 @@ export function putLlmProfile(
   return apiPut<LlmProfilesSettings>('/v1/llm-profiles/', body)
 }
 
+export type LlmProfileProbeAction = 'test' | 'list_models'
+
+export interface LlmProfileProbeRequest {
+  base_url: string
+  api_key_env?: string
+  api_key_ref?: string
+  model?: string
+  action?: LlmProfileProbeAction
+}
+
+export interface LlmProfileProbeResult {
+  object?: 'llm_profile_probe'
+  ok: boolean
+  latency_ms: number
+  error_class: string | null
+  hint?: string
+  state?: 'ok' | 'warn' | 'error'
+  action?: string
+  models?: string[]
+}
+
+/** POST /v1/llm-profiles/test — live key/model probe. Never persists. */
+export function testLlmProfile(
+  body: LlmProfileProbeRequest,
+): Promise<LlmProfileProbeResult> {
+  return apiPost<LlmProfileProbeResult>('/v1/llm-profiles/test/', body)
+}
+
 /** GET/PATCH /v1/rate-limits/ — user-defined provider caps (local config, not Neon). */
 export type RateLimitRuleKey =
   | 'messages_per_minute'
