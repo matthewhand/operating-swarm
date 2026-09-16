@@ -10,8 +10,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_NEW_SESSION_RE = re.compile(r"^Started a new \S+ session\.?$", re.IGNORECASE)
-_RESUME_SESSION_RE = re.compile(r"^Resumed \S+ session\.?$", re.IGNORECASE)
+_NEW_SESSION_RE = re.compile(
+    r"^Started a new \S+ session(?: on \S+)?\.?$", re.IGNORECASE
+)
+_RESUME_SESSION_RE = re.compile(
+    r"^Resumed \S+ session(?: on \S+)?\.?$", re.IGNORECASE
+)
 
 
 def is_cli_session_notice(text: str | None) -> bool:
@@ -107,14 +111,20 @@ def new_cli_session_notice_if_needed(
         params.get("agent") or params.get("agent_id") or blueprint_id or ""
     ).strip()
     agent_id = chat_store.normalize_agent_id(agent) if agent else ""
+    host = None
+    raw_remote = params.get("cli_remote") or params.get("remote")
+    if raw_remote:
+        from swarm.core.cli_remote import remote_endpoint_label, resolve_cli_remote
+
+        host = remote_endpoint_label(resolve_cli_remote(cli_name, params=params))
     if agent_id and is_new_chat_per_task(agent_id):
-        return session_notice_text(cli_name, resumed=False)
+        return session_notice_text(cli_name, resumed=False, host=host)
     if is_new_chat_per_task(cli_name):
-        return session_notice_text(cli_name, resumed=False)
+        return session_notice_text(cli_name, resumed=False, host=host)
     if not user_key or not agent_id:
         # Without a thread we cannot prove resume; stay quiet (no spurious line).
         return None
     stored = get_cli_session(user_key, agent_id, cli_name)
     if stored:
         return None
-    return session_notice_text(cli_name, resumed=False)
+    return session_notice_text(cli_name, resumed=False, host=host)

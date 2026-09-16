@@ -1236,6 +1236,16 @@ Remember to provide a clear, unified response to the user, even when multiple ag
             from swarm.core.cli_catalog import apply_model
 
             entry = apply_model(entry, cli_name, model)
+        from swarm.core.cli_remote import resolve_cli_remote
+
+        endpoint = resolve_cli_remote(
+            cli_name,
+            config=self._config if isinstance(self._config, dict) else None,
+            params=self._params if isinstance(self._params, dict) else None,
+        )
+        if endpoint:
+            entry = dict(entry)
+            entry["remote"] = endpoint
         if cli_name in ("grok", "agy", "claude"):
             mcp = (self._config if isinstance(self._config, dict) else {}) or {}
             servers = mcp.get("mcpServers")

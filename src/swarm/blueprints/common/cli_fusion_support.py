@@ -22,6 +22,8 @@ PARAM_JUDGE = "judge"        # fusion: judge adapter/profile
 PARAM_TIMEOUT = "timeout"    # override adapter timeout (seconds)
 PARAM_MODEL = "model"        # pin CLI model flag (Chat send / apply_model)
 PARAM_CLI_MODEL = "cli_model"  # Agent Router alias of model
+# Issue #180: box id or host:port for serve attach
+PARAM_CLI_REMOTE = "cli_remote"
 PARAM_WORKDIR = "workdir"    # working directory for the CLI(s)
 PARAM_CWD = "cwd"            # alias for workdir (MoA / hybrid twins)
 PARAM_ISOLATE = "isolate"    # fusion: per-panelist workdir isolation (bool)
@@ -418,15 +420,19 @@ def requested_cli_model(params: dict[str, Any] | None) -> str | None:
 
 
 def apply_overrides(
-    registry: CliAdapterRegistry, params: dict[str, Any] | None
+    registry: CliAdapterRegistry,
+    params: dict[str, Any] | None,
+    config: dict[str, Any] | None = None,
 ) -> CliAdapterRegistry:
-    """Apply per-request adapter overrides (timeout + model pin) to a registry."""
+    """Apply per-request timeout, model pin, and remote attach overrides."""
     params = params or {}
     timeout = params.get(PARAM_TIMEOUT)
     model = requested_cli_model(params)
-    if timeout is None and not model:
+    remote_hint = params.get(PARAM_CLI_REMOTE) or params.get("remote")
+    if timeout is None and not model and not remote_hint:
         return registry
     from swarm.core import cli_catalog
+    from swarm.core.cli_remote import resolve_cli_remote
 
     names = list(registry.names())
     requested = params.get(PARAM_CLI)
@@ -447,6 +453,10 @@ def apply_overrides(
             pinned_cmd = pinned.get("cmd")
             if isinstance(pinned_cmd, list) and pinned_cmd:
                 entry["cmd"] = pinned_cmd
+        if remote_hint and name in model_targets:
+            endpoint = resolve_cli_remote(name, config=config, params=params)
+            if endpoint:
+                entry["remote"] = endpoint
         if entry:
             patch[name] = entry
     return registry.with_overrides(patch) if patch else registry
@@ -496,16 +506,22 @@ def progress_chunk(content: str) -> dict:
     return {"type": PROGRESS_TYPE, "content": content}
 
 
-def session_notice_chunk(cli_name: str, *, resumed: bool) -> dict:
+def session_notice_chunk(
+    cli_name: str, *, resumed: bool, host: str | None = None
+) -> dict:
     """Bubble-less session line. ``resumed`` only when the stored id was used."""
     from swarm.core.cli_sessions import session_notice_text
 
-    return {
+    label = str(host or "").strip() or None
+    chunk = {
         "type": SESSION_NOTICE_TYPE,
-        "content": session_notice_text(cli_name, resumed=resumed),
+        "content": session_notice_text(cli_name, resumed=resumed, host=label),
         "resumed": resumed,
         "session_notice": True,
     }
+    if label:
+        chunk["host"] = label
+    return chunk
 
 
 def terminated_notice_chunk() -> dict:

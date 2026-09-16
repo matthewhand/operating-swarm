@@ -36,6 +36,12 @@ import {
   groupRemotesByImpl,
   toggleGroupFilter,
 } from '../lib/addAgentGroups'
+import {
+  isRemoteCapableCli,
+  normalizeRemoteEndpoint,
+  remoteCapability,
+  type CliRemoteEndpoint,
+} from '../lib/cliRemote'
 
 export type AgentKind = 'cli' | 'api' | 'remote' | 'blueprint'
 
@@ -59,6 +65,7 @@ export interface ManageAgentItem {
   isCustom: boolean
   /** CLI provider id used for Add-agent group rows (#68). */
   provider?: string
+  remote?: CliRemoteEndpoint | null
 }
 
 /**
@@ -95,6 +102,11 @@ export default function AddAgentWizard({
   const [cliGithubRepo, setCliGithubRepo] = useState('')
   const [cliWorkspacesEnabled, setCliWorkspacesEnabled] = useState(false)
   const [cliDescription, setCliDescription] = useState('')
+  const [cliRemoteBox, setCliRemoteBox] = useState('')
+  const [cliRemoteHost, setCliRemoteHost] = useState('')
+  const [cliRemotePort, setCliRemotePort] = useState('')
+  const [cliRemoteUsername, setCliRemoteUsername] = useState('')
+  const [cliRemoteAuthEnv, setCliRemoteAuthEnv] = useState('')
   const [folderError, setFolderError] = useState<string | null>(null)
   const [repoError, setRepoError] = useState<string | null>(null)
 
@@ -146,6 +158,10 @@ export default function AddAgentWizard({
   const remotesCatalog = remotesListForSelect(remotesQuery.data)
   const configuredRemoteRows = configuredRemotes(remotesCatalog)
   const remoteImpls = addAgentRemoteImpls(remotesQuery.data)
+  const cliRemoteCatalog = cliQuery.data?.remote
+  const cliRemoteBoxes = cliQuery.data?.remote_boxes ?? []
+  const cliRemoteCapable = isRemoteCapableCli(cliCommand, cliRemoteCatalog)
+  const cliRemoteHow = remoteCapability(cliCommand, cliRemoteCatalog)
 
   const resetFormFields = () => {
     setError(null)
@@ -158,6 +174,11 @@ export default function AddAgentWizard({
     setCliGithubRepo('')
     setCliWorkspacesEnabled(false)
     setCliDescription('')
+    setCliRemoteBox('')
+    setCliRemoteHost('')
+    setCliRemotePort('')
+    setCliRemoteUsername('')
+    setCliRemoteAuthEnv('')
     setApiName('')
     setApiDescription('')
     setApiPrompt('')
@@ -221,6 +242,7 @@ export default function AddAgentWizard({
           description: item.description,
           isCustom: true,
           provider: agentCliProvider({ command }),
+          remote: (item.remote as CliRemoteEndpoint | undefined) || edits.remote || null,
         })
       }
     }
@@ -373,6 +395,12 @@ export default function AddAgentWizard({
       setCliGithubRepo(agent.githubRepo || stored.githubRepo)
       setCliWorkspacesEnabled(stored.workspacesEnabled)
       setCliDescription(agent.description || '')
+      const remote = agent.remote || loadAgentEdit(agent.id).remote
+      setCliRemoteBox(remote?.box || '')
+      setCliRemoteHost(remote?.host || '')
+      setCliRemotePort(remote?.port ? String(remote.port) : '')
+      setCliRemoteUsername(remote?.username || '')
+      setCliRemoteAuthEnv(remote?.password_env || '')
     } else if (selectedKind === 'api' || selectedKind === 'blueprint') {
       if (selectedKind === 'blueprint') {
         setBpName(agent.name)
@@ -445,6 +473,18 @@ export default function AddAgentWizard({
         const description = cliDescription.trim()
         if (!name) throw new Error('Agent name is required')
         if (!command) throw new Error('CLI command or binary is required')
+        const remote = cliRemoteCapable
+          ? normalizeRemoteEndpoint({
+              host: cliRemoteHost.trim(),
+              port: cliRemotePort ? Number(cliRemotePort) : undefined,
+              username: cliRemoteUsername.trim(),
+              password_env: cliRemoteAuthEnv.trim(),
+              box: cliRemoteBox.trim(),
+            })
+          : null
+        if (cliRemoteHost.trim() && !remote) {
+          throw new Error('Remote host/port is invalid')
+        }
 
         const folderComment = folder ? `# Folder: ${folder}
 ` : ''
@@ -463,6 +503,7 @@ ${folderComment}`
             command,
             rail: true,
             source: 'add-agent',
+            ...(remote ? { remote } : {}),
           })
 
           saveAgentEdit(created.id, {
@@ -471,6 +512,7 @@ ${folderComment}`
             folder,
             githubRepo,
             workspacesEnabled: false,
+            ...(remote ? { remote } : { remote: undefined }),
           })
           await saveAgentSettings(created.id, { folder })
 
@@ -486,6 +528,7 @@ ${folderComment}`
             folder,
             githubRepo,
             workspacesEnabled: false,
+            ...(remote ? { remote } : { remote: undefined }),
           })
           await saveAgentSettings(editingAgentId, { folder })
 
@@ -497,6 +540,7 @@ ${folderComment}`
               kind: 'cli',
               command,
               rail: true,
+              ...(remote ? { remote } : {}),
             })
           } catch {
             // Local edits already saved via saveAgentEdit
@@ -1122,6 +1166,114 @@ ${folderComment}`
                     aria-label="Description"
                   />
                 </div>
+                {cliRemoteCapable ? (
+                  <fieldset
+                    className="space-y-2 rounded-box border border-base-300 p-3"
+                    data-testid="cli-remote-connection"
+                  >
+                    <legend className="px-1 text-sm font-semibold">
+                      Remote connection (optional)
+                    </legend>
+                    <p className="text-xs text-base-content/70">
+                      {cliCommand.trim() || 'This CLI'} supports headless{' '}
+                      <span className="font-mono">{cliRemoteHow}</span> mode.
+                      Leave blank to run locally. Auth is an env-var name — never
+                      a password.
+                    </p>
+                    {cliRemoteBoxes.length > 0 ? (
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Fleet box
+                        </label>
+                        <select
+                          className="select select-sm select-bordered w-full"
+                          value={cliRemoteBox}
+                          onChange={(e) => {
+                            const id = e.target.value
+                            setCliRemoteBox(id)
+                            const box = cliRemoteBoxes.find((row) => (row.id || row.box) === id)
+                            if (box?.host) {
+                              setCliRemoteHost(box.host)
+                              setCliRemotePort(box.port ? String(box.port) : '')
+                              setCliRemoteUsername(box.username || '')
+                              setCliRemoteAuthEnv(box.password_env || '')
+                            }
+                          }}
+                          aria-label="CLI remote box"
+                          data-testid="select-cli-remote-box"
+                        >
+                          <option value="">Custom host…</option>
+                          {cliRemoteBoxes.map((box) => (
+                            <option key={box.id || box.host} value={box.id || box.box || ''}>
+                              {box.id || box.box} ({box.host}:{box.port})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Host
+                        </label>
+                        <input
+                          type="text"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          placeholder="dev-box.lan"
+                          value={cliRemoteHost}
+                          onChange={(e) => setCliRemoteHost(e.target.value)}
+                          aria-label="CLI remote host"
+                          data-testid="input-cli-remote-host"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Port
+                        </label>
+                        <input
+                          type="number"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          placeholder="4096"
+                          min={1}
+                          max={65535}
+                          value={cliRemotePort}
+                          onChange={(e) => setCliRemotePort(e.target.value)}
+                          aria-label="CLI remote port"
+                          data-testid="input-cli-remote-port"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Username (optional)
+                        </label>
+                        <input
+                          type="text"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          value={cliRemoteUsername}
+                          onChange={(e) => setCliRemoteUsername(e.target.value)}
+                          aria-label="CLI remote username"
+                          data-testid="input-cli-remote-username"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Auth env (optional)
+                        </label>
+                        <input
+                          type="text"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          placeholder="OPENCODE_SERVER_PASSWORD"
+                          value={cliRemoteAuthEnv}
+                          onChange={(e) => setCliRemoteAuthEnv(e.target.value)}
+                          aria-label="CLI remote auth env"
+                          data-testid="input-cli-remote-auth-env"
+                        />
+                      </div>
+                    </div>
+                  </fieldset>
+                ) : null}
               </>
             ) : null}
 

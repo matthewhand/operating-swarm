@@ -14,7 +14,10 @@ is ``which`` / ``stat`` only — never ``auth_check``, never a login probe,
 never a network call.
 
 Known catalog names (agy is the antigravity CLI): grok, agy, claude, gemini,
-codex, opencode, pi, omp, qwen.
+codex, opencode, kilocode, pi, omp, qwen.
+
+Remote/headless serving (Issue #180): opencode and kilocode can attach to a
+``serve`` endpoint on another box. See :mod:`swarm.core.cli_remote`.
 
 Each entry runs the CLI **one-shot, non-interactive, auto-approve** (full
 capability) — the flag that matters is the auto-approve one, without which the
@@ -166,6 +169,15 @@ CATALOG: dict[str, dict[str, Any]] = {
         # to pick another available id if needed.
         # --model before `--` so a positional prompt cannot turn it into text.
         "cmd": ["opencode", "run", "--model", "litellm/orchestration", "--", "{prompt}"],
+        "parse": "text",
+        "mode": "write",
+        "timeout": 240,
+    },
+    "kilocode": {
+        # Kilo Code CLI (opencode fork). Binary is ``kilo``. One-shot ``run``
+        # with a positional prompt after ``--``. Headless: ``kilo serve``;
+        # attach with ``--attach http://host:port`` (see cli_remote).
+        "cmd": ["kilo", "run", "--", "{prompt}"],
         "parse": "text",
         "mode": "write",
         "timeout": 240,
@@ -338,6 +350,19 @@ SESSION: dict[str, dict[str, Any]] = {
             "in the cwd, not thread-scoped — do not use it. Capture id when the "
             "CLI emits JSON; the default catalog parse is text. "
             "List: ``opencode session list --format json`` ({id, title, updated})."
+        ),
+    },
+    "kilocode": {
+        "resume_argv": ["--session", "{session_id}"],
+        "resume_insert": 2,  # after `kilo run` → `kilo run --session <id> …`
+        "resume_strip": ["--continue", "-c"],
+        "session_id_paths": [".session", ".sessionID", ".id"],
+        "list_capability": LIST_CAPABILITY_PASTE_ONLY,
+        "notes": (
+            "kilo run --session <id> (also -s). --continue/-c is last-session "
+            "in the cwd, not thread-scoped — do not use it. "
+            "Headless: ``kilo serve``; attach with ``--attach http://host:port``. "
+            "List is paste-only until a non-interactive list argv is verified."
         ),
     },
     "omp": {
@@ -573,6 +598,7 @@ CLI_TRAITS: dict[str, dict[str, float]] = {
     "gemini":   {"intelligence": 0.60, "speed": 0.92, "cost": 0.90},
     "codex":    {"intelligence": 0.75, "speed": 0.60, "cost": 0.50},
     "opencode": {"intelligence": 0.55, "speed": 0.65, "cost": 0.75},
+    "kilocode": {"intelligence": 0.55, "speed": 0.65, "cost": 0.75},
     "omp":      {"intelligence": 0.60, "speed": 0.70, "cost": 0.80},
     "pi":       {"intelligence": 0.70, "speed": 0.70, "cost": 0.70},
     "qwen":     {"intelligence": 0.62, "speed": 0.85, "cost": 0.85},
@@ -716,6 +742,7 @@ MODEL_FLAG: dict[str, str] = {
     "gemini": "-m",        # verified live (gemini 0.45): -m gemini-3-pro-preview
     "claude": "--model",   # claude -p --model <name>
     "opencode": "--model", # opencode run --model <name>
+    "kilocode": "--model", # kilo run --model <name>
     "omp": "--model",      # omp -p --model <provider/id>
     "agy": "--model",      # agy --model <name>
     "grok": "-m",          # grok -m/--model <id> (verified: grok-4.6, grok-4.5)
@@ -868,17 +895,29 @@ def cli_from_rail_id(agent_id: str | None) -> str | None:
     raw = str(agent_id or "").strip().lower()
     if not raw:
         return None
+    from swarm.core.cli_remote import CLI_ALIASES
+
     if raw.endswith("_agent"):
         candidate = raw[: -len("_agent")]
         if candidate in CATALOG:
             return candidate
+        mapped = CLI_ALIASES.get(candidate)
+        if mapped and mapped in CATALOG:
+            return mapped
     if raw in CATALOG:
         return raw
+
+    aliased = CLI_ALIASES.get(raw)
+    if aliased and aliased in CATALOG:
+        return aliased
     for delim in ("-", "_"):
         if delim in raw:
             suffix = raw.rsplit(delim, 1)[-1]
             if suffix in CATALOG:
                 return suffix
+            mapped = CLI_ALIASES.get(suffix)
+            if mapped and mapped in CATALOG:
+                return mapped
     return None
 
 
@@ -1001,7 +1040,27 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
             if has_list_models(name)
         },
         "list_sessions": list_sessions_catalog(),
+        "remote": _remote_catalog_payload(),
+        "remote_boxes": _remote_boxes_payload(config),
     }
+
+
+def _remote_catalog_payload() -> dict[str, dict[str, Any]]:
+    from swarm.core.cli_remote import remote_catalog
+
+    return remote_catalog()
+
+
+def _remote_boxes_payload(config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    from swarm.core.cli_remote import list_remote_boxes, public_remote_endpoint
+
+    boxes = list_remote_boxes(config)
+    rows: list[dict[str, Any]] = []
+    for box_id, spec in sorted(boxes.items()):
+        public = public_remote_endpoint(spec) or {}
+        public["id"] = box_id
+        rows.append(public)
+    return rows
 
 
 def installed_catalog_clis() -> list[str]:

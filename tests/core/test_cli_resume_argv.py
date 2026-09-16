@@ -73,6 +73,14 @@ EXPECTED_RESUME_ARGV = {
         "--",
         PROMPT,
     ],
+    "kilocode": [
+        "kilo",
+        "run",
+        "--session",
+        SID,
+        "--",
+        PROMPT,
+    ],
     "omp": [
         "omp",
         "-p",
