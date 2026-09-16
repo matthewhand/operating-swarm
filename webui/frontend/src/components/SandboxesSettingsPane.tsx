@@ -18,6 +18,9 @@ export interface SandboxSettings {
   daytona_api_key_env: string
   daytona_api_url: string
   dangerous_confirmed: boolean
+  inherit_env?: boolean
+  auto_stop_interval?: number
+  sync_workspace?: boolean
   providers: SandboxProviderDescriptor[]
   secrets: { daytona_api_key_env: string | null; daytona_api_url: string | null }
 }
@@ -49,10 +52,13 @@ export default function SandboxesSettingsPane() {
   })
 
   const [provider, setProvider] = useState<string>('none')
-  const [enableTools, setEnableTools] = useState<boolean>(false)
   const [timeoutSeconds, setTimeoutSeconds] = useState<number>(30)
   const [apiKeyEnv, setApiKeyEnv] = useState<string>('')
   const [apiUrl, setApiUrl] = useState<string>('')
+  const [inheritEnv, setInheritEnv] = useState<boolean>(true)
+  const [confirmDangerous, setConfirmDangerous] = useState<boolean>(false)
+  const [autoStopInterval, setAutoStopInterval] = useState<number>(15)
+  const [syncWorkspace, setSyncWorkspace] = useState<boolean>(false)
   const [dirty, setDirty] = useState<boolean>(false)
 
   // Sync local state from the server payload whenever it arrives.
@@ -60,10 +66,13 @@ export default function SandboxesSettingsPane() {
     const data = settingsQuery.data
     if (!data) return
     setProvider(data.provider)
-    setEnableTools(Boolean(data.enable_sandbox_tools))
     setTimeoutSeconds(data.timeout_seconds ?? 30)
     setApiKeyEnv(data.daytona_api_key_env ?? '')
     setApiUrl(data.daytona_api_url ?? '')
+    setInheritEnv(data.inherit_env ?? data.provider === 'bare_metal')
+    setConfirmDangerous(Boolean(data.dangerous_confirmed))
+    setAutoStopInterval(data.auto_stop_interval ?? 15)
+    setSyncWorkspace(Boolean(data.sync_workspace))
     setDirty(false)
   }, [settingsQuery.data])
 
@@ -73,10 +82,13 @@ export default function SandboxesSettingsPane() {
     onSuccess: (saved) => {
       queryClient.setQueryData(['settings-sandbox'], saved)
       setProvider(saved.provider)
-      setEnableTools(Boolean(saved.enable_sandbox_tools))
       setTimeoutSeconds(saved.timeout_seconds ?? 30)
       setApiKeyEnv(saved.daytona_api_key_env ?? '')
       setApiUrl(saved.daytona_api_url ?? '')
+      setInheritEnv(saved.inherit_env ?? saved.provider === 'bare_metal')
+      setConfirmDangerous(Boolean(saved.dangerous_confirmed))
+      setAutoStopInterval(saved.auto_stop_interval ?? 15)
+      setSyncWorkspace(Boolean(saved.sync_workspace))
       setDirty(false)
     },
   })
@@ -126,6 +138,9 @@ export default function SandboxesSettingsPane() {
               data-testid={`sandbox-provider-${p.id}`}
               onClick={() => {
                 setProvider(p.id)
+                if (p.id === 'bare_metal') {
+                  setInheritEnv(true)
+                }
                 setDirty(true)
                 probe.reset()
               }}
@@ -162,18 +177,17 @@ export default function SandboxesSettingsPane() {
         })}
       </div>
 
-      <label className="flex items-center gap-2 text-sm" data-testid="sandbox-tools-toggle">
-        <input
-          type="checkbox"
-          className="toggle toggle-sm"
-          checked={enableTools}
-          onChange={(e) => {
-            setEnableTools(e.target.checked)
-            setDirty(true)
-          }}
-        />
-        Attach execution tools to agents (when a real provider is selected)
-      </label>
+      {provider === 'none' ? (
+        <p className="text-xs text-base-content/50" data-testid="sandbox-tools-off-note">
+          No execution tools are attached. Pick Bare metal host or Daytona to equip
+          agents with sandbox_run_bash / sandbox_run_python / file tools.
+        </p>
+      ) : (
+        <p className="text-xs text-base-content/60" data-testid="sandbox-tools-on-note">
+          Execution tools attach automatically: sandbox_run_bash, sandbox_run_python,
+          sandbox_read_file, sandbox_write_file.
+        </p>
+      )}
 
       <label className="block text-sm">
         <span className="text-xs font-semibold uppercase tracking-wide text-base-content/50">
@@ -233,30 +247,94 @@ export default function SandboxesSettingsPane() {
               (value stays in the environment).
             </p>
           ) : null}
+          <label className="block text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+              Auto-stop idle microVMs (minutes, 0 = never)
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={1440}
+              className="input input-bordered mt-1 w-32"
+              value={autoStopInterval}
+              data-testid="daytona-autostop-input"
+              onChange={(e) => {
+                setAutoStopInterval(Number(e.target.value) || 0)
+                setDirty(true)
+              }}
+            />
+          </label>
+          <label className="flex items-start gap-2 text-sm" data-testid="daytona-sync-workspace">
+            <input
+              type="checkbox"
+              className="checkbox checkbox-sm mt-0.5"
+              checked={syncWorkspace}
+              onChange={(e) => {
+                setSyncWorkspace(e.target.checked)
+                setDirty(true)
+              }}
+            />
+            <span>Upload this project into the sandbox after it is created.</span>
+          </label>
         </div>
       ) : null}
 
-      {provider === 'bare_metal' && !settingsQuery.data.dangerous_confirmed ? (
-        <p className="text-xs text-warning" data-testid="sandbox-dangerous-hint">
-          Saving this provider requires confirming the dangerous-execution checkbox on the
-          server call; the pane sends it with your save.
-        </p>
+      {provider === 'bare_metal' ? (
+        <div className="space-y-2 rounded-xl border border-error/40 p-3" data-testid="bare-metal-options">
+          <label className="flex items-start gap-2 text-sm" data-testid="sandbox-confirm-dangerous">
+            <input
+              type="checkbox"
+              className="checkbox checkbox-sm checkbox-error mt-0.5"
+              checked={confirmDangerous}
+              onChange={(e) => {
+                setConfirmDangerous(e.target.checked)
+                setDirty(true)
+              }}
+            />
+            <span>
+              I understand this runs unsandboxed on this host with swarm&apos;s privileges
+              (dangerous).
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm" data-testid="sandbox-inherit-env">
+            <input
+              type="checkbox"
+              className="checkbox checkbox-sm mt-0.5"
+              checked={inheritEnv}
+              onChange={(e) => {
+                setInheritEnv(e.target.checked)
+                setDirty(true)
+              }}
+            />
+            <span>
+              Inherit the full host environment so git, gh, docker, and other CLIs keep
+              their credentials.
+            </span>
+          </label>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           className="btn btn-primary btn-sm"
-          disabled={!dirty || save.isPending}
+          disabled={
+            !dirty ||
+            save.isPending ||
+            (provider === 'bare_metal' && !confirmDangerous)
+          }
           data-testid="sandbox-save"
           onClick={() =>
             save.mutate({
               provider,
-              enable_sandbox_tools: enableTools,
+              enable_sandbox_tools: provider !== 'none',
               timeout_seconds: timeoutSeconds,
               daytona_api_key_env: apiKeyEnv.trim(),
               daytona_api_url: apiUrl.trim(),
-              confirm_dangerous: provider === 'bare_metal',
+              confirm_dangerous: provider === 'bare_metal' && confirmDangerous,
+              inherit_env: inheritEnv,
+              auto_stop_interval: autoStopInterval,
+              sync_workspace: syncWorkspace,
             })
           }
         >

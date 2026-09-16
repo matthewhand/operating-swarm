@@ -1508,6 +1508,56 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         )
         await self.send(text_data=error_html)
 
+    async def _maybe_run_default_sandbox_agent(
+        self, client, model, model_messages, contents_div_id
+    ):
+        """REQ-863: when a sandbox provider is enabled, run the default chat
+        turn through openai-agents so ``sandbox_run_*`` tools are callable.
+        Returns the assistant text, or None to keep the completions stream.
+        """
+        try:
+            from swarm.core.sandbox import sandbox_function_tools
+
+            tools = sandbox_function_tools()
+        except Exception:
+            logger.debug("sandbox tools lookup failed", exc_info=True)
+            return None
+        if not tools:
+            return None
+        try:
+            from agents import Agent, Runner
+            from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
+        except Exception:
+            logger.debug("openai-agents unavailable for sandbox default chat", exc_info=True)
+            return None
+        user_text = ""
+        for message in reversed(model_messages or []):
+            if isinstance(message, dict) and message.get("role") == "user":
+                user_text = str(message.get("content") or "")
+                break
+        if not user_text:
+            return None
+        try:
+            model_instance = OpenAIChatCompletionsModel(model=model, openai_client=client)
+            agent = Agent(
+                name="Chat",
+                model=model_instance,
+                instructions=(
+                    "You are a helpful assistant. Use sandbox tools when the user "
+                    "asks you to run code, a shell command, or read/write files."
+                ),
+                tools=tools,
+            )
+            result = await Runner.run(agent, user_text)
+            text = str(getattr(result, "final_output", result) or "")
+        except Exception:
+            logger.warning("sandbox-enabled default chat failed; falling back", exc_info=True)
+            return None
+        if not text:
+            return None
+        await self.send(text_data=_oob_append_html(contents_div_id, text))
+        return text
+
     async def respond_with_default_model(self, contents_div_id):
         """Legacy reply path: server-configured model via LiteLLM/OpenAI env."""
         import swarm.consumers as _self_mod
@@ -1575,24 +1625,30 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     getattr(self, "conversation_id", ""),
                     self.messages,
                 )
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=model_messages,
-                stream=True,
+            sandbox_reply = await self._maybe_run_default_sandbox_agent(
+                client, model, model_messages, contents_div_id
             )
-            async for chunk in stream:
-                # #198: same cooperative cancel as the blueprint path.
-                if self._cancel_event().is_set():
-                    break
-                choices = getattr(chunk, "choices", None) or []
-                if not choices:
-                    continue
-                message_chunk = choices[0].delta.content
-                if message_chunk:
-                    full_message += message_chunk
-                    await self.send(
-                        text_data=_oob_append_html(contents_div_id, message_chunk)
-                    )
+            if sandbox_reply is not None:
+                full_message = sandbox_reply
+            else:
+                stream = await client.chat.completions.create(
+                    model=model,
+                    messages=model_messages,
+                    stream=True,
+                )
+                async for chunk in stream:
+                    # #198: same cooperative cancel as the blueprint path.
+                    if self._cancel_event().is_set():
+                        break
+                    choices = getattr(chunk, "choices", None) or []
+                    if not choices:
+                        continue
+                    message_chunk = choices[0].delta.content
+                    if message_chunk:
+                        full_message += message_chunk
+                        await self.send(
+                            text_data=_oob_append_html(contents_div_id, message_chunk)
+                        )
         except Exception as e:
             logger.error("Default-model chat stream failed: %s", e, exc_info=True)
             await self.send_error_message(

@@ -1699,6 +1699,7 @@ requires-dist = [
     { name = "channels", specifier = ">=4.0" },
     { name = "channels-redis", specifier = ">=4.0" },
     { name = "daphne", specifier = ">=4.0.0" },
+    { name = "daytona", marker = "python_full_version < '3' and extra == 'sandbox'", specifier = ">=0.5.0" },
     { name = "dj-database-url", specifier = ">=2.1.0" },
     { name = "django", specifier = ">=4.2,<5.0" },
     { name = "django-environ", specifier = ">=0.11.0" },
