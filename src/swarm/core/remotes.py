@@ -38,7 +38,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
 
@@ -618,13 +618,61 @@ def _looks_like_forbidden_llm_proxy(url: str) -> bool:
     return any(hint in lowered for hint in _FORBIDDEN_BASE_HINTS)
 
 
+def _running_in_container() -> bool:
+    """True when this process should treat 127.0.0.1 as the Docker host, not itself."""
+    flag = (os.environ.get("SWARM_REWRITE_LOOPBACK") or "").strip().lower()
+    if flag in ("1", "true", "yes"):
+        return True
+    if flag in ("0", "false", "no"):
+        return False
+    return Path("/.dockerenv").exists()
+
+
 def _normalize_base_url(url: str) -> str:
     raw = (url or "").strip().rstrip("/")
     if not raw:
         return ""
     if "://" not in raw:
         raw = f"http://{raw}"
-    return raw
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "::1"}:
+        # TrueForge (and many local harnesses) bind IPv4 only. `localhost` prefers
+        # ::1 → ECONNREFUSED even when 127.0.0.1:port is UP.
+        host = "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if (
+        host in _LOOPBACK_HOSTS
+        and _running_in_container()
+        and port != this_server_listen_port()
+    ):
+        host = (os.environ.get("SWARM_HOST_GATEWAY") or "host.docker.internal").strip() or "host.docker.internal"
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+    netloc = f"{userinfo}{host}" + (f":{parsed.port}" if parsed.port else "")
+    return urlunparse(
+        (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
+    ).rstrip("/")
+
+
+def _unreachable_detail(result: HttpResult, what: str) -> str:
+    """Name the URL on connection-refused so chat is not a bare URLError."""
+    err = (result.error or "").strip()
+    url = (result.url or "").strip()
+    if "Connection refused" in err or "Errno 111" in err:
+        where = url or "the remote"
+        return (
+            f"{what} refused at {where}. Nothing is listening on that host:port "
+            "from this process. If Operating Swarm is in Docker, 127.0.0.1 is the "
+            "container — use host.docker.internal or the host LAN IP."
+        )
+    if err:
+        return f"{what} failed: {err}" + (f" ({url})" if url else "")
+    return f"{what} failed (http {result.status})"
 
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
@@ -2923,9 +2971,9 @@ def _trueforge_send(
                 remote=spec.id,
                 op="send",
                 ok=False,
-                detail=sess_resp.error or f"TrueForge session create failed (http {sess_resp.status})",
+                detail=_unreachable_detail(sess_resp, "TrueForge session create"),
                 http_status=sess_resp.status,
-                data=sess_resp.body or sess_resp.text,
+                data=sess_resp.body or sess_resp.text or None,
             )
         body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
         sess_id = str(
@@ -2969,9 +3017,9 @@ def _trueforge_send(
             remote=spec.id,
             op="send",
             ok=False,
-            detail=turn_resp.error or f"TrueForge turn create failed (http {turn_resp.status})",
+            detail=_unreachable_detail(turn_resp, "TrueForge turn create"),
             http_status=turn_resp.status,
-            data=turn_resp.body or turn_resp.text,
+            data=turn_resp.body or turn_resp.text or None,
         )
     tbody = turn_resp.body if isinstance(turn_resp.body, dict) else {}
     turn_id = str(

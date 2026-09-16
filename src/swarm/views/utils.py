@@ -282,6 +282,13 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
              tags = blueprint_info.get("metadata", {}).get("tags") or []
              if "variant" not in effective_params and "skeptic" in tags:
                  effective_params["variant"] = "skeptic_loop"
+             from swarm.core.remote_harness import is_remote_impl_id, normalize_impl_id
+
+             if blueprint_id == "remote_harness" and is_remote_impl_id(original_id):
+                 remote_name = normalize_impl_id(original_id) or original_id
+                 effective_params.setdefault("name", remote_name)
+                 effective_params.setdefault("remote", remote_name)
+                 effective_params.setdefault("op", "send")
              instance.set_params(effective_params)
 
         return instance

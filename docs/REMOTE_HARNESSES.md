@@ -72,7 +72,7 @@ Kind defaults (override when adding). Unused kinds are not pre-seeded cards:
 | **omb** | Windows2 | `http://198.51.100.32:8802` | `OMB_API_KEY` (optional Bearer) |
 | **rakazo** | Windows2 | API `http://198.51.100.32:3100`, UI `:5173`, tree `C:\rakazo` | `RAKAZO_API_KEY` and/or `RAKAZO_SESSION_COOKIE` |
 | **swarm** | another open-swarm process | stub `http://127.0.0.1:9` (not this listen URL) | `SWARM_REMOTE_API_KEY` (Bearer; env var name only) |
-| **trueforge** | local/remote | `http://127.0.0.1:8791` | `TRUEFORGE_API_KEY` (optional Bearer) |
+| **trueforge** | local/remote | `http://127.0.0.1:8791` (IPv4; `localhost` rewrites to this — TrueForge binds v4 only) | `TRUEFORGE_API_KEY` (optional Bearer) |
 | **openwebui** | your Open WebUI | `http://127.0.0.1:8080` | `OPENWEBUI_API_KEY` (Bearer; env var name only). External Open WebUI — not OS WebUI. |
 
 ```bash

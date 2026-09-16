@@ -148,7 +148,7 @@ def _render_operate(result: remotes_core.OperateResult) -> str:
         return f"{result.remote} {result.op}: FAIL — {result.detail}{gap}"
     gap = f"\nGAP: {result.gap}" if result.gap else ""
     data = ""
-    if result.data is not None:
+    if result.data not in (None, "", {}, []):
         try:
             import json
 
