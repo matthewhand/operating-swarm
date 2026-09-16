@@ -3228,6 +3228,105 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
   })
 })
 
+describe('ChatPage ask_user question cards (issue #221)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    window.localStorage.clear()
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: 'chatbot', name: 'Chatbot', kind: 'api' }] }),
+      } as Response),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+    resetConversationThreads()
+  })
+
+  async function openChat() {
+    renderChat('/chat?blueprint=chatbot')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const ws = MockWebSocket.instances[0]!
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-q1" class="assistant-message"></div></div>',
+        }),
+      )
+    })
+    return ws
+  }
+
+  it('renders a blocking card and sends question_answer', async () => {
+    const ws = await openChat()
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'user_question',
+            id: 'deploy-profile',
+            ask: 'Which profile should I deploy?',
+            choices: ['staging', 'canary', 'prod'],
+            other: 'Custom profile',
+            agent_id: 'chatbot',
+          }),
+        }),
+      )
+    })
+    expect(screen.getByTestId('question-card')).toHaveAttribute(
+      'data-question-id',
+      'deploy-profile',
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'staging' }))
+    expect(JSON.parse(String(ws.send.mock.calls.at(-1)?.[0]))).toEqual({
+      type: 'question_answer',
+      id: 'deploy-profile',
+      answer: 'staging',
+    })
+    expect(screen.getByRole('radio', { name: 'staging' })).toBeDisabled()
+  })
+
+  it('disables the question card while a Safety gate is pending', async () => {
+    const ws = await openChat()
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'user_question',
+            id: 'deploy-profile',
+            ask: 'Which profile should I deploy?',
+            choices: ['staging', 'canary', 'prod'],
+            other: 'Custom profile',
+          }),
+        }),
+      )
+    })
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'tool_approval',
+            id: 'ap1',
+            name: 'write_file',
+            agent_id: 'chatbot',
+          }),
+        }),
+      )
+    })
+    expect(screen.getByRole('dialog', { name: 'Safety approval' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'canary' })).toBeDisabled()
+  })
+})
+
 function mockChatFetches(options: {
   blueprint: string
   name: string

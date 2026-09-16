@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildChatWsUrl,
   buildChatWsFrame,
+  buildQuestionAnswerFrame,
   buildToolDecisionFrame,
   parseChatWsMessage,
   summarizeUnknownWsFrame,
@@ -79,6 +80,14 @@ describe('buildChatWsFrame', () => {
       type: 'tool_decision',
       id: 'ap1',
       decision: 'always',
+    })
+  })
+
+  it('builds a question_answer frame for ask_user', () => {
+    expect(JSON.parse(buildQuestionAnswerFrame('q-1', 'staging'))).toEqual({
+      type: 'question_answer',
+      id: 'q-1',
+      answer: 'staging',
     })
   })
 
@@ -231,6 +240,30 @@ describe('parseChatWsMessage', () => {
         pct: null,
         estimate: true,
         breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+      },
+    })
+  })
+
+  it('parses a user_question frame (issue #221)', () => {
+    expect(
+      parseChatWsMessage(
+        JSON.stringify({
+          type: 'user_question',
+          id: 'deploy-profile',
+          ask: 'Which profile should I deploy?',
+          choices: ['staging', 'canary', 'prod'],
+          other: 'Custom profile',
+          agent_id: 'chatbot',
+        }),
+      ),
+    ).toEqual({
+      kind: 'user_question',
+      agentId: 'chatbot',
+      question: {
+        id: 'deploy-profile',
+        ask: 'Which profile should I deploy?',
+        choices: ['staging', 'canary', 'prod'],
+        other: 'Custom profile',
       },
     })
   })

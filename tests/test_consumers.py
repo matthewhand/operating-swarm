@@ -651,6 +651,79 @@ class TestReceive:
         assert consumer.messages == []
 
     @pytest.mark.asyncio
+    async def test_question_answer_is_not_blocked_by_in_flight_turn(self, consumer):
+        """ask_user answers must resolve while the turn lock is held."""
+        hold = asyncio.Event()
+        entered = asyncio.Event()
+
+        async def fake_respond(*_args, **_kwargs):
+            entered.set()
+            await hold.wait()
+
+        consumer.messages = []
+        consumer.default_blueprint = "chatbot"
+        future = asyncio.get_running_loop().create_future()
+        consumer._pending_question_answers = {"q-1": future}
+
+        with patch("swarm.consumers.render_to_string", return_value="<div/>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "respond_with_blueprint", side_effect=fake_respond
+                ):
+                    turn = asyncio.create_task(
+                        consumer.receive(
+                            json.dumps({"message": "hello", "blueprint": "chatbot"})
+                        )
+                    )
+                    await asyncio.wait_for(entered.wait(), timeout=2)
+                    await consumer.receive(
+                        json.dumps(
+                            {
+                                "type": "question_answer",
+                                "id": "q-1",
+                                "answer": "staging",
+                            }
+                        )
+                    )
+                    assert future.result() == "staging"
+                    hold.set()
+                    await turn
+
+    @pytest.mark.asyncio
+    async def test_receive_question_answer_resolves_pending_and_skips_chat(self, consumer):
+        future = asyncio.get_running_loop().create_future()
+        consumer.messages = []
+        consumer._pending_question_answers = {"q-1": future}
+        await consumer.receive(
+            json.dumps({"type": "question_answer", "id": "q-1", "answer": "canary"})
+        )
+        assert future.result() == "canary"
+        assert consumer.messages == []
+
+    @pytest.mark.asyncio
+    async def test_elicit_user_question_emits_event_and_resumes(self, consumer):
+        from swarm.core.ask_user import demo_profile_question
+
+        sent = []
+
+        async def fake_send(*, text_data=None, **_kwargs):
+            sent.append(text_data)
+
+        consumer.send = fake_send
+        consumer.active_agent = "chatbot"
+        consumer._pending_question_answers = {}
+        question = demo_profile_question()
+        task = asyncio.create_task(consumer.elicit_user_question(question))
+        await asyncio.sleep(0)
+        frames = [json.loads(raw) for raw in sent if raw and raw.strip().startswith("{")]
+        event = next(frame for frame in frames if frame.get("type") == "user_question")
+        assert event["ask"] == question["ask"]
+        assert event["choices"] == question["choices"]
+        assert event["other"] == question["other"]
+        await consumer.resolve_question_answer({"id": event["id"], "answer": "prod"})
+        assert await asyncio.wait_for(task, timeout=2) == "prod"
+
+    @pytest.mark.asyncio
     async def test_edit_frame_updates_transcript_used_by_next_turn(self, consumer):
         """REQ-49: saved edit is what the next send includes."""
         consumer.messages = [
