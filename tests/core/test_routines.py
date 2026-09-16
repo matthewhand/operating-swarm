@@ -58,6 +58,7 @@ def test_test_run_appends_history_and_records_prompt(tmp_path, monkeypatch):
     assert len(ran["history"]) == 1
     assert ran["history"][0]["status"] == "success"
     assert ran["history"][0]["source"] == "test_run"
+    assert ran["history"][0]["duration_ms"] >= 0
     fired = store.fired_prompts()
     assert len(fired) == 1
     assert fired[0]["agent_id"] == "codey"
