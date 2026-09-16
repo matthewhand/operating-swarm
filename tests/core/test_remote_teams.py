@@ -280,14 +280,20 @@ def test_chat_herdr_prompt_then_read():
             "w7:p1",
             "do the thing",
             "--wait",
+            # #470: idle | done | blocked (herdr repeats ``--until``).
             "--until",
             "idle",
+            "--until",
+            "done",
+            "--until",
+            "blocked",
             "--timeout",
             "1000",
         ],
         ["herdr", "agent", "read", "w7:p1", "--source", "recent", "--format", "text"],
     ]
-    assert calls[1].count("--until") == 1
+    # #470: herdr repeats --until for the stopped set (idle | done | blocked).
+    assert calls[1].count("--until") == 3
     assert "--remote" not in calls[1]
 
 

@@ -3448,8 +3448,41 @@ def _herdr_pane_text(payload: Any) -> str:
     return ""
 
 
+def _herdr_reply_after_timeout(
+    client: Any,
+    pane: str,
+    before_seq: int | None,
+) -> str:
+    """Read the pane after a wait timeout, but only if the pane actually moved.
+
+    #470: the stopped-state wait can expire while a reply is already on screen
+    (an agent that settles in ``done`` used to be reported as a timeout and its
+    reply thrown away). ``state_change_seq`` gates the read so an untouched pane
+    can never hand stale text back as this turn's answer.
+    """
+    if client is None:
+        return ""
+    from swarm.herdr.client import extract_state_change_seq
+
+    try:
+        after_seq = extract_state_change_seq(client.agent_get(pane))
+        if before_seq is None or after_seq is None or after_seq == before_seq:
+            return ""
+        read = client.agent_read(pane, source="recent", fmt="text")
+    except Exception:
+        return ""
+    return _herdr_pane_text(read)
+
+
 def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:
-    from swarm.herdr.client import HerdrBlockedError, HerdrCLIError, HerdrClient
+    from swarm.herdr.client import (
+        WAIT_UNTIL_STOPPED,
+        HerdrBlockedError,
+        HerdrCLIError,
+        HerdrClient,
+        extract_agent_state,
+        extract_state_change_seq,
+    )
     from swarm.herdr.remote import resolve_herdr_mode
     from swarm.herdr.ssh import SSHNotConfiguredError
 
@@ -3463,18 +3496,34 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
             detail="target is required (Herdr pane / CLI id, e.g. w3:p1 or grok)",
         )
     mode = resolve_herdr_mode(spec)
+    hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
     timeout_s = float(timeout or _OPERATE_SEND_TIMEOUT_S)
     timeout_ms = max(1, int(timeout_s * 1000))
     pane = target.strip()
+    client: Any = None
+    before_seq: int | None = None
     try:
         client = HerdrClient.from_remote_config(config)
+        # One `agent get` serves both jobs: refuse a blocked pane (as
+        # `check_blocked=True` did) and remember where the pane was so a
+        # post-timeout read cannot hand back stale text (#470).
+        try:
+            state_payload = client.agent_get(pane)
+        except Exception:
+            state_payload = None
+        before_seq = extract_state_change_seq(state_payload)
+        if extract_agent_state(state_payload) == "blocked":
+            raise HerdrBlockedError(pane)
         payload = client.agent_prompt(
             pane,
             prompt,
             wait=True,
-            until="idle",
+            # idle | done | blocked — a finished turn settles in ``done`` and
+            # never returns to ``idle``, so waiting on ``idle`` alone could only
+            # expire (#470).
+            until=WAIT_UNTIL_STOPPED,
             timeout_ms=timeout_ms,
-            check_blocked=True,
+            check_blocked=False,
         )
         read = client.agent_read(pane, source="recent", fmt="text")
     except SSHNotConfiguredError as exc:
@@ -3484,6 +3533,17 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
     except HerdrCLIError as exc:
         msg = str(exc)
         if "timed out" in msg.lower():
+            # The wait expired — but the agent may have answered anyway (`done`
+            # turns, slow TUIs). Read the pane before calling it a failure #470.
+            rescued = _herdr_reply_after_timeout(client, pane, before_seq)
+            if rescued:
+                return OperateResult(
+                    remote="herdr",
+                    op="send",
+                    ok=True,
+                    detail=f"Herdr reply from {target} via {hop} (recovered after the wait timeout)",
+                    data={"target": target, "text": rescued, "response": rescued, "transport": mode},
+                )
             return OperateResult(
                 remote="herdr",
                 op="send",
@@ -3496,7 +3556,6 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
     except Exception as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
     text = _herdr_pane_text(read) or _herdr_pane_text(payload)
-    hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
     if not text:
         return OperateResult(
             remote="herdr",

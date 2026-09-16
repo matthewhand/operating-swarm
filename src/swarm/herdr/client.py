@@ -38,7 +38,7 @@ import logging
 import os
 import shutil
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from swarm.services.secure_subprocess import execute_command_safe
@@ -46,6 +46,11 @@ from swarm.services.secure_subprocess import execute_command_safe
 logger = logging.getLogger(__name__)
 
 WAIT_UNTIL_STATES = frozenset({"idle", "working", "blocked", "done"})
+
+# Herdr's own default match set (`herdr agent wait --help`): "Without --until,
+# matches idle, done, or blocked." A turn that finishes settles in ``done`` — it
+# never returns to ``idle`` — so waiting on ``idle`` alone can only expire (#470).
+WAIT_UNTIL_STOPPED: tuple[str, ...] = ("idle", "done", "blocked")
 _KNOWN_STATES = WAIT_UNTIL_STATES | {"unknown"}
 MEMBER_KIND = "herdr"
 AGENT_PROMPTED = "agent_prompted"
@@ -196,6 +201,38 @@ def members_from_workspace_list(payload: Any, *, remote: str = "") -> list[dict[
             }
         )
     return members
+
+
+def extract_state_change_seq(payload: Any) -> int | None:
+    """Best-effort ``state_change_seq`` from ``herdr agent get`` JSON.
+
+    Used as a turn-progress marker (#470): the counter advances when a pane
+    changes state, so comparing it across a send distinguishes "the agent ran"
+    from "nothing happened" without trusting stale pane text.
+    """
+    if payload is None:
+        return None
+    if isinstance(payload, list):
+        for item in payload:
+            found = extract_state_change_seq(item)
+            if found is not None:
+                return found
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    raw = payload.get("state_change_seq")
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.strip().lstrip("-").isdigit():
+        return int(raw.strip())
+    for key in ("result", "agent", "data", "pane"):
+        if key in payload:
+            found = extract_state_change_seq(payload[key])
+            if found is not None:
+                return found
+    return None
 
 
 def extract_agent_state(payload: Any) -> str | None:
@@ -366,7 +403,7 @@ class HerdrClient:
         text: str,
         *,
         wait: bool = False,
-        until: str | None = None,
+        until: str | Sequence[str] | None = None,
         timeout_ms: int | None = None,
         check_blocked: bool = False,
     ) -> Any:
@@ -382,14 +419,25 @@ class HerdrClient:
 
         ``wait=True`` maps to ``--wait``. If the agent is already working, that
         wait may observe the current turn finishing rather than a new turn.
+
+        ``until`` accepts one state or several; prefer :data:`WAIT_UNTIL_STOPPED`
+        so a turn that settles in ``done`` is matched instead of expiring (#470).
         """
         if not (target or "").strip():
             raise ValueError("agent target is required")
         if text is None:
             raise ValueError("prompt text is required")
-        if until and until not in WAIT_UNTIL_STATES:
-            raise ValueError(f"until must be one of {sorted(WAIT_UNTIL_STATES)}")
-        if until and not wait:
+        # A single state or several (herdr accepts repeated --until). Pass the
+        # stopped set to match a turn that ends in ``done`` as well (#470).
+        until_states: tuple[str, ...] = ()
+        if isinstance(until, str):
+            until_states = (until,) if until else ()
+        elif until is not None:
+            until_states = tuple(str(item) for item in until if item)
+        for state in until_states:
+            if state not in WAIT_UNTIL_STATES:
+                raise ValueError(f"until must be one of {sorted(WAIT_UNTIL_STATES)}")
+        if until_states and not wait:
             raise ValueError("--until requires --wait (herdr rejects until without wait)")
 
         if check_blocked:
@@ -400,8 +448,8 @@ class HerdrClient:
         parts: list[str] = ["agent", "prompt", target, text]
         if wait:
             parts.append("--wait")
-        if until:
-            parts.extend(["--until", until])
+        for state in until_states:
+            parts.extend(["--until", state])
         if timeout_ms is not None:
             parts.extend(["--timeout", str(int(timeout_ms))])
 

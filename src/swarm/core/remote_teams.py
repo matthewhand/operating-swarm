@@ -772,10 +772,12 @@ def chat_herdr(
 ) -> str:
     """Submit *prompt* via ``HerdrClient.from_remote_config`` and read recent text.
 
-    Uses ``check_blocked=True`` and a single ``--until idle`` (herdr rejects
-    two ``--until`` flags). Sidebar and Settings share this client.
+    Uses ``check_blocked=True`` and the stopped-state wait set
+    (``idle`` | ``done`` | ``blocked``). An earlier single ``--until idle`` never
+    matched a turn that settles in ``done``, so every herdr handoff could only
+    expire (#470). Sidebar and Settings share this client.
     """
-    from swarm.herdr.client import HerdrBlockedError, HerdrCLIError
+    from swarm.herdr.client import WAIT_UNTIL_STOPPED, HerdrBlockedError, HerdrCLIError
 
     if not target:
         raise RuntimeError("herdr target (pane id) is required")
@@ -785,7 +787,7 @@ def chat_herdr(
             target,
             prompt,
             wait=True,
-            until="idle",
+            until=WAIT_UNTIL_STOPPED,
             timeout_ms=int(timeout_ms),
             check_blocked=True,
         )
