@@ -515,6 +515,36 @@ def test_trueforge_send_turn_error_state(tf_server, monkeypatch):
     assert "Model quota exhausted" in sent.detail
 
 
+def test_trueforge_send_turn_crashed_state_extracts_nested_detail(tf_server, monkeypatch):
+    """Turn ending in 'crashed' state terminates immediately and extracts nested detail."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (
+            200,
+            {"data": {"id": "sess-crash-1"}},
+        ),
+        ("POST", "/api/v1/sessions/sess-crash-1/turns"): (
+            200,
+            {"data": {"id": "turn-crash-1", "state": "RUNNING"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-crash-1/turns/turn-crash-1"): (
+            200,
+            {"data": {"id": "turn-crash-1", "state": {"status": "crashed", "detail": "Container killed by OOM"}}},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge": {
+                "base_url": f"http://{host}:{port}",
+            }
+        }
+    }
+    sent = remotes_core.operate("trueforge", "send", prompt="test crash", config=cfg)
+    assert sent.ok is False
+    assert "Container killed by OOM" in sent.detail
+
+
 def test_trueforge_turn_state_parses_dict_and_string():
     """TrueForge returns state as {"status": ...}; str(dict) must not be used."""
     assert remotes_core._trueforge_turn_state({"state": {"status": "running"}}) == "running"
@@ -944,6 +974,37 @@ def test_container_rewrites_loopback_trueforge_not_listen_port(monkeypatch):
         config={"remotes": {"trueforge": {"base_url": "http://127.0.0.1:8791"}}},
     )
     assert spec.base_url == "http://host.docker.internal:8791"
+
+
+def test_container_preserves_ui_url_loopback(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "1")
+    monkeypatch.setenv("SWARM_HOST_GATEWAY", "host.docker.internal")
+    monkeypatch.setenv("PORT", "8000")
+    spec = remotes_core.load_remote(
+        "trueforge",
+        config={
+            "remotes": {
+                "trueforge": {
+                    "base_url": "http://127.0.0.1:8791",
+                    "ui_url": "http://127.0.0.1:8791",
+                }
+            }
+        },
+    )
+    assert spec.base_url == "http://host.docker.internal:8791"
+    assert spec.ui_url == "http://127.0.0.1:8791"
+
+    all_remotes = remotes_core.load_all_remotes(
+        config={
+            "remotes": {
+                "trueforge": {
+                    "base_url": "http://127.0.0.1:8791",
+                    "ui_url": "http://127.0.0.1:8791",
+                }
+            }
+        }
+    )
+    assert all_remotes["trueforge"].ui_url == "http://127.0.0.1:8791"
 
 
 def test_trueforge_send_refused_names_url(monkeypatch):

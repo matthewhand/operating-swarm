@@ -180,3 +180,12 @@ def test_purpose_answer_drafts_pipeline():
     assert "```swarm-nl-blueprint" in reply
     assert '"persisted": false' in reply
 
+    # Unrelated follow-up question in subsequent turns must not re-trigger team drafting
+    history_after = [
+        *history,
+        {"role": "user", "content": "Software delivery (BA → Engineer → Tester)"},
+        {"role": "assistant", "content": reply},
+    ]
+    follow_up = nl_create_or_socratic("Where is the settings page?", history_after)
+    assert follow_up is None
+

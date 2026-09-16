@@ -1640,6 +1640,39 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(document.querySelector('.os-chat-header [data-avatar-theme="blobs"]')).toBeInTheDocument()
   })
 
+  it('shows an explanatory toast when Add files is clicked on an unsupported seat', async () => {
+    vi.mocked(fetch).mockImplementation(async (info) => {
+      const url = String(info)
+      if (url.includes('/api/remotes/')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 'omb', name: 'OpenMousBot', kind: 'remote', base_url: 'http://127.0.0.1:9' },
+            ],
+          }),
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response
+    })
+    renderChat('/chat?remote=omb')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const addFilesBtn = screen.getByRole('menuitem', { name: 'Add files' })
+    expect(addFilesBtn).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(addFilesBtn)
+
+    expect(await screen.findByText(/File attachments aren’t supported/i)).toBeInTheDocument()
+  })
+
   it('REQ-76: circular up-arrow send appears only while the field has text', async () => {
     renderChat()
     await act(async () => {

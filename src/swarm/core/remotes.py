@@ -459,7 +459,9 @@ _FLOWISE_SEND_TIMEOUT_S = 90.0
 _N8N_SEND_TIMEOUT_S = 30.0
 _TRUEFORGE_SEND_TIMEOUT_S = 60.0
 _TRUEFORGE_DONE_STATES = frozenset({"done", "completed", "finished", "success"})
-_TRUEFORGE_ERROR_STATES = frozenset({"error", "failed", "cancelled", "canceled"})
+_TRUEFORGE_ERROR_STATES = frozenset(
+    {"error", "failed", "cancelled", "canceled", "crashed", "aborted", "killed", "timeout", "timed_out"}
+)
 
 
 class RemoteError(Exception):
@@ -647,6 +649,35 @@ def _normalize_base_url(url: str) -> str:
         and port != this_server_listen_port()
     ):
         host = (os.environ.get("SWARM_HOST_GATEWAY") or "host.docker.internal").strip() or "host.docker.internal"
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+    netloc = f"{userinfo}{host}" + (f":{parsed.port}" if parsed.port else "")
+    return urlunparse(
+        (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
+    ).rstrip("/")
+
+
+def _normalize_ui_url(url: str) -> str:
+    """Normalize a browser-accessible UI URL.
+
+    Unlike _normalize_base_url, this does NOT rewrite loopback addresses
+    (127.0.0.1 / localhost) to Docker gateway (host.docker.internal),
+    because ui_url is consumed by the user's host browser, not by Python
+    inside a Docker container.
+    """
+    raw = (url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "::1"}:
+        host = "127.0.0.1"
     userinfo = ""
     if parsed.username:
         userinfo = parsed.username
@@ -1071,7 +1102,7 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
         spec.ssh_port = _coerce_ssh_port(spec.ssh_port)
 
     spec.base_url = _normalize_base_url(_expand(spec.base_url))
-    spec.ui_url = _normalize_base_url(_expand(spec.ui_url)) if spec.ui_url else ""
+    spec.ui_url = _normalize_ui_url(_expand(spec.ui_url)) if spec.ui_url else ""
     spec.health_path = spec.health_path or "/health"
     spec.version_path = spec.version_path or spec.health_path
     if not spec.health_path.startswith("/"):
@@ -1472,7 +1503,7 @@ def persist_remote(
                 "Refusing to persist a plaintext API key. Use api_key_env or ${ENV}."
             )
     if ui_url is not None:
-        entry["ui_url"] = _normalize_base_url(ui_url) if ui_url else ""
+        entry["ui_url"] = _normalize_ui_url(ui_url) if ui_url else ""
     if session_cookie_env is not None:
         env_name = _as_env_name(session_cookie_env)
         if env_name and not ownership.looks_like_env_name(env_name) and not ownership.is_placeholder(session_cookie_env):
@@ -3136,9 +3167,14 @@ def _trueforge_send(
             if last_state in _TRUEFORGE_DONE_STATES:
                 break
             if last_state in _TRUEFORGE_ERROR_STATES:
+                state_dict = turn_data.get("state") if isinstance(turn_data.get("state"), dict) else {}
                 err_msg = (
                     turn_data.get("error")
                     or turn_data.get("message")
+                    or turn_data.get("detail")
+                    or state_dict.get("error")
+                    or state_dict.get("message")
+                    or state_dict.get("detail")
                     or f"TrueForge turn {turn_id} ended with state '{last_state}'"
                 )
                 return OperateResult(

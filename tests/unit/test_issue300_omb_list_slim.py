@@ -10,7 +10,7 @@ def _spec(**kwargs) -> RemoteSpec:
         id="omb",
         title="OpenMousBot",
         host_label="OMB",
-        base_url="http://10.0.0.32:8800",
+        base_url="http://198.51.100.32:8800",
     )
     defaults.update(kwargs)
     return RemoteSpec(**defaults)
@@ -26,13 +26,13 @@ def test_omb_list_requests_slim_bots_not_fat_dump():
         mock_http.return_value = HttpResult(
             status=200,
             body={"bots": [{"id": "b1", "name": "Alpha"}]},
-            url="http://10.0.0.32:8800/api/bots?messages=0",
+            url="http://198.51.100.32:8800/api/bots?messages=0",
         )
         res = _omb_list(spec, timeout=30.0)
     mock_http.assert_called_once()
     method, url = mock_http.call_args[0][:2]
     assert method == "GET"
-    assert url == "http://10.0.0.32:8800/api/bots?messages=0"
+    assert url == "http://198.51.100.32:8800/api/bots?messages=0"
     assert "messages=0" in url
     assert not url.rstrip("/").endswith("/api/bots")
     assert mock_http.call_args.kwargs["timeout"] <= 10.0
@@ -49,7 +49,7 @@ def test_omb_list_401_is_honest_auth_not_timeout():
             status=401,
             error="http 401",
             body={"error": "Unauthorized"},
-            url="http://10.0.0.32:8800/api/bots?messages=0",
+            url="http://198.51.100.32:8800/api/bots?messages=0",
         )
         res = _omb_list(spec, timeout=12.0)
     mock_http.assert_called_once()
@@ -67,7 +67,7 @@ def test_omb_list_403_is_honest_auth():
         mock_http.return_value = HttpResult(
             status=403,
             error="http 403",
-            url="http://10.0.0.32:8800/api/bots?messages=0",
+            url="http://198.51.100.32:8800/api/bots?messages=0",
         )
         res = _omb_list(spec, timeout=5.0)
     assert res.ok is False

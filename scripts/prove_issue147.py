@@ -254,7 +254,7 @@ def main() -> int:
     if programmatic_ok and not live_fail:
         remaining = []
         if live_status == "SKIP":
-            remaining.append("live /v1/cli-agents on ubuntu-gtx")
+            remaining.append("live /v1/cli-agents on remote-host")
         if pi_status == "SKIP":
             remaining.append("live pi (absent)")
         extra = f"; remaining host prove: {', '.join(remaining)}" if remaining else ""

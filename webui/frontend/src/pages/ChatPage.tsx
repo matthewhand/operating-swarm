@@ -4300,8 +4300,8 @@ const ChatPage = () => {
                           <button
                             type="button"
                             role="menuitem"
-                            className="os-plus-menu__item"
-                            disabled={!attachFilesOk}
+                            aria-disabled={!attachFilesOk}
+                            className={`os-plus-menu__item ${!attachFilesOk ? 'opacity-60 cursor-not-allowed' : ''}`}
                             title={
                               attachFilesOk
                                 ? 'Add files to this chat'
