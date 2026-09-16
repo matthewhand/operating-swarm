@@ -11,6 +11,7 @@ on:
       - "src/swarm/blueprints/common/cli_fusion_support.py"
       - "tests/core/test_cli_catalog.py"
       - "tests/core/test_req157_cli_agents.py"
+      - "tests/unit/test_issue117_cli_settings_compact.py"
       - "tests/api/test_cli_agents_opt_in.py"
       - "tests/api/test_blueprint_source.py"
       - "tests/cli/test_cli_agents_command.py"
@@ -21,6 +22,7 @@ on:
       - "webui/frontend/src/lib/__tests__/cliAgentContext.test.ts"
       - "webui/frontend/src/components/CliAgentsSettingsPane.tsx"
       - "webui/frontend/src/components/__tests__/CliAgentsSettingsPane.test.tsx"
+      - "webui/frontend/src/index.css"
       - ".github/workflows/req157-cli-agents.yml"
   push:
     branches: [main]
@@ -33,6 +35,7 @@ on:
       - "src/swarm/blueprints/common/cli_fusion_support.py"
       - "tests/core/test_cli_catalog.py"
       - "tests/core/test_req157_cli_agents.py"
+      - "tests/unit/test_issue117_cli_settings_compact.py"
       - "tests/api/test_cli_agents_opt_in.py"
       - "tests/api/test_blueprint_source.py"
       - "tests/cli/test_cli_agents_command.py"
@@ -43,6 +46,7 @@ on:
       - "webui/frontend/src/lib/__tests__/cliAgentContext.test.ts"
       - "webui/frontend/src/components/CliAgentsSettingsPane.tsx"
       - "webui/frontend/src/components/__tests__/CliAgentsSettingsPane.test.tsx"
+      - "webui/frontend/src/index.css"
       - ".github/workflows/req157-cli-agents.yml"
 
 jobs:
@@ -67,7 +71,8 @@ jobs:
             tests/core/test_req157_cli_agents.py \
             tests/core/test_cli_catalog.py \
             tests/api/test_cli_agents_opt_in.py \
-            tests/cli/test_cli_agents_command.py
+            tests/cli/test_cli_agents_command.py \
+            tests/unit/test_issue117_cli_settings_compact.py
         env:
           DJANGO_ALLOW_ASYNC_UNSAFE: "true"
 

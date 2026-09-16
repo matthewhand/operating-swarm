@@ -67,3 +67,71 @@ export function cliSelectPlaceholder(configuredCount: number, selectedId = ''): 
   if (!selectedId) return 'Pick a CLI'
   return 'CLI'
 }
+
+export type CompactCliStatus = 'configured' | 'detected' | 'not-detected'
+
+export type CompactCliRow = {
+  name: string
+  status: CompactCliStatus
+  cmd: string[]
+}
+
+/** `cli:grok` → `grok`. Other provider ids return null. */
+export function focusedCliName(focusProviderId?: string | null): string | null {
+  const raw = (focusProviderId || '').trim()
+  if (!raw.toLowerCase().startsWith('cli:')) return null
+  return raw.slice(raw.indexOf(':') + 1).trim() || null
+}
+
+function asCmd(raw: unknown, fallback: string): string[] {
+  if (Array.isArray(raw) && raw.length) {
+    return raw.map((part) => String(part)).filter(Boolean)
+  }
+  return [fallback]
+}
+
+/** Compact Settings list: configured, PATH-detected, then optional unavailable. */
+export function compactCliRows(
+  info?: CliAgentsInfo | null,
+  configData: Record<string, { cmd?: string[] }> = {},
+  opts: { showUnavailable?: boolean; focusName?: string | null } = {},
+): CompactCliRow[] {
+  const configured = new Set<string>([
+    ...configuredCliNames(info),
+    ...Object.keys(configData)
+      .map((name) => name.trim())
+      .filter(Boolean),
+  ])
+  const discovered = new Set(discoveredCliNames(info))
+  const knownSource = info?.known ?? info?.clis ?? [...KNOWN_CLI_NAMES]
+  const known = knownSource.map((name) => String(name).trim()).filter(Boolean)
+
+  const names = new Set<string>()
+  for (const name of configured) names.add(name)
+  for (const name of discovered) names.add(name)
+  if (opts.showUnavailable) {
+    for (const name of known) names.add(name)
+  }
+  const focus = (opts.focusName || '').trim()
+  if (focus) names.add(focus)
+
+  const rank: Record<CompactCliStatus, number> = {
+    configured: 0,
+    detected: 1,
+    'not-detected': 2,
+  }
+
+  return [...names]
+    .map((name) => {
+      const status: CompactCliStatus = configured.has(name)
+        ? 'configured'
+        : discovered.has(name)
+          ? 'detected'
+          : 'not-detected'
+      const fromConfig = configData[name]?.cmd
+      const fromSuggest = (info?.suggestions?.[name] as { cmd?: string[] } | undefined)?.cmd
+      const fromCatalog = (info?.catalog?.[name] as { cmd?: string[] } | undefined)?.cmd
+      return { name, status, cmd: asCmd(fromConfig ?? fromSuggest ?? fromCatalog, name) }
+    })
+    .sort((a, b) => rank[a.status] - rank[b.status] || a.name.localeCompare(b.name))
+}
