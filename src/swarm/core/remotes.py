@@ -1057,12 +1057,16 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
     env_key_name = f"{kind.upper()}_{inst_slug}_API_KEY" if inst_slug else (_ENV_KEY.get(kind) or "")
     kind_env_key_name = _ENV_KEY.get(kind) or ""
     if not spec.api_key_env:
-        spec.api_key_env = (
-            _placeholder_env_name(str(spec.api_key or ""))
-            or env_key_name
-            or kind_env_key_name
-            or ""
-        )
+        # A kind default such as ${TRUEFORGE_API_KEY} is a fallback, not an
+        # explicit choice: for a named instance the derived TRUEFORGE_2_API_KEY
+        # must win, otherwise api_key_env misreports which variable to set and a
+        # per-instance key looks unconfigured (#460). An explicit api_key_env or
+        # a custom placeholder in the config entry still takes precedence.
+        default_placeholder = _placeholder_env_name(str(spec.api_key or ""))
+        if inst_slug and env_key_name and default_placeholder in ("", kind_env_key_name):
+            spec.api_key_env = env_key_name
+        else:
+            spec.api_key_env = default_placeholder or env_key_name or kind_env_key_name or ""
     if not spec.session_cookie_env:
         spec.session_cookie_env = (
             _placeholder_env_name(str(spec.cookie or ""))
