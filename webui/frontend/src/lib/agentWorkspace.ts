@@ -110,3 +110,44 @@ export function saveAgentWorkspace(
   })
   return next
 }
+
+/** Navbar subtitle: `folder — branch: main`. Empty when nothing is bound. */
+export function formatNavbarWorkspaceSubtitle(input: {
+  folder?: string | null
+  workspace?: string | null
+  branch?: string | null
+}): string {
+  const path = (input.folder || input.workspace || '').trim()
+  const branch = (input.branch || '').trim()
+  if (path && branch) return `${path} — branch: ${branch}`
+  if (path) return path
+  if (branch) return `branch: ${branch}`
+  return ''
+}
+
+/** Live subtitle for the selected agent, from Folder / GitHub repo / last git branch. */
+export function navbarWorkspaceSubtitle(agentId: string): string {
+  if (!agentId) return ''
+  const ws = loadAgentWorkspace(agentId)
+  const branch = (loadAgentEdit(agentId).gitBranch || '').trim()
+  return formatNavbarWorkspaceSubtitle({
+    folder: ws.folder,
+    workspace: ws.githubRepo,
+    branch,
+  })
+}
+
+/** Persist cwd/branch from a CLI session select so the navbar can update. */
+export function persistSessionWorkspace(
+  agentId: string,
+  opts: { folder?: string | null; gitBranch?: string | null },
+): void {
+  if (!agentId) return
+  const folder = (opts.folder || '').trim()
+  const gitBranch = (opts.gitBranch || '').trim()
+  if (!folder && !gitBranch) return
+  saveAgentEdit(agentId, {
+    ...(folder ? { folder } : {}),
+    ...(gitBranch ? { gitBranch } : {}),
+  })
+}

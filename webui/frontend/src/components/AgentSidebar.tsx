@@ -207,6 +207,7 @@ import {
   loadAgentEdit,
   saveAgentEdit,
 } from '../lib/agentEdits'
+import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { declaredRosterForTeam } from '../lib/declaredRoster'
 import { openTeamEditor } from './TeamEditor'
@@ -1385,7 +1386,10 @@ export default function AgentSidebar({
         })
         const resultFolder = (result.folder || '').trim()
         const effectiveFolder = resultFolder || sessionFolder
-        if (effectiveFolder) saveAgentEdit(opts.agentId, { folder: effectiveFolder })
+        persistSessionWorkspace(opts.agentId, {
+          folder: effectiveFolder,
+          gitBranch: result.git_branch,
+        })
         dispatchCliSessionSwitched({
           agentId: opts.agentId,
           conversationId: result.conversation_id,

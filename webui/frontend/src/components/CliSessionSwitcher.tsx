@@ -5,7 +5,7 @@ import { useToast } from './DaisyUI'
 import CliSessionPicker from './CliSessionPicker'
 import { fetchCliAgents } from '../lib/api'
 import { conversationIdForAgent } from '../lib/agentChat'
-import { saveAgentEdit } from '../lib/agentEdits'
+import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import {
   dispatchCliSessionSwitched,
   fetchCliSessions,
@@ -130,7 +130,10 @@ export default function CliSessionSwitcher({
         if ((cliRef.current.trim() || 'grok') !== requestedCli) return
         const resultFolder = (result.folder || '').trim()
         const effectiveFolder = resultFolder || sessionFolder
-        if (effectiveFolder) saveAgentEdit(requestedAgent, { folder: effectiveFolder })
+        persistSessionWorkspace(requestedAgent, {
+          folder: effectiveFolder,
+          gitBranch: result.git_branch,
+        })
         dispatchCliSessionSwitched({
           agentId: requestedAgent,
           conversationId: result.conversation_id,

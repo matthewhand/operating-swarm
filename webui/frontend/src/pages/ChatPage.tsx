@@ -261,6 +261,7 @@ import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadA
 import { isRemoteCapableCli, remoteEndpointLabel } from '../lib/cliRemote'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
 import { chatFolderParams } from '../lib/agentFolder'
+import { navbarWorkspaceSubtitle } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { nextInferenceIndex, serializeInferenceList } from '../lib/inferenceList'
 import {
@@ -781,6 +782,8 @@ const ChatPage = () => {
               id: selectedBlueprint,
               name: fallbackAgentName,
             })
+  const workspaceSubtitle =
+    teamFromUrl || remoteFromUrl ? '' : navbarWorkspaceSubtitle(selectedBlueprint)
   // #69: the top bar shows the agent NAME; an assigned role rides beside it as
   // its own badge so a role seat can never look like it renamed the agent.
   const headerRole = agentRole({
@@ -2953,8 +2956,8 @@ const ChatPage = () => {
 
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
-      <header className="os-chat-header">
-        <div className="os-chat-header__identity flex min-w-0 items-center gap-2 group">
+      <header className="os-chat-header overflow-hidden gap-1.5 sm:gap-3">
+        <div className="os-chat-header__identity flex min-w-0 flex-1 items-center gap-2 group">
           {narrow ? (
             <button
               type="button"
@@ -2967,10 +2970,15 @@ const ChatPage = () => {
             </button>
           ) : null}
           <div
-            className="os-navbar-identity-card flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10"
+            className="os-navbar-identity-card flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10"
             data-testid="selected-agent-header"
             role="group"
-            aria-label={`Agent identity: ${selectedAgentName}`}
+            aria-label={
+              workspaceSubtitle
+                ? `Agent identity: ${selectedAgentName}. ${workspaceSubtitle}`
+                : `Agent identity: ${selectedAgentName}`
+            }
+
           >
             {teamFromUrl && teamDeclaredRoster ? (
               <PersonaRoster
@@ -3003,32 +3011,43 @@ const ChatPage = () => {
                 />
               </button>
             ) : null}
-            <h1 className="truncate text-base font-semibold tracking-tight">
-              <button
-                type="button"
-                className="os-identity-btn truncate text-left"
-                aria-label={`Open ${selectedAgentName} definition`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (teamFromUrl) {
-                    openTeamEditor({
-                      teamId: teamFromUrl,
-                      teamName: selectedTeam?.name || teamFromUrl,
+            <div className="os-navbar-identity-text min-w-0 flex-1">
+              <h1 className="os-navbar-identity-label min-w-0 flex-1 text-base font-semibold tracking-tight">
+                <button
+                  type="button"
+                  className="os-identity-btn block w-full text-left"
+                  aria-label={`Open ${selectedAgentName} definition`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (teamFromUrl) {
+                      openTeamEditor({
+                        teamId: teamFromUrl,
+                        teamName: selectedTeam?.name || teamFromUrl,
+                      })
+                      return
+                    }
+                    openSettingsSheet({
+                      section: 'definition',
+                      definitionKind:
+                        isExampleRole(headerRole) || isChiefOfStaff(headerRole) ? 'role' : 'blueprint',
+                      definitionId: selectedBlueprint,
+                      blueprintId: selectedBlueprint,
                     })
-                    return
-                  }
-                  openSettingsSheet({
-                    section: 'definition',
-                    definitionKind:
-                      isExampleRole(headerRole) || isChiefOfStaff(headerRole) ? 'role' : 'blueprint',
-                    definitionId: selectedBlueprint,
-                    blueprintId: selectedBlueprint,
-                  })
-                }}
-              >
-                {selectedAgentName}
-              </button>
-            </h1>
+                  }}
+                >
+                  {selectedAgentName}
+                </button>
+              </h1>
+              {workspaceSubtitle ? (
+                <p
+                  className="os-navbar-identity-subtitle"
+                  data-testid="os-navbar-workspace-subtitle"
+                  title={workspaceSubtitle}
+                >
+                  {workspaceSubtitle}
+                </p>
+              ) : null}
+            </div>
             {showHeaderRole ? (
               <span
                 className={`os-agent-role-badge shrink-0 ${roleCssClass(headerRole)}`}
@@ -3040,7 +3059,7 @@ const ChatPage = () => {
               </span>
             ) : null}
             {teamFromUrl ? (
-              <div className="tooltip tooltip-bottom shrink-0" data-tip="Edit team">
+              <div className="tooltip tooltip-bottom shrink-0 hidden sm:flex" data-tip="Edit team">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-square os-navbar-edit-btn"
@@ -3057,7 +3076,7 @@ const ChatPage = () => {
                 </button>
               </div>
             ) : selectedBlueprint ? (
-              <div className="tooltip tooltip-bottom shrink-0" data-tip="Edit agent">
+              <div className="tooltip tooltip-bottom shrink-0 hidden sm:flex" data-tip="Edit agent">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-square os-navbar-edit-btn"
@@ -3075,13 +3094,13 @@ const ChatPage = () => {
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="os-chat-header__controls flex items-center shrink-0 gap-1 sm:gap-2">
           {/* Token visibility: only when using API agents (swarm owns the numbers).
               For remote, CLI, and non-API agent types, the token counter must not exist in the top navbar. */}
           {isApiAgent && (
             <button
               type="button"
-              className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case shrink-0"
+              className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case hidden sm:flex shrink-0"
               aria-label="Session token usage"
               data-testid="token-meter-button"
               onClick={() => setTokenDiagOpen(true)}
@@ -3285,7 +3304,7 @@ const ChatPage = () => {
             />
           ) : null}
           <div
-            className="flex items-center gap-2"
+            className="flex items-center shrink-0 gap-1 sm:gap-2"
             role="toolbar"
             aria-label="Chat tools"
           >
@@ -3297,7 +3316,7 @@ const ChatPage = () => {
             <ThemeToggle />
             <button
               type="button"
-              className="btn btn-ghost btn-sm btn-square"
+              className="btn btn-ghost btn-sm btn-square shrink-0"
               aria-label="Open settings"
               aria-haspopup="dialog"
               onClick={() => window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT))}
