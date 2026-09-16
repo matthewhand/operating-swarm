@@ -78,7 +78,7 @@ suggestion = "swarm.blueprints.suggestion.suggestion_cli:main"
 [project.optional-dependencies]
 tui = [
     # REQ-111 Wave 1a: interactive Herdr-like TUI chrome. Kept optional so a
-    # plain core install stays thin; `swarm-cli tui` explains how to add it.
+    # plain core install stays thin; `os-cli tui` explains how to add it.
     "textual>=0.80.0,<1.0",
 ]
 memory = [

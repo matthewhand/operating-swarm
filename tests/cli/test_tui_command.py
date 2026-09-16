@@ -1,4 +1,4 @@
-"""CLI smoke for ``swarm-cli tui`` Wave 0 scaffold (REQ-111)."""
+"""CLI smoke for ``os-cli tui`` (REQ-111)."""
 
 from __future__ import annotations
 
@@ -44,8 +44,11 @@ def test_tui_once_renders_rail_and_placeholder(monkeypatch):
     assert "AGENTS" in result.stdout
     assert "Support" in result.stdout
     assert "Grok" in result.stdout
+    assert "Operating Swarm TUI" in result.stdout
     assert "placeholder" in result.stdout.lower()
-    assert "Wave 0" in result.stdout
+    assert "Wave 0" not in result.stdout
+    assert "Wave 1" not in result.stdout
+    assert "Open Swarm" not in result.stdout
     assert "8001" not in result.stdout
 
 
@@ -71,8 +74,9 @@ def test_tui_json_lists_seats_and_kind_sections(monkeypatch):
         "API": ["support"],
         "Blueprint": ["team:office"],
     }
-    # Wave 1c: auth is a boolean, never a value.
-    assert payload["auth"] is False
+    # Bearer is a boolean, never a value. chat stays false: TUI v1 has no cookie jar.
+    assert payload["auth"] == {"bearer": False, "chat": False}
+    assert payload["selected"] == "support"
 
 
 def test_tui_json_reports_auth_flag_with_env_token(monkeypatch):
@@ -81,12 +85,14 @@ def test_tui_json_reports_auth_flag_with_env_token(monkeypatch):
     monkeypatch.delenv("SWARM_API_KEY", raising=False)
     result = runner.invoke(app, ["tui", "--json"])
     assert result.exit_code == 0, result.stderr
-    assert json.loads(result.stdout)["auth"] is False
+    assert json.loads(result.stdout)["auth"] == {"bearer": False, "chat": False}
 
     monkeypatch.setenv("API_AUTH_TOKEN", "env-only-token")
     result = runner.invoke(app, ["tui", "--json"])
     assert result.exit_code == 0, result.stderr
-    assert json.loads(result.stdout)["auth"] is True
+    payload = json.loads(result.stdout)
+    assert payload["auth"]["bearer"] is True
+    assert payload["auth"]["chat"] is False
 
 
 def test_tui_once_empty_rail_exits_zero_and_invents_nothing(monkeypatch):
@@ -108,6 +114,43 @@ def test_tui_api_down_is_honest(monkeypatch):
     assert result.exit_code == 1
     assert "API unreachable" in result.stderr
     assert "Support" not in result.stdout
+
+
+def test_tui_unknown_agent_is_error_once_and_json(monkeypatch):
+    monkeypatch.setattr(
+        "swarm.tui.cli.list_rail_agents",
+        lambda **_: [
+            RailSeat(id="support", name="Support", kind="api", source="blueprints"),
+            RailSeat(id="grok", name="Grok", kind="cli", source="cli-agents"),
+        ],
+    )
+    once = runner.invoke(app, ["tui", "--once", "--agent", "nosuch"])
+    assert once.exit_code == 1
+    assert "Unknown --agent" in once.stderr
+    assert "nosuch" in once.stderr
+    assert "> Support" not in once.stdout
+    assert "> Grok" not in once.stdout
+
+    as_json = runner.invoke(app, ["tui", "--json", "--agent", "nosuch"])
+    assert as_json.exit_code == 1
+    assert "Unknown --agent" in as_json.stderr
+    assert "nosuch" in as_json.stderr
+    assert as_json.stdout.strip() == "" or "selected" not in as_json.stdout
+
+
+def test_tui_json_selected_is_a_real_seat_id(monkeypatch):
+    monkeypatch.setattr(
+        "swarm.tui.cli.list_rail_agents",
+        lambda **_: [
+            RailSeat(id="support", name="Support", kind="api", source="blueprints"),
+            RailSeat(id="grok", name="Grok", kind="cli", source="cli-agents"),
+        ],
+    )
+    result = runner.invoke(app, ["tui", "--json", "--agent", "grok"])
+    assert result.exit_code == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["selected"] == "grok"
+    assert payload["selected"] in {row["id"] for row in payload["data"]}
 
 
 def test_tui_interactive_default_needs_terminal():
