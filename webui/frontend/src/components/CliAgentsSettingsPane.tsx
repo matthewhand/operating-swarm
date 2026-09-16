@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState, type FormEvent, type Ref } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Plus, Server, Settings } from 'lucide-react'
+import { AlertCircle, Check, Plus, Server, Settings, Sparkles, TriangleAlert } from 'lucide-react'
 import { Alert, Badge, Button, Input, useToast } from './DaisyUI'
-import { fetchCliAgents, fetchConfigSection, patchConfigSection } from '../lib/api'
+import {
+  fetchCliAgents,
+  fetchCliCandidates,
+  fetchConfigSection,
+  patchConfigSection,
+  testCliBinary,
+  type CliProbeResult,
+} from '../lib/api'
 import {
   compactCliRows,
   configuredCliNames,
   focusedCliName,
+  splitCliString,
   type CompactCliRow,
   type CompactCliStatus,
 } from '../lib/cliAgents'
@@ -37,6 +45,7 @@ function CliRowSettings({
   panelRef,
   onAdd,
   onRemove,
+  onUpdateCmd,
   addPending,
   removePending,
 }: {
@@ -47,9 +56,57 @@ function CliRowSettings({
   panelRef?: Ref<HTMLDivElement>
   onAdd: (name: string, cmd: string[]) => void
   onRemove: (name: string) => void
+  onUpdateCmd: (name: string, cmd: string[]) => void
   addPending: boolean
   removePending: boolean
 }) {
+  const currentCmdStr = (row.cmd || []).join(' ')
+  const [manual, setManual] = useState(currentCmdStr)
+  const [selectedCandidate, setSelectedCandidate] = useState('')
+  const [probing, setProbing] = useState(false)
+  const [probe, setProbe] = useState<CliProbeResult | null>(null)
+  const [showOverride, setShowOverride] = useState(false)
+
+  const candidatesQuery = useQuery({
+    queryKey: ['cli-candidates', row.name],
+    queryFn: () => fetchCliCandidates(row.name),
+    enabled: open,
+    staleTime: 5000,
+  })
+
+  const candidates = candidatesQuery.data?.candidates ?? []
+
+  useEffect(() => {
+    setManual((row.cmd || []).join(' '))
+    setProbe(null)
+  }, [row.cmd, open])
+
+  const targetCmd = manual.trim() || selectedCandidate || (row.cmd || []).join(' ')
+  const isDirty = targetCmd !== (row.cmd || []).join(' ')
+
+  const handleTest = async () => {
+    const target = manual.trim() || selectedCandidate
+    if (!target) return
+    setProbing(true)
+    try {
+      const result = await testCliBinary(target)
+      setProbe(result)
+    } catch (err) {
+      setProbe({ ok: false, message: err instanceof Error ? err.message : 'Probe failed' })
+    } finally {
+      setProbing(false)
+    }
+  }
+
+  const handleSaveCustom = (force = false) => {
+    const target = manual.trim() || selectedCandidate
+    if (!target) return
+    if (!force && probe && !probe.ok) return
+    const parts = splitCliString(target)
+    onUpdateCmd(row.name, parts)
+    setShowOverride(false)
+  }
+
   return (
     <div
       ref={open ? panelRef : undefined}
@@ -73,38 +130,163 @@ function CliRowSettings({
         <div
           role="dialog"
           aria-label={`${row.name} settings`}
-          className="dropdown-content z-20 mt-1 w-80 rounded-box border border-base-300 bg-base-100 p-3 shadow"
+          className="dropdown-content z-20 mt-1 w-96 rounded-box border border-base-300 bg-base-100 p-3 shadow-lg space-y-3"
         >
-          <p className="font-mono text-sm">{row.name}</p>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-sm font-semibold">{row.name}</span>
+            <Badge size="xs" type={statusBadgeType(row.status)} outline>
+              {statusLabel(row.status)}
+            </Badge>
+          </div>
+
           <p className="break-all font-mono text-xs text-base-content/60">
-            {(row.cmd || []).join(' ') || '—'}
+            Current: {(row.cmd || []).join(' ') || '—'}
           </p>
+
+          <div className="space-y-2 rounded-lg border border-base-200 bg-base-200/40 p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-base-content/80">Binary / Wrapper Override</span>
+              <button
+                type="button"
+                className="text-xs text-primary underline"
+                onClick={() => setShowOverride((v) => !v)}
+              >
+                {showOverride ? 'Hide' : 'Change path…'}
+              </button>
+            </div>
+
+            {showOverride ? (
+              <div className="space-y-2 pt-1">
+                {candidates.length > 0 ? (
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-base-content/60">Detected candidates on PATH</label>
+                    <select
+                      className="select select-bordered select-xs w-full font-mono text-xs"
+                      value={selectedCandidate}
+                      onChange={(e) => {
+                        setSelectedCandidate(e.target.value)
+                        if (e.target.value) setManual(e.target.value)
+                      }}
+                    >
+                      <option value="">Select a detected binary…</option>
+                      {candidates.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+
+                <div className="space-y-1">
+                  <label className="text-[11px] text-base-content/60">Command or wrapper (quotes supported)</label>
+                  <input
+                    type="text"
+                    className="input input-bordered input-xs w-full font-mono text-xs"
+                    value={manual}
+                    onChange={(e) => setManual(e.target.value)}
+                    placeholder="e.g. /usr/local/bin/claude or wrapper script"
+                  />
+                </div>
+
+                {probe?.ok && probe.version ? (
+                  <div className="flex items-center gap-1.5 text-xs text-success">
+                    <Check className="h-3.5 w-3.5 shrink-0" />
+                    <span>Test passed — {probe.version}</span>
+                  </div>
+                ) : null}
+
+                {probe && !probe.ok ? (
+                  <div
+                    role="alert"
+                    className="flex gap-2 rounded-lg border border-warning/30 bg-warning/10 p-2 text-xs text-warning"
+                  >
+                    <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div className="space-y-1.5">
+                      <p>Test failed — {probe.message}. Register this path anyway?</p>
+                      <div className="flex gap-2">
+                        <Button type="button" size="xs" variant="outline" onClick={() => setProbe(null)}>
+                          Edit path
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="primary"
+                          className="btn-warning"
+                          onClick={() => handleSaveCustom(true)}
+                        >
+                          Save anyway
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={handleTest}
+                    disabled={probing || !manual.trim()}
+                  >
+                    {probing ? 'Testing…' : 'Test binary'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="xs"
+                    onClick={() => handleSaveCustom(false)}
+                    disabled={!isDirty || probing || addPending}
+                  >
+                    Save path
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           <ProviderRateLimitFields
             providerKey={`cli:${row.name}`}
             autoFocus={focusProviderId === `cli:${row.name}`}
           />
-          <div className="mt-2 flex flex-wrap gap-2">
-            {row.status === 'configured' ? (
+
+          <div className="flex flex-wrap items-center justify-between border-t border-base-200 pt-2">
+            <div>
+              {row.status === 'configured' ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="text-error hover:bg-error/10"
+                  onClick={() => onRemove(row.name)}
+                  disabled={removePending}
+                >
+                  Remove
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => onAdd(row.name, row.cmd)}
+                  disabled={addPending}
+                >
+                  Add
+                </Button>
+              )}
+            </div>
+            {(row.cmd || []).length > 0 && (row.cmd || [])[0] !== row.name && row.status === 'configured' ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
-                onClick={() => onRemove(row.name)}
-                disabled={removePending}
-              >
-                Remove
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={() => onAdd(row.name, row.cmd)}
+                onClick={() => onUpdateCmd(row.name, [row.name])}
                 disabled={addPending}
               >
-                Add
+                Reset to default
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -204,10 +386,7 @@ export default function CliAgentsSettingsPane({
   const handleAdd = (event: FormEvent) => {
     event.preventDefault()
     if (!name.trim() || !cmdText.trim()) return
-    const cmd = cmdText
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean)
+    const cmd = splitCliString(cmdText)
     addMutation.mutate({ name: name.trim(), cmd })
   }
 
@@ -218,15 +397,17 @@ export default function CliAgentsSettingsPane({
   const loading = configQuery.isPending || catalogQuery.isPending
   const failed = configQuery.isError && catalogQuery.isError
 
+  const knownClis = catalogQuery.data?.known ?? catalogQuery.data?.clis ?? []
+  const unconfiguredDrivers = knownClis.filter((c) => !configured.includes(c))
+
   return (
     <div className="space-y-4">
       <div>
         <h4 className="text-lg font-semibold">CLI agents</h4>
         <p className="mt-1 text-sm text-base-content/70">
           Only CLIs you add appear here and in the chat CLI dropdown. Startup
-          discovers installed binaries (grok, agy, claude, gemini, codex,
-          opencode, pi) without checking auth. Each CLI keeps its own login —
-          Operating Swarm never stores those secrets.
+          discovers installed binaries without checking auth. Each CLI keeps its
+          own login — Operating Swarm never stores those secrets.
         </p>
       </div>
 
@@ -302,6 +483,7 @@ export default function CliAgentsSettingsPane({
                         panelRef={openRef}
                         onAdd={handleSuggestAdd}
                         onRemove={(cliName) => removeMutation.mutate(cliName)}
+                        onUpdateCmd={(cliName, cmd) => addMutation.mutate({ name: cliName, cmd })}
                         addPending={addMutation.isPending}
                         removePending={removeMutation.isPending}
                       />
@@ -326,21 +508,50 @@ export default function CliAgentsSettingsPane({
 
       {adding ? (
         <form className="space-y-3 rounded-box border border-base-300 p-3" onSubmit={handleAdd}>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold">Configure CLI Driver</span>
+            <span className="text-xs text-base-content/60">Protocol-compliant drivers only</span>
+          </div>
+
+          {unconfiguredDrivers.length > 0 ? (
+            <div className="space-y-1">
+              <label className="text-xs text-base-content/70">Pick from catalog drivers</label>
+              <div className="flex flex-wrap gap-1.5">
+                {unconfiguredDrivers.map((dName) => (
+                  <Button
+                    key={dName}
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="font-mono text-xs"
+                    onClick={() => {
+                      setName(dName)
+                      setCmdText(dName)
+                    }}
+                  >
+                    <Plus className="h-3 w-3" />
+                    {dName}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <Input
             label="Name"
             name="cli-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="grok"
+            placeholder="e.g. grok, claude, agy"
             autoComplete="off"
             spellCheck={false}
           />
           <Input
-            label="Command (comma-separated)"
+            label="Command (space or quotes separated)"
             name="cli-cmd"
             value={cmdText}
             onChange={(event) => setCmdText(event.target.value)}
-            placeholder="grok"
+            placeholder="e.g. /usr/local/bin/grok or wrapper script"
             autoComplete="off"
             spellCheck={false}
           />
@@ -359,11 +570,24 @@ export default function CliAgentsSettingsPane({
           </div>
         </form>
       ) : (
-        <Button type="button" variant="outline" size="sm" onClick={() => setAdding(true)}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Add CLI agent
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="outline" size="sm" onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add CLI agent
+          </Button>
+        </div>
       )}
+
+      {/* REQ-889 Support Agent Scaffolding Card */}
+      <div className="rounded-box border border-base-300 bg-base-200/50 p-3 text-xs space-y-1.5">
+        <div className="flex items-center gap-1.5 font-semibold text-base-content/90">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <span>Need a new agentic CLI not in the catalog?</span>
+        </div>
+        <p className="text-base-content/70 leading-relaxed">
+          Agentic CLIs require protocol wiring (prompt injection flags, session resumption, model listing). Open Chat and ask the <strong className="text-base-content">Support Agent</strong> to scaffold and register a custom <code>BaseCliAgent</code> driver for your tool.
+        </p>
+      </div>
 
       <details className="os-cli-hop-prefs collapse collapse-arrow rounded-box border border-base-300">
         <summary className="collapse-title text-sm font-semibold">When switching CLI</summary>

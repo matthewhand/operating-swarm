@@ -776,11 +776,21 @@ def chat_context_start(request):
 def chat_retention_action(request):
     """Archive / restore / empty-trash for the signed-in user's JSON threads."""
     action = (request.POST.get("action") or "").strip()
+    raw_agent = request.POST.get("agent_id")
+    if not action and request.body:
+        try:
+            body_data = json.loads(request.body)
+            if isinstance(body_data, dict):
+                action = (body_data.get("action") or "").strip()
+                raw_agent = body_data.get("agent_id")
+        except (ValueError, TypeError):
+            pass
+
     if action not in _ALLOWED_ACTIONS:
         return JsonResponse({"success": False, "error": "Unknown action."}, status=400)
 
     user_key = _user_key(request.user)
-    agent = chat_store.normalize_agent_id(request.POST.get("agent_id"))
+    agent = chat_store.normalize_agent_id(raw_agent)
 
     try:
         if action == "archive":

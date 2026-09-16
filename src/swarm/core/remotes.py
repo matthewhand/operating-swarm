@@ -1842,6 +1842,14 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
     if not is_configured(spec.id, config):
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail=_not_added_message(spec.id))
 
+    return _check_health_spec(spec, timeout, config)
+
+
+def _check_health_spec(
+    spec: RemoteSpec,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+    config: dict[str, Any] | None = None,
+) -> HealthResult:
     if spec.kind == "herdr" or kind_of_instance(spec.id, config) == "herdr":
         herdr_health = _herdr_health(spec, timeout, config)
         if herdr_health is not None:
@@ -1932,6 +1940,56 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
         latency_ms=result.latency_ms,
         url=health_url,
     )
+
+
+def probe_candidate_remote(
+    kind: str,
+    *,
+    remote_id: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    api_key_env: str | None = None,
+    herdr_mode: str | None = None,
+    ssh_host: str | None = None,
+    ssh_user: str | None = None,
+    ssh_port: int | str | None = None,
+    ssh_identity_env: str | None = None,
+    ssh_agent: bool | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> HealthResult:
+    """Probe candidate remote parameters prior to saving."""
+    k = str(kind or "").strip().lower()
+    k = _KIND_ALIASES.get(k, k)
+    if not k or k not in REMOTE_KIND_IDS:
+        return HealthResult(remote=remote_id or kind, ok=False, state="UNKNOWN", detail=f"Unknown kind '{kind}'")
+
+    rid = str(remote_id or "").strip().lower() or k
+    spec = default_spec(k)
+    spec.id = rid
+    spec.kind = k
+    if base_url is not None:
+        spec.base_url = str(base_url).strip()
+    if api_key is not None:
+        spec.api_key = str(api_key).strip()
+    if api_key_env is not None:
+        spec.api_key_env = str(api_key_env).strip()
+    if herdr_mode is not None:
+        spec.herdr_mode = str(herdr_mode).strip()
+    if ssh_host is not None:
+        spec.ssh_host = str(ssh_host).strip()
+    if ssh_user is not None:
+        spec.ssh_user = str(ssh_user).strip()
+    if ssh_port is not None and str(ssh_port).strip():
+        try:
+            spec.ssh_port = int(ssh_port)
+        except (ValueError, TypeError):
+            pass
+    if ssh_identity_env is not None:
+        spec.ssh_identity_env = str(ssh_identity_env).strip()
+    if ssh_agent is not None:
+        spec.ssh_agent = bool(ssh_agent)
+
+    return _check_health_spec(spec, timeout)
 
 
 def check_all_health(*, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> list[HealthResult]:

@@ -793,6 +793,24 @@ export function probeRemoteHealth(remoteId: string): Promise<RemoteHealthResult>
   )
 }
 
+export interface TestRemoteCandidateParams {
+  kind: string
+  id?: string
+  base_url?: string
+  api_key?: string
+  api_key_env?: string
+  herdr_mode?: string
+  ssh_host?: string
+  ssh_user?: string
+  ssh_port?: string
+  ssh_identity_env?: string
+  ssh_agent?: boolean
+}
+
+export function testRemoteCandidate(params: TestRemoteCandidateParams): Promise<RemoteHealthResult> {
+  return apiPost<RemoteHealthResult>('/v1/remotes/test/', params)
+}
+
 export interface OperateRemoteOptions {
   timeoutMs?: number
 }
@@ -1422,6 +1440,77 @@ export interface CliAgentsInfo {
 export function fetchCliAgents(): Promise<CliAgentsInfo> {
   return apiGet<CliAgentsInfo>('/v1/cli-agents/')
 }
+
+export interface CliCandidatesResult {
+  name: string
+  candidates: string[]
+}
+
+export function fetchCliCandidates(name: string): Promise<CliCandidatesResult> {
+  const q = new URLSearchParams({ name })
+  return apiGet<CliCandidatesResult>(`/v1/cli-agents/candidates?${q.toString()}`)
+}
+
+export interface CliProbeResult {
+  ok: boolean
+  version?: string
+  message?: string
+}
+
+export function testCliBinary(cli: string): Promise<CliProbeResult> {
+  return apiPost<CliProbeResult>('/v1/cli-agents/test/', { cli })
+}
+
+export interface CliDriverDescriptor {
+  name: string
+  display_name: string
+  default_binary: string
+  list_capability: string
+  candidates: string[]
+}
+
+export function fetchCliDrivers(): Promise<{ drivers: CliDriverDescriptor[] }> {
+  return apiGet<{ drivers: CliDriverDescriptor[] }>('/v1/cli-agents/drivers/')
+}
+
+export interface ChatRetentionChatRow {
+  agent_id: string
+  message_count: number
+  updated_at: string
+}
+
+export interface ChatRetentionTrashRow {
+  agent_id: string
+  message_count: number
+  filename: string
+}
+
+export interface ChatRetentionStats {
+  store_dir: string
+  format: string
+  active_count: number
+  trash_count: number
+  bytes_used: number
+  bytes_label: string
+  max_age_days: number
+  auto_archive_enabled: boolean
+  chats: ChatRetentionChatRow[]
+  trash: ChatRetentionTrashRow[]
+  env_dir?: string
+  env_max_age?: string
+}
+
+export function fetchChatRetentionStats(): Promise<ChatRetentionStats> {
+  return apiGet<ChatRetentionStats>('/v1/chat/retention/stats/')
+}
+
+export function triggerChatRetentionAction(
+  action: 'archive' | 'archive_all' | 'restore' | 'empty_trash',
+  agentId?: string,
+): Promise<{ success: boolean; error?: string; archived?: unknown; restored?: unknown; removed?: unknown }> {
+  return apiPost('/v1/chat/retention/action/', { action, agent_id: agentId })
+}
+
 
 /** One designer-created agent (Agent Router design, router_designs.json). */
 export interface RouterDesign {

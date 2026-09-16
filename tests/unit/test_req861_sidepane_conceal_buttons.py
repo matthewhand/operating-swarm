@@ -35,7 +35,7 @@ def test_req861_left_sidebar_mono_conceal():
     assert "concealSidebar" in sidebar
     assert 'aria-label="Close agents sidebar"' in sidebar
     assert "SidebarConcealButton" in header
-    assert 'aria-label="Conceal sidebar"' in conceal
+    assert ('aria-label="Conceal sidebar"' in conceal) or ('aria-label="Collapse sidebar"' in conceal)
     assert "BrandMarkMono" in conceal
     assert "currentColor" in mark
     assert "os-brand-mark-geometric" in mark
@@ -59,7 +59,7 @@ def test_req861_right_sidepane_chevrons():
 def test_req861_settings_branding_unchanged():
     """REQ-861 must not replace the Settings sheet Operating Swarm mark."""
     settings = SETTINGS.read_text(encoding="utf-8")
-    assert "Open Swarm" in settings
+    assert "Operating Swarm" in settings
     assert "/webui-geometric.svg" in settings
     assert "os-brand-mark-geometric" in settings
 

@@ -240,6 +240,52 @@ class RemoteHealthView(APIView):
         return self.post(request, remote_id)
 
 
+class RemoteProbeCandidateView(APIView):
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    @extend_schema(
+        operation_id="v1_remotes_probe_candidate",
+        summary="Pre-save connectivity test for remote harness parameters",
+        request=inline_serializer(
+            name="RemoteProbeCandidateRequest",
+            fields={
+                "kind": serializers.CharField(required=True),
+                "id": serializers.CharField(required=False),
+                "base_url": serializers.CharField(required=False, allow_blank=True),
+                "api_key": serializers.CharField(required=False, allow_blank=True),
+                "api_key_env": serializers.CharField(required=False, allow_blank=True),
+                "herdr_mode": serializers.CharField(required=False, allow_blank=True),
+                "ssh_host": serializers.CharField(required=False, allow_blank=True),
+                "ssh_user": serializers.CharField(required=False, allow_blank=True),
+                "ssh_port": serializers.CharField(required=False, allow_blank=True),
+                "ssh_identity_env": serializers.CharField(required=False, allow_blank=True),
+                "ssh_agent": serializers.BooleanField(required=False),
+            },
+        ),
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, *_args, **_kwargs):
+        body = request.data if isinstance(request.data, dict) else {}
+        kind = str(body.get("kind") or "").strip()
+        if not kind:
+            return Response({"error": "kind is required"}, status=status.HTTP_400_BAD_REQUEST)
+        result = remotes_core.probe_candidate_remote(
+            kind=kind,
+            remote_id=body.get("id") or body.get("remote_id"),
+            base_url=body.get("base_url"),
+            api_key=body.get("api_key"),
+            api_key_env=body.get("api_key_env"),
+            herdr_mode=body.get("herdr_mode"),
+            ssh_host=body.get("ssh_host"),
+            ssh_user=body.get("ssh_user"),
+            ssh_port=body.get("ssh_port"),
+            ssh_identity_env=body.get("ssh_identity_env"),
+            ssh_agent=body.get("ssh_agent"),
+        )
+        return Response(result.as_dict(), status=status.HTTP_200_OK)
+
+
 class RemoteOperateView(APIView):
     def get_permissions(self):
         return [perm() for perm in api_permission_classes()]

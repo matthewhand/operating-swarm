@@ -136,3 +136,29 @@ export function compactCliRows(
     })
     .sort((a, b) => rank[a.status] - rank[b.status] || a.name.localeCompare(b.name))
 }
+
+/**
+ * Split a CLI string into [command, ...args] on unquoted whitespace.
+ * Quotes group arguments with spaces without invoking an arbitrary shell.
+ */
+export function splitCliString(cli: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let quote: '"' | "'" | null = null
+  for (const ch of cli.trim()) {
+    if (quote) {
+      if (ch === quote) quote = null
+      else cur += ch
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+    } else if (/\s/.test(ch)) {
+      if (cur) out.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  if (cur) out.push(cur)
+  return out
+}
+

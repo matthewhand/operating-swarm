@@ -10,6 +10,7 @@ import {
   OPERATE_SEND_TIMEOUT_MS,
   operateRemote,
   probeRemoteHealth,
+  testRemoteCandidate,
   type RemoteConnection,
   type RemoteHealthResult,
   type RemoteKind,
@@ -110,6 +111,45 @@ export function AddRemoteForm({
       error('Could not add remote', err.message)
     },
   })
+
+  const [testResult, setTestResult] = useState<RemoteHealthResult | null>(null)
+  const [isTesting, setIsTesting] = useState(false)
+
+  const handleTestConnection = async () => {
+    setIsTesting(true)
+    setTestResult(null)
+    try {
+      const res = await testRemoteCandidate({
+        kind,
+        id: remoteId.trim() || undefined,
+        base_url: baseUrl.trim() || undefined,
+        api_key_env: apiKeyEnv.trim() || undefined,
+        herdr_mode: herdr ? herdrMode : undefined,
+        ssh_host: herdr && herdrMode === 'ssh' ? sshHost.trim() : undefined,
+        ssh_user: herdr && herdrMode === 'ssh' ? sshUser.trim() : undefined,
+        ssh_port: herdr && herdrMode === 'ssh' && sshPort.trim() ? sshPort.trim() : undefined,
+        ssh_identity_env: herdr && herdrMode === 'ssh' && sshIdentityEnv.trim() ? sshIdentityEnv.trim() : undefined,
+        ssh_agent: herdr && herdrMode === 'ssh' ? sshAgent : undefined,
+      })
+      setTestResult(res)
+      if (res.ok) {
+        success('Connection test passed', res.detail || `${res.latency_ms ?? 0}ms latency`)
+      } else {
+        error('Connection test failed', res.detail || 'Endpoint unreachable')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setTestResult({
+        remote: remoteId.trim() || kind,
+        ok: false,
+        state: 'DOWN',
+        detail: msg,
+      })
+      error('Connection test error', msg)
+    } finally {
+      setIsTesting(false)
+    }
+  }
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -245,9 +285,36 @@ export function AddRemoteForm({
           />
         </>
       )}
-      <Button type="submit" variant="primary" size="sm" loading={addMutation.isPending}>
-        Add remote
-      </Button>
+      {testResult && (
+        <Alert
+          type={testResult.ok ? 'success' : 'warning'}
+          icon={<AlertCircle className="h-5 w-5" />}
+          className="text-xs"
+        >
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold">
+              {testResult.state || (testResult.ok ? 'UP' : 'DOWN')}
+              {typeof testResult.latency_ms === 'number' ? ` (${testResult.latency_ms}ms)` : ''}
+            </span>
+            <span>{testResult.detail}</span>
+          </div>
+        </Alert>
+      )}
+      <div className="flex items-center gap-2 pt-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          loading={isTesting}
+          disabled={isTesting || addMutation.isPending}
+          onClick={handleTestConnection}
+        >
+          Test connection
+        </Button>
+        <Button type="submit" variant="primary" size="sm" loading={addMutation.isPending}>
+          Add remote
+        </Button>
+      </div>
     </form>
   )
 }
