@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, FoldVertical, Pencil } from 'lucide-react'
 import { useToast } from './DaisyUI'
 import {
   COPY_EMPTY_MESSAGE,
@@ -12,23 +12,35 @@ import {
 } from '../lib/clipboard'
 
 /**
- * Assistant message reactions row (#70 / REQ-103).
+ * Message action/reaction row (#70 / REQ-103 / REQ-869).
  *
  * ChatPage mounts this beside ChatMessageBubble inside `group/osrow`.
- * Combines Copy, Read Aloud, and Retry into the same horizontal line.
+ * Combines Edit, Copy, Read Aloud, Retry, and context actions on one line.
  */
 export default function MessageRowActions({
   text,
   children,
   className,
+  canEdit,
+  onStartEdit,
+  canCompress,
+  onCompressToHere,
+  contextStrategy = 'compress',
 }: {
   text: string
   children?: ReactNode
   className?: string
+  canEdit?: boolean
+  onStartEdit?: () => void
+  canCompress?: boolean
+  onCompressToHere?: () => void
+  contextStrategy?: 'compress' | 'cull'
 }) {
   const [copied, setCopied] = useState(false)
   const { error } = useToast()
   const canCopy = messageHasCopyableText(text)
+  const startFromHere = contextStrategy === 'cull'
+  const contextActionLabel = startFromHere ? 'Start context from here' : 'Compress to here'
 
   const handleCopy = async () => {
     const result = await copyTextToClipboard(text)
@@ -51,6 +63,17 @@ export default function MessageRowActions({
         className ? ` ${className}` : ''
       }`}
     >
+      {canEdit && onStartEdit ? (
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs gap-1"
+          aria-label="Edit message"
+          onClick={onStartEdit}
+        >
+          <Pencil className="h-3 w-3" aria-hidden="true" />
+          Edit
+        </button>
+      ) : null}
       <button
         type="button"
         className="btn btn-ghost btn-xs gap-1"
@@ -65,6 +88,19 @@ export default function MessageRowActions({
         {copied ? 'Copied' : 'Copy'}
       </button>
       {children}
+      {canCompress && onCompressToHere ? (
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs gap-1"
+          aria-label={contextActionLabel}
+          title={startFromHere ? 'Start context from here.' : 'Compress to here'}
+          data-testid={startFromHere ? 'start-context-from-here' : 'compress-to-here'}
+          onClick={onCompressToHere}
+        >
+          <FoldVertical className="h-3 w-3" aria-hidden="true" />
+          {contextActionLabel}
+        </button>
+      ) : null}
     </div>
   )
 }
