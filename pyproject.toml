@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "open-swarm"
+name = "os-core"
 version = "0.5.4"
-description = "Open Swarm: Orchestrating AI Agent Swarms with Django"
+description = "Operating Swarm (OS): provider-agnostic agent operating layer and harness (os-core). Import path remains swarm."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -64,14 +64,14 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/matthewhand/open-swarm"
-Documentation = "https://github.com/matthewhand/open-swarm/blob/main/README.md"
-Repository = "https://github.com/matthewhand/open-swarm.git"
-Changelog = "https://github.com/matthewhand/open-swarm/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/matthewhand/operating-swarm"
+Documentation = "https://github.com/matthewhand/operating-swarm/blob/main/README.md"
+Repository = "https://github.com/matthewhand/operating-swarm.git"
+Changelog = "https://github.com/matthewhand/operating-swarm/blob/main/CHANGELOG.md"
 
 [project.scripts]
-swarm-api = "swarm.core.swarm_api:main"
-swarm-cli = "swarm.core.swarm_cli:app"
+os-cli = "swarm.core.swarm_cli:app"
+os-api = "swarm.core.swarm_api:main"
 codey = "swarm.blueprints.codey.codey_cli:main"
 suggestion = "swarm.blueprints.suggestion.suggestion_cli:main"
 

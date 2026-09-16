@@ -259,7 +259,7 @@ class TestPinokioHardStops:
 
     def test_readme_sideload_git_url_not_catalog(self):
         readme = (REPO / "README.md").read_text(encoding="utf-8")
-        assert "https://github.com/matthewhand/open-swarm.git" in readme
+        assert "https://github.com/matthewhand/operating-swarm.git" in readme
         assert "sideload" in readme.lower()
         assert "not" in readme.lower() and "public catalog" in readme.lower()
 

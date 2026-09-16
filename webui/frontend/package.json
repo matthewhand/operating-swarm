@@ -1,7 +1,7 @@
 {
-  "name": "open-swarm-webui",
+  "name": "os-webui",
   "version": "1.0.0",
-  "description": "React-based web UI for Open Swarm",
+  "description": "Operating Swarm WebUI (os-webui)",
   "private": true,
   "type": "module",
   "engines": {

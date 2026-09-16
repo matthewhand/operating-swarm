@@ -29,9 +29,9 @@ const DESIGNED_KINDS = new Set(['personality', 'swarm', 'cli', 'remote', 'bluepr
 const QUICK_PROMPTS = [
   {
     key: 'A',
-    label: 'Explain Open Swarm',
+    label: 'Explain Operating Swarm',
     prompt:
-      'Explain Open Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
+      'Explain Operating Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
   },
   {
     key: 'B',
