@@ -13,14 +13,14 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Check, ChevronRight, FoldVertical, Layers, Mic, Palette, PanelLeft, Pencil, Plus, Reply, Settings, Square, Users } from 'lucide-react'
+import { ArrowUp, Check, ChevronRight, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plus, Reply, Settings, Square } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
 import { OPEN_SETTINGS_EVENT, openSettingsSheet, settingsDetailFromQuery } from '../components/SettingsSheet'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
 import { isRateLimitWait, type RateLimitWait } from '../lib/providerRateLimits'
-import { OPEN_TEAM_COMPOSER_EVENT } from '../components/TeamComposer'
+
 import {
   AGENT_DROPDOWNS_CHANGED_EVENT,
   AGENT_SETTINGS_CHANGED_EVENT,
@@ -88,7 +88,9 @@ import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
 import ComposerAttachChips from '../components/ComposerAttachChips'
 import {
   attachmentCaption,
+  composerFileAttachSupported,
   createPendingAttachment,
+  filesFromList,
   imageFilesFromClipboard,
   readyAttachmentIds,
   revokePreviewUrl,
@@ -564,6 +566,7 @@ const ChatPage = () => {
   const [connectAttempt, setConnectAttempt] = useState(0)
   const [authRejected, setAuthRejected] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [agentKind, setAgentKind] = useState<AgentKind>(() =>
     classifyAgentKind(searchParams.get('remote') ? `remote:${searchParams.get('remote')}` : searchParams.get('blueprint')),
@@ -1004,6 +1007,10 @@ const ChatPage = () => {
           searchParams,
         })),
   )
+  const attachFilesOk = composerFileAttachSupported({
+    isCli: isCliAgent,
+    isRemote: isRemoteAgent || isRemoteBackedTeam,
+  })
 
   const supportSelected = Boolean(
     !teamFromUrl &&
@@ -4228,6 +4235,19 @@ const ChatPage = () => {
                 />
                 <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget ? 'w-full' : 'flex-1'}`}>
                   <div className="relative" ref={plusRef}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      data-testid="composer-file-input"
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      onChange={(event) => {
+                        enqueueComposerFiles(filesFromList(event.target.files))
+                        event.target.value = ''
+                      }}
+                    />
                     <button
                       type="button"
                       className="os-composer__icon"
@@ -4249,12 +4269,29 @@ const ChatPage = () => {
                             type="button"
                             role="menuitem"
                             className="os-plus-menu__item"
+                            disabled={!attachFilesOk}
+                            title={
+                              attachFilesOk
+                                ? 'Add files to this chat'
+                                : 'File attachments aren’t supported for CLI or remote seats'
+                            }
                             onClick={() => {
-                              void handleCompact()
+                              if (!attachFilesOk) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Add files',
+                                  message:
+                                    'File attachments aren’t supported for CLI or remote seats. Switch to an API agent to attach.',
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
+                              setPlusOpen(false)
+                              fileInputRef.current?.click()
                             }}
                           >
-                            <Layers className="h-4 w-4" aria-hidden="true" />
-                            Compact
+                            <Paperclip className="h-4 w-4" aria-hidden="true" />
+                            Add files
                           </button>
                         </li>
                         <li role="none">
@@ -4263,12 +4300,11 @@ const ChatPage = () => {
                             role="menuitem"
                             className="os-plus-menu__item"
                             onClick={() => {
-                              setPlusOpen(false)
-                              window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))
+                              void handleCompact()
                             }}
                           >
-                            <Users className="h-4 w-4" aria-hidden="true" />
-                            Compose team
+                            <Layers className="h-4 w-4" aria-hidden="true" />
+                            Compact
                           </button>
                         </li>
                       </ul>

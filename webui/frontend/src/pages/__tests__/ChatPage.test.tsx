@@ -1621,10 +1621,13 @@ describe('ChatPage Grok composer and per-agent threads', () => {
       'Message …',
     )
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('menuitem', { name: 'Add files' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Compact' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Compose team' })).not.toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('menuitem', { name: 'Add files' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Compact' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Blueprints' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Teams' })).not.toBeInTheDocument()

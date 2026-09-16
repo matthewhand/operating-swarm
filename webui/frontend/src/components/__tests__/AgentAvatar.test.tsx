@@ -148,6 +148,18 @@ describe('AgentAvatar', () => {
     active.unmount()
   })
 
+  it('#428 custom stills show working-eye overlay when active', () => {
+    const idle = render(<AgentAvatar src="/avatars/codey_avatar.png" alt="Codey" />)
+    expect(idle.container.querySelector('[data-testid="still-working-eyes"]')).toBeNull()
+    idle.unmount()
+    const active = render(
+      <AgentAvatar src="/avatars/codey_avatar.png" alt="Codey" active status="working" />,
+    )
+    expect(active.container.querySelector('[data-testid="still-working-eyes"]')).toBeTruthy()
+    expect(active.container.querySelector('[data-eye-state="active"]')).toBeTruthy()
+    active.unmount()
+  })
+
   it('paints a custom src', () => {
     const { container } = render(
       <AgentAvatar src="/avatars/codey_avatar.png" alt="Codey" />,
