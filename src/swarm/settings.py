@@ -89,6 +89,9 @@ ENABLE_WEBUI = os.getenv('ENABLE_WEBUI', 'true').lower() in ('true', '1', 'yes')
 WEBUI_STATIC_DIR = BASE_DIR.parent / 'staticfiles' / 'webui'
 # --- End Custom Swarm Settings ---
 
+# CORS: django-cors-headers is not installed. Production is same-origin (no
+# Access-Control-Allow-Origin). Do not add CorsMiddleware without an explicit
+# CORS_ALLOWED_ORIGINS allowlist — never CORS_ALLOW_ALL_ORIGINS = True.
 INSTALLED_APPS = [
     # 'daphne' must come first so its ASGI-aware `runserver` (which serves
     # websocket routes via ASGI_APPLICATION) overrides the default command.
@@ -185,8 +188,9 @@ WSGI_APPLICATION = 'swarm.wsgi.application'
 ASGI_APPLICATION = 'swarm.asgi.application'
 
 # Database — REQ-123 / #508. DATABASE_URL (or POSTGRES_HOST + POSTGRES_*)
-# selects Postgres. Otherwise SQLite for pytest / desktop / tiny native demos.
-# Compose wires local Postgres; no Neon hostname is a default.
+# selects Postgres. Otherwise SQLite under the user data dir (XDG) for desktop
+# / tiny native demos. Pytest uses an isolated temp file (not XDG, not
+# /tmp/db.sqlite3). Compose wires local Postgres; no Neon hostname is a default.
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip() or None
 DATABASES = django_databases(os.environ)
 
@@ -268,9 +272,9 @@ LOGGING = {
     'loggers': {
         'django': { 'handlers': ['console'], 'level': get_django_log_level(), 'propagate': False, },
         'swarm': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
-        'swarm.auth': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
-        'swarm.views': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
-        'swarm.extensions': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
+        'swarm.auth': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
+        'swarm.views': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
+        'swarm.extensions': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
         'print_debug': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
     },
     'root': { 'handlers': ['console'], 'level': 'WARNING', },

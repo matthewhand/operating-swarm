@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../components/DaisyUI'
+import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from '../../components/SettingsSheet'
 import { resetConversationThreads } from '../../lib/chatMeter'
 import ChatPage from '../ChatPage'
 
@@ -180,5 +181,74 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
     const frame = JSON.parse(ws.send.mock.calls[0][0] as string)
     expect(frame).toMatchObject({ message: 'route this turn', blueprint: 'api_agent' })
     expect(frame.params?.model).toBe('orchestration-mini')
+  })
+})
+
+describe('ChatPage Manage CLI / API footers (#254)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+    resetConversationThreads()
+  })
+
+  function listenSettings() {
+    const opened: OpenSettingsDetail[] = []
+    const onOpen = (event: Event) => {
+      opened.push((event as CustomEvent<OpenSettingsDetail>).detail)
+    }
+    window.addEventListener(OPEN_SETTINGS_EVENT, onOpen)
+    return {
+      opened,
+      stop() {
+        window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen)
+      },
+    }
+  }
+
+  it('Manage CLI opens the in-app CLI agents sheet without leaving Chat', { timeout: 10000 }, async () => {
+    stubChat()
+    const { opened, stop } = listenSettings()
+    try {
+      renderChat('/chat?blueprint=cli_agent&mode=cli&cli=grok')
+      await act(async () => {
+        MockWebSocket.instances[0]?.open()
+      })
+      fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage CLI' }))
+      expect(opened).toEqual([{ section: 'cli-agents' }])
+      expect(screen.getByTestId('navbar-routing-picker')).toBeInTheDocument()
+    } finally {
+      stop()
+    }
+  })
+
+  it('Manage API opens the in-app LLM profiles sheet', { timeout: 10000 }, async () => {
+    stubChat()
+    const { opened, stop } = listenSettings()
+    try {
+      renderChat('/chat?blueprint=api_agent')
+      await act(async () => {
+        MockWebSocket.instances[0]?.open()
+      })
+      fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage API' }))
+      expect(opened).toEqual([{ section: 'llm-profiles' }])
+    } finally {
+      stop()
+    }
+  })
+
+  it('?settings=cli-agents opens the CLI agents sheet on Chat mount', { timeout: 10000 }, async () => {
+    stubChat()
+    const { opened, stop } = listenSettings()
+    try {
+      renderChat('/chat?blueprint=cli_agent&mode=cli&cli=grok&settings=cli-agents')
+      await act(async () => {
+        MockWebSocket.instances[0]?.open()
+      })
+      expect(opened).toEqual([{ section: 'cli-agents' }])
+    } finally {
+      stop()
+    }
   })
 })

@@ -14,10 +14,10 @@ import type { CliAgentsInfo, CliModelsResponse, LlmProfile } from './api'
 import { KNOWN_CLI_NAMES } from './cliAgents'
 import { isHiddenRoutingLabel } from './routingPath'
 
-/** Last native-select item — navigates to the existing CLI manage path. */
+/** Footer sentinel — Chat opens the in-app CLI agents settings pane. */
 export const MANAGE_CLI_VALUE = '__manage_cli__'
 
-/** Settings is the operator config surface (Builder SPA was deleted, ADR-001). */
+/** Django operator dump. Chat "Manage CLI" uses openSettingsSheet, not this href. */
 export const MANAGE_CLI_HREF = '/settings/'
 
 /** True for `cli_agent`, `cli_*` family (`cli_fusion`, `cli_map`, …), and known CLI names (`grok`, `agy`, …). */

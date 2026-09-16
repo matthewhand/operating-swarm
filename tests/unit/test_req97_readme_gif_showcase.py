@@ -20,7 +20,7 @@ def _screenshots_registry() -> str:
 
 def test_readme_section_order_pitch_demos_webui():
     text = _readme()
-    pitch_pos = text.find("# Open Swarm")
+    pitch_pos = text.find("# Operating Swarm (OS)")
     demos_pos = text.find("## Demos")
     webui_pos = text.find("## WebUI (start here)")
     kinds_pos = text.find("## Kinds (locked)")

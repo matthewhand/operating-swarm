@@ -34,7 +34,7 @@ try:
 except Exception:
     pass
 
-app = typer.Typer(help="Swarm CLI tool", add_completion=False)
+app = typer.Typer(help="Operating Swarm CLI (OS CLI)", add_completion=False)
 
 
 def _safe_blueprint_segment(name: str) -> str | None:
@@ -294,7 +294,7 @@ def launch(
         if fallback is None:
             typer.echo(f"Error: Blueprint executable not found or not executable: {executable_path}")
             typer.echo(
-                f"Ensure '{blueprint_name}' is compiled using 'swarm-cli compile {blueprint_name}'."
+                f"Ensure '{blueprint_name}' is compiled using 'os-cli compile {blueprint_name}'."
             )
             raise typer.Exit(code=1)
         entry_path, tier = fallback
@@ -523,7 +523,7 @@ def moa(
         typer.echo(
             "Error: --workdir is the team write workspace and requires --team. "
             "For panel-only participant context use --cwd instead "
-            '(e.g. swarm-cli moa "…" --cwd .).',
+            '(e.g. os-cli moa "…" --cwd .).',
             err=True,
         )
         raise typer.Exit(code=2)
@@ -926,7 +926,7 @@ def list_blueprints(
         if not found_installed:
             typer.echo(f"(No installed blueprint executables found in {user_bin_dir})")
             typer.echo(
-                "Try 'swarm-cli compile <blueprint_name>' or see 'swarm-cli list --available'."
+                "Try 'os-cli compile <blueprint_name>' or see 'os-cli list --available'."
             )
         typer.echo("")
 
@@ -1005,7 +1005,7 @@ def cli_agents(
                 typer.echo(f"Backed up existing config to {backup}")
             dest.write_text(blob)
             typer.echo(f"Wrote starter config for {len(installed)} CLI(s) [{', '.join(installed) or 'none'}] to {dest}")
-            typer.echo("Next: export OPENAI_API_KEY, then `swarm-cli cli-agents` to verify.")
+            typer.echo("Next: export OPENAI_API_KEY, then `os-cli cli-agents` to verify.")
         else:
             if not installed:
                 typer.echo("# No catalog CLIs (claude/gemini/codex/opencode) found on this host.")
@@ -1199,7 +1199,7 @@ def moa_init(
 
     Writes panel/consensus defaults and named presets (default, ci, single-grok).
     Presets are backend/participants/fake_responses only — team mode is not a
-    preset key. Use ``swarm-cli moa --team --workdir …`` or models hybrid_moa /
+    preset key. Use ``os-cli moa --team --workdir …`` or models hybrid_moa /
     moa_orchestrator for consensus-then-team. See docs/MOA.md.
     """
     import json as _json
@@ -1249,7 +1249,7 @@ def moa_init(
         typer.echo(_json.dumps({"moa": merged.get("moa", DEFAULT_MOA_BLOCK)}, indent=2))
         typer.echo(
             "\n# Presets are panel-only (backend/participants/fake_responses). "
-            "Team mode: swarm-cli moa --team --workdir …  (not a preset key)."
+            "Team mode: os-cli moa --team --workdir …  (not a preset key)."
         )
         typer.echo("\nRe-run with --write to persist. See docs/OPENWEBUI_MOA.md and docs/MOA.md")
         raise typer.Exit(code=0)
@@ -1267,7 +1267,7 @@ def moa_init(
         "(legacy: cli_fusion, cli_ensemble)"
     )
     typer.echo(
-        "Team mode is not in moa.presets — use swarm-cli moa --team --workdir … "
+        "Team mode is not in moa.presets — use os-cli moa --team --workdir … "
         "or hybrid_moa / moa_orchestrator (params.tasks)."
     )
 
@@ -1294,7 +1294,7 @@ def config_cmd(
         if cfg_path.is_file() and not force:
             typer.echo(
                 f"Config already exists at {cfg_path}. Pass --force to overwrite, "
-                "or use `swarm-cli config add` to edit profiles.",
+                "or use `os-cli config add` to edit profiles.",
                 err=True,
             )
             raise typer.Exit(code=1)

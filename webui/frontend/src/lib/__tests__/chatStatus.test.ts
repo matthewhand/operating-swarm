@@ -40,6 +40,7 @@ describe('shouldRecordDropdownChange', () => {
     expect(shouldRecordDropdownChange('grok', MANAGE_CLI_VALUE)).toBe(false)
     expect(shouldRecordDropdownChange('gpt-4', MANAGE_MODEL_VALUE)).toBe(false)
     expect(shouldRecordDropdownChange('all', '__manage__')).toBe(false)
+    expect(shouldRecordDropdownChange('orchestration', '__manage_api__')).toBe(false)
   })
 })
 

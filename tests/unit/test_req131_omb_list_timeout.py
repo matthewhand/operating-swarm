@@ -17,8 +17,8 @@ API_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "api.ts"
 def test_discovery_paths_includes_openmousbot_and_omb():
     assert "openmousbot" in _DISCOVERY_PATHS
     assert "omb" in _DISCOVERY_PATHS
-    assert "/api/bots" in _DISCOVERY_PATHS["openmousbot"]
-    assert "/api/bots" in _DISCOVERY_PATHS["omb"]
+    assert _DISCOVERY_PATHS["openmousbot"][0] == "/api/bots?messages=0"
+    assert _DISCOVERY_PATHS["omb"][0] == "/api/bots?messages=0"
 
 
 def test_omb_list_strips_trailing_slash_and_bounds_timeout():
@@ -36,7 +36,7 @@ def test_omb_list_strips_trailing_slash_and_bounds_timeout():
         _, kwargs = mock_http.call_args
         assert kwargs["timeout"] <= 10.0
         # URL must not contain double slashes
-        assert mock_http.call_args[0][1] == "http://example.com:8000/api/bots"
+        assert mock_http.call_args[0][1] == "http://example.com:8000/api/bots?messages=0"
         assert res.ok is True
         assert "1 bot(s)" in res.detail
 
@@ -83,14 +83,18 @@ def test_frontend_operate_remote_bounded_timeout():
     assert "timeoutMs" in content
     assert "AbortController" in content
     assert "signal: controller.signal" in content
-    # REQ-131 message evolved to the generic remote-operate guard; the
-    # contract is a bounded timeout with a clear, non-hanging error.
+    # REQ-131 / #302: list abort stays short; send is longer and named.
     assert "Remote operate operation timed out" in content
+    assert "OPERATE_LIST_TIMEOUT_MS = 12_000" in content
+    assert "OPERATE_SEND_TIMEOUT_MS = 180_000" in content
+    assert "Remote operate send timed out" in content
 
 
 def test_frontend_remotes_settings_bots_from_operate():
     content = REMOTES_SETTINGS_TSX.read_text(encoding="utf-8")
     assert "botsFromOperate" in content
     assert "'agents' in raw" in content
+    assert "'sessions' in raw" in content
     assert "'data' in raw" in content
-    assert "timeoutMs: 12000" in content
+    assert "OPERATE_LIST_TIMEOUT_MS" in content
+    assert "OPERATE_SEND_TIMEOUT_MS" in content

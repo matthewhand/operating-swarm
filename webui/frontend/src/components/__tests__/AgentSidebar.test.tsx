@@ -375,9 +375,10 @@ describe('AgentSidebar Grok rail', () => {
     expect(within(list).queryByRole('link', { name: /Gate/ })).not.toBeInTheDocument()
     expect(within(list).queryByRole('link', { name: /Skeptic/ })).not.toBeInTheDocument()
 
-    const search = screen.getByRole('searchbox', { name: 'Search' })
-    expect(search).toHaveAttribute('placeholder', 'Search')
-    const kbd = search.closest('.os-rail-search')?.querySelector('.os-rail-search__kbd')
+    const search = screen.getByRole('button', { name: 'Search' })
+    expect(search).toHaveClass('os-rail-search')
+    expect(search).toHaveTextContent('Search')
+    const kbd = search.querySelector('.os-rail-search__kbd')
     expect(kbd?.textContent === '⌘K' || kbd?.textContent === 'Ctrl+K').toBe(true)
     fireEvent.focus(search)
     fireEvent.click(search)
@@ -988,7 +989,7 @@ describe('AgentSidebar Grok rail', () => {
     expect(herdr).toHaveTextContent(/Herdr · localhost/)
   })
 
-  it('opens the definition Settings pane when a role badge is clicked', async () => {
+  it('keeps the rail role badge as non-interactive text inside the row link (#332)', async () => {
     localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify([]))
     const opened: Array<Record<string, unknown>> = []
     const onOpen = (event: Event) => {
@@ -998,17 +999,15 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
 
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
-    const badge = await within(list).findByRole('button', { name: 'Open gate settings' })
+    const gate = await within(list).findByRole('link', { name: /Gate/ })
+    const badge = gate.querySelector('.os-agent-role-badge')
+    expect(badge).not.toBeNull()
     expect(badge).toHaveAttribute('data-definition-id', 'gate')
-    fireEvent.click(badge)
-    expect(opened).toEqual([
-      {
-        section: 'definition',
-        definitionKind: 'role',
-        definitionId: 'gate',
-        blueprintId: 'gate',
-      },
-    ])
+    expect(badge).not.toHaveAttribute('role', 'button')
+    expect(badge).not.toHaveAttribute('tabindex')
+    expect(within(list).queryByRole('button', { name: 'Open gate settings' })).not.toBeInTheDocument()
+    fireEvent.click(badge!)
+    expect(opened).toEqual([])
     window.removeEventListener('swarm:open-settings', onOpen)
   })
 

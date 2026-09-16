@@ -255,7 +255,16 @@ class RemoteOperateView(APIView):
                 "target": serializers.CharField(
                     required=False,
                     allow_blank=True,
-                    help_text="OpenMousBot/Rakazo bot id, or Herdr pane/CLI id",
+                    help_text="OpenMousBot/Rakazo bot id, Herdr pane/CLI id, or AnythingLLM workspace:thread",
+                ),
+                "session_id": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text="AnythingLLM workspace:thread (same as target)",
+                ),
+                "timeout": serializers.FloatField(
+                    required=False,
+                    help_text="Operate timeout in seconds. List stays short; send may be longer.",
                 ),
             },
         ),
@@ -267,11 +276,26 @@ class RemoteOperateView(APIView):
         except remotes_core.RemoteError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
         body = request.data if isinstance(request.data, dict) else {}
+        session_id = str(body.get("session_id") or "").strip() or None
+        target = str(body.get("target") or body.get("bot_id") or session_id or "")
+        raw_timeout = body.get("timeout")
+        timeout: float | None = None
+        if raw_timeout not in (None, ""):
+            try:
+                timeout = float(raw_timeout)
+            except (TypeError, ValueError):
+                timeout = None
+        kwargs: dict = {
+            "prompt": str(body.get("prompt") or ""),
+            "target": target,
+            "session_id": session_id,
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         result = remotes_core.operate(
             remote_id,
             str(body.get("op") or "list"),
-            prompt=str(body.get("prompt") or ""),
-            target=str(body.get("target") or body.get("bot_id") or ""),
+            **kwargs,
         )
         return Response(result.as_dict(), status=status.HTTP_200_OK)
 

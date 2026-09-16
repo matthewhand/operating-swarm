@@ -1,8 +1,17 @@
-# Open Swarm
+# Operating Swarm (OS)
+> Treat external harnesses and peer instances as one common abstraction.
 
 <p align="center">
-  <img src="assets/brand/project-banner.svg" alt="Open Swarm — CLI, API, Remote, Team, and Blueprint worker bees" width="920"/>
+  <img src="assets/brand/operating-swarm-hero-diagram.svg" alt="Operating Swarm Architecture Overview" width="750" />
 </p>
+
+**Operating Swarm (OS)** is a provider-agnostic agent operating layer and harness. It runs its own native agentic execution (`os-core`), connects to external harnesses (`os-adapter-hermes`, `os-adapter-truforge`), and peers with other Operating Swarm instances (`os-peer`). Sessions persist while switching providers, harnesses, or OS nodes. OS is **not only a UI, wrapper, gateway, adapter, or supervisor.**
+
+Three interfaces sit on that core: **OS WebUI** (`os-webui`), **OS CLI** (`os-cli`), and the OpenAI-compatible **OS API** (`os-api`). Umbrella repository: **`operating-swarm`**. Python import path remains `swarm`.
+
+It seats four kinds of agents — **CLI**, **API** (true inference), **Blueprint** (programmatic / openai-agents), and **Remote** — and composes them with **handoff** and **agent-as-tool**. The same blueprint runs from `os-cli` and from `/v1/chat/completions`.
+
+**WebUI is first-class:** left rail + the selected agent’s chat. Other clients (SDK, curl, Open WebUI, and `os-cli tui` — the interactive terminal client of that same API, [REQ-111](https://github.com/matthewhand/open-swarm/issues/481)) hit the same seats at `/v1/chat/completions` and `/v1/responses`.
 
 <div align="center">
 <img src="assets/readme/cli-agents.svg" alt="CLI agents — Grok / OpenCode / agy poster" width="320"/>
@@ -13,30 +22,24 @@
 
 Brand marks live under [`assets/brand/`](assets/brand/): **minimal** for the tab favicon and PWA icons, **geometric** for in-app WebUI chrome, and **cyber-swarm** for marketing / website fanfare ([#768](https://github.com/matthewhand/open-swarm/issues/768)).
 
-**Open Swarm** is a Grok-like WebUI and an OpenAI-compatible API that seats four kinds of agents — **CLI**, **API** (true inference), **Blueprint** (programmatic / openai-agents), and **Remote** (Hermes / OpenMousBot / Rakazo / Herdr) — and composes them with **handoff** and **agent-as-tool**. The same blueprint runs from `swarm-cli` and from `/v1/chat/completions`.
-
-**WebUI is first-class:** left rail + the selected agent’s chat. Other clients (SDK, curl, Open WebUI, and `swarm-cli tui` — the interactive terminal client of that same API, [REQ-111](https://github.com/matthewhand/open-swarm/issues/481)) hit the same seats at `/v1/chat/completions` and `/v1/responses`. `swarm-cli tui` opens an AGENTS rail + live chat (hydrate, send + stream, sessions) over the WebUI’s REST + SSE. Every client is one API — no second runtime, no remote Herdr SSH.
-
-AI enthusiasts juggle many frameworks; some combine CLIs and APIs, but still do not talk to **remote harnesses** (Hermes, OpenMousBot as remote, …). Open Swarm is a **Grok-agnostic** Grok-Bot-like UI **and** a bridge — task one place, coordinate across CLI, API, remotes, and local blueprints.
-
 <p align="center">
   <img src="docs/assets/readme/announce-bridge.gif" alt="Storyboard: one Chief of Staff task coordinates Hermes Remote, OpenMousBot Remote, Antigravity CLI, OpenCode CLI, and a BA → Engineer → Tester blueprint" width="720"/>
 </p>
 
-Announce copy, storyboard, and recapture checklist: [docs/ANNOUNCE.md](docs/ANNOUNCE.md) (REQ-136 / [#529](https://github.com/matthewhand/open-swarm/issues/529)). Asset path for this hero and the later CLI / API / remotes / combined kit: [`docs/assets/readme/`](docs/assets/readme/README.md) ([#456](https://github.com/matthewhand/open-swarm/issues/456)).
+Announce copy, storyboard, and recapture checklist: [docs/ANNOUNCE.md](docs/ANNOUNCE.md) (REQ-136 / [#529](https://github.com/matthewhand/open-swarm/issues/529)) — **Grok-agnostic** chrome plus a CLI/API/remote harness bridge. Asset path for this hero and the later CLI / API / remotes / combined kit: [`docs/assets/readme/`](docs/assets/readme/README.md) ([#456](https://github.com/matthewhand/open-swarm/issues/456)).
 
 Direction: [docs/VISION.md](docs/VISION.md). Vocabulary: [docs/GLOSSARY.md](docs/GLOSSARY.md).
 
 ## Demos
 
-Compact walkthroughs of open-swarm's core agent capabilities — from individual CLI, API, and Remote seats to a unified team combining all three in one flow.
+Compact walkthroughs of Operating Swarm's core agent capabilities — from individual CLI, API, and Remote seats to a unified team combining all three in one flow.
 
 | Kind / Story | What it demonstrates | Preview |
 |---|---|---|
 | **CLI Agent** | Host executable running in a native terminal session (`grok`, `agy`, `opencode`) | ![CLI Agent Demo](docs/demo/cli-agent.gif) |
 | **API Agent** | True inference seat queried directly via the OpenAI-compatible HTTP completions API | ![API Agent Demo](docs/demo/api-agent.gif) |
 | **Remote Agent** | External agentic harnesses (**OpenMousBot**, **Hermes**, **Rakazo**, **Herdr**) | ![Remote Agent Demo](docs/demo/remote-agent.gif) |
-| **Combined Team** | The open-swarm differentiator: one flow coordinating **CLI + API + Remote** via openai-agents handoff | ![Combined Team Demo](docs/demo/combined-team.gif) |
+| **Combined Team** | The Operating Swarm differentiator: one flow coordinating **CLI + API + Remote** via openai-agents handoff | ![Combined Team Demo](docs/demo/combined-team.gif) |
 
 > A historical terminal loop (one blueprint as CLI + API) is preserved at [`docs/demo/cli-and-api.gif`](docs/demo/cli-and-api.gif).
 
@@ -47,17 +50,17 @@ Compact walkthroughs of open-swarm's core agent capabilities — from individual
 Product chrome is the Grok-like SPA: rail, remotes, sessions, Settings sheet. `/` and `/chat` are that chrome. Django trailing-slash pages (`/blueprint-library/`, `/settings/`, `/sessions/`, …) stay the operator dump — not the pitch.
 
 ```bash
-git clone https://github.com/matthewhand/open-swarm.git
-cd open-swarm
+git clone https://github.com/matthewhand/operating-swarm.git
+cd operating-swarm
 uv sync --all-extras
 cp .env.example .env          # set OPENAI_API_KEY, API_AUTH_TOKEN, DJANGO_SECRET_KEY
 cp swarm_config.example.json swarm_config.json   # optional local SoT; secrets stay ${VAR} in .env
 make frontend                 # builds webui/frontend/dist/
 docker compose up --build     # API + local Postgres (not Neon / not SQLite)
-# open http://localhost:8000   # greenfield compose/swarm-api default
+# open http://localhost:8000   # greenfield compose/os-api default
 ```
 
-> **Ports:** On a standard `docker compose` / `swarm-api` setup, the Open Swarm ASGI + WebUI listen on **`:8000`**. If an upstream LLM gateway or proxy already binds **`:8000`**, Open Swarm can be run on an alternate port (such as **`:8002`**). Ensure client API and session calls target the Open Swarm server port. For configuration details, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+> **Ports:** On a standard `docker compose` / `os-api` setup, the Operating Swarm ASGI + WebUI listen on **`:8000`**. If an upstream LLM gateway or proxy already binds **`:8000`**, OS can be run on an alternate port (such as **`:8002`**). Ensure client API and session calls target the OS server port. For configuration details, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 
 Compose’s durable DB is the `postgres` service. Set `DATABASE_URL` for any
@@ -87,7 +90,7 @@ Four user-facing kinds. **Team is not a fifth kind.**
 | **CLI** | Host executable (`grok`, `agy`, `claude`, `gemini`, `opencode`, …). Native session. |
 | **API** | **True inference seat** — OpenAI-compatible chat completions (base URL / model / key-env). Not a graph. |
 | **Blueprint** | **Programmatic recipe** — openai-agents handoffs, MoA, custom Python. May *use* inference underneath; the seat is the recipe. Same id via CLI and API only — blueprints do not ship a webpage. The Grok-like WebUI is the product chrome. |
-| **Remote** | Another agentic harness. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr** (and nested Open Swarm). Variants are adapters, not extra kinds. Herdr is SSH-shaped, not another HTTP remote. |
+| **Remote** | Another agentic harness. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr** (and nested Operating Swarm / OS instance). Variants are adapters, not extra kinds. Herdr is SSH-shaped, not another HTTP remote. |
 
 **Team** = a **Blueprint subtype**: a roster plus openai-agents **handoff / agent-as-tool** so CLI, API, Blueprint, and Remote members can see and talk. Do not call `/v1/teams` aliases a Team — those are **Profiles** (LLM-profile aliases).
 
@@ -122,8 +125,8 @@ Mermaid, kind bases, and the `:8001` seed live on [docs/DEVELOPER.md](docs/DEVEL
 
 ```bash
 # What main actually runs
-git clone https://github.com/matthewhand/open-swarm.git
-cd open-swarm
+git clone https://github.com/matthewhand/operating-swarm.git
+cd operating-swarm
 uv sync --all-extras
 ```
 
@@ -139,19 +142,19 @@ Python >= 3.10. Node >= 22 only if you build the WebUI.
 export OPENAI_API_KEY="sk-..."
 
 # CLI kind — discover installed agentic CLIs
-uv run swarm-cli cli-agents --init --write --check-auth
-uv run swarm-cli launch cli_agent --message "What CLIs can you see?"
+uv run os-cli cli-agents --init --write --check-auth
+uv run os-cli launch cli_agent --message "What CLIs can you see?"
 
 # Blueprint kind — same recipe as an OpenAI `model` id
-uv run swarm-cli launch codey --message "Explain this repo's structure"
+uv run os-cli launch codey --message "Explain this repo's structure"
 
 # Remote kind — fresh install catalog is empty until Settings +Add (OpenMousBot / Hermes / Rakazo / Herdr).
 # A populated live host may already list remotes; tip defaults stay empty-until-Add.
-uv run swarm-cli remotes
-# uv run swarm-cli remotes place <id>
+uv run os-cli remotes
+# uv run os-cli remotes place <id>
 
 # OpenAI-compatible door (after the WebUI / compose steps above).
-# Standard compose/swarm-api listens on :8000.
+# Standard compose/os-api listens on :8000.
 curl -sf http://localhost:8000/v1/models | jq .
 curl -sf http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -163,10 +166,10 @@ curl -sf http://localhost:8000/v1/chat/completions \
 
 ### Pinokio (local sideload)
 
-Open Swarm is **not** in the Pinokio public catalog. In Pinokio, add the git URL only (Download from URL / sideload) — do not search Discover:
+Operating Swarm is **not** in the Pinokio public catalog. In Pinokio, add the git URL only (Download from URL / sideload) — do not search Discover:
 
 ```
-https://github.com/matthewhand/open-swarm.git
+https://github.com/matthewhand/operating-swarm.git
 ```
 
 Then **Install** → **Start** → **Open App**. Compose sets `SWARM_RUNTIME=sandbox-home` (REQ-45). Pinokio requires root `pinokio.js`; install/start/update scripts live under `pinokio/`.
@@ -178,7 +181,7 @@ Then **Install** → **Start** → **Open App**. Compose sets `SWARM_RUNTIME=san
 - [docs/ANNOUNCE.md](docs/ANNOUNCE.md) — launch spiel + hero GIF (REQ-136 / #529)
 - [docs/VISION.md](docs/VISION.md) — where we are going (kinds, WebUI, remotes)
 - [docs/GLOSSARY.md](docs/GLOSSARY.md) — kinds, Team vs Profiles vs roster
-- [USERGUIDE.md](./USERGUIDE.md) — `swarm-cli` tasks
+- [USERGUIDE.md](./USERGUIDE.md) — `os-cli` tasks
 - [docs/REMOTE_HARNESSES.md](docs/REMOTE_HARNESSES.md) · [docs/HERDR.md](docs/HERDR.md)
 - [docs/AUTH.md](docs/AUTH.md) · [CONFIGURATION.md](./CONFIGURATION.md) (`swarm_config.example.json`)
 - [FEATURE_STATUS.md](./FEATURE_STATUS.md) · [ROADMAP.md](./ROADMAP.md)
@@ -196,7 +199,7 @@ Recipes and pattern diagrams stay in [docs/EXAMPLES.md](docs/EXAMPLES.md) and [d
 
 ## Acknowledgements
 
-Open Swarm began as an extension of OpenAI’s experimental [Swarm](https://github.com/openai/swarm) and migrated to the [openai-agents SDK](https://github.com/openai/openai-agents-python) for agents, tools, and handoffs.
+Operating Swarm began as **Open Swarm**, an extension of OpenAI’s experimental [Swarm](https://github.com/openai/swarm), and migrated to the [openai-agents SDK](https://github.com/openai/openai-agents-python) for agents, tools, and handoffs.
 
 ## License
 

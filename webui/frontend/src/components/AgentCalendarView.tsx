@@ -12,6 +12,7 @@ import {
 import { fetchAllRoutines, type Routine } from "../lib/routines"
 import { isApiBlueprintId } from "../lib/cliAgentContext"
 import { humanizeCron } from "./RemotesSettings"
+import { OverlayFocusTrap } from "./OverlayFocusTrap"
 
 export interface CalendarDay {
   date: Date
@@ -271,6 +272,7 @@ export const AgentCalendarView = memo(function AgentCalendarView({
   }
 
   return (
+    <OverlayFocusTrap onClose={onClose}>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-xs"
       data-testid="agent-calendar-overlay"
@@ -617,6 +619,7 @@ export const AgentCalendarView = memo(function AgentCalendarView({
         </div>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 })
 

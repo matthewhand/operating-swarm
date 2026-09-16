@@ -59,7 +59,7 @@ describe('Modal Accessibility and Focus Restoration', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps FocusTrap mounted and toggles active with isOpen', () => {
+  it('toggles modal-open and aria-modal with isOpen without a FocusTrap wrapper', () => {
     const onClose = vi.fn();
     const { rerender } = render(
       <Modal isOpen={false} onClose={onClose} title="Trap Test">

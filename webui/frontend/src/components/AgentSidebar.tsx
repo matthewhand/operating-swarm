@@ -2285,9 +2285,6 @@ export default function AgentSidebar({
         className={`os-agent-role-badge shrink-0 ${roleCssClass(role)}`}
         data-role={role}
         data-definition-id={agent.id}
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${role} settings`}
         style={{
           fontSize: '0.55rem',
           padding: '0 0.25rem',
@@ -2295,18 +2292,6 @@ export default function AgentSidebar({
           height: '0.9rem',
           boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
           whiteSpace: 'nowrap',
-        }}
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          openDefinition('role', agent.id, { blueprintId: agent.id })
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            openDefinition('role', agent.id, { blueprintId: agent.id })
-          }
         }}
       >
         {badge}
@@ -2890,14 +2875,10 @@ export default function AgentSidebar({
         </div>
 
         <div className="os-rail-search-row flex items-center gap-1.5 px-3 pb-2 pt-3">
-          <label className="sr-only" htmlFor="os-rail-search">
-            Search
-          </label>
-          <div
+          <button
+            type="button"
             className="os-rail-search min-w-0 flex-1 cursor-pointer"
             data-testid="rail-search-trigger"
-            role="button"
-            tabIndex={0}
             aria-label="Search"
             onClick={openPalette}
             onKeyDown={(event) => {
@@ -2908,33 +2889,13 @@ export default function AgentSidebar({
             }}
           >
             <Search
-              className="h-3.5 w-3.5 shrink-0 text-base-content/40 cursor-pointer"
+              className="h-3.5 w-3.5 shrink-0 text-base-content/40"
               aria-hidden="true"
               data-testid="rail-search-icon"
-              onClick={(event) => {
-                event.stopPropagation()
-                openPalette()
-              }}
             />
-            <input
-              id="os-rail-search"
-              type="search"
-              className="os-rail-search__input"
-              placeholder="Search"
-              readOnly
-              tabIndex={isAvatarOnly ? -1 : 0}
-              autoComplete="off"
-              onFocus={(event) => {
-                event.currentTarget.blur()
-                openPalette()
-              }}
-              onClick={(event) => {
-                event.stopPropagation()
-                openPalette()
-              }}
-            />
+            <span className="os-rail-search__input os-rail-search__placeholder">Search</span>
             <kbd className="os-rail-search__kbd kbd kbd-xs">{searchShortcut}</kbd>
-          </div>
+          </button>
           <button
             type="button"
             className="os-search-add-btn"

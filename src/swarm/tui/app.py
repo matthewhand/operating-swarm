@@ -9,8 +9,8 @@ still keyboard-first. Sessions are tracked per seat for the TUI run; the
 default thread (no ``conversation_id``) is the server's per-agent conversation.
 
 CLI-tool / team / remote / Herdr rows are honestly not-sendable over REST v1
-(SPA websocket path — Wave 3b). Textual stays an optional ``[tui]`` extra; the
-Wave 0 ``--once`` ASCII dump is unaffected.
+(SPA websocket path; Wave 3b skipped). Textual stays an optional ``[tui]`` extra;
+the ``--once`` ASCII dump lists the rail only.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ EMPTY_THREAD = " No messages yet for this seat — type below to send the first 
 EMPTY_SESSION = " New session — no messages yet. Type below to send the first turn."
 HYDRATE_LOADING = " Loading transcript…"
 COMPOSER_SENDABLE = "Type a message — Enter sends"
-COMPOSER_UNSENDABLE = "Not sendable over REST v1 (websocket path = Wave 3b)"
+COMPOSER_UNSENDABLE = "Not sendable over REST v1 (SPA websocket; TUI v1 has no cookie jar)"
 FOOTER = " j/k move \u00b7 Enter select \u00b7 n new session \u00b7 s sessions \u00b7 / filter (Esc clears) \u00b7 type + Enter send \u00b7 q quit"
 
 _ROLE_LABELS = {"user": "you", "assistant": "assistant"}
@@ -112,7 +112,7 @@ class _SectionListView(ListView):
 class TuiApp(App[None]):
     """Two-pane chrome: rail + live transcript + composer + per-seat sessions."""
 
-    TITLE = "Open Swarm TUI"
+    TITLE = "Operating Swarm TUI"
     SUB_TITLE = "REQ-111 Wave 3a \u2014 rail + transcript + sessions (REST)"
     CSS = """
     #chrome { height: 1fr; }
@@ -488,8 +488,7 @@ class TuiApp(App[None]):
             self._set_chat_body(f"{body}\n\n [!] offline cache shown — refresh failed: {exc}")
         else:
             self._set_chat_body(
-                f" [!] could not load {seat.name}'s thread: {exc} — "
-                "(GET /chat/thread/ is login-gated; cookie jar lands in Wave 3b)"
+                f" [!] could not load {seat.name}'s thread: {exc}"
             )
 
     # -- send + stream (Wave 2b/2c) ----------------------------------------
@@ -688,7 +687,7 @@ def run_tui_app(
     poster: POSTER | None = None,
     token: str | None = None,
 ) -> None:
-    """Blocking entry point used by the interactive ``swarm-cli tui`` path."""
+    """Blocking entry point used by the interactive ``os-cli tui`` path."""
     TuiApp(
         seats,
         base_url=base_url,

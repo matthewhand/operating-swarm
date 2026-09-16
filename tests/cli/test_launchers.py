@@ -73,7 +73,7 @@ def test_swarm_cli_entrypoint():
         raise AssertionError(f"exit={result.exit_code} exc={result.exception!r} out={result.output[:500]}")
     assert result.exit_code == 0
     assert "[OPTIONS] COMMAND [ARGS]..." in result.stdout
-    assert "Swarm CLI tool" in result.stdout
+    assert "Operating Swarm CLI (OS CLI)" in result.stdout
 
 
 @patch("subprocess.run")

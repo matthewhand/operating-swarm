@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import SettingsSheet from '../SettingsSheet'
+import SettingsSheet, { settingsDetailFromQuery } from '../SettingsSheet'
 import { ToastProvider } from '../DaisyUI'
 import {
   BUMP_COMPLETED_KEY,
@@ -44,6 +44,18 @@ function renderSheet({
   return { ...view, onClose, client }
 }
 
+describe('settingsDetailFromQuery (#254)', () => {
+  it('maps the Django dump banner and named sections onto the SPA sheet', () => {
+    expect(settingsDetailFromQuery(null)).toBeNull()
+    expect(settingsDetailFromQuery('')).toBeNull()
+    expect(settingsDetailFromQuery('true')).toEqual({})
+    expect(settingsDetailFromQuery('1')).toEqual({})
+    expect(settingsDetailFromQuery('cli-agents')).toEqual({ section: 'cli-agents' })
+    expect(settingsDetailFromQuery('llm-profiles')).toEqual({ section: 'llm-profiles' })
+    expect(settingsDetailFromQuery('not-a-section')).toEqual({})
+  })
+})
+
 describe('SettingsSheet', () => {
   afterEach(() => {
     localStorage.removeItem(HOSTNAME_OVERRIDE_KEY)
@@ -82,6 +94,8 @@ describe('SettingsSheet', () => {
     expect(screen.getByRole('button', { name: 'Speech' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Plugins' })).toBeInTheDocument()
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
+    expect(screen.queryByText('Open Swarm')).not.toBeInTheDocument()
   })
 
   it('defaults the rail bump toggle on and persists off', () => {
@@ -463,6 +477,29 @@ describe('SettingsSheet', () => {
       dispatchedHost = (event as CustomEvent<{ hostname: string }>).detail?.hostname ?? ''
     }
     window.addEventListener(HOSTNAME_CHANGED_EVENT, onHostChanged)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method === 'PATCH') {
+          const body = JSON.parse(String(init?.body || '{}'))
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: false,
+              favourites: [],
+              hidden_agents: [],
+              hostname_override: body.hostname_override,
+              values: {},
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
 
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
@@ -475,6 +512,70 @@ describe('SettingsSheet', () => {
     expect(dispatchedHost).toBe('swarm.example.com')
 
     window.removeEventListener(HOSTNAME_CHANGED_EVENT, onHostChanged)
+  })
+
+  it('does not toast Hostname saved when the account PATCH fails (#329)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method === 'PATCH') {
+          return { ok: false, status: 500, json: async () => ({ error: 'nope' }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Hostname override' }), {
+      target: { value: 'swarm.example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save hostname' }))
+    expect(await screen.findByText('Hostname not saved')).toBeInTheDocument()
+    expect(screen.queryByText('Hostname saved')).not.toBeInTheDocument()
+  })
+
+  it('does not clobber an in-progress hostname edit when a slow prefs GET lands (#329)', async () => {
+    let releaseGet: () => void = () => {}
+    const delayedGet = new Promise<void>((resolve) => {
+      releaseGet = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method !== 'PATCH') {
+          await delayedGet
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: false,
+              favourites: [],
+              hidden_agents: [],
+              hostname_override: 'from-server.example.com',
+              values: {},
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Hostname override' }), {
+      target: { value: 'typed.example.com' },
+    })
+    await act(async () => {
+      releaseGet()
+      await delayedGet
+    })
+    expect(screen.getByRole('textbox', { name: 'Hostname override' })).toHaveValue(
+      'typed.example.com',
+    )
   })
 
   it('lists configured profiles and persists the Default picker', async () => {

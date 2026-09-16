@@ -124,8 +124,18 @@ def get_blueprint_directory() -> str:
 
 
 def get_swarm_log_level() -> str:
-    """Get Swarm log level."""
-    return os.getenv('SWARM_LOG_LEVEL', 'DEBUG')
+    """Get Swarm log level.
+
+    Explicit ``SWARM_LOG_LEVEL`` wins. Otherwise DEBUG only when Django or
+    Swarm debug is on; production (``DJANGO_DEBUG`` unset/false) defaults to INFO.
+    """
+    explicit = os.getenv('SWARM_LOG_LEVEL')
+    if explicit:
+        return explicit
+    swarm_debug = is_truthy(os.getenv('SWARM_DEBUG') or '')
+    if is_django_debug() or swarm_debug:
+        return 'DEBUG'
+    return 'INFO'
 
 
 def get_swarm_log_format() -> str:

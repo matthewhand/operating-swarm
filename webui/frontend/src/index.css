@@ -4,7 +4,7 @@
 }
 
 /*
- * Open Swarm chrome — Grok/OMB-like dark metal, not DaisyUI cupcake / rainbow
+ * Operating Swarm chrome — Grok/OMB-like dark metal, not DaisyUI cupcake / rainbow
  * operator skin. Accents stay small (icons, focus, status dots). Category
  * colours do not flood buttons or stat numbers.
  */
@@ -819,7 +819,8 @@ html:not([data-theme="light"]) .os-composer,
   font-size: 0.875rem;
   color: inherit;
 }
-.os-rail-search__input::placeholder {
+.os-rail-search__input::placeholder,
+.os-rail-search__placeholder {
   color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
 }
 .os-rail-search__kbd,

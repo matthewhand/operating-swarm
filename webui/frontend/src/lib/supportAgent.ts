@@ -162,8 +162,8 @@ export function supportTurnExtras(sessionKind?: AgentSessionKind): {
 export function buildSupportTurnContext(sessionKind: AgentSessionKind = 'api'): string {
   const mode =
     sessionKind === 'api'
-      ? 'API session: Open Swarm owns the thread; bubbles are editable.'
-      : 'CLI/remote session: live session is outside Open Swarm; no edit.'
+      ? 'API session: Operating Swarm owns the thread; bubbles are editable.'
+      : 'CLI/remote session: live session is outside Operating Swarm; no edit.'
   return [
     `You have been given the "${SUPPORT_SKILL_NAME}" skill.`,
     SUPPORT_SKILL_FIXTURE,
@@ -178,7 +178,7 @@ export function buildSupportTurnContext(sessionKind: AgentSessionKind = 'api'): 
 export function supportTurnGuidance(sessionKind: AgentSessionKind): string {
   if (sessionKind === 'cli' || sessionKind === 'remote') {
     return (
-      'That session lives outside Open Swarm — I cannot edit those bubbles. ' +
+      'That session lives outside Operating Swarm — I cannot edit those bubbles. ' +
       'What are you trying to change?'
     )
   }

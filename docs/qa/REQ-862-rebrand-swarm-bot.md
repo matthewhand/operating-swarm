@@ -10,6 +10,39 @@
 
 The project is rebranding from **open-swarm** to **Operating Swarm** (shorthand: **OS**), superseding the earlier "Swarm Bot" proposal.
 
+### 1.0 Recommended naming (locked)
+
+`os-core`, `os-api`, and `os-webui` are cleaner than `op-swarm-*` for internal components because they align directly with the public **Operating Swarm (OS)** identity.
+
+```
+operating-swarm/          # repository
+os-core/                  # provider- and harness-agnostic runtime
+os-api/                   # OpenAI-compatible API
+os-webui/                 # browser interface
+os-cli/                   # command-line interface
+os-adapter-hermes/        # Hermes integration
+os-adapter-truforge/      # TruForge integration
+os-peer/                  # OS-to-OS connectivity
+```
+
+| Layer | Name |
+| :--- | :--- |
+| **Brand (prose)** | Operating Swarm |
+| **Acronym (after first definition)** | OS |
+| **Umbrella repository** | `operating-swarm` |
+| **Packages / services / modules / images / binaries** | `os-*` |
+
+**Use**
+- **Operating Swarm** in prose and branding.
+- **OS** after the first definition.
+- **`os-*`** for packages, services, modules, Docker images, and binaries.
+- **`operating-swarm`** for the umbrella repository.
+- Preserve the existing **`.os-`** CSS class prefix (already matches).
+- Do **not** publish `op-swarm-*` or `operating-swarm-*` as component names.
+- Optionally reserve `operating-swarm` on PyPI as a thin meta-package that depends on `os-core`.
+
+**Registry caveat:** `os-*` is short and generic. Treat as project-internal architecture until PyPI, npm, and Docker Hub are checked. If an unscoped name is taken, keep the in-tree `os-*` identity and publish under a scoped/org name (e.g. `@operating-swarm/os-webui`, `mhand79/os-core`). Do not silently switch back to `op-swarm-*`.
+
 ### 1.1 The Core Triad
 Operating Swarm is simultaneously:
 1. **A complete agentic harness** in its own right (native OS execution mode).
@@ -84,13 +117,13 @@ The project architecture is structured into seven distinct layers:
 +------------------------+  +---------------------------+  +--------------------+
 ```
 
-1. **OS Core / OS Runtime**: The provider-agnostic and harness-agnostic session, routing, and orchestration layer.
-2. **OS Harness**: Operating Swarm's native agentic execution mode.
-3. **OS WebUI**: The primary Grok-style web interface.
-4. **OS CLI**: The command-line interface (TUI features pending).
-5. **OS API**: The OpenAI-compatible server endpoint where model slugs map directly to agent or harness names (referred to in documentation as the **"OS endpoint"** or **"OS server"** to avoid confusion with an operating system kernel API).
-6. **External Harness Integrations**: Adapters for Hermes and other existing agentic frameworks.
-7. **OS Peer Integrations**: Connections to other Operating Swarm instances (enabling recursive composition and peer federation).
+1. **OS Core / OS Runtime** (`os-core`): The provider-agnostic and harness-agnostic session, routing, and orchestration layer.
+2. **OS Harness**: Operating Swarm's native agentic execution mode (lives in `os-core`).
+3. **OS WebUI** (`os-webui`): The primary Grok-style web interface.
+4. **OS CLI** (`os-cli`): The command-line interface (TUI features pending).
+5. **OS API** (`os-api`): The OpenAI-compatible server endpoint where model slugs map directly to agent or harness names (referred to in documentation as the **"OS endpoint"** or **"OS server"** to avoid confusion with an operating system kernel API).
+6. **External Harness Integrations** (`os-adapter-hermes`, `os-adapter-truforge`): Adapters for Hermes, TruForge, and other existing agentic frameworks.
+7. **OS Peer Integrations** (`os-peer`): Connections to other Operating Swarm instances (enabling recursive composition and peer federation).
 
 ---
 
@@ -114,13 +147,16 @@ The project architecture is structured into seven distinct layers:
 3. **Initial Live Commit**: Upon validating a stable, functional milestone, publish the curated initial commit to `operating-swarm` to launch the live project.
 
 ### 4.2 PyPI & npm Namespace Protection
-- **Unclaimed Status**: Verified that `operating-swarm` is unclaimed across GitHub, PyPI, and npm.
-- **Reservations**:
-  - **PyPI**: Claim `operating-swarm` (plus `operating-swarm-cli`, `operating-swarm-server`).
-  - **npm**: Claim `operating-swarm-webui` (plus `@operating-swarm` scope).
+- **GitHub repo** remains `operating-swarm`. Architecture names are `os-*`.
+- **Reservations** (after a collision check):
+  - **PyPI**: Prefer `os-core`, `os-api`, `os-cli`, `os-adapter-hermes`, `os-adapter-truforge`, `os-peer`. Optionally also `operating-swarm` as a meta-package depending on `os-core`.
+  - **npm**: Prefer `os-webui`, or `@operating-swarm/os-webui` if unscoped `os-webui` is taken.
+  - **Docker Hub**: always namespaced (`mhand79/os-core`, never a bare `os-core`).
+  - Confirm each unscoped `os-*` name is unclaimed before first publish. If taken, keep the in-tree `os-*` identity and publish scoped/org-prefixed.
+- **Do not publish** `op-swarm-*`, `operating-swarm-webui`, `operating-swarm-cli`, or `operating-swarm-server`.
 - **Legacy PyPI Deprecation (`open-swarm`)**:
   - Maintainer owns the legacy `open-swarm` package on PyPI.
-  - Publish a final deprecation stub release on `open-swarm` displaying an installation warning and pointing users to `operating-swarm` (`install_requires=["operating-swarm"]`).
+  - Publish a final deprecation stub release on `open-swarm` displaying an installation warning and pointing users to `os-core` (`install_requires=["os-core"]`, or the verified publish name).
   - Cross-link old and new listings to preserve download history and credibility.
 
 ### 4.3 Documentation Rules
@@ -134,23 +170,24 @@ The project architecture is structured into seven distinct layers:
 
 | Category | Target / Scope | Planned Action |
 | :--- | :--- | :--- |
-| **Frontend UI** | `webui/frontend/index.html`<br>`SettingsSheet.tsx`<br>`package.json` | Update `<title>` to `Operating Swarm`<br>Brand headers to `Operating Swarm`<br>Rename package to `operating-swarm-webui`<br>Preserve `.os-` CSS class prefix |
+| **Frontend UI** | `webui/frontend/index.html`<br>`SettingsSheet.tsx`<br>`package.json` | Update `<title>` to `Operating Swarm`<br>Brand headers to `Operating Swarm`<br>Rename package to `os-webui`<br>Preserve `.os-` CSS class prefix |
 | **Backend & Django** | `templates/base.html`<br>`swarm_cli.py`<br>`swarm_api.py` | Title to `Operating Swarm`<br>CLI banner to `Operating Swarm CLI (OS CLI)`<br>API banner to `Operating Swarm API (OS Server)` |
-| **Packaging** | `pyproject.toml` | Update name to `operating-swarm`<br>Script entrypoints: `operating-swarm`, `os-cli`, `os-api` (with compatibility shims) |
+| **Packaging** | `pyproject.toml` / frontend `package.json` / adapters | Architecture names: `os-core`, `os-api`, `os-cli`, `os-webui`, `os-adapter-hermes`, `os-adapter-truforge`, `os-peer`<br>Binaries: `os-cli`, `os-api` (with `swarm` / `swarm-cli` shims if required) |
 | **Documentation** | `README.md`<br>`USERGUIDE.md`<br>`DEVELOPMENT.md` | Overhaul positioning to Operating Swarm (OS)<br>Document 7-layer architecture and session mobility<br>Scrub standalone "Grok" and "Swarm Bot" naming |
 
 ---
 
 ## 6. Acceptance Criteria
 
-- [ ] Issue [#252](https://github.com/matthewhand/open-swarm-private/issues/252) updated with the Operating Swarm (OS) title, 7-layer model, and registry strategy.
+- [x] Issue [#252](https://github.com/matthewhand/open-swarm-private/issues/252) updated with the Operating Swarm (OS) title, locked naming (`operating-swarm` repo / `os-*` components), 7-layer model, and registry strategy.
 - [ ] A new reader can understand that Operating Swarm is simultaneously a standalone harness, an integration layer, and a peer that can compose with other Operating Swarm instances.
 - [ ] Definitions provided for `node`, `instance`, `harness`, `provider`, `session`, `adapter`, and `peer`.
 - [ ] Common abstraction of "harness" documented for both external harnesses and other OS instances.
 - [ ] Concrete session migration example provided (moving between provider, external harness, native OS harness, and peer OS node).
-- [ ] PyPI deprecation plan for `open-swarm` and reservation plan for `operating-swarm` on PyPI and npm defined.
+- [ ] PyPI deprecation plan for `open-swarm` and reservation plan for `os-*` packages (optional `operating-swarm` meta-package; scoped aliases if unscoped names collide) on PyPI and npm defined.
 - [ ] Brand touchpoints in WebUI, CLI, templates, and `pyproject.toml` inventoried and aligned to OS naming.
 - [ ] The official brand tagline *"Treat external harnesses and peer instances as one common abstraction."* is featured in the top `README.md` hero header and documentation overview.
 - [ ] The hero architecture diagram `assets/brand/operating-swarm-hero-diagram.svg` is embedded in the top hero section of `README.md`.
+- [x] Source-lock test `tests/unit/test_req862_operating_swarm_rebrand.py` pins metadata, banners, README hero/tagline, and `os-*` architecture names.
 
 

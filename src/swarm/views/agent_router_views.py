@@ -11,9 +11,9 @@ import json
 from typing import Any
 
 from django.http import JsonResponse, StreamingHttpResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from swarm.auth import enforce_api_auth
 from swarm.blueprints.agent_router import AgentRouterBlueprint
 
 # Initialize the agent router blueprint
@@ -107,7 +107,7 @@ def _run_sync(coro):
         return asyncio.run(coro)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def route_message(request):
     """
@@ -333,7 +333,7 @@ def get_agent_info(request, agent_id):
         }, status=500)
 
 
-@csrf_exempt  
+@enforce_api_auth  
 @require_http_methods(["POST"])
 def send_to_agent(request, agent_id):
     """
@@ -460,7 +460,7 @@ def get_agent_status_view(request, agent_id):
         }, status=500)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def delegate_agent_view(request, agent_id):
     """
@@ -513,7 +513,7 @@ def delegate_agent_view(request, agent_id):
         }, status=500)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["GET", "POST"])
 def agent_conversations_view(request):
     """List or initiate conversations with agents."""
@@ -556,7 +556,7 @@ def agent_conversations_view(request):
         }, status=500)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["GET", "POST"])
 def agent_context_view(request, agent_id):
     """Get or update context for a specific agent."""
@@ -605,7 +605,7 @@ def agent_delegations_view(request):
     })
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def generate_agent_quickstarts(request):
     """Rewrite the four onboarding pills for an agent via the default LLM."""
@@ -629,7 +629,7 @@ def list_remote_catalog(request):
     return JsonResponse({"status": "success", "frameworks": catalog_frameworks()})
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def launch_remote_framework(request):
     """Start a local remote framework (currently DeepSeek Harness via ollama launch dsh)."""
@@ -728,7 +728,7 @@ def list_designed_agents(request):
     return JsonResponse({"object": "list", "data": designs})
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def create_designed_agent(request):
     """Create a Swarm agent: personality, openai-agents swarm, or CLI."""
@@ -764,7 +764,7 @@ def create_designed_agent(request):
     return JsonResponse({"status": "success", "agent": spec}, status=201)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["DELETE"])
 def delete_designed_agent(request, agent_id: str):
     """Remove a designer-created agent. Built-in agents cannot be deleted."""

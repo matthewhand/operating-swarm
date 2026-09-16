@@ -29,7 +29,7 @@ function renderPicker(
         selectedModel="gemini-3.8-flash-medium"
         preferredEffort="medium"
         onChange={onChange}
-        footerAction={{ id: '__manage_cli__', label: 'Manage Cli', onSelect: vi.fn() }}
+        footerAction={{ id: '__manage_cli__', label: 'Manage CLI', onSelect: vi.fn() }}
         {...props}
       />
     </QueryClientProvider>,
@@ -123,7 +123,7 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     const menu = screen.getByTestId('routing-menu-agent')
     expect(within(menu).getByRole('menuitem', { name: 'agy' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'grok' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Manage Cli' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Manage CLI' })).toBeInTheDocument()
     const picker = screen.getByTestId('navbar-routing-picker')
     fireEvent.keyDown(picker, { key: 'ArrowDown' })
     fireEvent.keyDown(picker, { key: 'Enter' })

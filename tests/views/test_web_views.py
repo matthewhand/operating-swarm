@@ -215,7 +215,7 @@ class TestCustomLoginView:
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Open Swarm" in content      # brand on the real login page
+        assert "Operating Swarm" in content      # brand on the real login page
         assert "Sign in" in content         # the submit control
 
     @patch("swarm.views.web_views.authenticate")

@@ -596,6 +596,26 @@ urlpatterns += [
         RedirectView.as_view(url="/agent-creator/", permanent=False, query_string=True),
         name="spa_agent_creator_to_django",
     ),
+    path(
+        "sessions",
+        RedirectView.as_view(url="/sessions/", permanent=False, query_string=True),
+        name="spa_sessions_to_django",
+    ),
+    path(
+        "login",
+        RedirectView.as_view(url="/login/", permanent=False, query_string=True),
+        name="spa_login_to_django",
+    ),
+    path(
+        "blueprint-library",
+        RedirectView.as_view(url="/blueprint-library/", permanent=False, query_string=True),
+        name="spa_blueprint_library_to_django",
+    ),
+    path(
+        "profiles",
+        RedirectView.as_view(url="/profiles/", permanent=False, query_string=True),
+        name="spa_profiles_to_django",
+    ),
 ]
 
 # SPA Fallback for React Router - must be last (home `/` and experimental routes).

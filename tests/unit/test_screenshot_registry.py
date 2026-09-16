@@ -351,46 +351,34 @@ def test_tour_docs_bridge_cli_list_vs_library_vs_landing_counts():
         )
 
     # PNG-honest regen numbers stay named.
-    assert "0 / 45 / 45" in journey or "0/45/45" in journey or "**0 / 45 / 45**" in journey
-    assert "12 of 38" in journey and "12 of 38" in guided
-    assert "0/45/45" in registry or "**0/45/45**" in registry
+    assert "12 of 49" in journey and "12 of 49" in guided
+    assert "12 of 49" in registry or "**12 of 49**" in registry
 
-    # Explicit bridge: three surfaces differ (CLI dirs ≠ library discovery ≠ API).
+    # Explicit bridge: CLI dirs ≠ library discovery (landing is no longer a count dashboard).
     for path, text in (
         (USER_JOURNEY, journey),
         (GUIDED_TOUR, guided),
         (SCREENSHOTS_MD, registry),
     ):
         flat = " ".join(text.split())
-        assert "31" in flat and "38" in flat and "45" in flat, (
-            f"{path.name} must mention CLI 31 / library 38 / API 45 count bridge"
+        assert "31" in flat and "49" in flat, (
+            f"{path.name} must mention CLI 31 / library 49 count bridge"
         )
-        assert "swarm-cli list" in flat or "`swarm-cli list`" in text
+        assert "os-cli list" in flat or "`os-cli list`" in text or "swarm-cli list" in flat
 
 
 def test_settings_caption_matches_empty_meter_not_populated_local_config():
-    """settings.png shows empty meter: No settings configured / 0 of 0."""
+    """settings.png meter is 40 of 47 / 85% (defaults), not the old empty 0 of 0."""
     banned = (
         "Values shown are this dev machine's local configuration",
         "Values shown are this machine's local configuration",
-        "Settings dashboard with progress meter",
-        "with a filled progress meter",
-        "progress meter showing configured",
     )
     for path in (USER_JOURNEY, GUIDED_TOUR, SCREENSHOTS_MD):
         text = path.read_text()
         for phrase in banned:
             assert phrase not in text, f"{path.name} must not claim: {phrase!r}"
-        # Honest empty-state markers required in each tour/registry doc.
-        assert "No settings configured" in text, (
-            f"{path.name} must name the empty Settings meter copy"
-        )
-        assert "0 of 0" in text, f"{path.name} must name the empty 0 of 0 meter"
-        # Must not describe settings.png as a filled/populated meter without negation.
-        assert re.search(
-            r"(?i)settings\.png[^\n]{0,120}\bpopulated\b(?![^\n]{0,40}\bnot\b)",
-            text,
-        ) is None or "not a populated" in text or "not populated" in text
+        assert "40 of 47" in text, f"{path.name} must name the 40 of 47 Settings meter"
+        assert "0 of 0" in text, f"{path.name} must still name the old empty fixture as not this PNG"
         assert "settings.png" in text
 
 
@@ -412,7 +400,7 @@ def test_session_detail_remains_seeded_hybrid_team_distinct_from_launcher():
 
 def test_user_journey_screenshot_date_is_current_regeneration():
     text = USER_JOURNEY.read_text()
-    assert "2026-08-19" in text
+    assert "2026-09-16" in text
     assert "2026-06-11 with a fresh development database" not in text
     assert "2026-07-21" not in text
 
@@ -564,7 +552,7 @@ def test_blueprint_library_caption_matches_ready_mcp_badges():
 
 
 def test_my_blueprints_caption_matches_three_custom_agents():
-    """my-blueprints.png shows Custom Created 3 (Agent A/B/C), not empty CTAs."""
+    """my-blueprints.png shows Custom Created 20 (Lib Agent / First Team), not empty CTAs."""
     banned = (
         "empty on a fresh library",
         "empty personal library",
@@ -576,11 +564,11 @@ def test_my_blueprints_caption_matches_three_custom_agents():
         text = path.read_text()
         for phrase in banned:
             assert phrase not in text, f"{path.name} must not claim: {phrase!r}"
-        assert "Agent A" in text and "Agent B" in text and "Agent C" in text, (
-            f"{path.name} must name the three custom agents in my-blueprints.png"
+        assert "First Team" in text or "Lib Agent" in text, (
+            f"{path.name} must name custom cards in my-blueprints.png"
         )
-        assert "Custom Created" in text and "**3**" in text, (
-            f"{path.name} must name Custom Created **3**"
+        assert "Custom Created" in text and "**20**" in text, (
+            f"{path.name} must name Custom Created **20**"
         )
 
 

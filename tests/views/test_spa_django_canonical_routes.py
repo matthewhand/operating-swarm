@@ -6,8 +6,13 @@ via the Django test client — not a reimplementation of the map.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from django.urls import reverse
+
+REPO = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
@@ -29,6 +34,10 @@ class TestSpaToDjangoCanonicalRedirects:
             ("/blueprints", "/blueprint-library/"),
             ("/settings", "/settings/"),
             ("/agent-creator", "/agent-creator/"),
+            ("/sessions", "/sessions/"),
+            ("/login", "/login/"),
+            ("/blueprint-library", "/blueprint-library/"),
+            ("/profiles", "/profiles/"),
         ],
     )
     def test_bare_spa_path_redirects_to_django(self, client, path, expected_location):
@@ -49,6 +58,10 @@ class TestSpaToDjangoCanonicalRedirects:
         assert reverse("spa_blueprints_to_django") == "/blueprints"
         assert reverse("spa_settings_to_django") == "/settings"
         assert reverse("spa_agent_creator_to_django") == "/agent-creator"
+        assert reverse("spa_sessions_to_django") == "/sessions"
+        assert reverse("spa_login_to_django") == "/login"
+        assert reverse("spa_blueprint_library_to_django") == "/blueprint-library"
+        assert reverse("spa_profiles_to_django") == "/profiles"
         assert reverse("spa_agents") == "/agents"
         assert reverse("spa_chat") == "/chat"
 
@@ -270,6 +283,36 @@ class TestUxShellTemplateContracts:
         assert "se-list-scroll" in html
         assert "session_explorer.js" in html
         assert "<script>\n(function(){" not in html
+        assert "os-launch-btn" in html
+        assert reverse("teams_launch") == "/teams/launch/"
+
+    def test_session_explorer_empty_paths_include_launch_cta(self):
+        template = (REPO / "src" / "swarm" / "templates" / "session_explorer.html").read_text(
+            encoding="utf-8"
+        )
+        js = (REPO / "src" / "swarm" / "static" / "js" / "session_explorer.js").read_text(
+            encoding="utf-8"
+        )
+        assert "{% url 'teams_launch' %}" in template
+        assert "os-launch-btn" in template
+        assert "Launch a team" in template
+        assert "/teams/launch/" in js
+        assert "os-launch-btn" in js
+        assert "Launch a team" in js
+
+    def test_chrome_teams_labels_share_one_href(self):
+        html = (REPO / "src" / "swarm" / "templates" / "base.html").read_text(encoding="utf-8")
+        anchors = re.findall(
+            r"<a\b([^>]*)>\s*(?:<i\b[^>]*>\s*</i>\s*)?Teams\s*</a>",
+            html,
+        )
+        hrefs = []
+        for attrs in anchors:
+            match = re.search(r'href="([^"]+)"', attrs)
+            assert match, attrs
+            hrefs.append(match.group(1))
+        assert hrefs, "expected Teams links in operator chrome"
+        assert set(hrefs) == {"/teams/launch/"}, hrefs
 
     def test_agent_creator_progressive_disclosure(self, client):
         from django.contrib.auth.models import User

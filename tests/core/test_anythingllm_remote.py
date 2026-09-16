@@ -210,6 +210,22 @@ def test_send_requires_existing_thread(http_router):
     assert result2.gap == "anythingllm_thread_required"
 
 
+def test_send_via_target_hits_thread_chat(http_router):
+    host, port, router = http_router
+    key = ("POST", "/api/v1/workspace/teamstinky/thread/f8c17211-9d11-4fc7-879a-42c19975b130/chat")
+    router.routes[key] = (200, {"textResponse": "PONG from target", "sources": []})
+    result = remotes_core.operate(
+        "anythingllm",
+        "send",
+        prompt="say pong",
+        target="teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130",
+        config=_cfg(host, port),
+    )
+    assert result.ok is True
+    assert result.data["response"] == "PONG from target"
+    assert result.data["thread"] == "teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130"
+
+
 def test_send_into_existing_thread(http_router):
     host, port, router = http_router
     key = ("POST", "/api/v1/workspace/teamstinky/thread/f8c17211-9d11-4fc7-879a-42c19975b130/chat")

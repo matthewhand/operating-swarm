@@ -84,7 +84,7 @@ describe('overlays keep chat mounted (REQ-72 / #364 / #322 / #320)', () => {
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     const rail = screen.getByRole('navigation', { name: 'Agent list' })
 
-    fireEvent.click(screen.getByRole('searchbox', { name: 'Search' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(screen.getByRole('dialog', { name: 'Search' })).toBeInTheDocument()
 
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBe(composer)

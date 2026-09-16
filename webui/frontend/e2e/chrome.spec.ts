@@ -184,7 +184,7 @@ test('left-rail Search opens the command palette overlay, not an in-place filter
   await expect(list.getByRole('link', { name: /Codey/ })).toBeVisible()
   await expect(list.getByRole('link', { name: /Stewie/ })).toBeVisible()
 
-  await page.getByRole('searchbox', { name: 'Search' }).click()
+  await page.getByRole('button', { name: 'Search' }).click()
   const palette = page.getByRole('dialog', { name: 'Search' })
   await expect(palette).toBeVisible()
   await expect(palette.getByRole('combobox', { name: 'Search' })).toHaveAttribute(

@@ -31,6 +31,36 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
     vi.clearAllMocks()
   })
 
+  it('populates the target field from AnythingLLM sessions', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'anythingllm',
+      op: 'list',
+      ok: true,
+      detail: 'listed 2 AnythingLLM thread(s) across 1 workspace(s)',
+      data: {
+        sessions: [
+          { id: 'teamstinky:thread-1', title: 'latest hacker news?' },
+          { id: 'teamstinky:thread-2', title: 'onboarding docs' },
+        ],
+        source: 'anythingllm',
+      },
+    })
+
+    renderPane({
+      id: 'anythingllm',
+      label: 'AnythingLLM',
+      base_url: 'http://127.0.0.1:3001',
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /^list$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/teamstinky:thread-1 · latest hacker news\?/i)).toBeInTheDocument()
+      expect(screen.getByText(/teamstinky:thread-2 · onboarding docs/i)).toBeInTheDocument()
+      expect(screen.getByDisplayValue('teamstinky:thread-1')).toBeInTheDocument()
+    })
+  })
+
   it('renders List bots button and stops spinner on success', async () => {
     vi.spyOn(api, 'operateRemote').mockResolvedValue({
       remote: 'omb',

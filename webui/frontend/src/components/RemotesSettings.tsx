@@ -5,6 +5,8 @@ import { Alert, Button, Input, Select, Textarea, useToast } from './DaisyUI'
 import {
   addRemote,
   fetchRemoteRoutines,
+  OPERATE_LIST_TIMEOUT_MS,
+  OPERATE_SEND_TIMEOUT_MS,
   operateRemote,
   probeRemoteHealth,
   type RemoteConnection,
@@ -249,7 +251,7 @@ export function AddRemoteForm({
   )
 }
 
-function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: string; name?: string }> {
+export function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: string; name?: string }> {
   if (!result?.data) return []
   const raw = result.data
   let list: unknown = raw
@@ -260,12 +262,16 @@ function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: s
       list = (raw as { members: unknown }).members
     } else if ('agents' in raw) {
       list = (raw as { agents: unknown }).agents
+    } else if ('sessions' in raw) {
+      list = (raw as { sessions: unknown }).sessions
     } else if ('data' in raw) {
       const d = (raw as { data: unknown }).data
       if (Array.isArray(d)) {
         list = d
       } else if (d && typeof d === 'object' && 'bots' in d) {
         list = (d as { bots: unknown }).bots
+      } else if (d && typeof d === 'object' && 'sessions' in d) {
+        list = (d as { sessions: unknown }).sessions
       }
     }
   }
@@ -274,10 +280,12 @@ function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: s
     .map((item) => {
       if (typeof item === 'string') return { id: item }
       if (item && typeof item === 'object') {
-        const rec = item as { id?: unknown; name?: unknown }
-        const id = rec.id != null ? String(rec.id) : rec.name != null ? String(rec.name) : ''
+        const rec = item as { id?: unknown; name?: unknown; title?: unknown }
+        const label =
+          rec.name != null ? String(rec.name) : rec.title != null ? String(rec.title) : undefined
+        const id = rec.id != null ? String(rec.id) : label || ''
         if (!id) return null
-        return { id, name: rec.name != null ? String(rec.name) : undefined }
+        return { id, name: label }
       }
       return null
     })
@@ -356,7 +364,7 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   })
 
   const listMutation = useMutation({
-    mutationFn: () => operateRemote(remote.id, { op: 'list' }, { timeoutMs: 12000 }),
+    mutationFn: () => operateRemote(remote.id, { op: 'list' }, { timeoutMs: OPERATE_LIST_TIMEOUT_MS }),
     onSuccess: (result) => {
       setListed(result)
       const bots = botsFromOperate(result)
@@ -388,7 +396,16 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
 
   const sendMutation = useMutation({
     mutationFn: () =>
-      operateRemote(remote.id, { op: 'send', prompt: prompt.trim(), target: botId.trim() }),
+      operateRemote(
+        remote.id,
+        {
+          op: 'send',
+          prompt: prompt.trim(),
+          target: botId.trim(),
+          session_id: botId.trim(),
+        },
+        { timeoutMs: OPERATE_SEND_TIMEOUT_MS },
+      ),
     onSuccess: (result) => setSent(result),
     onError: (err: Error) => {
       error('Send failed', err.message)

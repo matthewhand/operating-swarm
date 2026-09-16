@@ -7,6 +7,7 @@ import {
   type CliCatalogEntry,
   type RemoteFrameworkEntry,
 } from '../../lib/agent-api'
+import { OverlayFocusTrap } from '../OverlayFocusTrap'
 
 export type DesignerKind = 'api' | 'cli' | 'remote'
 
@@ -123,6 +124,7 @@ export function AgentDesigner({ onClose, onCreated }: AgentDesignerProps) {
   }
 
   return (
+    <OverlayFocusTrap onClose={onClose}>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Design agent">
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-base-300 bg-base-100 shadow-xl">
         <div className="flex items-center justify-between px-4 py-3 border-b border-base-300">
@@ -140,6 +142,7 @@ export function AgentDesigner({ onClose, onCreated }: AgentDesignerProps) {
               multi-persona openai-agents swarm.
             </p>
             <KindCard
+              autoFocus
               icon={<Bot className="w-4 h-4" />}
               title="LiteLLM (API)"
               body="OpenAI-compatible chat. One Agent by default; add personas for an openai-agents swarm."
@@ -180,6 +183,7 @@ export function AgentDesigner({ onClose, onCreated }: AgentDesignerProps) {
               <span className="text-xs font-medium">Name</span>
               <input
                 required
+                autoFocus
                 className="input input-sm input-bordered w-full mt-1"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -318,6 +322,7 @@ export function AgentDesigner({ onClose, onCreated }: AgentDesignerProps) {
                         setPersonas(next)
                       }}
                       placeholder="Persona name"
+                      aria-label={`Persona ${idx + 1} name`}
                     />
                     <textarea
                       className="textarea textarea-bordered textarea-xs"
@@ -329,6 +334,7 @@ export function AgentDesigner({ onClose, onCreated }: AgentDesignerProps) {
                         setPersonas(next)
                       }}
                       placeholder="What this persona owns"
+                      aria-label={`Persona ${idx + 1} instructions`}
                     />
                   </div>
                 ))}
@@ -354,6 +360,7 @@ export function AgentDesigner({ onClose, onCreated }: AgentDesignerProps) {
         )}
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }
 
@@ -362,15 +369,18 @@ function KindCard({
   title,
   body,
   onClick,
+  autoFocus,
 }: {
   icon: ReactNode
   title: string
   body: string
   onClick: () => void
+  autoFocus?: boolean
 }) {
   return (
     <button
       type="button"
+      autoFocus={autoFocus}
       onClick={onClick}
       className="w-full text-left p-3 rounded-xl border border-base-300 hover:border-primary hover:bg-primary/5 transition-colors flex gap-3"
     >

@@ -24,11 +24,22 @@ def clean_remotes_env(monkeypatch):
 
 
 class _Router(BaseHTTPRequestHandler):
-    routes: dict[tuple[str, str], tuple[int, dict | list | str]] = {}
+    routes: dict = {}
+    posted: list = []
 
     def _handle(self, method: str) -> None:
         key = (method, self.path.split("?", 1)[0])
-        status, body = self.routes.get(key, (404, {"error": "no route"}))
+        if method == "POST":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            raw = self.rfile.read(length) if length else b""
+            type(self).posted.append((key[1], raw.decode("utf-8", "replace")))
+        status_body = self.routes.get(key, (404, {"error": "no route"}))
+        if callable(status_body):
+            status_body = status_body()
+        status, body = status_body
         payload = json.dumps(body).encode("utf-8") if not isinstance(body, str) else body.encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -47,6 +58,8 @@ class _Router(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def http_router():
+    _Router.routes = {}
+    _Router.posted = []
     server = HTTPServer(("127.0.0.1", 0), _Router)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -54,6 +67,7 @@ def http_router():
     yield host, port, _Router
     server.shutdown()
     _Router.routes = {}
+    _Router.posted = []
 
 
 def _cfg(host: str, port: int) -> dict:
@@ -350,7 +364,10 @@ def test_hermes_list_and_send(http_router):
     router.routes = {
         ("GET", "/v1/models"): (200, {"data": [{"id": "hermes-agent"}]}),
         ("GET", "/api/sessions"): (200, {"sessions": []}),
-        ("GET", "/api/jobs"): (200, []),
+        ("GET", "/api/jobs"): (
+            200,
+            [{"id": "run_1", "status": "completed", "output": "hermes-hello"}],
+        ),
         ("POST", "/v1/runs"): (200, {"run_id": "run_1", "status": "started"}),
     }
     listed = remotes_core.operate("hermes", "list", config=_cfg(host, port))
@@ -358,15 +375,49 @@ def test_hermes_list_and_send(http_router):
     sent = remotes_core.operate("hermes", "send", prompt="hello", config=_cfg(host, port))
     assert sent.ok is True
     assert sent.data["run_id"] == "run_1"
+    assert sent.data["text"] == "hermes-hello"
+    assert "started Hermes run" not in sent.detail
 
 
-def test_omb_list_and_send_creates_bot(http_router):
+def test_omb_list_and_send_creates_bot(http_router, monkeypatch):
     host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    state = {"created": False}
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hi"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "hello-from-bot",
+        "turnTerminal": True,
+    }
+
+    def bots():
+        if not state["created"]:
+            return 200, {"bots": []}
+        return 200, {
+            "bots": [
+                {
+                    "id": "b1",
+                    "threadId": "th-1",
+                    "busy": False,
+                    "activity": "waiting-on-you",
+                    "messages": [user, reply],
+                }
+            ]
+        }
+
+    def create():
+        state["created"] = True
+        return 201, {"bot": {"id": "b1"}}
+
     router.routes = {
         ("GET", "/api/health"): (200, {"app": "openmousbot", "ok": True}),
-        ("GET", "/api/bots"): (200, {"bots": []}),
-        ("POST", "/api/bots"): (201, {"bot": {"id": "b1"}}),
-        ("POST", "/api/bots/b1/messages"): (202, {"ok": True}),
+        ("GET", "/api/bots"): bots,
+        ("POST", "/api/bots"): create,
+        ("POST", "/api/bots/b1/messages"): (202, {"ok": True, "threadId": "th-1", "message": {"id": "u1"}}),
+        ("GET", "/api/threads/th-1/messages"): (200, {"messages": [user, reply]}),
     }
     health = remotes_core.check_health("omb", config=_cfg(host, port), timeout=2.0)
     assert health.ok is True
@@ -378,14 +429,38 @@ def test_omb_list_and_send_creates_bot(http_router):
     sent = remotes_core.operate("omb", "send", prompt="hi", config=_cfg(host, port))
     assert sent.ok is True
     assert sent.data["bot_id"] == "b1"
+    assert sent.data["text"] == "hello-from-bot"
     assert "OpenMousBot" in sent.detail
+    assert "accepted the turn" not in sent.detail
 
 
-def test_openmousbot_list_and_send_to_bot_id(http_router):
+def test_openmousbot_list_and_send_to_bot_id(http_router, monkeypatch):
     host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hello"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "alpha",
+        "turnTerminal": True,
+    }
+    bot = {
+        "id": "bot-9",
+        "name": "alpha",
+        "threadId": "th-1",
+        "busy": False,
+        "activity": "waiting-on-you",
+        "messages": [user, reply],
+    }
     router.routes = {
-        ("GET", "/api/bots"): (200, {"bots": [{"id": "bot-9", "name": "alpha"}]}),
-        ("POST", "/api/bots/bot-9/messages"): (202, {"ok": True, "queued": True}),
+        ("GET", "/api/bots"): (200, {"bots": [bot]}),
+        ("POST", "/api/bots/bot-9/messages"): (
+            202,
+            {"ok": True, "queued": True, "threadId": "th-1", "message": {"id": "u1"}},
+        ),
+        ("GET", "/api/threads/th-1/messages"): (200, {"messages": [user, reply]}),
     }
     listed = remotes_core.operate("omb", "list", config=_cfg(host, port))
     assert listed.ok is True
@@ -395,7 +470,9 @@ def test_openmousbot_list_and_send_to_bot_id(http_router):
     )
     assert sent.ok is True
     assert sent.data["bot_id"] == "bot-9"
+    assert sent.data["text"] == "alpha"
     assert sent.http_status == 202
+    assert "accepted the turn" not in sent.detail
 
 
 def test_openmousbot_health_down_is_report_not_crash():

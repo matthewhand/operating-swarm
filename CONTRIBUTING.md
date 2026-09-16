@@ -1,4 +1,4 @@
-# Contributing to Open Swarm
+# Contributing to Operating Swarm
 
 Thanks for your interest. Issues and PRs are welcome — this is an alpha-stage
 project under active cleanup, so small, focused contributions land fastest.
@@ -12,8 +12,8 @@ half-finished, and where help is most useful.
 Requirements: Python >= 3.10 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/matthewhand/open-swarm.git
-cd open-swarm
+git clone https://github.com/matthewhand/operating-swarm.git
+cd operating-swarm
 uv sync --all-extras
 ```
 

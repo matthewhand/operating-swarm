@@ -279,3 +279,67 @@ def explorer_owner_allows(record, request) -> bool:
         return True
     return False
 
+
+class _CsrfCheck:
+    """DRF-style CSRF probe: return the failure reason instead of a response."""
+
+    def __init__(self):
+        from django.middleware.csrf import CsrfViewMiddleware
+
+        class _Check(CsrfViewMiddleware):
+            def _reject(self, request, reason):
+                return reason
+
+        self._mw = _Check(lambda _req: None)
+
+    def reason(self, request, callback) -> str | None:
+        self._mw.process_request(request)
+        return self._mw.process_view(request, callback, (), {})
+
+
+def enforce_api_auth(view_func):
+    """Same auth contract as DRF ``/v1/*`` REST views, for function views.
+
+    When ``ENABLE_API_AUTH``: require Bearer / ``X-API-Key`` or an authenticated
+    session. Session-cookie unsafe methods need CSRF; valid static tokens skip
+    CSRF (AUTH.md). Django middleware is skipped via ``csrf_exempt`` so token
+    clients work; this decorator re-enforces CSRF for cookie sessions.
+    """
+    from functools import wraps
+
+    from django.http import JsonResponse
+    from rest_framework import exceptions as drf_exceptions
+
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        result = None
+        if _accepted_static_tokens():
+            try:
+                result = StaticTokenAuthentication().authenticate(request)
+            except drf_exceptions.AuthenticationFailed as exc:
+                return JsonResponse({"detail": str(exc.detail)}, status=401)
+        if result is not None:
+            request.user, request.auth = result
+
+        if getattr(settings, "ENABLE_API_AUTH", False):
+            if not HasValidTokenOrSession().has_permission(request, None):
+                return JsonResponse(
+                    {"detail": HasValidTokenOrSession.message},
+                    status=403,
+                )
+
+        if request.method not in ("GET", "HEAD", "OPTIONS", "TRACE"):
+            if not _request_has_valid_static_token(request):
+                user = getattr(request, "user", None)
+                if user is not None and getattr(user, "is_authenticated", False):
+                    reason = _CsrfCheck().reason(request, view_func)
+                    if reason:
+                        return JsonResponse(
+                            {"detail": f"CSRF Failed: {reason}"},
+                            status=403,
+                        )
+        return view_func(request, *args, **kwargs)
+
+    wrapped.csrf_exempt = True  # type: ignore[attr-defined]
+    return wrapped
+

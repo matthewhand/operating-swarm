@@ -1,16 +1,19 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Settings - Open Swarm{% endblock %}
+{% block title %}Settings - Operating Swarm{% endblock %}
 
 {% block content %}
 <div class="settings-page">
+  <div class="alert alert-warning py-2 px-3 mb-3 settings-spa-banner" role="status" data-testid="settings-spa-banner">
+    Looking for WebUI settings? Open the <a href="/chat?settings=true">WebUI Settings</a> or return to <a href="/chat">Chat</a>.
+  </div>
   <!-- Header Section -->
   <div class="dashboard-header-card mb-3">
     <div class="dashboard-header-top">
       <div>
         <h1 class="dashboard-title">Settings Dashboard</h1>
-        <p class="dashboard-subtitle mb-0">Configuration management for Open Swarm</p>
+        <p class="dashboard-subtitle mb-0">Configuration management for Operating Swarm (OS)</p>
       </div>
       <div class="settings-stats">
         <div class="stat-card">
@@ -152,10 +155,10 @@
         <p class="dashboard-subtitle mb-0">
           Themes are optional choices. Default is the static grey circle. Blobs are per-agent
           shapes with slit eyes. Bee is geometric WebUI brand marks (side-on and face-only, googly eyes).
-          Existing users keep their current theme; Bee is never auto-applied.
+          3D robot is a WebGL bot on the chat header (static SVG if WebGL is unavailable).
+          Existing users keep their current theme; Bee and 3D robot are never auto-applied.
           The choice stays in this browser and does not rewrite blueprints.
           <a href="https://github.com/matthewhand/open-swarm/blob/main/docs/adr/008-3d-robot-avatar-theme.md">3D robot (ADR-008)</a>
-          is planned and not selectable yet.
         </p>
       </div>
     </div>

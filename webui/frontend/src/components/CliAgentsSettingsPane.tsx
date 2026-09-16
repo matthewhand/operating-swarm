@@ -97,7 +97,7 @@ export default function CliAgentsSettingsPane({
           Only CLIs you add appear here and in the chat CLI dropdown. Startup
           discovers installed binaries (grok, agy, claude, gemini, codex,
           opencode, pi) without checking auth. Each CLI keeps its own login —
-          Open Swarm never stores those secrets.
+          Operating Swarm never stores those secrets.
         </p>
       </div>
 

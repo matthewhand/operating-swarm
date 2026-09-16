@@ -523,19 +523,6 @@ wheels = [
 ]
 
 [[package]]
-name = "django-cors-headers"
-version = "4.7.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "asgiref" },
-    { name = "django" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/93/6c/16f6cb6064c63074fd5b2bd494eb319afd846236d9c1a6c765946df2c289/django_cors_headers-4.7.0.tar.gz", hash = "sha256:6fdf31bf9c6d6448ba09ef57157db2268d515d94fc5c89a0a1028e1fc03ee52b", size = 21037 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/a2/7bcfff86314bd9dd698180e31ba00604001606efb518a06cca6833a54285/django_cors_headers-4.7.0-py3-none-any.whl", hash = "sha256:f1c125dcd58479fe7a67fe2499c16ee38b81b397463cf025f0e2c42937421070", size = 12794 },
-]
-
-[[package]]
 name = "django-environ"
 version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1573,7 +1560,44 @@ wheels = [
 ]
 
 [[package]]
-name = "open-swarm"
+name = "openai"
+version = "1.108.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/25/7a/3f2fbdf82a22d48405c1872f7c3176a705eee80ff2d2715d29472089171f/openai-1.108.1.tar.gz", hash = "sha256:6648468c1aec4eacfa554001e933a9fa075f57bacfc27588c2e34456cee9fef9", size = 563735 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/87/6ad18ce0e7b910e3706480451df48ff9e0af3b55e5db565adafd68a0706a/openai-1.108.1-py3-none-any.whl", hash = "sha256:952fc027e300b2ac23be92b064eac136a2bc58274cec16f5d2906c361340d59b", size = 948394 },
+]
+
+[[package]]
+name = "openai-agents"
+version = "0.0.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "griffe" },
+    { name = "mcp" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "types-requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a1/b7/49ce0b405bec3455fa4ec68cae88ec85081c55214f4e097552df465d7e24/openai_agents-0.0.7.tar.gz", hash = "sha256:470b3190b070b1a3790cbe62b200dd83d1339602592e90d341aa7bb1af85fa45", size = 770518 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/82/fc/88b29f820c5fa1ad063a46589d96d5aec578bbdec89b311791cd56d5b970/openai_agents-0.0.7-py3-none-any.whl", hash = "sha256:503bbf03ef8b9e47bdcfe65857f4b141daa2b57c1a1a6ed91ed42b76428ab02c", size = 106528 },
+]
+
+[[package]]
+name = "os-core"
 version = "0.5.4"
 source = { editable = "." }
 dependencies = [
@@ -1584,7 +1608,6 @@ dependencies = [
     { name = "daphne" },
     { name = "dj-database-url" },
     { name = "django" },
-    { name = "django-cors-headers" },
     { name = "django-environ" },
     { name = "django-extensions" },
     { name = "django-filter" },
@@ -1678,7 +1701,6 @@ requires-dist = [
     { name = "daphne", specifier = ">=4.0.0" },
     { name = "dj-database-url", specifier = ">=2.1.0" },
     { name = "django", specifier = ">=4.2,<5.0" },
-    { name = "django-cors-headers", specifier = ">=4.0.0" },
     { name = "django-environ", specifier = ">=0.11.0" },
     { name = "django-extensions", specifier = ">=3.2.0" },
     { name = "django-filter", specifier = ">=23.0" },
@@ -1747,43 +1769,6 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-django", specifier = ">=4.10.0" },
     { name = "pytest-mock", specifier = ">=3.14.0" },
-]
-
-[[package]]
-name = "openai"
-version = "1.108.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "distro" },
-    { name = "httpx" },
-    { name = "jiter" },
-    { name = "pydantic" },
-    { name = "sniffio" },
-    { name = "tqdm" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/25/7a/3f2fbdf82a22d48405c1872f7c3176a705eee80ff2d2715d29472089171f/openai-1.108.1.tar.gz", hash = "sha256:6648468c1aec4eacfa554001e933a9fa075f57bacfc27588c2e34456cee9fef9", size = 563735 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/87/6ad18ce0e7b910e3706480451df48ff9e0af3b55e5db565adafd68a0706a/openai-1.108.1-py3-none-any.whl", hash = "sha256:952fc027e300b2ac23be92b064eac136a2bc58274cec16f5d2906c361340d59b", size = 948394 },
-]
-
-[[package]]
-name = "openai-agents"
-version = "0.0.7"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "griffe" },
-    { name = "mcp" },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "requests" },
-    { name = "types-requests" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/b7/49ce0b405bec3455fa4ec68cae88ec85081c55214f4e097552df465d7e24/openai_agents-0.0.7.tar.gz", hash = "sha256:470b3190b070b1a3790cbe62b200dd83d1339602592e90d341aa7bb1af85fa45", size = 770518 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/fc/88b29f820c5fa1ad063a46589d96d5aec578bbdec89b311791cd56d5b970/openai_agents-0.0.7-py3-none-any.whl", hash = "sha256:503bbf03ef8b9e47bdcfe65857f4b141daa2b57c1a1a6ed91ed42b76428ab02c", size = 106528 },
 ]
 
 [[package]]
