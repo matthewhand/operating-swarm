@@ -80,6 +80,29 @@ describe('routingPath (REQ-200)', () => {
     })
   })
 
+  it('keeps pi provider/model ids as pin-able options, not provider-only families', () => {
+    const piModels = [
+      'anthropic/claude-sonnet-4-6',
+      'openai/gpt-4o',
+      'bailian-coding-plan/glm-4.7',
+      'default',
+    ]
+    expect(displayableModels(piModels)).toEqual([
+      'anthropic/claude-sonnet-4-6',
+      'openai/gpt-4o',
+      'bailian-coding-plan/glm-4.7',
+    ])
+    const families = groupModelsByFamily(piModels)
+    expect(families.map((row) => row.base)).toEqual([
+      'anthropic/claude-sonnet-4-6',
+      'openai/gpt-4o',
+      'bailian-coding-plan/glm-4.7',
+    ])
+    expect(families.every((row) => row.efforts.length === 0)).toBe(true)
+    expect(families.map((row) => row.ids[0])).not.toContain('anthropic')
+    expect(families.map((row) => row.ids[0])).not.toContain('openai')
+  })
+
   it('joins a closed path and splits it back', () => {
     expect(joinRoutingPath(['agy', 'gemini-3.8-flash', 'medium'])).toBe(
       'agy / gemini-3.8-flash / medium',

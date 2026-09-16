@@ -43,6 +43,21 @@ def test_apply_model_pins_gemini_before_prompt_not_over_gotchas():
     assert out["cmd"][-2:] == ["--yolo", "--skip-trust"]
 
 
+def test_apply_model_pins_pi_before_end_of_options():
+    # pi --help: --model <provider/id> before -- / {prompt}. Catalog cmd has
+    # no implicit Aliyun default; the Chat pill supplies the pin.
+    assert c.MODEL_FLAG["pi"] == "--model"
+    entry = c.catalog_entry("pi")
+    assert "--model" not in entry["cmd"]
+    assert "default" not in entry["cmd"]
+    out = c.apply_model(entry, "pi", "openai/gpt-4o")
+    cmd = out["cmd"]
+    assert cmd.count("--model") == 1
+    assert cmd[cmd.index("--model") + 1] == "openai/gpt-4o"
+    assert cmd.index("--model") < cmd.index("--")
+    assert cmd[-2:] == ["--", "{prompt}"]
+
+
 def test_apply_model_noop_for_cli_without_model_flag():
     # A CLI not in MODEL_FLAG (e.g. codex) is returned unchanged.
     assert "codex" not in c.MODEL_FLAG

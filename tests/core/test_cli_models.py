@@ -20,7 +20,7 @@ from swarm.core.cli_models import (
 FIXTURES = Path(__file__).parent / "fixtures" / "cli_models"
 PY = sys.executable
 
-REQUIRED_CLIS = ("grok", "claude", "gemini", "codex", "opencode")
+REQUIRED_CLIS = ("grok", "claude", "gemini", "codex", "opencode", "pi")
 
 
 def _fixture(name: str) -> str:
@@ -69,6 +69,28 @@ def test_parse_codex_models_wrapper_and_slug():
     assert parse_models_stdout(raw) == ["gpt-5.6-terra", "gpt-5.4-mini"]
 
 
+def test_parse_pi_list_models_table_fixture():
+    # pi --list-models: whitespace table. First-token-only would list provider
+    # names (the Aliyun 401 / two-opaque-ids bug). Join provider/model.
+    models = parse_models_stdout(_fixture("pi_list_models.txt"))
+    assert models == [
+        "anthropic/claude-sonnet-4-6",
+        "openai/gpt-4o",
+        "bailian-coding-plan/glm-4.7",
+        "github-models/openai/gpt-4.1",
+    ]
+    assert "anthropic" not in models
+    assert "openai" not in models
+    assert "default" not in models
+
+
+def test_parse_pi_table_does_not_invent_default_on_empty():
+    raw = (
+        "provider             model                   context  max-out  thinking  images\n"
+    )
+    assert parse_models_stdout(raw) == []
+
+
 def test_parse_agy_models_fixture():
     # agy models: tab-separated ``id<TAB>label`` lines; parser takes the first
     # token. The "Fetching available models..." spinner banner goes to stderr
@@ -111,6 +133,25 @@ async def test_probe_uses_opencode_fixture_stdout(monkeypatch):
     result = await probe_list_models("opencode", run_exec=fake_run)
     assert result.cli == "opencode"
     assert "opencode/big-pickle" in result.models
+    assert result.warning is None
+
+
+async def test_probe_uses_pi_table_fixture_stdout(monkeypatch):
+    stdout = _fixture("pi_list_models.txt")
+
+    async def fake_run(argv, timeout):
+        assert argv[0].endswith("pi") or argv[0] == "/usr/bin/pi"
+        assert argv[1:] == ["--list-models"]
+        return 0, stdout, ""
+
+    monkeypatch.setattr(
+        "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/pi"
+    )
+    result = await probe_list_models("pi", run_exec=fake_run)
+    assert result.cli == "pi"
+    assert result.models[0] == "anthropic/claude-sonnet-4-6"
+    assert "openai/gpt-4o" in result.models
+    assert "openai" not in result.models
     assert result.warning is None
 
 

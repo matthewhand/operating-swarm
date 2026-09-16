@@ -197,6 +197,18 @@ describe('honestChatCliModels', () => {
   it('does not invent default when the payload is missing', () => {
     expect(honestChatCliModels(undefined)).toEqual({ models: [], warning: null })
   })
+
+  it('keeps pi provider/model ids and still drops default', () => {
+    expect(
+      honestChatCliModels({
+        models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-6', 'default'],
+        warning: undefined,
+      }),
+    ).toEqual({
+      models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-6'],
+      warning: null,
+    })
+  })
 })
 
 describe('apiModelOptionsFromProfiles', () => {

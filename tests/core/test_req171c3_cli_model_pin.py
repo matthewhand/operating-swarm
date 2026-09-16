@@ -76,6 +76,22 @@ def test_default_model_param_is_ignored():
     assert pinned.get("grok").config.cmd == base.get("grok").config.cmd
 
 
+def test_params_model_reaches_apply_model_for_pi():
+    config = {"cli_agents": {"pi": cli_catalog.catalog_entry("pi")}}
+    registry = support.apply_overrides(
+        support.build_registry(config),
+        {"cli": "pi", "model": "openai/gpt-4o"},
+    )
+    cmd = registry.get("pi").config.cmd
+    assert cmd[cmd.index("--model") + 1] == "openai/gpt-4o"
+    assert cmd.index("--model") < cmd.index("--")
+    argv, _stdin = CliAdapter.from_config("pi", {"cmd": cmd})._build_invocation(
+        "hello", "/tmp/workdir"
+    )
+    assert argv[argv.index("--model") + 1] == "openai/gpt-4o"
+    assert argv.index("--model") < argv.index("--")
+
+
 def test_model_pin_skips_cli_without_model_flag():
     config = {"cli_agents": {"codex": cli_catalog.catalog_entry("codex")}}
     base = support.build_registry(config)
