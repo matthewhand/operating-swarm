@@ -75,6 +75,38 @@ async def test_send_params(bp):
     op.assert_called_once()
 
 
+def test_render_operate_omb_reply_is_plain_text_not_uuid_ack():
+    result = OperateResult(
+        remote="omb",
+        op="send",
+        ok=True,
+        detail="OpenMousBot reply",
+        data={
+            "bot_id": "79b5852c-9ae8-4972-a662-80054be9ea5f",
+            "text": "Hailo-8L is still blocked until the ribbon arrives.",
+        },
+    )
+    out = _render_operate(result)
+    assert out == "Hailo-8L is still blocked until the ribbon arrives."
+    assert "79b5852c" not in out
+    assert "accepted the turn" not in out
+
+
+def test_render_operate_omb_timeout_is_named_error_not_uuid_ack():
+    result = OperateResult(
+        remote="omb",
+        op="send",
+        ok=False,
+        detail="OpenMousBot reply timed out",
+        data={"bot_id": "79b5852c-9ae8-4972-a662-80054be9ea5f"},
+        gap="omb_reply_timeout",
+    )
+    out = _render_operate(result)
+    assert "timed out" in out
+    assert "accepted the turn" not in out
+    assert "79b5852c" not in out
+
+
 def test_render_operate_not_added_is_natural_sentence(monkeypatch):
     monkeypatch.delenv("HERMES_BASE_URL", raising=False)
     monkeypatch.delenv("HERMES_API_KEY", raising=False)
