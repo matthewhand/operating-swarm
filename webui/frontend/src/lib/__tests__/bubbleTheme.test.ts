@@ -6,13 +6,16 @@ import {
   allBubbleThemes,
   BUBBLE_THEME_LABELS,
   BUBBLE_THEME_STORAGE_KEY,
+  BUBBLE_THEME_STREAMING,
   BUBBLE_THEMES,
   BubbleThemeBase,
   DEFAULT_BUBBLE_THEME,
+  bubbleThemeSupportsStreaming,
   formatBubbleTime,
   getBubbleTheme,
   loadBubbleTheme,
   parseBubbleTheme,
+  renderStreamingAffordance,
   saveBubbleTheme,
 } from '../bubbleTheme'
 
@@ -75,6 +78,18 @@ describe('bubbleTheme', () => {
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat-end[\s\S]*justify-content:\s*flex-start/)
     expect(css).toMatch(/\[data-timestamp-placement="below"\]/)
     expect(css).toMatch(/\[data-timestamp-placement="inline"\]/)
+  })
+
+  it('declares streaming support and affordance per theme (#220)', () => {
+    expect(bubbleThemeSupportsStreaming('speech')).toBe(true)
+    expect(bubbleThemeSupportsStreaming('simple')).toBe(true)
+    expect(bubbleThemeSupportsStreaming('irc')).toBe(true)
+    expect(bubbleThemeSupportsStreaming('feed')).toBe(false)
+    expect(renderStreamingAffordance('speech')).toBe('caret')
+    expect(renderStreamingAffordance('simple')).toBe('caret')
+    expect(renderStreamingAffordance('irc')).toBe('block')
+    expect(renderStreamingAffordance('feed')).toBe('none')
+    expect(BUBBLE_THEMES.every((id) => BUBBLE_THEME_STREAMING[id].id === id)).toBe(true)
   })
 
   it('formats a valid timestamp and skips invalid ones', () => {

@@ -3710,6 +3710,7 @@ const ChatPage = () => {
                   agentName={selectedAgentName}
                   text={message.text}
                   streaming={message.streaming}
+                  seatId={activeChatAgentId}
                   edited={message.edited}
                   ts={message.ts}
                   avatar={bubbleAvatar}

@@ -9,6 +9,14 @@ import {
   fetchAgentSettings,
   saveAgentSettings,
 } from '../lib/agentSettings'
+import {
+  STREAM_REPLIES_SEAT_LABEL,
+  STREAM_REPLIES_SEAT_TOOLTIP,
+  loadSeatStreamReplies,
+  parseSeatStreamReplies,
+  saveSeatStreamReplies,
+  type SeatStreamReplies,
+} from '../lib/streamReplies'
 import { showsBlueprintEdit } from '../lib/agentRoles'
 import { agentLabel } from '../lib/supportAgent'
 import { ContextUsageDetail } from './ContextUsageDetail'
@@ -41,7 +49,9 @@ export default function AgentEditorSheet({
   const label = agentLabel({ id: agent, name: agentName || agent })
   const [enabled, setEnabled] = useState(false)
   const [useSuggestions, setUseSuggestions] = useState(false)
+  const [streamReplies, setStreamReplies] = useState<SeatStreamReplies>(null)
   const [saving, setSaving] = useState(false)
+  const streamRepliesId = useId()
 
   useEffect(() => {
     if (!isOpen || !agent) return
@@ -51,6 +61,7 @@ export default function AgentEditorSheet({
       if (!cancelled) {
         setEnabled(settings.new_chat_per_task)
         setUseSuggestions(settings.use_suggestions)
+        setStreamReplies(loadSeatStreamReplies(agent))
       }
     })()
     return () => {
@@ -159,6 +170,34 @@ export default function AgentEditorSheet({
               onChange={(event) => handleToggleSuggestions(event.target.checked)}
             />
           </label>
+        </div>
+
+        <div
+          className="tooltip tooltip-bottom w-full text-left"
+          data-tip={STREAM_REPLIES_SEAT_TOOLTIP}
+        >
+          <label htmlFor={streamRepliesId} className="label py-0">
+            <span className="label-text text-base font-semibold">{STREAM_REPLIES_SEAT_LABEL}</span>
+          </label>
+          <select
+            id={streamRepliesId}
+            className="select select-bordered w-full"
+            aria-label={STREAM_REPLIES_SEAT_LABEL}
+            data-testid="seat-stream-replies"
+            value={streamReplies === null ? 'inherit' : streamReplies ? 'on' : 'off'}
+            disabled={!agent}
+            onChange={(event) => {
+              const next = parseSeatStreamReplies(
+                event.target.value === 'inherit' ? 'inherit' : event.target.value,
+              )
+              setStreamReplies(next)
+              if (agent) saveSeatStreamReplies(agent, next)
+            }}
+          >
+            <option value="inherit">Inherit user preference</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
         </div>
 
         {showsBlueprintEdit({ id: agent, name: label }) ? (

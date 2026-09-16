@@ -55,6 +55,14 @@ import {
   type SpeechMode,
 } from '../lib/agentVoiceBind'
 import {
+  STREAM_REPLIES_SEAT_LABEL,
+  STREAM_REPLIES_SEAT_TOOLTIP,
+  loadSeatStreamReplies,
+  parseSeatStreamReplies,
+  saveSeatStreamReplies,
+  type SeatStreamReplies,
+} from '../lib/streamReplies'
+import {
   agentRole,
   applyBlueprintAssignment,
   assignableBlueprints,
@@ -127,6 +135,8 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [newChatPerTask, setNewChatPerTask] = useState(false)
   const [useSuggestions, setUseSuggestions] = useState(false)
   const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
+  const [streamReplies, setStreamReplies] = useState<SeatStreamReplies>(null)
+  const streamRepliesId = useId()
   const [savingSettings, setSavingSettings] = useState(false)
   const [boundRemoteId, setBoundRemoteId] = useState('')
   const [inferenceSeats, setInferenceSeats] = useState<InferenceSeat[]>([])
@@ -271,6 +281,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
         setNewChatPerTask(settings.new_chat_per_task)
         setUseSuggestions(settings.use_suggestions)
         setVoiceBind(parseVoiceBind(settings))
+        setStreamReplies(loadSeatStreamReplies(id))
         if (!edit.folder && settings.folder) {
           setFolder(settings.folder)
         }
@@ -1048,6 +1059,34 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
               onChange={(event) => handleToggleSuggestions(event.target.checked)}
             />
           </label>
+        </div>
+
+        <div
+          className="tooltip tooltip-bottom w-full text-left"
+          data-tip={STREAM_REPLIES_SEAT_TOOLTIP}
+        >
+          <label htmlFor={streamRepliesId} className="label py-0">
+            <span className="label-text text-base font-semibold">{STREAM_REPLIES_SEAT_LABEL}</span>
+          </label>
+          <select
+            id={streamRepliesId}
+            className="select select-bordered w-full"
+            aria-label={STREAM_REPLIES_SEAT_LABEL}
+            data-testid="seat-stream-replies"
+            value={streamReplies === null ? 'inherit' : streamReplies ? 'on' : 'off'}
+            disabled={!id}
+            onChange={(event) => {
+              const next = parseSeatStreamReplies(
+                event.target.value === 'inherit' ? 'inherit' : event.target.value,
+              )
+              setStreamReplies(next)
+              if (id) saveSeatStreamReplies(id, next)
+            }}
+          >
+            <option value="inherit">Inherit user preference</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
         </div>
 
         <div className="flex flex-wrap gap-2">

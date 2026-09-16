@@ -103,6 +103,16 @@ import {
   THEME_SET_EVENT,
   type Theme,
 } from '../lib/theme'
+import {
+  bubbleThemeSupportsStreaming,
+  loadBubbleTheme,
+} from '../lib/bubbleTheme'
+import {
+  STREAM_REPLIES_LABEL,
+  STREAM_REPLIES_TOOLTIP,
+  loadStreamReplies,
+  saveStreamReplies,
+} from '../lib/streamReplies'
 /** Window event so the rail hover-edit, command palette, and tests can open the sheet. */
 export const OPEN_SETTINGS_EVENT = 'swarm:open-settings'
 
@@ -1399,6 +1409,9 @@ function GeneralPane({
 }) {
   const [themePref, setThemePref] = useState<Theme>(initialTheme)
   const [navbarVisible, setNavbarVisible] = useState<boolean>(initialNavbarThemeVisible)
+  const [streamReplies, setStreamReplies] = useState<boolean>(loadStreamReplies)
+  const bubbleTheme = loadBubbleTheme()
+  const streamThemeOk = bubbleThemeSupportsStreaming(bubbleTheme)
 
   useEffect(() => {
     const onSet = (event: Event) => {
@@ -1479,6 +1492,29 @@ function GeneralPane({
           </label>
           <p className="text-xs text-base-content/60">
             Show a quick theme toggle button in the top navigation bar.
+          </p>
+        </div>
+
+        <div className="form-control">
+          <label className="label cursor-pointer justify-start gap-4">
+            <input
+              type="checkbox"
+              className="toggle"
+              checked={streamReplies}
+              disabled={!streamThemeOk}
+              onChange={(e) => {
+                const next = saveStreamReplies(e.target.checked)
+                setStreamReplies(next)
+              }}
+              aria-label={STREAM_REPLIES_LABEL}
+              data-testid="stream-replies-toggle"
+            />
+            <span className="label-text">{STREAM_REPLIES_LABEL}</span>
+          </label>
+          <p className="text-xs text-base-content/60">
+            {streamThemeOk
+              ? STREAM_REPLIES_TOOLTIP
+              : 'The current bubble theme does not support streaming.'}
           </p>
         </div>
       </section>

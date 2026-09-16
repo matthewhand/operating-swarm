@@ -1219,6 +1219,17 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
       expect(localStorage.getItem('swarm_theme')).toBe('dark')
     })
 
+    it('opts in Stream replies and persists the user toggle (#220)', () => {
+      renderSheet()
+      fireEvent.click(screen.getByRole('button', { name: 'General' }))
+
+      const toggle = screen.getByRole('checkbox', { name: 'Stream replies' })
+      expect(toggle).not.toBeChecked()
+      fireEvent.click(toggle)
+      expect(toggle).toBeChecked()
+      expect(localStorage.getItem('os.streamReplies')).toBe('1')
+    })
+
     it('toggles navbar theme control visibility and persists flag', () => {
       renderSheet()
       fireEvent.click(screen.getByRole('button', { name: 'General' }))
