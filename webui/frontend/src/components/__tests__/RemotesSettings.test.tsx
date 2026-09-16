@@ -25,6 +25,15 @@ function renderPane(remote = { id: 'omb', label: 'OpenMousBot', base_url: 'http:
 describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // #453: the pane lists on mount, so every case needs a stub or it would hit
+    // the real API. Cases that assert specific rows re-spy with their own data.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'stub',
+      op: 'list',
+      ok: true,
+      detail: 'stub list',
+      data: { bots: [] },
+    } as any)
   })
 
   afterEach(() => {
@@ -100,6 +109,65 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
       ).toBeInTheDocument()
       expect(listBtn).not.toHaveAttribute('aria-busy', 'true')
     })
+  })
+
+  it('lists targets on mount and enables Send without the operator clicking List (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 2 member(s) via local herdr (no SSH)',
+      data: {
+        members: [
+          { kind: 'herdr', name: 'w2:pG', object: 'herdr.member' },
+          { kind: 'herdr', name: 'w3:p1', object: 'herdr.member' },
+        ],
+      },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('w2:pG')
+    })
+    expect(screen.getByRole('button', { name: /^send$/i })).toBeEnabled()
+  })
+
+  it('keeps Send disabled when the target list comes back empty (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 0 member(s) via local herdr (no SSH)',
+      data: { members: [] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    })
+  })
+
+  it('ignores a target list that belongs to another remote (#453)', async () => {
+    // Browser-verified on the LAN app: a stale OpenMousBot list reached the
+    // Herdr pane and its first row was adopted as the Herdr target — a UUID no
+    // Herdr pane can accept. A list from another remote is ignored outright.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'omb',
+      op: 'list',
+      ok: true,
+      detail: 'OpenMousBot listed 1 bot(s)',
+      data: { bots: [{ id: '3a383904-ec73-444c-ba8b-9805a05d18e3', name: 'hide-qa-beta' }] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    })
+    expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('')
+    expect(screen.queryByText(/hide-qa-beta/i)).not.toBeInTheDocument()
   })
 
   it('renders routines section when capabilities.routines is true and displays routines', async () => {

@@ -2861,13 +2861,20 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
         elif isinstance(result.body, list):
             agents = result.body
         count = len(agents) if isinstance(agents, list) else (1 if agents else 0)
+        # #425: these rows are *agents*. A send resume key is a session id, and
+        # forwarding a row id as one produced "404 Session not found". Say what
+        # the rows are so the caller can tell the two apart.
+        payload = result.body if isinstance(result.body, dict) else {"data": result.body}
         return OperateResult(
             remote=spec.id,
             op="list",
             ok=True,
-            detail=f"TrueForge listed {count} agent(s) via GET /api/v1/agents",
+            detail=(
+                f"TrueForge listed {count} agent(s) via GET /api/v1/agents — rows are agents; "
+                "send resumes on session_id"
+            ),
             http_status=result.status,
-            data=result.body,
+            data={**payload, "rows_are": "agents", "resume_key": "session_id"},
         )
     if result.status in _AUTH:
         return OperateResult(
@@ -2931,6 +2938,58 @@ def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | N
     return _TRUEFORGE_SEND_TIMEOUT_S
 
 
+def _trueforge_create_session(
+    spec: RemoteSpec, base_url: str, agent_name: str, timeout_s: float
+) -> tuple[str, OperateResult | None]:
+    """``POST /api/v1/sessions`` for one agent. Returns ``(session_id, error)``.
+
+    Both the fresh-send path and the #425 recovery path start sessions the same
+    way, so the auth / unreachable / id-missing sentences live here once.
+    """
+    name = (agent_name or "").strip() or "orchestrator"
+    sess_resp = http_json(
+        "POST",
+        f"{base_url}/api/v1/sessions",
+        headers=_auth_headers(spec),
+        body={"agent": {"name": name}, "metadata": {}},
+        timeout=min(5.0, timeout_s),
+    )
+    if sess_resp.status in _AUTH:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail=f"TrueForge POST /api/v1/sessions requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
+            http_status=sess_resp.status,
+            data=sess_resp.body,
+        )
+    if sess_resp.status not in _UP and sess_resp.status != 201:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail=_unreachable_detail(sess_resp, "TrueForge session create"),
+            http_status=sess_resp.status,
+            data=sess_resp.body or sess_resp.text or None,
+        )
+    body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
+    sess_id = str(
+        (body.get("data") if isinstance(body.get("data"), dict) else {}).get("id")
+        or body.get("id")
+        or ""
+    )
+    if not sess_id:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail="TrueForge did not return a session id",
+            http_status=sess_resp.status,
+            data=sess_resp.body,
+        )
+    return sess_id, None
+
+
 def _trueforge_send(
     spec: RemoteSpec,
     prompt: str,
@@ -2947,49 +3006,15 @@ def _trueforge_send(
     deadline = start_time + timeout_s
 
     # 1. Session id: reuse or create via POST /api/v1/sessions
-    sess_id = (session_id or "").strip()
+    requested_session = (session_id or "").strip()
+    sess_id = requested_session
+    created_for = ""
     if not sess_id:
-        agent_name = (target or "").strip() or "orchestrator"
-        sess_resp = http_json(
-            "POST",
-            f"{base_url}/api/v1/sessions",
-            headers=_auth_headers(spec),
-            body={"agent": {"name": agent_name}, "metadata": {}},
-            timeout=min(5.0, timeout_s),
+        sess_id, err = _trueforge_create_session(
+            spec, base_url, (target or "").strip() or "orchestrator", timeout_s
         )
-        if sess_resp.status in _AUTH:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail=f"TrueForge POST /api/v1/sessions requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
-                http_status=sess_resp.status,
-                data=sess_resp.body,
-            )
-        if sess_resp.status not in _UP and sess_resp.status != 201:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail=_unreachable_detail(sess_resp, "TrueForge session create"),
-                http_status=sess_resp.status,
-                data=sess_resp.body or sess_resp.text or None,
-            )
-        body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
-        sess_id = str(
-            (body.get("data") if isinstance(body.get("data"), dict) else {}).get("id")
-            or body.get("id")
-            or ""
-        )
-        if not sess_id:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail="TrueForge did not return a session id",
-                http_status=sess_resp.status,
-                data=sess_resp.body,
-            )
+        if err is not None:
+            return err
 
     # 2. POST turn: POST /api/v1/sessions/{session_id}/turns
     remaining = max(1.0, deadline - time.monotonic())
@@ -3013,14 +3038,59 @@ def _trueforge_send(
             data=turn_resp.body,
         )
     if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
-        return OperateResult(
-            remote=spec.id,
-            op="send",
-            ok=False,
-            detail=_unreachable_detail(turn_resp, "TrueForge turn create"),
-            http_status=turn_resp.status,
-            data=turn_resp.body or turn_resp.text or None,
-        )
+        if requested_session and turn_resp.status == 404:
+            # #425: a resume key taken straight off the list is an *agent* id,
+            # and TrueForge will not turn one into a session. Start a session for
+            # that name instead of handing back a bare "404 Session not found".
+            agent_name = (target or "").strip() or requested_session
+            minted, mint_err = _trueforge_create_session(spec, base_url, agent_name, timeout_s)
+            if mint_err is not None:
+                return OperateResult(
+                    remote=spec.id,
+                    op="send",
+                    ok=False,
+                    detail=(
+                        f"There is no TrueForge session '{requested_session}' to resume, and a "
+                        f"session for '{agent_name}' could not be started: {mint_err.detail}"
+                    ),
+                    http_status=mint_err.http_status,
+                    data={"requested_session_id": requested_session, "agent": agent_name},
+                    gap="trueforge_no_session",
+                )
+            created_for, sess_id = agent_name, minted
+            turn_resp = http_json(
+                "POST",
+                f"{base_url}/api/v1/sessions/{sess_id}/turns",
+                headers=_auth_headers(spec),
+                body={
+                    "input": [{"type": "user.message", "content": prompt}],
+                    "stream": False,
+                },
+                timeout=min(5.0, max(1.0, deadline - time.monotonic())),
+            )
+            if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
+                return OperateResult(
+                    remote=spec.id,
+                    op="send",
+                    ok=False,
+                    detail=(
+                        f"There is no TrueForge session '{requested_session}' to resume, and the "
+                        f"session started for '{agent_name}' did not accept the turn: "
+                        f"{_unreachable_detail(turn_resp, 'TrueForge turn create')}"
+                    ),
+                    http_status=turn_resp.status,
+                    data={"requested_session_id": requested_session, "agent": agent_name},
+                    gap="trueforge_no_session",
+                )
+        else:
+            return OperateResult(
+                remote=spec.id,
+                op="send",
+                ok=False,
+                detail=_unreachable_detail(turn_resp, "TrueForge turn create"),
+                http_status=turn_resp.status,
+                data=turn_resp.body or turn_resp.text or None,
+            )
     tbody = turn_resp.body if isinstance(turn_resp.body, dict) else {}
     turn_id = str(
         (tbody.get("data") if isinstance(tbody.get("data"), dict) else {}).get("id")
@@ -3137,6 +3207,7 @@ def _trueforge_send(
             "turn_id": turn_id,
             "turn": turn_data,
             "events": events_data,
+            **({"session_created_for": created_for} if created_for else {}),
         },
     )
 

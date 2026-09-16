@@ -136,7 +136,12 @@ describe('REQ-865: responsive navbar element prioritization (#255)', () => {
 
     const header = screen.getByRole('banner')
     expect(header).toHaveClass('os-chat-header')
-    expect(header).toHaveClass('overflow-hidden')
+    // #445: the header clips nothing — the routing flyout is an absolutely
+    // positioned child of the picker inside it, and `overflow-hidden` cut every
+    // row but the first. REQ-865's requirement (the name fades while the
+    // expanders, controls, and avatar keep their place) is asserted on those
+    // elements below, which is where it is enforced.
+    expect(header).not.toHaveClass('overflow-hidden')
     expect(header).toHaveClass('gap-1.5')
     expect(header).toHaveClass('sm:gap-3')
 

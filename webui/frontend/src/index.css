@@ -1624,7 +1624,11 @@ button.os-agent-row {
   align-items: center;
   justify-content: space-between;
   flex-wrap: nowrap;
-  overflow: hidden;
+  /* #445: no clip here. The header used to set `overflow: hidden` to keep long
+     titles from escaping, which also clipped the routing flyout to its first
+     row — the flyout is an absolutely-positioned child of `.os-routing-picker`
+     inside this header. Title clamping belongs to the label that holds the
+     title (`.os-navbar-identity-label`, mask included), which is where it is. */
   gap: 0.375rem;
   min-height: 3rem;
   padding: 0.5rem 1rem;
