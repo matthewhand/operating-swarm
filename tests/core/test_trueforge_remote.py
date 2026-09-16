@@ -31,7 +31,8 @@ from swarm.core.remote_harness import (
 
 
 class _TrueForgeRouter(BaseHTTPRequestHandler):
-    routes: dict[tuple[str, str], tuple[int, dict | list | str]] = {}
+    routes: dict[tuple[str, str], Any] = {}
+    route_hits: dict[tuple[str, str], int] = {}
     received_headers: list[dict[str, str]] = []
     received_bodies: list[tuple[str, str, Any]] = []
 
@@ -49,7 +50,13 @@ class _TrueForgeRouter(BaseHTTPRequestHandler):
             self.received_bodies.append((method, path, body))
 
         key = (method, path)
-        status, response_body = self.routes.get(key, (404, {"error": f"no route for {method} {path}"}))
+        entry = self.routes.get(key, (404, {"error": f"no route for {method} {path}"}))
+        if isinstance(entry, list):
+            idx = self.route_hits.get(key, 0)
+            status, response_body = entry[min(idx, len(entry) - 1)]
+            self.route_hits[key] = idx + 1
+        else:
+            status, response_body = entry
         payload = json.dumps(response_body).encode("utf-8") if not isinstance(response_body, str) else response_body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -70,6 +77,7 @@ class _TrueForgeRouter(BaseHTTPRequestHandler):
 @pytest.fixture
 def tf_server():
     _TrueForgeRouter.routes = {}
+    _TrueForgeRouter.route_hits = {}
     _TrueForgeRouter.received_headers = []
     _TrueForgeRouter.received_bodies = []
     server = HTTPServer(("127.0.0.1", 0), _TrueForgeRouter)
@@ -79,6 +87,7 @@ def tf_server():
     yield host, port, _TrueForgeRouter
     server.shutdown()
     _TrueForgeRouter.routes = {}
+    _TrueForgeRouter.route_hits = {}
     _TrueForgeRouter.received_headers = []
     _TrueForgeRouter.received_bodies = []
 
@@ -386,6 +395,205 @@ def test_trueforge_send_turn_error_state(tf_server, monkeypatch):
     sent = remotes_core.operate("trueforge", "send", prompt="test error", config=cfg)
     assert sent.ok is False
     assert "Model quota exhausted" in sent.detail
+
+
+def test_trueforge_turn_state_parses_dict_and_string():
+    """TrueForge returns state as {"status": ...}; str(dict) must not be used."""
+    assert remotes_core._trueforge_turn_state({"state": {"status": "running"}}) == "running"
+    assert remotes_core._trueforge_turn_state({"state": {"status": "completed"}}) == "completed"
+    assert remotes_core._trueforge_turn_state({"state": {"state": "finished"}}) == "finished"
+    assert remotes_core._trueforge_turn_state({"state": "done"}) == "done"
+    assert remotes_core._trueforge_turn_state({"status": "success"}) == "success"
+    assert remotes_core._trueforge_turn_state({"state": {"status": "RUNNING"}}) == "running"
+    # The bug: stringifying the dict never matches done/completed.
+    raw = {"state": {"status": "completed"}}
+    assert str(raw["state"]).strip().lower() not in remotes_core._TRUEFORGE_DONE_STATES
+    assert remotes_core._trueforge_turn_state(raw) in remotes_core._TRUEFORGE_DONE_STATES
+
+
+def test_trueforge_send_timeout_resolution(monkeypatch):
+    """Send uses 60s (or env/spec) instead of the 8s operate default."""
+    monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
+    assert remotes_core._trueforge_send_timeout_s(None) == 60.0
+    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S) == 60.0
+    assert remotes_core._trueforge_send_timeout_s(12.5) == 12.5
+    monkeypatch.setenv("SWARM_TRUEFORGE_TIMEOUT", "90")
+    assert remotes_core._trueforge_send_timeout_s(None) == 90.0
+    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S) == 90.0
+    assert remotes_core._trueforge_send_timeout_s(12.5) == 12.5
+    monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
+    spec = remotes_core.default_spec("trueforge")
+    spec.timeout = 45.0
+    assert remotes_core._trueforge_send_timeout_s(spec=spec) == 45.0
+    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S, spec) == 45.0
+
+
+def test_trueforge_send_dict_state_running_then_completed(tf_server, monkeypatch):
+    """operate(send) accepts state {status: running} -> {status: completed}."""
+    host, port, router = tf_server
+    turn_path = "/api/v1/sessions/sess-dict-1/turns/turn-dict-1"
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (
+            200,
+            {"data": {"id": "sess-dict-1"}},
+        ),
+        ("POST", "/api/v1/sessions/sess-dict-1/turns"): (
+            200,
+            {"data": {"id": "turn-dict-1", "state": {"status": "running"}}},
+        ),
+        ("GET", turn_path): [
+            (200, {"data": {"id": "turn-dict-1", "state": {"status": "running"}}}),
+            (200, {"data": {"id": "turn-dict-1", "state": {"status": "completed"}}}),
+        ],
+        ("GET", f"{turn_path}/events"): (
+            200,
+            {
+                "data": [
+                    {"type": "model.message", "content": "Dict-state turn finished."},
+                ]
+            },
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge": {
+                "base_url": f"http://{host}:{port}",
+            }
+        }
+    }
+    sent = remotes_core.operate("trueforge", "send", prompt="hi", config=cfg)
+    assert sent.ok is True
+    assert sent.detail == "Dict-state turn finished."
+    assert sent.data["session_id"] == "sess-dict-1"
+    assert sent.data["turn_id"] == "turn-dict-1"
+    assert router.route_hits[("GET", turn_path)] >= 2
+
+
+def test_trueforge_operate_send_uses_long_timeout(tf_server, monkeypatch):
+    """Shipped operate() send path remaps the 8s default to the TrueForge budget."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (200, {"data": {"id": "sess-to"}}),
+        ("POST", "/api/v1/sessions/sess-to/turns"): (
+            200,
+            {"data": {"id": "turn-to", "state": {"status": "running"}}},
+        ),
+        ("GET", "/api/v1/sessions/sess-to/turns/turn-to"): (
+            200,
+            {"data": {"id": "turn-to", "state": {"status": "completed"}}},
+        ),
+        ("GET", "/api/v1/sessions/sess-to/turns/turn-to/events"): (
+            200,
+            {"data": [{"type": "model.message", "content": "ok"}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
+    seen: dict[str, float] = {}
+    orig = remotes_core._trueforge_send
+
+    def _spy(spec, prompt, target="", timeout=None, **kwargs):
+        seen["arg"] = timeout
+        seen["resolved"] = remotes_core._trueforge_send_timeout_s(timeout, spec)
+        return orig(spec, prompt, target, timeout, **kwargs)
+
+    monkeypatch.setattr(remotes_core, "_trueforge_send", _spy)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+    sent = remotes_core.operate("trueforge", "send", prompt="hi", config=cfg)
+    assert sent.ok is True
+    assert seen["arg"] == remotes_core._OPERATE_SEND_TIMEOUT_S
+    assert seen["resolved"] == 60.0
+
+
+def test_trueforge_send_dict_error_state(tf_server, monkeypatch):
+    """Dict error status is reported, not polled until timeout."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (200, {"data": {"id": "sess-derr"}}),
+        ("POST", "/api/v1/sessions/sess-derr/turns"): (
+            200,
+            {"data": {"id": "turn-derr", "state": {"status": "running"}}},
+        ),
+        ("GET", "/api/v1/sessions/sess-derr/turns/turn-derr"): (
+            200,
+            {
+                "data": {
+                    "id": "turn-derr",
+                    "state": {"status": "error"},
+                    "error": "quota exhausted",
+                }
+            },
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+    sent = remotes_core.operate("trueforge", "send", prompt="fail", config=cfg)
+    assert sent.ok is False
+    assert "quota exhausted" in sent.detail
+
+
+def test_trueforge_send_honors_explicit_short_timeout(tf_server, monkeypatch):
+    """Explicit send timeout is kept; dict running state is what the timeout reports."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (200, {"data": {"id": "sess-short"}}),
+        ("POST", "/api/v1/sessions/sess-short/turns"): (
+            200,
+            {"data": {"id": "turn-short", "state": {"status": "running"}}},
+        ),
+        ("GET", "/api/v1/sessions/sess-short/turns/turn-short"): (
+            200,
+            {"data": {"id": "turn-short", "state": {"status": "running"}}},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+    sent = remotes_core.operate(
+        "trueforge", "send", prompt="hang", config=cfg, timeout=0.4
+    )
+    assert sent.ok is False
+    assert "timed out after 0.4s" in sent.detail
+    assert "running" in sent.detail
+    assert "{'status'" not in sent.detail
+
+
+def test_trueforge_list_keeps_fast_timeout(tf_server, monkeypatch):
+    """Health/list probes stay on the short operate timeout."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/agents"): (200, {"data": [{"name": "orchestrator"}]}),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    seen: dict[str, float] = {}
+    orig = remotes_core._trueforge_list
+
+    def _spy(spec, timeout):
+        seen["timeout"] = timeout
+        return orig(spec, timeout)
+
+    monkeypatch.setattr(remotes_core, "_trueforge_list", _spy)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+    listed = remotes_core.operate("trueforge", "list", config=cfg)
+    assert listed.ok is True
+    assert seen["timeout"] == remotes_core._OPERATE_TIMEOUT_S
+
+
+def test_trueforge_config_timeout_loaded_on_spec(monkeypatch):
+    monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge": {
+                "base_url": "http://127.0.0.1:8791",
+                "timeout": 75,
+            }
+        }
+    }
+    spec = remotes_core.load_remote("trueforge", cfg)
+    assert spec.timeout == 75.0
+    assert remotes_core._trueforge_send_timeout_s(spec=spec) == 75.0
 
 
 def test_trueforge_blueprint_grammar_and_specialist(tf_server, monkeypatch):
