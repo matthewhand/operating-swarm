@@ -138,7 +138,12 @@ def test_cli_api_endpoints(client):
 @pytest.mark.django_db
 def test_retention_api_endpoints(client):
     from django.contrib.auth import get_user_model
-    user = get_user_model().objects.create_user(username="testuser", password="password")
+    # get_or_create, not create: a plain create collides with a "testuser" left
+    # behind by an earlier test in the session (collection order is filesystem
+    # order, so the UNIQUE violation only showed up in full-suite runs).
+    user, _ = get_user_model().objects.get_or_create(
+        username="testuser", defaults={"password": "password"}
+    )
     client.force_login(user)
 
     # GET /v1/chat/retention/stats

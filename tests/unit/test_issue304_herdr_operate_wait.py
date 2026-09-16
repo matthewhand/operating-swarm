@@ -52,12 +52,18 @@ def test_operate_send_waits_and_returns_pane_text(monkeypatch):
             "--wait",
             "--until",
             "idle",
+            "--until",
+            "done",
+            "--until",
+            "blocked",
             "--timeout",
             "1000",
         ],
         ["herdr", "agent", "read", "w7:p1", "--source", "recent", "--format", "text"],
     ]
-    assert calls[1].count("--until") == 1
+    # #470: `--until idle` alone excludes `done`, so a turn that finished on the
+    # remote was reported as herdr_reply_timeout. Watch all three terminal states.
+    assert calls[1].count("--until") == 3
 
 
 def test_operate_send_timeout_is_named_error(monkeypatch):

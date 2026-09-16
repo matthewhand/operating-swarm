@@ -171,8 +171,15 @@ def test_issue471_turn_error_helper_shapes():
     assert OMB_TURN_ERROR_PREFIX.startswith("OpenMousBot turn failed")
 
 
-def test_issue471_both_poll_loops_consult_the_helper():
-    """The OMB poll loop exists twice in remotes.py — fixing only one is a no-op."""
+def test_issue471_the_single_omb_poll_loop_consults_the_helper():
+    """The OMB poll loop must consult the turn-error helper.
+
+    This began as ``>= 2``: when #471 was fixed the poll loop was duplicated in
+    remotes.py, so a fix applied to one copy was a no-op. #475/#477 deleted the
+    duplicated block, leaving exactly one loop — and a ``>= 2`` assertion would
+    now demand the duplication the dedupe exists to remove. Pin the single call
+    site instead, so re-introducing a second copy fails here too.
+    """
     text = REMOTES_SRC.read_text(encoding="utf-8")
-    assert text.count("_omb_turn_error(messages, after_id=after_id, prompt=prompt)") >= 2
-    assert text.count("if turn_error:") >= 2
+    assert text.count("_omb_turn_error(messages, after_id=after_id, prompt=prompt)") == 1
+    assert text.count("if turn_error:") == 1
