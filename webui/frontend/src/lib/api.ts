@@ -1,5 +1,5 @@
 /**
- * Minimal typed fetch wrapper for the Open Swarm backend API.
+ * Minimal typed fetch wrapper for the Operating Swarm backend API.
  *
  * In dev, requests to /v1/* are proxied to the Django backend by Vite
  * (see vite.config.ts). An optional bearer token is read from localStorage

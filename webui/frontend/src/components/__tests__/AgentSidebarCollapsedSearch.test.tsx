@@ -52,8 +52,9 @@ describe('BUG #703: Collapsed rail search icon click opens Search palette', () =
     )
 
     const trigger = screen.getByTestId('rail-search-trigger')
-    expect(trigger).toHaveAttribute('role', 'button')
-    expect(trigger).toHaveAttribute('tabindex', '0')
+    expect(trigger.tagName).toBe('BUTTON')
+    expect(trigger).toHaveAttribute('aria-label', 'Search')
+    expect(trigger).not.toHaveAttribute('tabindex', '-1')
 
     const searchIcon = screen.getByTestId('rail-search-icon')
     fireEvent.click(searchIcon)

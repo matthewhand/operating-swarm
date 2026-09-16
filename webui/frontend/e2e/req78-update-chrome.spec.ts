@@ -87,7 +87,7 @@ test('REQ-78 XOR chrome sits right of the system name', async ({ page }) => {
   await expect(chrome).toBeVisible()
   await expect(server).toBeVisible()
   await expect(chrome).toHaveAttribute('data-kind', 'idle')
-  await expect(chrome).toHaveAttribute('aria-label', 'Open Swarm issues')
+  await expect(chrome).toHaveAttribute('aria-label', 'Operating Swarm issues')
 
   const order = await page.evaluate(() => {
     const row = document.querySelector('.os-rail-hostname-row')
@@ -119,7 +119,7 @@ test('REQ-78 GitHub newer only paints the sky cloud', async ({ page }) => {
   await page.goto('/chat')
   const chrome = page.getByTestId('rail-update-chrome')
   await expect(chrome).toHaveAttribute('data-kind', 'upstream')
-  await expect(chrome).toHaveAttribute('aria-label', 'Newer Open Swarm release available')
+  await expect(chrome).toHaveAttribute('aria-label', 'Newer Operating Swarm release available')
   await page.locator('.os-rail-hostname-row').screenshot({
     path: shot('req78-upstream-sky.png'),
   })

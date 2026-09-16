@@ -36,6 +36,7 @@ import {
   type RoutingPath,
   type RoutingSeatKind,
 } from '../lib/routingPath'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export interface RoutingAgentOption {
   id: string
@@ -729,9 +730,17 @@ export function NavbarRoutingPicker({
         </div>
       ) : null}
       {narrow && open === 'sheet' ? (
-        <div className="os-routing-sheet" data-testid="routing-sheet" role="dialog" aria-label={groupLabel}>
-          {renderMenu(sheetLevel)}
-        </div>
+        <OverlayFocusTrap onClose={close}>
+          <div
+            className="os-routing-sheet"
+            data-testid="routing-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label={groupLabel}
+          >
+            {renderMenu(sheetLevel)}
+          </div>
+        </OverlayFocusTrap>
       ) : null}
     </div>
   )

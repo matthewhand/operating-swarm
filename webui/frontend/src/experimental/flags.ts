@@ -1,5 +1,5 @@
 /**
- * EXPERIMENTAL feature flags for the Open Swarm SPA.
+ * EXPERIMENTAL feature flags for the Operating Swarm SPA.
  *
  * Each flag is read once at mount from localStorage and defaults to ON so
  * reviewers can try features immediately. Turn any experiment OFF with:

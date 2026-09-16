@@ -198,7 +198,7 @@ test('REQ-14 #319: rail agent switch rehydrates distinct persisted threads', asy
 test('REQ-5c #322: Search palette choosing a bot navigates to that chat', async ({ page }) => {
   await stubChromeApis(page)
   await page.goto('/chat')
-  await page.getByRole('searchbox', { name: 'Search' }).click()
+  await page.getByRole('button', { name: 'Search' }).click()
   const palette = page.getByRole('dialog', { name: 'Search' })
   await expect(palette).toBeVisible()
   await palette.getByRole('option', { name: /Codey/ }).click()

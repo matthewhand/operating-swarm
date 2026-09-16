@@ -18,6 +18,7 @@ import {
 } from '../lib/chatScope'
 import { notifyOverlayClosed } from '../lib/chromeOverlay'
 import { MarketplaceScanSection } from './MarketplaceScanSection'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export interface PluginsPopupProps {
   open: boolean
@@ -155,6 +156,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
   const emptySearch = !emptyCatalog && visible.length === 0
 
   return (
+    <OverlayFocusTrap onClose={close} initialFocus={() => inputRef.current}>
     <div
       className="os-search-overlay os-search-overlay--centered"
       data-testid="os-plugins-overlay"
@@ -300,5 +302,6 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
         </div>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }

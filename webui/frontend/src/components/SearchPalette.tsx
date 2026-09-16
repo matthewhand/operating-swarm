@@ -20,6 +20,7 @@ import { agentLabel } from '../lib/supportAgent'
 import { dispatchToggleTheme } from '../lib/theme'
 import { searchShortcutLabel } from '../lib/keybindingTips'
 import AgentAvatar from './AgentAvatar'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export const SEARCH_PALETTE_TABS = [
   'All',
@@ -306,6 +307,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
   if (!open) return null
 
   return (
+    <OverlayFocusTrap onClose={onClose} initialFocus={() => inputRef.current}>
     <div
       className="os-search-overlay os-search-overlay--centered"
       data-testid="os-search-overlay"
@@ -450,6 +452,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         </div>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }
 

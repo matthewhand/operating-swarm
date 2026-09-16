@@ -43,9 +43,9 @@ describe('REQ-197: Search Ctrl-K badge transparent opacity and contrast', () => 
       </QueryClientProvider>,
     )
 
-    const searchInput = screen.getByRole('searchbox')
-    expect(searchInput).toBeInTheDocument()
-    expect(searchInput).toHaveAttribute('placeholder', 'Search')
+    const searchTrigger = screen.getByRole('button', { name: 'Search' })
+    expect(searchTrigger).toBeInTheDocument()
+    expect(searchTrigger).toHaveTextContent('Search')
 
     const kbd = screen.getByText(/Ctrl\+K|⌘K|Alt\+K/i)
     expect(kbd).toBeInTheDocument()

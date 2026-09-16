@@ -4,6 +4,7 @@ import {
   buildChatWsFrame,
   buildToolDecisionFrame,
   parseChatWsMessage,
+  summarizeUnknownWsFrame,
 } from '../chatWs'
 
 describe('buildChatWsUrl', () => {
@@ -168,6 +169,14 @@ describe('parseChatWsMessage', () => {
 
   it('falls back to unknown for empty or unrecognized frames', () => {
     expect(parseChatWsMessage('')).toEqual({ kind: 'unknown', raw: '' })
+    expect(summarizeUnknownWsFrame('secret user prompt')).toBe(
+      `kind=unknown; bytes=${new TextEncoder().encode('secret user prompt').length}`,
+    )
+    expect(summarizeUnknownWsFrame('secret user prompt')).not.toContain('secret')
+    expect(summarizeUnknownWsFrame('{"type":"mystery","text":"do not leak"}')).toBe(
+      `kind=unknown; bytes=${new TextEncoder().encode('{"type":"mystery","text":"do not leak"}').length}; keys=type,text`,
+    )
+    expect(summarizeUnknownWsFrame('{"type":"mystery","text":"do not leak"}')).not.toContain('do not leak')
     const weird = '<div id="something-else" hx-swap-oob="beforeend"><span>x</span></div>'
     expect(parseChatWsMessage(weird)).toEqual({ kind: 'unknown', raw: weird })
   })

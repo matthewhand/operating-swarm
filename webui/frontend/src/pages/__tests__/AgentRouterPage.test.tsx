@@ -815,6 +815,10 @@ describe('AgentRouterPage integration', () => {
     expect(within(dialog).getByDisplayValue('Chief of Staff')).toBeInTheDocument()
     expect(within(dialog).getByDisplayValue('Engineer')).toBeInTheDocument()
     expect(within(dialog).getByDisplayValue('Skeptic')).toBeInTheDocument()
+    expect(within(dialog).getByRole('textbox', { name: 'Persona 1 name' })).toHaveDisplayValue(
+      'Chief of Staff',
+    )
+    expect(within(dialog).getByRole('textbox', { name: 'Persona 1 instructions' })).toBeInTheDocument()
   })
 
   it('saves the current agents as a named team and reloads Unsaved', async () => {
