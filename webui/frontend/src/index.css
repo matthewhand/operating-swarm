@@ -1452,6 +1452,24 @@ button.os-agent-row {
   }
 }
 
+/* #117: CLI agent settings icon — hover/focus on desktop; always on touch */
+.os-cli-settings-btn {
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .os-cli-agent-row .os-cli-settings-btn {
+    opacity: 0;
+  }
+  .os-cli-agent-row:hover .os-cli-settings-btn,
+  .os-cli-agent-row:focus-within .os-cli-settings-btn,
+  .os-cli-agent-row .os-cli-settings-btn:focus,
+  .os-cli-agent-row .os-cli-settings-btn[aria-expanded="true"] {
+    opacity: 1;
+  }
+}
+
 .os-rail-hostname-row {
   display: flex;
   align-items: center;

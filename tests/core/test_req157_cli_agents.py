@@ -115,7 +115,9 @@ def test_source_locks_opt_in_and_github_only():
     assert "Never ``auth_check``" in catalog or "never ``auth_check``" in catalog
     assert "cli_agents_catalog_payload" in view
     assert "No CLI agents configured yet" in pane
-    assert "Suggested CLI agents" in pane
+    assert 'aria-label="CLI agents"' in pane
+    assert "Show unavailable" in pane
+    assert "os-cli-settings-btn" in pane
     assert "info?.configured" in context
     assert "info?.clis" not in context
     assert "installed_catalog_clis" not in support
