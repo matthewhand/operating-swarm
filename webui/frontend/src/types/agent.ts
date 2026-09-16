@@ -183,6 +183,8 @@ export interface ChatMessage {
   consensus_data?: ConsensusData
   /** Rectangular context block replacing compacted history — not a chat turn. */
   kind?: 'message' | 'summary' | 'review' | 'approval' | 'system'
+  /** In-place edit after send (chat turns and summary cards). */
+  edited?: boolean
   compacted?: CompactedLine[]
   oversightRole?: 'socratic_skeptic' | 'stupidity_checker' | 'taskmaster'
   isSystemPreload?: boolean

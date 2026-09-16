@@ -950,6 +950,13 @@ export default function AgentRouterPage() {
                   }
                   onCompactToHere={() => handleCompactToHere(idx)}
                   onRegenerateSummary={(steer) => handleRegenerateSummary(idx, steer)}
+                  onSaveEdit={(text) => {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.key === msg.key ? { ...m, text, edited: true } : m,
+                      ),
+                    )
+                  }}
                   onResolveApproval={(status) => {
                     setMessages((prev) =>
                       prev.map((m) =>
