@@ -3,11 +3,14 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  allBubbleThemes,
   BUBBLE_THEME_LABELS,
   BUBBLE_THEME_STORAGE_KEY,
   BUBBLE_THEMES,
+  BubbleThemeBase,
   DEFAULT_BUBBLE_THEME,
   formatBubbleTime,
+  getBubbleTheme,
   loadBubbleTheme,
   parseBubbleTheme,
   saveBubbleTheme,
@@ -70,6 +73,8 @@ describe('bubbleTheme', () => {
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*flex:\s*0 0 10ch/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*text-align:\s*right/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat-end[\s\S]*justify-content:\s*flex-start/)
+    expect(css).toMatch(/\[data-timestamp-placement="below"\]/)
+    expect(css).toMatch(/\[data-timestamp-placement="inline"\]/)
   })
 
   it('formats a valid timestamp and skips invalid ones', () => {
@@ -79,5 +84,87 @@ describe('bubbleTheme', () => {
     expect(label.length).toBeGreaterThan(0)
     expect(label).toMatch(/\d/)
   })
+})
+
+describe('bubbleTheme registry (#217)', () => {
+  afterEach(() => {
+    localStorage.removeItem(BUBBLE_THEME_STORAGE_KEY)
+  })
+
+  it('derives BUBBLE_THEMES and labels from registered subclasses',
+    () => {
+      expect(allBubbleThemes().map((theme) => theme.id)).toEqual([
+        'speech',
+        'simple',
+        'irc',
+        'feed',
+      ])
+      expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc', 'feed'])
+      expect(BUBBLE_THEME_LABELS).toEqual({
+        speech: 'Speech',
+        simple: 'Simple',
+        irc: 'IRC',
+        feed: 'Feed',
+      })
+      expect(allBubbleThemes().every((theme) => theme instanceof BubbleThemeBase)).toBe(true)
+    },
+  )
+
+  it('locks per-theme message layout and timestamp placement',
+    () => {
+      expect(getBubbleTheme('speech').describe()).toEqual({
+        id: 'speech',
+        label: 'Speech',
+        messageLayout: 'bubble',
+        timestampPlacement: 'above',
+      })
+      expect(getBubbleTheme('simple').describe()).toEqual({
+        id: 'simple',
+        label: 'Simple',
+        messageLayout: 'bubble',
+        timestampPlacement: 'below',
+      })
+      expect(getBubbleTheme('irc').describe()).toEqual({
+        id: 'irc',
+        label: 'IRC',
+        messageLayout: 'line',
+        timestampPlacement: 'inline',
+      })
+      expect(getBubbleTheme('feed').describe()).toEqual({
+        id: 'feed',
+        label: 'Feed',
+        messageLayout: 'line',
+        timestampPlacement: 'above',
+      })
+    },
+  )
+
+  it('falls unknown ids back to speech and keeps chrome hooks as no-ops',
+    () => {
+      expect(getBubbleTheme('nope').id).toBe('speech')
+      expect(getBubbleTheme(null).id).toBe('speech')
+      const speech = getBubbleTheme('speech')
+      expect(speech.renderRoleBadge()).toBeNull()
+      expect(speech.renderAvatar()).toBeNull()
+      expect(speech.renderStreamingAffordance()).toBeNull()
+      expect(speech.composerChrome()).toEqual({
+        placeholder: '',
+        workingIndicatorPlacement: 'above',
+      })
+      expect(speech.formatTimestamp(undefined)).toBe('')
+      expect(speech.formatTimestamp('2026-09-03T06:54:00Z')).toBe(
+        formatBubbleTime('2026-09-03T06:54:00Z'),
+      )
+    },
+  )
+
+  it('keeps parse/save fallbacks on the storage key os.bubbleTheme',
+    () => {
+      expect(BUBBLE_THEME_STORAGE_KEY).toBe('os.bubbleTheme')
+      expect(parseBubbleTheme('not-a-theme')).toBe('speech')
+      expect(saveBubbleTheme('nope')).toBe('speech')
+      expect(localStorage.getItem(BUBBLE_THEME_STORAGE_KEY)).toBe('speech')
+    },
+  )
 })
 

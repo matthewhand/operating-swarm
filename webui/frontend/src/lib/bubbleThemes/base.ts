@@ -1,0 +1,67 @@
+import { parseCreatedAtMs } from '../chatTime'
+
+export type BubbleTheme = 'speech' | 'simple' | 'irc' | 'feed'
+export type MessageLayout = 'bubble' | 'line'
+export type TimestampPlacement = 'below' | 'above' | 'inline'
+
+export type ComposerChrome = {
+  placeholder: string
+  workingIndicatorPlacement: TimestampPlacement
+}
+
+/** Compact clock; empty when `ts` is missing or invalid. */
+export function formatBubbleTime(ts: string | undefined): string {
+  const ms = parseCreatedAtMs(ts)
+  if (ms == null) return ''
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
+    new Date(ms),
+  )
+}
+
+/**
+ * Abstract bubble-theme contract (#217).
+ *
+ * Subclasses override layout and chrome placement; the transcript renderer
+ * consults the theme object instead of `if (theme === 'irc')` branches.
+ * Defaults match Speech (bubble + timestamp above).
+ */
+export abstract class BubbleThemeBase {
+  abstract readonly id: BubbleTheme
+  abstract readonly label: string
+  readonly messageLayout: MessageLayout = 'bubble'
+  readonly timestampPlacement: TimestampPlacement = 'above'
+
+  formatTimestamp(ts: string | undefined): string {
+    return formatBubbleTime(ts)
+  }
+
+  renderRoleBadge(): null {
+    return null
+  }
+
+  renderAvatar(): null {
+    return null
+  }
+
+  renderStreamingAffordance(): null {
+    return null
+  }
+
+  composerChrome(): ComposerChrome {
+    return { placeholder: '', workingIndicatorPlacement: 'above' }
+  }
+
+  describe(): {
+    id: BubbleTheme
+    label: string
+    messageLayout: MessageLayout
+    timestampPlacement: TimestampPlacement
+  } {
+    return {
+      id: this.id,
+      label: this.label,
+      messageLayout: this.messageLayout,
+      timestampPlacement: this.timestampPlacement,
+    }
+  }
+}
