@@ -60,7 +60,8 @@ async function stubComposerApis(page: import('@playwright/test').Page, agents: A
           object: 'team_roster',
           name: body?.name ?? 'research-squad',
           members: body?.members ?? [],
-          wires: body?.wires ?? { handoff: true, as_tool: true },
+          tools: body?.tools ?? [],
+          wires: body?.wires ?? { handoff: false, as_tool: false },
           chief_of_staff_id: body?.chief_of_staff_id ?? null,
           chief_of_staff_instructions: body?.chief_of_staff_instructions ?? '',
         }),
@@ -92,6 +93,13 @@ async function stubComposerApis(page: import('@playwright/test').Page, agents: A
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ object: 'list', data: [] }),
+    })
+  })
+  await page.route('**/v1/mcp-plugins**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ object: 'mcp_plugins', scope: 'user', servers: [] }),
     })
   })
   await page.route('**/health**', async (route) => {
@@ -130,9 +138,8 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
   await expect(page.getByTestId('available-agents-kind-cli')).toHaveText(/CLI\s*\(1\)/)
   await expect(page.getByTestId('available-agents-kind-remote')).toHaveText(/Remote\s*\(1\)/)
 
-  await expect(page.getByRole('checkbox', { name: /handoff/i })).toBeChecked()
-  await expect(page.getByRole('checkbox', { name: /as_tool/i })).toBeChecked()
-  await expect(page.getByText(/gate is unwired/i)).toBeVisible()
+  await expect(page.getByTestId('team-tools-pane')).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByTestId('team-tools-locked-hint')).toBeVisible()
 
   const cos = page.getByTestId('team-cos-select')
   await expect(cos).toBeDisabled()

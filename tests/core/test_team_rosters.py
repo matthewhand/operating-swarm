@@ -7,7 +7,9 @@ from swarm.core.team_rosters import (
     blueprint_id_for_team_target,
     normalize_member,
     normalize_roster,
+    normalize_tool,
     reset_team_rosters,
+    serialize_roster,
     upsert_roster,
 )
 
@@ -147,3 +149,70 @@ def test_demo_sdlc_ba_resolves_blueprint_source():
     assert blueprint_id_for_team_target("demo-sdlc-pipeline", "ba") == "sdlc_handoff"
     assert blueprint_id_for_team_target("demo-sdlc-skeptic-loop", "ba") == "sdlc_handoff"
     assert blueprint_id_for_team_target("demo-team", "codey") is None
+
+
+def test_normalize_tools_and_derived_wires():
+    roster = normalize_roster(
+        {
+            "id": "lab",
+            "members": [
+                {"id": "jeeves", "kind": "api", "role": "default"},
+                {"id": "grok", "kind": "cli", "role": "default"},
+            ],
+            "tools": [
+                {"type": "handoff", "to": "grok"},
+                {"type": "as_tool", "agent": "jeeves"},
+                {"type": "mcp", "server": "github", "agents": []},
+            ],
+            "wires": {"handoff": False, "as_tool": False},
+        }
+    )
+    assert roster["tools"] == [
+        {"type": "handoff", "to": "grok"},
+        {"type": "as_tool", "agent": "jeeves"},
+        {"type": "mcp", "server": "github", "agents": []},
+    ]
+    assert roster["wires"] == {"handoff": True, "as_tool": True}
+
+    empty = normalize_roster({"id": "empty", "members": [], "tools": []})
+    assert empty["tools"] == []
+    assert empty["wires"] == {"handoff": False, "as_tool": False}
+
+    legacy = normalize_roster(
+        {"id": "legacy", "members": [], "wires": {"handoff": True, "as_tool": False}}
+    )
+    assert "tools" not in legacy
+    assert legacy["wires"] == {"handoff": True, "as_tool": False}
+    public = serialize_roster(legacy)
+    assert public["tools"] == []
+    assert public["wires"] == {"handoff": True, "as_tool": False}
+
+    locked = normalize_tool({"type": "mcp", "server": "github", "agents": ["jeeves"]})
+    assert locked == {"type": "mcp", "server": "github", "agents": ["jeeves"]}
+
+
+def test_normalize_rejects_unknown_tool_types_and_secret_mcp_fields():
+    with pytest.raises(ValueError, match="Unknown tool type"):
+        normalize_roster({"id": "bad", "tools": [{"type": "shell", "command": "rm"}]})
+    with pytest.raises(ValueError, match="secret-shaped"):
+        normalize_tool(
+            {"type": "mcp", "server": "github", "agents": [], "env": {"API_KEY": "sk-live"}}
+        )
+    with pytest.raises(ValueError, match="secret-shaped"):
+        normalize_tool({"type": "mcp", "server": "github", "headers": {"Authorization": "Bearer x"}})
+
+
+def test_upsert_persists_tools_and_mcp_agent_allowlist():
+    stored = upsert_roster(
+        {
+            "id": "lab",
+            "name": "Lab",
+            "members": [{"id": "jeeves", "kind": "api", "role": "default"}],
+            "tools": [
+                {"type": "handoff", "to": "jeeves", "from": "jeeves"},
+                {"type": "mcp", "server": "github", "agents": ["jeeves"]},
+            ],
+        }
+    )
+    assert stored["tools"][1]["agents"] == ["jeeves"]
+    assert stored["wires"] == {"handoff": True, "as_tool": False}

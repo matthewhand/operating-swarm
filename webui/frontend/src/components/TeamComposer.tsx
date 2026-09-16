@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { GripVertical, Plus, Tags, Users } from 'lucide-react'
+import { GripVertical, Plus, Tags, Users, Wrench } from 'lucide-react'
 import { Alert, Badge, Button, Input, Modal, Tabs, Textarea } from './DaisyUI'
 import InstallCatalog from './InstallCatalog'
 import {
   createTeamRoster,
+  fetchMcpPlugins,
   fetchTeamAgents,
   fetchTeamRosters,
   updateTeamRoster,
@@ -12,23 +13,31 @@ import {
   type TeamRosterRecord,
 } from '../lib/api'
 import {
+  MCP_SERVER_TEMPLATES,
+  newMcpServerId,
+  serversFromApi,
+} from '../lib/mcpServers'
+import {
   addMember,
+  addToolSlot,
   agentDisplayName,
   applySlotMemberChange,
   assignableMembersForSlot,
   assignRoleSlot,
+  BUILTIN_TEAM_TOOLS,
   canAddRoleSlot,
   COMPOSABLE_TEAM_ROLES,
   COS_EMPTY_ROSTER_HINT,
   COS_INSTRUCTIONS_HELPER,
   dataTransferHasType,
   DEFAULT_COS_STARTER,
-  DEFAULT_TEAM_WIRES,
+  deriveWiresFromTools,
   DRAG_MIME,
   eligibleCosMembers,
   emptyRosterDraft,
   encodeDragAgent,
   encodeDragRole,
+  encodeDragTool,
   FIRST_AGENT_VALUE,
   firstAgentLeadId,
   isCosEligibleMember,
@@ -39,22 +48,32 @@ import {
   parseDragAgent,
   parseDragRole,
   parseDragRosterIndex,
+  parseDragTool,
   parseRosterMember,
+  parseTeamTools,
   PLACEHOLDER_TEAM_AGENTS,
+  pruneToolSlots,
   removeMember,
   removeRoleSlot,
+  removeToolSlot,
   reorderMembers,
   restoreCosId,
   ROLE_DRAG_MIME,
   ROSTER_DRAG_MIME,
   rosterHasMember,
+  serializeToolSlots,
   setMemberRole,
   slotsFromMembers,
+  slotsFromTools,
   stampCosRole,
+  TOOL_DRAG_MIME,
   unassignSlotsForMember,
+  updateToolSlot,
+  type AddableTeamTool,
   type ComposableTeamRole,
   type RoleSlot,
   type TeamRosterMember,
+  type ToolSlot,
 } from '../lib/teamRoster'
 
 export const OPEN_TEAM_COMPOSER_EVENT = 'swarm:open-team-composer'
@@ -92,16 +111,15 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [members, setMembers] = useState<TeamRosterMember[]>([])
-  const [wires, setWires] = useState<{ handoff: boolean; as_tool: boolean }>({
-    ...DEFAULT_TEAM_WIRES,
-  })
   const [chiefOfStaffId, setChiefOfStaffId] = useState<string | null>(null)
   const [leadFollowsFirst, setLeadFollowsFirst] = useState(true)
   const [cosInstructions, setCosInstructions] = useState(DEFAULT_COS_STARTER)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [roleDragOver, setRoleDragOver] = useState(false)
+  const [toolDragOver, setToolDragOver] = useState(false)
   const [roleSlots, setRoleSlots] = useState<RoleSlot[]>([])
+  const [toolSlots, setToolSlots] = useState<ToolSlot[]>([])
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [agentKindTab, setAgentKindTab] = useState<AvailableAgentKind>('api')
@@ -109,6 +127,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
   const cosChoices = useMemo(() => eligibleCosMembers(members), [members])
   const rolesUnlocked = members.length > 0
+  const toolsUnlocked = members.length > 0
 
   const agentsQuery = useQuery({
     queryKey: ['team-agents'],
@@ -119,6 +138,12 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const rostersQuery = useQuery({
     queryKey: ['team-rosters'],
     queryFn: fetchTeamRosters,
+    enabled: isOpen,
+    retry: 1,
+  })
+  const mcpQuery = useQuery({
+    queryKey: ['mcp-plugins'],
+    queryFn: fetchMcpPlugins,
     enabled: isOpen,
     retry: 1,
   })
@@ -144,15 +169,34 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     ? agentKindTab
     : defaultAvailableAgentKind(agentsByKind)
 
+  const mcpChoices = useMemo(() => {
+    const configured = serversFromApi(mcpQuery.data).map((entry) => ({
+      name: entry.id || newMcpServerId(entry.name),
+      label: entry.name || entry.id,
+    }))
+    const seen = new Set(configured.map((entry) => entry.name.toLowerCase()))
+    const catalog = MCP_SERVER_TEMPLATES.map((entry) => ({
+      name: newMcpServerId(entry.name),
+      label: entry.name,
+    })).filter((entry) => {
+      const key = entry.name.toLowerCase()
+      const label = entry.label.toLowerCase()
+      if (seen.has(key) || seen.has(label)) return false
+      seen.add(key)
+      return true
+    })
+    return [...configured, ...catalog]
+  }, [mcpQuery.data])
+
   const resetDraft = useCallback(() => {
     const draft = emptyRosterDraft()
     setName(draft.name)
     setMembers(draft.members)
-    setWires({ ...draft.wires })
     setChiefOfStaffId(draft.chiefOfStaffId)
     setLeadFollowsFirst(true)
     setCosInstructions(draft.chiefOfStaffInstructions)
     setRoleSlots([])
+    setToolSlots([])
     setSavedId(null)
     setStatus(null)
     setAgentKindTab('api')
@@ -242,6 +286,14 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     [members, chiefOfStaffId, closeMenu],
   )
 
+  const addFromTool = useCallback(
+    (addable: AddableTeamTool) => {
+      if (members.length === 0) return
+      setToolSlots((prev) => addToolSlot(prev, addable))
+    },
+    [members.length],
+  )
+
   const removeFromAgent = useCallback((agent: Pick<TeamRosterMember, 'kind' | 'id' | 'source'>) => {
     setMembers((prev) => {
       const next = removeMember(prev, agent)
@@ -249,6 +301,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
         setChiefOfStaffId(null)
         setLeadFollowsFirst(true)
         setRoleSlots([])
+        setToolSlots([])
         return next
       }
       const lostLead = Boolean(chiefOfStaffId && agent.id === chiefOfStaffId)
@@ -267,9 +320,11 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             return slot
           }),
         )
+        setToolSlots((slots) => pruneToolSlots(slots, stamped))
         return stamped
       }
       setRoleSlots((slots) => unassignSlotsForMember(slots, agent))
+      setToolSlots((slots) => pruneToolSlots(slots, next))
       return next
     })
     closeMenu()
@@ -337,10 +392,30 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     clearForeignDrag(event)
   }
 
+  const onToolDragStart = (event: React.DragEvent<HTMLElement>, addable: AddableTeamTool) => {
+    if (members.length === 0) {
+      event.preventDefault()
+      return
+    }
+    clearForeignDrag(event)
+    event.dataTransfer.setData(TOOL_DRAG_MIME, encodeDragTool(addable))
+    event.dataTransfer.setData('text/plain', encodeDragTool(addable))
+    event.dataTransfer.effectAllowed = 'copy'
+    clearForeignDrag(event)
+  }
+
   const onDragOver = (event: React.DragEvent<HTMLElement>) => {
     event.preventDefault()
     if (dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME) &&
       !dataTransferHasType(event.dataTransfer, DRAG_MIME)) {
+      event.dataTransfer.dropEffect = 'none'
+      setDragOver(false)
+      return
+    }
+    if (
+      dataTransferHasType(event.dataTransfer, TOOL_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, DRAG_MIME)
+    ) {
       event.dataTransfer.dropEffect = 'none'
       setDragOver(false)
       return
@@ -372,6 +447,12 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       return
     }
     if (
+      dataTransferHasType(event.dataTransfer, TOOL_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, DRAG_MIME)
+    ) {
+      return
+    }
+    if (
       dataTransferHasType(event.dataTransfer, ROSTER_DRAG_MIME) &&
       !dataTransferHasType(event.dataTransfer, DRAG_MIME)
     ) {
@@ -379,6 +460,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     }
     const raw = event.dataTransfer.getData(DRAG_MIME) || event.dataTransfer.getData('text/plain')
     if (parseDragRole(raw) && !parseDragAgent(raw)) return
+    if (parseDragTool(raw) && !parseDragAgent(raw)) return
     if (parseDragRosterIndex(raw) !== null && !parseDragAgent(raw)) return
     const agent = parseDragAgent(raw)
     if (agent) addFromAgent(agent)
@@ -429,6 +511,14 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       setRoleDragOver(false)
       return
     }
+    if (
+      dataTransferHasType(event.dataTransfer, TOOL_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME)
+    ) {
+      event.dataTransfer.dropEffect = 'none'
+      setRoleDragOver(false)
+      return
+    }
     event.dataTransfer.dropEffect = 'copy'
     setRoleDragOver(true)
   }
@@ -448,11 +538,64 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     ) {
       return
     }
+    if (
+      dataTransferHasType(event.dataTransfer, TOOL_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME)
+    ) {
+      return
+    }
     const raw =
       event.dataTransfer.getData(ROLE_DRAG_MIME) || event.dataTransfer.getData('text/plain')
     if (parseDragAgent(raw) && !parseDragRole(raw)) return
+    if (parseDragTool(raw) && !parseDragRole(raw)) return
     const role = parseDragRole(raw)
     if (role) addFromRole(role)
+  }
+
+  const onToolDragOver = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    if (!toolsUnlocked) {
+      event.dataTransfer.dropEffect = 'none'
+      setToolDragOver(false)
+      return
+    }
+    if (
+      (dataTransferHasType(event.dataTransfer, DRAG_MIME) ||
+        dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME) ||
+        dataTransferHasType(event.dataTransfer, ROSTER_DRAG_MIME)) &&
+      !dataTransferHasType(event.dataTransfer, TOOL_DRAG_MIME)
+    ) {
+      event.dataTransfer.dropEffect = 'none'
+      setToolDragOver(false)
+      return
+    }
+    event.dataTransfer.dropEffect = 'copy'
+    setToolDragOver(true)
+  }
+
+  const onToolDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node)) return
+    setToolDragOver(false)
+  }
+
+  const onToolDrop = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    setToolDragOver(false)
+    if (!toolsUnlocked) return
+    if (
+      (dataTransferHasType(event.dataTransfer, DRAG_MIME) ||
+        dataTransferHasType(event.dataTransfer, ROLE_DRAG_MIME) ||
+        dataTransferHasType(event.dataTransfer, ROSTER_DRAG_MIME)) &&
+      !dataTransferHasType(event.dataTransfer, TOOL_DRAG_MIME)
+    ) {
+      return
+    }
+    const raw =
+      event.dataTransfer.getData(TOOL_DRAG_MIME) || event.dataTransfer.getData('text/plain')
+    if (parseDragAgent(raw) && !parseDragTool(raw)) return
+    if (parseDragRole(raw) && !parseDragTool(raw)) return
+    const addable = parseDragTool(raw)
+    if (addable) addFromTool(addable)
   }
 
   const saveMutation = useMutation({
@@ -462,10 +605,12 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
         throw new Error('Team name is required.')
       }
       const stamped = stampCosRole(members, chiefOfStaffId)
+      const tools = serializeToolSlots(toolSlots)
       const payload = {
         name: trimmed,
         members: stamped,
-        wires,
+        tools,
+        wires: deriveWiresFromTools(tools),
         chief_of_staff_id: chiefOfStaffId,
         chief_of_staff_instructions: chiefOfStaffId ? cosInstructions : '',
       }
@@ -491,6 +636,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
         nextCos ? roster.chief_of_staff_instructions || DEFAULT_COS_STARTER : DEFAULT_COS_STARTER,
       )
       setRoleSlots(slotsFromMembers(stampCosRole(nextMembers, nextCos)))
+      setToolSlots(slotsFromTools(parseTeamTools(roster.tools)))
       queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
       setStatus(`Saved roster “${roster.name}” to team_rosters.json.`)
     },
@@ -513,10 +659,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       nextCos ? roster.chief_of_staff_instructions || DEFAULT_COS_STARTER : DEFAULT_COS_STARTER,
     )
     setRoleSlots(slotsFromMembers(stampCosRole(nextMembers, nextCos)))
-    setWires({
-      handoff: roster.wires?.handoff ?? true,
-      as_tool: roster.wires?.as_tool ?? true,
-    })
+    setToolSlots(slotsFromTools(parseTeamTools(roster.tools)))
     setStatus(null)
   }
 
@@ -587,40 +730,6 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             </select>
           </label>
         )}
-
-        <fieldset className="rounded-lg border border-base-300 bg-base-200/40 px-3 py-2">
-          <legend className="px-1 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/45">
-            Wires
-          </legend>
-          <div className="flex flex-wrap gap-6">
-            <label className="label cursor-pointer justify-start gap-2">
-              <input
-                type="checkbox"
-                className="toggle toggle-sm"
-                checked={wires.handoff}
-                onChange={(event) =>
-                  setWires((prev) => ({ ...prev, handoff: event.target.checked }))
-                }
-              />
-              <span className="label-text">handoff</span>
-            </label>
-            <label className="label cursor-pointer justify-start gap-2">
-              <input
-                type="checkbox"
-                className="toggle toggle-sm"
-                checked={wires.as_tool}
-                onChange={(event) =>
-                  setWires((prev) => ({ ...prev, as_tool: event.target.checked }))
-                }
-              />
-              <span className="label-text">as_tool</span>
-            </label>
-          </div>
-          <p className="mt-2 text-xs text-base-content/50">
-            Per-team openai-agents wiring. Both default on. Gate is unwired — all tools
-            are approved.
-          </p>
-        </fieldset>
 
         <fieldset
           className="rounded-lg border border-base-300 bg-base-200/40 px-3 py-2"
@@ -967,6 +1076,242 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                     </li>
                   )
                 })}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        <div
+          className={`grid gap-4 lg:grid-cols-2 ${toolsUnlocked ? '' : 'opacity-60'}`}
+          data-testid="team-tools-pane"
+          aria-disabled={!toolsUnlocked}
+        >
+          <section
+            aria-label="Team tools drop zone"
+            data-testid="team-tools-drop-zone"
+            onDragOver={onToolDragOver}
+            onDragLeave={onToolDragLeave}
+            onDrop={onToolDrop}
+            className={`min-h-[12rem] rounded-xl border-2 border-dashed px-4 py-4 transition-colors ${
+              toolDragOver && toolsUnlocked
+                ? 'border-primary bg-base-200'
+                : 'border-base-content/25 bg-base-200/70'
+            }`}
+          >
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-base-content/70">
+              <Wrench className="h-4 w-4" aria-hidden="true" />
+              Tools
+            </div>
+            {!toolsUnlocked ? (
+              <p className="text-sm text-base-content/45" data-testid="team-tools-locked-hint">
+                {COS_EMPTY_ROSTER_HINT}
+              </p>
+            ) : toolSlots.length === 0 ? (
+              <div className="flex h-[8rem] flex-col items-center justify-center text-center text-base-content/45">
+                <p className="text-sm font-medium tracking-wide">drop tools here</p>
+                <p className="mt-1 max-w-xs text-xs">
+                  Add handoff, as_tool, or an MCP server. Empty MCP agents means every roster
+                  member.
+                </p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2 os-scrollable-picker-list pr-1" aria-label="Tool slots">
+                {toolSlots.map((slot) => {
+                  const tool = slot.tool
+                  return (
+                    <li key={slot.id}>
+                      <article
+                        className="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2"
+                        data-testid="team-tool-slot"
+                        data-tool-type={tool.type}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">
+                            {tool.type === 'mcp' ? `mcp:${tool.server}` : tool.type}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-xs ml-auto"
+                            aria-label={`Remove ${tool.type} tool`}
+                            onClick={() => setToolSlots((prev) => removeToolSlot(prev, slot.id))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        {tool.type === 'handoff' ? (
+                          <div className="flex flex-wrap gap-2">
+                            <label className="flex min-w-[8rem] flex-1 flex-col gap-1 text-xs">
+                              <span>Target</span>
+                              <select
+                                className="select select-xs"
+                                value={tool.to}
+                                aria-label="Handoff target agent"
+                                data-testid="team-tool-handoff-to"
+                                onChange={(event) =>
+                                  setToolSlots((prev) =>
+                                    updateToolSlot(prev, slot.id, {
+                                      ...tool,
+                                      to: event.target.value,
+                                    }),
+                                  )
+                                }
+                              >
+                                <option value="">Select agent</option>
+                                {members.map((member) => (
+                                  <option key={memberKey(member)} value={member.id}>
+                                    {agentDisplayName(member)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="flex min-w-[8rem] flex-1 flex-col gap-1 text-xs">
+                              <span>From</span>
+                              <select
+                                className="select select-xs"
+                                value={tool.from ?? ''}
+                                aria-label="Handoff from agent"
+                                data-testid="team-tool-handoff-from"
+                                onChange={(event) => {
+                                  const nextFrom = event.target.value
+                                  const next = nextFrom
+                                    ? { type: 'handoff' as const, to: tool.to, from: nextFrom }
+                                    : { type: 'handoff' as const, to: tool.to }
+                                  setToolSlots((prev) => updateToolSlot(prev, slot.id, next))
+                                }}
+                              >
+                                <option value="">First agent</option>
+                                {members.map((member) => (
+                                  <option key={memberKey(member)} value={member.id}>
+                                    {agentDisplayName(member)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        ) : null}
+                        {tool.type === 'as_tool' ? (
+                          <label className="flex min-w-[8rem] flex-col gap-1 text-xs">
+                            <span>Agent as tool</span>
+                            <select
+                              className="select select-xs"
+                              value={tool.agent}
+                              aria-label="Agent exposed as a tool"
+                              data-testid="team-tool-as-tool-agent"
+                              onChange={(event) =>
+                                setToolSlots((prev) =>
+                                  updateToolSlot(prev, slot.id, {
+                                    type: 'as_tool',
+                                    agent: event.target.value,
+                                  }),
+                                )
+                              }
+                            >
+                              <option value="">Select agent</option>
+                              {members.map((member) => (
+                                <option key={memberKey(member)} value={member.id}>
+                                  {agentDisplayName(member)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
+                        {tool.type === 'mcp' ? (
+                          <fieldset className="flex flex-col gap-1" data-testid="team-tool-mcp-agents">
+                            <legend className="text-xs">Agents</legend>
+                            <p className="text-[11px] text-base-content/50">
+                              Unset / empty = available to all roster agents.
+                            </p>
+                            {members.map((member) => {
+                              const checked = tool.agents.includes(member.id)
+                              return (
+                                <label
+                                  key={memberKey(member)}
+                                  className="flex items-center gap-2 text-xs"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="checkbox checkbox-xs"
+                                    checked={checked}
+                                    aria-label={`Lock ${tool.server} to ${agentDisplayName(member)}`}
+                                    onChange={(event) => {
+                                      const nextAgents = event.target.checked
+                                        ? [...tool.agents, member.id]
+                                        : tool.agents.filter((id) => id !== member.id)
+                                      setToolSlots((prev) =>
+                                        updateToolSlot(prev, slot.id, {
+                                          type: 'mcp',
+                                          server: tool.server,
+                                          agents: nextAgents,
+                                        }),
+                                      )
+                                    }}
+                                  />
+                                  {agentDisplayName(member)}
+                                </label>
+                              )
+                            })}
+                          </fieldset>
+                        ) : null}
+                      </article>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section aria-label="Available tools" className="min-h-[12rem]">
+            <div className="mb-3 text-sm font-medium text-base-content/70">Available tools</div>
+            {!toolsUnlocked ? (
+              <p className="text-sm text-base-content/45">{COS_EMPTY_ROSTER_HINT}</p>
+            ) : (
+              <ul
+                className="flex max-h-[14rem] flex-col gap-1 os-scrollable-picker-list overflow-y-auto pr-1"
+                aria-label="Available tools list"
+                role="list"
+              >
+                {BUILTIN_TEAM_TOOLS.map((type) => (
+                  <li
+                    key={type}
+                    draggable
+                    onDragStart={(event) => onToolDragStart(event, { type })}
+                    className="flex cursor-grab items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2 active:cursor-grabbing"
+                    data-testid={`available-tool-${type}`}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">{type}</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs"
+                      aria-label={`Add ${type} tool`}
+                      onClick={() => addFromTool({ type })}
+                    >
+                      Add
+                    </button>
+                  </li>
+                ))}
+                {mcpChoices.map((server) => (
+                  <li
+                    key={`mcp:${server.name}`}
+                    draggable
+                    onDragStart={(event) =>
+                      onToolDragStart(event, { type: 'mcp', server: server.name })
+                    }
+                    className="flex cursor-grab items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2 active:cursor-grabbing"
+                    data-testid={`available-tool-mcp-${server.name}`}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      mcp:{server.label}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs"
+                      aria-label={`Add ${server.label} MCP tool`}
+                      onClick={() => addFromTool({ type: 'mcp', server: server.name })}
+                    >
+                      Add
+                    </button>
+                  </li>
+                ))}
               </ul>
             )}
           </section>
