@@ -1,6 +1,6 @@
 /**
  * Remote thread/session list for harnesses that advertise ``capabilities.sessions``
- * (AnythingLLM threads, Hermes sessions). Resume key is the row ``id``.
+ * (Letta agents, AnythingLLM threads, Hermes sessions). Resume key is the row ``id``.
  */
 
 import { operateRemote, type RemoteOperateResult } from './api'
@@ -15,7 +15,7 @@ export interface RemoteThreadRow {
   channel?: string
 }
 
-const SESSION_KINDS = new Set(['anythingllm', 'hermes'])
+const SESSION_KINDS = new Set(['letta', 'anythingllm', 'hermes'])
 
 export function remoteListsSessions(
   remote: Pick<RemoteEntry, 'id' | 'kind'> & { capabilities?: { sessions?: boolean } },

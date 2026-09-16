@@ -31,6 +31,8 @@ KIND_TO_TYPE: dict[str, str] = {
     # REQ-203: remotes impl ids are Remote, not a fifth user-facing kind.
     "herdr": "remote",
     "hermes": "remote",
+    "anythingllm": "remote",
+    "letta": "remote",
     "omb": "remote",
     "rakazo": "remote",
     "open-swarm": "remote",

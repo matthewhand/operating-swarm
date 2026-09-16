@@ -326,3 +326,52 @@ async def test_as_tool_swarm_when_placed():
         names.append(getattr(tool, "name", None) or getattr(tool, "__name__", ""))
     joined = " ".join(str(n) for n in names)
     assert "consult_swarm" in joined
+
+
+@pytest.mark.asyncio
+async def test_letta_send_streams_deltas(bp):
+    def _fake_iter(*_args, **_kwargs):
+        yield ("Hel", False, None)
+        yield ("lo", True, None)
+
+    bp.set_params(
+        {
+            "op": "send",
+            "name": "letta",
+            "prompt": "hi",
+            "session_id": "agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        }
+    )
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.kind_of_instance",
+        return_value="letta",
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.load_remote",
+        return_value=object(),
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.iter_letta_chat",
+        side_effect=lambda *a, **k: _fake_iter(),
+    ):
+        chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
+    texts = []
+    for chunk in chunks:
+        msgs = chunk.get("messages") if isinstance(chunk, dict) else None
+        if msgs and msgs[0].get("content"):
+            texts.append(msgs[0]["content"])
+    assert "Hel" in texts
+    assert texts[-1] == "Hello"
+    assert chunks[-1].get("final") is True
+
+
+@pytest.mark.asyncio
+async def test_as_tool_letta_when_placed():
+    bp = RemoteHarnessBlueprint(
+        config={"llm": {}, "agent_team": {"members": ["letta"]}}
+    )
+    agents = bp._build_agents()
+    assert "letta" in agents
+    names = []
+    for tool in getattr(agents["coordinator"], "tools", []) or []:
+        names.append(getattr(tool, "name", None) or getattr(tool, "__name__", ""))
+    joined = " ".join(str(n) for n in names)
+    assert "consult_letta" in joined

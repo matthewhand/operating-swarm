@@ -2433,7 +2433,7 @@ const ChatPage = () => {
           addToast({
             type: 'info',
             title: 'Pick a session',
-            message: 'Choose an AnythingLLM workspace or thread to resume, then send.',
+            message: 'Choose a remote session to resume, then send.',
           })
           return false
         }

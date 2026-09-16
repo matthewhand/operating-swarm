@@ -649,6 +649,7 @@ export function removeFromLibrary(name: string): Promise<void> {
 export type RemoteKindId =
   | 'hermes'
   | 'anythingllm'
+  | 'letta'
   | 'omb'
   | 'rakazo'
   | 'herdr'

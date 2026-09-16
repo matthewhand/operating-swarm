@@ -100,6 +100,14 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
             "textResponse; no Chat Completions message objects."
         ),
     },
+    "remote:letta": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": (
+            "Agent message POST takes a prompt string and replies with "
+            "assistant_message content; no Chat Completions message objects."
+        ),
+    },
     "remote:omb": {
         "name_field": "stripped",
         "path": "delimiter",
