@@ -84,12 +84,26 @@ def test_build_injection_respects_budget_and_header():
 
 def test_hop_notice_is_distinct_from_dropdown_change():
     line = hop_notice_text("grok", "agy", mode="summary", tokens=42)
-    assert line == "Carried summary context from grok → agy (42 tokens)."
+    assert line == (
+        "Started a new agy session (grok → agy). Carried summary context (42 tokens)."
+    )
     assert is_context_carried_notice(line)
     assert "CLI: grok → agy" not in line
     empty = hop_notice_text("grok", "agy", mode="summary", tokens=0, empty=True)
-    assert "Started a new agy session" in empty
-    assert "No prior context" in empty
+    assert empty == (
+        "Started a new agy session (grok → agy). No prior context to carry from grok."
+    )
+    warned = hop_notice_text(
+        "grok",
+        "agy",
+        mode="summary",
+        tokens=0,
+        empty=True,
+        export_warning="Export failed.",
+    )
+    assert warned == (
+        "Started a new agy session (grok → agy). Export failed. Nothing to carry."
+    )
 
 
 def test_capability_matrix_is_honest_summary_inject():

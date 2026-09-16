@@ -196,7 +196,7 @@ test('All members clears ?session=, marks ?members=all and survives a reload (#2
   })
 })
 
-test('CLI dropdown change is a bubble-less status line plus carried context', async ({ page }, testInfo) => {
+test('CLI dropdown change is a single hop status line (REQ-866)', async ({ page }, testInfo) => {
   await page.route('**/chat/thread**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -217,7 +217,8 @@ test('CLI dropdown change is a bubble-less status line plus carried context', as
       contentType: 'application/json',
       body: JSON.stringify({
         object: 'cli_session_hop',
-        status: 'Carried summary context from antigravity → grok (12 tokens).',
+        status:
+          'Started a new grok session (antigravity → grok). Carried summary context (12 tokens).',
         cli_session_id: null,
       }),
     })
@@ -249,9 +250,12 @@ test('CLI dropdown change is a bubble-less status line plus carried context', as
   await cli.click()
   await page.getByRole('menuitem', { name: 'grok' }).click()
   const status = page.getByTestId('chat-status')
-  await expect(status.first()).toContainText('CLI: antigravity → grok')
-  await expect(status.first()).not.toHaveClass(/chat-start|chat-end/)
-  await expect(page.getByText(/Carried summary context from antigravity → grok/)).toBeVisible()
+  await expect(status).toHaveCount(1)
+  await expect(status).toContainText(
+    'Started a new grok session (antigravity → grok). Carried summary context (12 tokens).',
+  )
+  await expect(status).not.toHaveClass(/chat-start|chat-end/)
+  await expect(page.getByText(/CLI: antigravity → grok/)).toHaveCount(0)
   await page.screenshot({
     path: shotPath(testInfo, 'cli_dropdown_status_line.png'),
     fullPage: true,

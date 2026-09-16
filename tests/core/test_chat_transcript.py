@@ -46,6 +46,33 @@ def test_insert_skips_duplicate_new_session_line():
     assert transcript_already_has_notice(messages, "Started a new grok session.")
 
 
+def test_hop_notice_covers_prompt_time_new_session_line():
+    """REQ-866: dropdown hop notice suppresses the short prompt-time line."""
+    hop = (
+        "Started a new grok session (antigravity → grok). "
+        "No prior context to carry from antigravity."
+    )
+    before_send = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi"},
+        {"role": "status", "content": hop},
+    ]
+    after_send = [
+        *before_send,
+        {"role": "user", "content": "next"},
+    ]
+    assert transcript_already_has_notice(before_send, "Started a new grok session.")
+    assert transcript_already_has_notice(after_send, "Started a new grok session.")
+    assert not transcript_already_has_notice(after_send, "Started a new omp session.")
+    carried = (
+        "Started a new omp session (qwen → omp). Carried summary context (12 tokens)."
+    )
+    assert transcript_already_has_notice(
+        [{"role": "status", "content": carried}, {"role": "user", "content": "hi"}],
+        "Started a new omp session.",
+    )
+
+
 def test_dropdown_status_still_appends():
     messages = [
         {"role": "user", "content": "hello"},
