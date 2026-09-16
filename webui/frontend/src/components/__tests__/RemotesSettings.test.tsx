@@ -25,6 +25,15 @@ function renderPane(remote = { id: 'omb', label: 'OpenMousBot', base_url: 'http:
 describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // #453: the pane lists on mount, so every case needs a stub or it would hit
+    // the real API. Cases that assert specific rows re-spy with their own data.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'stub',
+      op: 'list',
+      ok: true,
+      detail: 'stub list',
+      data: { bots: [] },
+    } as any)
   })
 
   afterEach(() => {
@@ -99,6 +108,44 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
         screen.getByText(/OpenMousBot list operation timed out after 12s/i),
       ).toBeInTheDocument()
       expect(listBtn).not.toHaveAttribute('aria-busy', 'true')
+    })
+  })
+
+  it('lists targets on mount and enables Send without the operator clicking List (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 2 member(s) via local herdr (no SSH)',
+      data: {
+        members: [
+          { kind: 'herdr', name: 'w2:pG', object: 'herdr.member' },
+          { kind: 'herdr', name: 'w3:p1', object: 'herdr.member' },
+        ],
+      },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('w2:pG')
+    })
+    expect(screen.getByRole('button', { name: /^send$/i })).toBeEnabled()
+  })
+
+  it('keeps Send disabled when the target list comes back empty (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 0 member(s) via local herdr (no SSH)',
+      data: { members: [] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
     })
   })
 

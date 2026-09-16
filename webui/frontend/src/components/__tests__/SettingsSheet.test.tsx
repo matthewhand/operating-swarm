@@ -327,7 +327,10 @@ describe('SettingsSheet', () => {
       vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
         const url = String(input)
         const method = (init?.method || 'GET').toUpperCase()
-        if (url.includes('/v1/remotes/') && method === 'POST') {
+        // Only the create call is the subject here. #453 added a target list on
+        // pane mount, which POSTs to /v1/remotes/<id>/operate/ once a remote is
+        // added — treating that as a create would push a duplicate entry.
+        if (url.includes('/v1/remotes/') && !url.includes('/operate/') && method === 'POST') {
           const body = JSON.parse(String(init?.body || '{}')) as { kind?: string }
           const created = {
             id: body.kind || 'omb',
