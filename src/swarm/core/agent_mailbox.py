@@ -5,6 +5,7 @@ v1 is **API↔API** and **not a global mesh**. Discoverability is:
     (same-team members ∪ relationship-edge members ∪ Support/CoS allow-all)
     ∩ same kind
     ∩ (whitelist / ¬blacklist)
+    ∩ (internal-only rail section members, Issue #163)
     − hidden − archived − self
 
 Handoff / ``as_tool`` graphs stay on openai-agents (REQ-156). This mailbox is
@@ -36,6 +37,14 @@ from swarm.core.agent_roles import (
     is_chief_of_staff,
     normalize_agent_role,
 )
+from swarm.core.section_talk import (
+    REASON_INTERNAL_ONLY,
+    REASON_TARGET_LOCKED,
+    SectionTalkState,
+    can_section_talk,
+    filter_talk_targets,
+    parse_section_talk_state,
+)
 from swarm.core.team_isolation import role_of_member, teams_containing
 from swarm.core.team_rosters import iter_normalized_rosters
 from swarm.core.transcript_roles import append_event, append_turn
@@ -55,6 +64,7 @@ ERROR_NOT_DISCOVERABLE = "not_discoverable"
 ERROR_CALLER_KIND = "caller_kind_unsupported"
 ERROR_EMPTY_CONTENT = "empty_content"
 ERROR_KIND_FILTER = "kind_not_supported"
+ERROR_SECTION_LOCKED = "section_internal_only"
 
 AclMode = Literal["whitelist", "blacklist"]
 AclEntryKind = Literal["agent", "team", "role"]
@@ -304,6 +314,7 @@ class MailboxContext:
     relationships: Any | None = None
     acl: AclPolicy | None = None
     chat_base_dir: Path | None = None
+    section_talk: SectionTalkState | None = None
 
     def catalog(self) -> dict[str, Peer]:
         extra = list(self.extra_peers)
@@ -377,7 +388,8 @@ class MailboxContext:
             if self._is_hidden(ident) or self._is_archived(peer):
                 continue
             visible.add(ident)
-        return apply_acl(visible, catalog, self.acl)
+        visible = apply_acl(visible, catalog, self.acl)
+        return filter_talk_targets(self.caller_id, visible, self.section_talk)
 
     def list_peers(self, kind: str = V1_KIND) -> dict[str, Any]:
         want = str(kind or V1_KIND).strip().lower() or V1_KIND
@@ -431,6 +443,15 @@ class MailboxContext:
             )
         if target_id == self.caller_id:
             return
+        decision = can_section_talk(self.caller_id, target_id, self.section_talk)
+        if not decision.allowed and decision.reason in (
+            REASON_INTERNAL_ONLY,
+            REASON_TARGET_LOCKED,
+        ):
+            raise PeerMailboxError(
+                ERROR_SECTION_LOCKED,
+                f"Agent {target_id!r} is outside this caller's internal-only section.",
+            )
         if target_id not in self.discoverable_ids(kind=V1_KIND):
             raise PeerMailboxError(
                 ERROR_NOT_DISCOVERABLE,
@@ -738,6 +759,9 @@ def context_from_runtime(
         from swarm.core.agent_mailbox_acl import resolve_acl_policy
 
         acl = resolve_acl_policy(str(caller_id or "").strip(), role).policy
+    section_talk = parse_section_talk_state(
+        params.get("rail_sections") or params.get("section_talk")
+    )
     return MailboxContext(
         caller_id=str(caller_id or "").strip(),
         caller_kind=kind,
@@ -749,6 +773,7 @@ def context_from_runtime(
         relationships=relationships,
         acl=acl,
         chat_base_dir=chat_base_dir,
+        section_talk=section_talk,
     )
 
 
@@ -776,6 +801,7 @@ __all__ = [
     "ERROR_KIND_FILTER",
     "ERROR_KIND_MISMATCH",
     "ERROR_NOT_DISCOVERABLE",
+    "ERROR_SECTION_LOCKED",
     "ERROR_TARGET_ARCHIVED",
     "ERROR_TARGET_HIDDEN",
     "ERROR_UNKNOWN_ID",

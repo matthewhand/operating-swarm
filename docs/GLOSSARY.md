@@ -46,7 +46,7 @@ A declared list of directed openai-agents `handoff` (or `as_tool`) edges
 among API seats. Forced sequence = each seat has only the next hop
 (BA → Engineer → Tester). Circular skeptic = last reviewer may punt back
 to an earlier role. Tests lock live `Handoff.agent_name` against the JSON.
-This is **not** the peer mailbox (`list_agents` / `send_message`, REQ-153 / #561). Mailbox tools are a team-scoped API↔API channel with optional whitelist/blacklist ACL (REQ-162 / #573); see [ADR-009](./adr/009-peer-mailbox.md) and [PEER_MAILBOX.md](./PEER_MAILBOX.md).
+This is **not** the peer mailbox (`list_agents` / `send_message`, REQ-153 / #561). Mailbox tools are a team-scoped API↔API channel with optional whitelist/blacklist ACL (REQ-162 / #573) and optional rail-section internal-only lock (Issue #163); see [ADR-009](./adr/009-peer-mailbox.md) and [PEER_MAILBOX.md](./PEER_MAILBOX.md).
 
 ## Skill (`SKILL.md`)
 

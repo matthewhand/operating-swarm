@@ -193,15 +193,20 @@ describe('railMenuItems Move to (REQ-209)', () => {
 })
 
 describe('sectionMenuItems (REQ-209)', () => {
-  it('lists New section, Rename, Move up/down, and danger Delete last', () => {
+  it('lists New section, Rename, talk lock, Move up/down, and danger Delete last', () => {
     const items = sectionMenuItems({ canMoveUp: false, canMoveDown: true })
     expect(items.map((item) => item.id)).toEqual([
       'section-create',
       'section-rename',
+      'section-talk-lock',
       'section-move-up',
       'section-move-down',
       'section-delete',
     ])
+    expect(items.find((item) => item.id === 'section-talk-lock')?.label).toBe('Talk internal only')
+    expect(sectionMenuItems({ canMoveUp: true, canMoveDown: true, internalOnly: true }).find(
+      (item) => item.id === 'section-talk-lock',
+    )?.label).toBe('Talk externally')
     expect(items.find((item) => item.id === 'section-move-up')?.disabled).toBe(true)
     expect(items.at(-1)).toMatchObject({ id: 'section-delete', danger: true, label: 'Delete' })
   })

@@ -38,6 +38,7 @@ export type RailMenuItemId =
   | 'delete'
   | 'section-create'
   | 'section-rename'
+  | 'section-talk-lock'
   | 'section-move-up'
   | 'section-move-down'
   | 'section-delete'
@@ -200,10 +201,16 @@ export function moveToMenuItem(moveTo?: RailMenuMoveTo): RailMenuItemSpec {
 export function sectionMenuItems(opts: {
   canMoveUp: boolean
   canMoveDown: boolean
+  internalOnly?: boolean
 }): RailMenuItemSpec[] {
   return [
     { id: 'section-create', label: 'New section', group: 0 },
     { id: 'section-rename', label: 'Rename', group: 0 },
+    {
+      id: 'section-talk-lock',
+      label: opts.internalOnly ? 'Talk externally' : 'Talk internal only',
+      group: 0,
+    },
     {
       id: 'section-move-up',
       label: 'Move up',

@@ -1,0 +1,84 @@
+name: Issue 163 section internal talk
+
+on:
+  pull_request:
+    paths:
+      - "src/swarm/core/section_talk.py"
+      - "src/swarm/core/agent_mailbox.py"
+      - "tests/core/test_section_talk.py"
+      - "tests/core/test_agent_mailbox.py"
+      - "tests/unit/test_issue163_section_internal_talk.py"
+      - "webui/frontend/src/lib/railSections.ts"
+      - "webui/frontend/src/lib/__tests__/railSections.test.ts"
+      - "webui/frontend/src/lib/railContextMenu.ts"
+      - "webui/frontend/src/lib/__tests__/railContextMenu.test.ts"
+      - "webui/frontend/src/components/RailContextMenu.tsx"
+      - "webui/frontend/src/components/RailSectionHeader.tsx"
+      - "webui/frontend/src/components/AgentSidebar.tsx"
+      - "webui/frontend/src/components/__tests__/RailSections.test.tsx"
+      - "webui/frontend/src/pages/ChatPage.tsx"
+      - "webui/frontend/src/index.css"
+      - "docs/qa/ISSUE-163-section-internal-talk.md"
+      - ".github/workflows/issue163-section-talk.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/swarm/core/section_talk.py"
+      - "src/swarm/core/agent_mailbox.py"
+      - "tests/core/test_section_talk.py"
+      - "tests/core/test_agent_mailbox.py"
+      - "tests/unit/test_issue163_section_internal_talk.py"
+      - "webui/frontend/src/lib/railSections.ts"
+      - "webui/frontend/src/lib/__tests__/railSections.test.ts"
+      - "webui/frontend/src/lib/railContextMenu.ts"
+      - "webui/frontend/src/lib/__tests__/railContextMenu.test.ts"
+      - "webui/frontend/src/components/RailContextMenu.tsx"
+      - "webui/frontend/src/components/RailSectionHeader.tsx"
+      - "webui/frontend/src/components/AgentSidebar.tsx"
+      - "webui/frontend/src/components/__tests__/RailSections.test.tsx"
+      - "webui/frontend/src/pages/ChatPage.tsx"
+      - "webui/frontend/src/index.css"
+      - "docs/qa/ISSUE-163-section-internal-talk.md"
+      - ".github/workflows/issue163-section-talk.yml"
+
+jobs:
+  own-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install Python deps
+        run: uv sync --all-extras
+
+      - name: Pytest Issue 163
+        run: |
+          uv run pytest \
+            tests/core/test_section_talk.py \
+            tests/core/test_agent_mailbox.py \
+            tests/unit/test_issue163_section_internal_talk.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: webui/frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: webui/frontend
+        run: npm ci
+
+      - name: Vitest Issue 163 suite
+        working-directory: webui/frontend
+        run: |
+          npx vitest run \
+            src/lib/__tests__/railSections.test.ts \
+            src/lib/__tests__/railContextMenu.test.ts \
+            src/components/__tests__/RailSections.test.tsx

@@ -300,4 +300,44 @@ describe('REQ-209 sidepane agent sections', () => {
     })
     expect(sectionById(UNASSIGNED_SECTION_ID)).toBeTruthy()
   })
+
+  it('Issue #163: lock toggle persists internal-only talk; Unassigned has no lock', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false, internalOnly: false }],
+        membership: { rakazo: 'sec_stuff' },
+        unassignedCollapsed: false,
+      }),
+    )
+    const first = renderRail()
+    await loadedList()
+    const unassigned = sectionById(UNASSIGNED_SECTION_ID)!
+    expect(within(unassigned).queryByTestId('rail-section-talk-lock')).not.toBeInTheDocument()
+    const stuff = sectionById('sec_stuff')!
+    const lock = within(stuff).getByTestId('rail-section-talk-lock')
+    expect(lock).toHaveAttribute('aria-pressed', 'false')
+    expect(lock).toHaveAttribute('aria-label', 'Talk externally')
+    fireEvent.click(lock)
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
+    })
+    expect(
+      JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}').sections[0].internalOnly,
+    ).toBe(true)
+    first.unmount()
+    renderRail()
+    await loadedList()
+    expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
+    expect(within(sectionById('sec_stuff')!).getByTestId('rail-section-talk-lock')).toHaveAttribute(
+      'aria-label',
+      'Talk internal only',
+    )
+    fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
+    const menu = await screen.findByRole('menu', { name: 'Actions for stuff' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Talk externally' }))
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'false')
+    })
+  })
 })
