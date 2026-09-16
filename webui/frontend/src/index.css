@@ -1214,6 +1214,13 @@ button.os-agent-row {
 .os-agent-sidebar--avatar-only .os-plugins-label {
   display: none;
 }
+.os-agent-sidebar--avatar-only .os-calendar-label,
+.os-agent-sidebar--avatar-only .os-bin-label {
+  display: none;
+}
+.os-agent-sidebar--avatar-only [data-testid="rail-update-chrome"] {
+  display: none;
+}
 
 .os-identity-btn {
   background: transparent;
