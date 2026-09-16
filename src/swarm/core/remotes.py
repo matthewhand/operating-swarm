@@ -1883,13 +1883,32 @@ def _check_health_spec(
             url=spec.base_url,
         )
 
-    health_url = f"{spec.base_url}{spec.health_path}"
-    result = http_json("GET", health_url, headers=_auth_headers(spec), timeout=timeout)
+    health_paths = [spec.health_path]
+    is_letta = (
+        spec.kind == "letta"
+        or kind_of_instance(spec.id, config) == "letta"
+        or kind_of_instance(spec.id) == "letta"
+    )
+    if is_letta:
+        for alt in ("/v1/health", "/v1/health/", "/health"):
+            if alt not in health_paths:
+                health_paths.append(alt)
+
+    chosen_path = spec.health_path
+    health_url = f"{spec.base_url}{chosen_path}"
+    result = None
+    for path in health_paths:
+        chosen_path = path
+        health_url = f"{spec.base_url}{path}"
+        result = http_json("GET", health_url, headers=_auth_headers(spec), timeout=timeout)
+        if result.status in _UP or result.status in _AUTH:
+            break
+
     version = _extract_version(result.body)
 
     if result.status in _UP:
         # Cheap extra version probe when health has no useful body.
-        if version is None and spec.version_path != spec.health_path:
+        if version is None and spec.version_path != chosen_path:
             extra = http_json(
                 "GET",
                 f"{spec.base_url}{spec.version_path}",
@@ -1904,7 +1923,7 @@ def _check_health_spec(
             remote=spec.id,
             ok=True,
             state="UP",
-            detail=f"tcp {tcp_ms}ms · http {result.status} on {spec.health_path}",
+            detail=f"tcp {tcp_ms}ms · http {result.status} on {chosen_path}",
             http_status=result.status,
             version=version,
             latency_ms=result.latency_ms,
@@ -1926,7 +1945,7 @@ def _check_health_spec(
             remote=spec.id,
             ok=False,
             state="DEGRADED",
-            detail=f"tcp {tcp_ms}ms · http {result.status} on {spec.health_path}",
+            detail=f"tcp {tcp_ms}ms · http {result.status} on {chosen_path}",
             http_status=result.status,
             version=version,
             latency_ms=result.latency_ms,

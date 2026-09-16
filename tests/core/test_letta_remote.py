@@ -348,3 +348,95 @@ def test_session_id_passes_sanitize():
 def test_kind_aliases_memgpt():
     assert remotes_core.kind_of_instance("memgpt") == "letta"
     assert remotes_core.kind_of_instance("letta-30") == "letta"
+
+
+def test_iter_letta_chat_refuses_to_mint_without_agent_id(http_router):
+    host, port, _router = http_router
+    spec = remotes_core.load_remote(
+        "letta",
+        {"llm": {}, "remotes": {"letta": {"base_url": f"http://{host}:{port}", "api_key": "k"}}},
+    )
+
+    # Invariant: iter_letta_chat refuses to mint new agents without existing agent ID
+    for empty_sid in (None, "", "   "):
+        deltas = list(remotes_core.iter_letta_chat(spec, "hello", session_id=empty_sid))
+        assert len(deltas) == 1
+        delta, done, err = deltas[0]
+        assert delta == ""
+        assert done is True
+        assert "Pick a Letta agent" in err
+        assert "does not mint new agents" in err
+
+    deltas_no_target = list(remotes_core.iter_letta_chat(spec, "hello", session_id=None, target=""))
+    assert len(deltas_no_target) == 1
+    assert "does not mint new agents" in deltas_no_target[0][2]
+
+
+def test_tolerant_health_check_variations(http_router):
+    host, port, router = http_router
+    cfg = _cfg(host, port)
+
+    # 1. Standard /v1/health
+    router.routes.clear()
+    router.routes[("GET", "/v1/health")] = (200, {"status": "ok", "version": "1.0.0"})
+    h1 = remotes_core.check_health("letta", config=cfg, timeout=1.0)
+    assert h1.ok is True
+    assert h1.state == "UP"
+    assert "/v1/health" in h1.detail
+
+    # 2. Trailing slash /v1/health/
+    router.routes.clear()
+    router.routes[("GET", "/v1/health")] = (404, {"detail": "Not found"})
+    router.routes[("GET", "/v1/health/")] = (200, {"status": "ok", "version": "1.0.0-slash"})
+    h2 = remotes_core.check_health("letta", config=cfg, timeout=1.0)
+    assert h2.ok is True
+    assert h2.state == "UP"
+    assert "/v1/health/" in h2.detail
+
+    # 3. Root /health
+    router.routes.clear()
+    router.routes[("GET", "/v1/health")] = (404, {"detail": "Not found"})
+    router.routes[("GET", "/v1/health/")] = (404, {"detail": "Not found"})
+    router.routes[("GET", "/health")] = (200, {"status": "ok", "version": "1.0.0-root"})
+    h3 = remotes_core.check_health("letta", config=cfg, timeout=1.0)
+    assert h3.ok is True
+    assert h3.state == "UP"
+    assert "/health" in h3.detail
+
+
+def test_chat_letta_and_chat_remote_dispatch(http_router):
+    from swarm.core.remote_teams import chat_letta, chat_remote
+
+    host, port, router = http_router
+    base_url = f"http://{host}:{port}"
+
+    # Refuses to mint without agent id
+    with pytest.raises(RuntimeError, match="letta agent id is required"):
+        chat_letta(base_url, [{"role": "user", "content": "hi"}], agent_id="")
+
+    with pytest.raises(RuntimeError, match="letta agent id is required"):
+        chat_letta(base_url, "hi", agent_id="default")
+
+    # Happy path: posts to /v1/agents/{id}/messages
+    router.routes[("POST", f"/v1/agents/{AGENT_MEMORY}/messages")] = (
+        200,
+        {"messages": [{"message_type": "assistant_message", "content": "Hello from chat_letta!"}]},
+    )
+
+    reply = chat_letta(
+        base_url,
+        [{"role": "user", "content": "hello agent"}],
+        agent_id=AGENT_MEMORY,
+        api_key="secret-key",
+    )
+    assert reply == "Hello from chat_letta!"
+
+    # Via chat_remote dispatch with framework="letta"
+    reply2 = chat_remote(
+        base_url,
+        [{"role": "user", "content": "hello again"}],
+        model=AGENT_MEMORY,
+        framework="letta",
+        api_key="secret-key",
+    )
+    assert reply2 == "Hello from chat_letta!"
