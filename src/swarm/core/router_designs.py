@@ -163,6 +163,11 @@ def validate_design(raw: dict[str, Any]) -> dict[str, Any]:
             spec["specialty"] = "single personality"
     if not spec["description"]:
         spec["description"] = spec["specialty"]
+    from swarm.core.agent_mcp import mcp_fields_from_raw
+
+    mcp = mcp_fields_from_raw(raw, kind=kind)
+    if mcp:
+        spec.update(mcp)
     return spec
 
 
@@ -172,6 +177,14 @@ def upsert_design(raw: dict[str, Any]) -> dict[str, Any]:
     agents = [a for a in agents if a.get("agent_id") != spec["agent_id"]]
     agents.append(spec)
     save_designs(agents)
+    if spec.get("mcp_mode"):
+        from swarm.core.agent_mcp import register_mcp
+
+        register_mcp(
+            spec["agent_id"],
+            mode=spec.get("mcp_mode"),
+            mcp_servers=spec.get("mcp_servers"),
+        )
     if spec.get("kind") == "remote" and (spec.get("base_url") or spec.get("target")):
         try:
             from swarm.core.remote_teams import persist_remote_overlay

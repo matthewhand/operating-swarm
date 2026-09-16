@@ -123,6 +123,12 @@ from swarm.views.remotes_api import (
     RemotesListView,
 )
 from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
+from swarm.views.agent_mcp_api import (
+    AgentMcpAPIView,
+    AgentMcpToolDetailAPIView,
+    AgentMcpToolExecuteAPIView,
+    AgentMcpToolsAPIView,
+)
 from swarm.views.mailbox_acl_api import (
     MailboxAclAgentAPIView,
     MailboxAclRoleAPIView,
@@ -434,6 +440,30 @@ urlpatterns = [
     # REQ-65: agent-scoped settings (new chat per task). Not global Settings.
     path("v1/agents/<str:agent_id>/settings", AgentSettingsAPIView.as_view(), name="agent-settings-api-no-slash"),
     path("v1/agents/<str:agent_id>/settings/", AgentSettingsAPIView.as_view(), name="agent-settings-api"),
+    path("v1/agents/<str:agent_id>/mcp", AgentMcpAPIView.as_view(), name="agent-mcp-api-no-slash"),
+    path("v1/agents/<str:agent_id>/mcp/", AgentMcpAPIView.as_view(), name="agent-mcp-api"),
+    path("v1/agents/<str:agent_id>/mcp/tools", AgentMcpToolsAPIView.as_view(), name="agent-mcp-tools-api-no-slash"),
+    path("v1/agents/<str:agent_id>/mcp/tools/", AgentMcpToolsAPIView.as_view(), name="agent-mcp-tools-api"),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>",
+        AgentMcpToolDetailAPIView.as_view(),
+        name="agent-mcp-tool-detail-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>/",
+        AgentMcpToolDetailAPIView.as_view(),
+        name="agent-mcp-tool-detail-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>/execute",
+        AgentMcpToolExecuteAPIView.as_view(),
+        name="agent-mcp-tool-execute-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>/execute/",
+        AgentMcpToolExecuteAPIView.as_view(),
+        name="agent-mcp-tool-execute-api",
+    ),
     path("v1/agents/<str:agent_id>/suggestions", AgentSuggestionsAPIView.as_view(), name="agent-suggestions-api-no-slash"),
     path("v1/agents/<str:agent_id>/suggestions/", AgentSuggestionsAPIView.as_view(), name="agent-suggestions-api"),
     path("v1/agents/<str:agent_id>/sessions", AgentTaskSessionAPIView.as_view(), name="agent-task-session-api-no-slash"),

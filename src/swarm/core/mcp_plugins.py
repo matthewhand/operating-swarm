@@ -705,6 +705,21 @@ def _tools_from_server(name: str, spec: Mapping[str, Any]) -> list[Any]:
     return tools
 
 
+def tools_from_server(name: str, spec: Mapping[str, Any]) -> list[Any]:
+    """Public wrapper used by per-agent MCP modes (#142)."""
+    return _tools_from_server(name, spec)
+
+
+def call_plugin_mcp_tool(
+    tool_name: str,
+    spec: Mapping[str, Any],
+    arguments: Mapping[str, Any] | None = None,
+) -> Any:
+    """Execute one MCP tool against ``spec``. Sync; tests inject mocks instead."""
+    fn = _make_tool_caller(tool_name, spec)
+    return _run_async(fn(**dict(arguments or {})))
+
+
 def attach_plugin_mcp_tools(blueprint: Any, config: Mapping[str, Any] | None) -> list[str]:
     """Attach tools from enabled MCP servers. Disabled / missing servers add nothing."""
     attached: list[str] = []
