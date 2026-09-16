@@ -124,4 +124,27 @@ describe('GenerationsPanel (#224)', () => {
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
     expect(tabs[1]).toHaveAttribute('aria-selected', 'false')
   })
+
+  it('renders a top-left >> conceal button that calls onClose', () => {
+    const onClose = vi.fn()
+    renderPanel({ onClose })
+    const conceal = screen.getByRole('button', { name: 'Conceal sidepane' })
+    expect(conceal).toHaveAttribute('title', 'Conceal sidepane')
+    fireEvent.click(conceal)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('conceals on pointerdown outside the panel', () => {
+    const onClose = vi.fn()
+    renderPanel({ onClose })
+    fireEvent.pointerDown(document.body)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not conceal when clicking inside the panel', () => {
+    const onClose = vi.fn()
+    renderPanel({ onClose })
+    fireEvent.pointerDown(screen.getByTestId('generations-panel'))
+    expect(onClose).not.toHaveBeenCalled()
+  })
 })

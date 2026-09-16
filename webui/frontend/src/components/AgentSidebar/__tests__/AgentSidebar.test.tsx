@@ -579,6 +579,22 @@ describe('SidebarHeader', () => {
     expect(handleToggle).toHaveBeenCalledTimes(1)
   })
 
+  it('renders a mono logo conceal button that toggles the expanded sidebar', () => {
+    const handleToggle = vi.fn()
+    render(
+      <SidebarHeader
+        density="comfortable"
+        isOpen={true}
+        onToggleOpen={handleToggle}
+        onSelectDensity={vi.fn()}
+      />,
+    )
+    const conceal = screen.getByRole('button', { name: 'Conceal sidebar' })
+    expect(conceal).toHaveAttribute('title', 'Conceal sidebar')
+    fireEvent.click(conceal)
+    expect(handleToggle).toHaveBeenCalledTimes(1)
+  })
+
   it('lets you leave icons-only density via compact and comfortable buttons', () => {
     const handleToggle = vi.fn()
     const handleDensity = vi.fn()

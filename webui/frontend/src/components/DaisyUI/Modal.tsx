@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, useId, useState } from 'react';
 import { Alert } from './Alert';
 import { LoadingButton } from './Loading';
+import { SidepaneConcealButton } from '../SidepaneConceal';
 
 /**
  * Modal component using DaisyUI classes.
@@ -111,8 +112,13 @@ export const Modal = ({
           data-testid="os-overlay-chrome"
           onClick={(e) => e.stopPropagation()}
         >
-          {title && (
-            <h3 id={titleId} className="font-bold text-lg mb-4">{title}</h3>
+          {(title || placement === 'end') && (
+            <div className={`flex items-center gap-2 ${title ? 'mb-4' : 'mb-2'}`}>
+              {placement === 'end' ? <SidepaneConcealButton onClick={onClose} /> : null}
+              {title ? (
+                <h3 id={titleId} className="font-bold text-lg min-w-0 flex-1">{title}</h3>
+              ) : null}
+            </div>
           )}
           <div className="modal-content">
             {children}
