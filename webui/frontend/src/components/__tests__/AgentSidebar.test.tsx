@@ -90,6 +90,18 @@ function dragTo(source: Element, target: Element) {
   fireEvent.dragEnd(source, { dataTransfer })
 }
 
+/** Empty pin grid is unmounted until dragStart; reveal then drop. */
+function dragOntoFavGrid(source: Element) {
+  const dataTransfer = mockDataTransfer()
+  fireEvent.dragStart(source, { dataTransfer })
+  const grid = screen.getByTestId('agent-fav-grid')
+  fireEvent.dragEnter(grid, { dataTransfer })
+  fireEvent.dragOver(grid, { dataTransfer })
+  fireEvent.drop(grid, { dataTransfer })
+  fireEvent.dragEnd(source, { dataTransfer })
+  return grid
+}
+
 function mockFetch(extraBlueprints = blueprints, extraRosters = rosters) {
   return vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
     const url = String(input)
@@ -948,17 +960,18 @@ describe('AgentSidebar Grok rail', () => {
     first.unmount()
     renderSidebar()
     const listAfter = await screen.findByRole('navigation', { name: 'Agent list' })
-    const gridAfter = screen.getByLabelText('Pinned agents')
     const unhideTrigger = await screen.findByRole('button', {
       name: 'Hidden Bots 3 (3 hidden)',
     })
-    expect(within(gridAfter).queryByRole('link', { name: 'Codey' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Pinned agents')).not.toBeInTheDocument()
     expect(within(listAfter).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
 
     fireEvent.click(unhideTrigger)
     await unhideFromSearch('Codey', 'codey')
     await waitFor(() => {
-      expect(within(gridAfter).getByRole('link', { name: 'Codey' })).toBeInTheDocument()
+      expect(
+        within(screen.getByLabelText('Pinned agents')).getByRole('link', { name: 'Codey' }),
+      ).toBeInTheDocument()
     })
     expect(within(listAfter).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([
@@ -976,7 +989,7 @@ describe('AgentSidebar Grok rail', () => {
     await waitFor(() => {
       expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     })
-    expect(within(screen.getByLabelText('Pinned agents')).queryByRole('link', { name: 'Codey' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Pinned agents')).not.toBeInTheDocument()
   })
 
   it('lists persisted Herdr members (kind=herdr) so Teams/sidepane can pick them', async () => {
@@ -1135,8 +1148,10 @@ describe('AgentSidebar Grok rail', () => {
     expect(addBtn.closest('.os-rail-search-row')).toBeInTheDocument()
 
     // Favourites row/grid must not contain the add button
-    const favGrid = screen.getByTestId('agent-fav-grid')
-    expect(within(favGrid).queryByTestId('add-agent-button')).toBeNull()
+    const favGrid = screen.queryByTestId('agent-fav-grid')
+    if (favGrid) {
+      expect(within(favGrid).queryByTestId('add-agent-button')).toBeNull()
+    }
 
     // Click + button to open wizard
     fireEvent.click(addBtn)
@@ -1624,21 +1639,20 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     ])
   })
 
-  it('keeps an empty favourites grid bare with a quiet + until a drag starts', async () => {
+  it('hides the favourites grid until a drag starts', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
-    const grid = screen.getByTestId('agent-fav-grid')
-    expect(grid).toHaveClass('os-fav-grid--bare')
-    expect(grid).toHaveAttribute('data-fav-empty', 'true')
-    expect(screen.getByTestId('fav-empty-hint')).toHaveTextContent('+')
-    expect(within(grid).queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('agent-fav-grid')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Pinned agents')).not.toBeInTheDocument()
 
     const dt = mockDataTransfer()
     fireEvent.dragStart(codey, { dataTransfer: dt })
-    expect(grid).not.toHaveClass('os-fav-grid--bare')
+    const grid = screen.getByTestId('agent-fav-grid')
+    expect(grid).toHaveAttribute('data-fav-empty', 'true')
     expect(screen.getByTestId('fav-empty-hint')).toHaveTextContent('drop')
     fireEvent.dragEnd(codey, { dataTransfer: dt })
+    expect(screen.queryByTestId('agent-fav-grid')).not.toBeInTheDocument()
   })
 
   it('drops a row onto the 2-up grid as a named large avatar and removes it from the list', async () => {
@@ -1646,11 +1660,10 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
     const stewie = within(list).getByRole('link', { name: /Stewie/ })
-    const grid = screen.getByTestId('agent-fav-grid')
-    expect(grid).toHaveAttribute('data-fav-layout', '2-up')
     expect(screen.queryByText(/Favourites/i)).not.toBeInTheDocument()
 
-    dragTo(codey, grid)
+    const grid = dragOntoFavGrid(codey)
+    expect(grid).toHaveAttribute('data-fav-layout', '2-up')
     const first = await within(grid).findByRole('link', { name: 'Codey' })
     expect(first.querySelector('.os-agent-avatar--lg')).toBeTruthy()
     expect(first.querySelector('.os-fav-tile__name')).toHaveTextContent('Codey')
@@ -1691,8 +1704,7 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const support = await within(list).findByRole('link', { name: /Support/ })
     const codey = within(list).getByRole('link', { name: /Codey/ })
-    const grid = screen.getByTestId('agent-fav-grid')
-    dragTo(support, grid)
+    const grid = dragOntoFavGrid(support)
     dragTo(codey, grid)
 
     const supportTile = await within(grid).findByRole('link', { name: 'Support' })
@@ -1713,8 +1725,7 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
     const stewie = within(list).getByRole('link', { name: /Stewie/ })
-    const grid = screen.getByTestId('agent-fav-grid')
-    dragTo(codey, grid)
+    const grid = dragOntoFavGrid(codey)
     dragTo(stewie, grid)
 
     const codeyTile = await within(grid).findByRole('link', { name: 'Codey' })
@@ -1729,8 +1740,7 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
-    const grid = screen.getByTestId('agent-fav-grid')
-    dragTo(codey, grid)
+    const grid = dragOntoFavGrid(codey)
 
     const tile = await within(grid).findByRole('link', { name: 'Codey' })
     expect(within(list).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
@@ -1739,7 +1749,7 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     dragTo(tile, drop)
 
     await waitFor(() => {
-      expect(within(grid).queryByRole('link', { name: 'Codey' })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('agent-fav-grid')).not.toBeInTheDocument()
     })
     expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     expect(within(list).getAllByRole('link', { name: /Codey/ })).toHaveLength(1)
@@ -1750,14 +1760,13 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
-    const grid = screen.getByTestId('agent-fav-grid')
-    dragTo(codey, grid)
+    const grid = dragOntoFavGrid(codey)
     const tile = await within(grid).findByRole('link', { name: 'Codey' })
     const stewie = within(list).getByRole('link', { name: /Stewie/ })
     dragTo(tile, stewie)
 
     await waitFor(() => {
-      expect(within(grid).queryByRole('link', { name: 'Codey' })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('agent-fav-grid')).not.toBeInTheDocument()
     })
     expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
@@ -1768,8 +1777,7 @@ describe('AgentSidebar favourites grid (REQ-94)', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
     const stewie = within(list).getByRole('link', { name: /Stewie/ })
-    const grid = screen.getByTestId('agent-fav-grid')
-    dragTo(codey, grid)
+    const grid = dragOntoFavGrid(codey)
     dragTo(stewie, grid)
 
     let tiles = within(grid).getAllByRole('link')
@@ -1900,10 +1908,10 @@ describe('AgentSidebar favourite kind hrefs (REQ-171B #608)', () => {
     const team = await within(list).findByRole('link', { name: /Demo \(team\)/ })
     const remote = await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ })
     const herdr = await within(list).findByRole('link', { name: /w3:p1/ })
-    const grid = screen.getByTestId('agent-fav-grid')
 
     fireEvent.contextMenu(codey)
     fireEvent.click(await screen.findByRole('menuitem', { name: /^Pin$/i }))
+    const grid = screen.getByTestId('agent-fav-grid')
     fireEvent.contextMenu(team)
     fireEvent.click(await screen.findByRole('menuitem', { name: /^Pin$/i }))
     fireEvent.contextMenu(remote)

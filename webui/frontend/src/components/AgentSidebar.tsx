@@ -2802,14 +2802,13 @@ export default function AgentSidebar({
           </button>
         </div>
 
+        {visiblePins.length > 0 ||
+        dropActive ||
+        Boolean(draggingId && !isPinnedId(draggingId)) ? (
         <div
           className={`os-fav-grid ${dropActive ? 'os-fav-grid--active' : ''} ${
-            visiblePins.length === 0 &&
-            !dropActive &&
-            !(draggingId && !isPinnedId(draggingId))
-              ? 'os-fav-grid--bare'
-              : ''
-          } ${visiblePins.length === 0 ? 'os-fav-grid--empty' : ''}`}
+            visiblePins.length === 0 ? 'os-fav-grid--empty' : ''
+          }`}
             aria-label="Pinned agents"
             data-fav-layout="2-up"
             data-testid="agent-fav-grid"
@@ -2831,7 +2830,7 @@ export default function AgentSidebar({
                 className="os-fav-grid__hint"
                 data-testid="fav-empty-hint"
               >
-                {dropActive || (draggingId && !isPinnedId(draggingId)) ? 'drop' : '+'}
+                drop
               </div>
             ) : null}
           {visiblePins.map((pin, pinIdx) => {
@@ -2953,7 +2952,7 @@ export default function AgentSidebar({
             )
           })}
           </div>
-
+        ) : null}
 
         <div className="relative min-h-0 flex-1 flex flex-col">
           <nav

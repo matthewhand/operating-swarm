@@ -131,7 +131,7 @@ test('Grok chrome is left rail + chat, not a top-nav product shell', async ({ pa
   await expect(rail.getByRole('link', { name: /Safety/ })).toHaveCount(0)
   await expect(rail.getByRole('link', { name: /Skeptic/ })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Hidden Bots 2' })).toBeVisible()
-  await expect(page.getByLabel('Pinned agents')).toBeVisible()
+  await expect(page.getByLabel('Pinned agents')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Plugins/i })).toBeVisible()
   await expect(page.getByLabel('Hostname')).toBeVisible()
 
