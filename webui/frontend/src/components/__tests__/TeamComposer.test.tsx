@@ -17,6 +17,29 @@ const AGENTS: TeamAgent[] = [
   },
 ]
 
+let agentsFixture: TeamAgent[] = AGENTS
+
+function manyKindAgents(): TeamAgent[] {
+  const api = Array.from({ length: 16 }, (_, i) => ({
+    id: `api-${i}`,
+    name: `API Agent ${i}`,
+    kind: 'api' as const,
+    source: `blueprint:api-${i}`,
+  }))
+  return [
+    ...api,
+    { id: 'grok', name: 'grok', kind: 'cli', source: 'cli:grok' },
+    { id: 'claude', name: 'claude', kind: 'cli', source: 'cli:claude' },
+    {
+      id: 'acp',
+      name: 'ACP harness',
+      kind: 'remote',
+      source: 'placeholder:remote:acp',
+      placeholder: true,
+    },
+  ]
+}
+
 function mockDataTransfer(initial: Record<string, string> = {}) {
   const store = { ...initial }
   return {
@@ -43,6 +66,7 @@ function renderComposer() {
 
 describe('TeamComposer first-launch overlay', () => {
   beforeEach(() => {
+    agentsFixture = AGENTS
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -51,7 +75,7 @@ describe('TeamComposer first-launch overlay', () => {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ object: 'list', data: AGENTS }),
+            json: async () => ({ object: 'list', data: agentsFixture }),
           } as Response
         }
         if (url.includes('/v1/team-rosters')) {
@@ -278,5 +302,54 @@ describe('TeamComposer first-launch overlay', () => {
     const available = await screen.findByRole('list', { name: /available agents list/i })
     const row = within(available).getByText('Jeeves').closest('[draggable]')
     expect(row).toHaveAttribute('draggable', 'true')
+  })
+
+  it('uses one scroller for available agents; kind lists stay in document flow', async () => {
+    renderComposer()
+    const scroller = await screen.findByTestId('available-agents-scroller')
+    expect(scroller).toHaveClass('overflow-y-auto')
+    expect(scroller).toHaveClass('max-h-[22rem]')
+    expect(scroller).not.toHaveClass('os-scrollable-picker-list')
+
+    for (const kind of ['api', 'cli', 'remote'] as const) {
+      const group = screen.getByTestId(`available-agents-group-${kind}`)
+      const list = group.querySelector('ul')
+      expect(list).toBeTruthy()
+      expect(list).not.toHaveClass('os-scrollable-picker-list')
+      expect(list).not.toHaveClass('overflow-y-auto')
+      expect(list).not.toHaveClass('max-h-40')
+    }
+
+    const headers = ['api', 'cli', 'remote'].map((kind) =>
+      screen.getByTestId(`available-agents-kind-${kind}`),
+    )
+    expect(headers[0]).toHaveTextContent(/^API\s*\(1\)/)
+    expect(headers[1]).toHaveTextContent(/^CLI\s*\(1\)/)
+    expect(headers[2]).toHaveTextContent(/^remote\s*\(1\)/)
+    expect(
+      headers[0].compareDocumentPosition(headers[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      headers[1].compareDocumentPosition(headers[2]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('keeps CLI and Remote after a long API list and still Adds', async () => {
+    agentsFixture = manyKindAgents()
+    renderComposer()
+    const available = await screen.findByRole('list', { name: /available agents list/i })
+    expect(screen.getByTestId('available-agents-kind-api')).toHaveTextContent('(16)')
+    expect(screen.getByTestId('available-agents-kind-cli')).toHaveTextContent('(2)')
+    expect(screen.getByTestId('available-agents-kind-remote')).toHaveTextContent('(1)')
+    expect(within(available).getByText('API Agent 0')).toBeInTheDocument()
+    expect(within(available).getByText('grok')).toBeInTheDocument()
+    expect(within(available).getByText('ACP harness')).toBeInTheDocument()
+
+    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
+    const roster = await screen.findByRole('list', { name: /roster members/i })
+    expect(within(roster).getByText('API Agent 0')).toBeInTheDocument()
+    const grokRow = within(available).getByText('grok').closest('li') as HTMLElement
+    fireEvent.click(within(grokRow).getByRole('button', { name: 'Add' }))
+    expect(within(roster).getByText('grok')).toBeInTheDocument()
   })
 })

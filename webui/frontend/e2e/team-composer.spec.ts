@@ -1,4 +1,6 @@
+import path from 'node:path'
 import { test, expect } from '@playwright/test'
+import { artifactsDir } from './helpers/artifacts'
 
 const AGENTS = {
   object: 'list',
@@ -15,12 +17,36 @@ const AGENTS = {
   ],
 }
 
-async function stubComposerApis(page: import('@playwright/test').Page) {
+const LONG_AGENTS = {
+  object: 'list',
+  data: [
+    ...Array.from({ length: 16 }, (_, i) => ({
+      id: `api-${i}`,
+      name: `API Agent ${i}`,
+      kind: 'api',
+      source: `blueprint:api-${i}`,
+      placeholder: false,
+    })),
+    { id: 'grok', name: 'grok', kind: 'cli', source: 'cli:grok', placeholder: false },
+    { id: 'claude', name: 'claude', kind: 'cli', source: 'cli:claude', placeholder: false },
+    {
+      id: 'acp',
+      name: 'ACP harness',
+      kind: 'remote',
+      source: 'placeholder:remote:acp',
+      placeholder: true,
+    },
+  ],
+}
+
+type AgentList = typeof AGENTS
+
+async function stubComposerApis(page: import('@playwright/test').Page, agents: AgentList = AGENTS) {
   await page.route('**/v1/team-agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(AGENTS),
+      body: JSON.stringify(agents),
     })
   })
   await page.route('**/v1/team-rosters**', async (route) => {
@@ -136,3 +162,141 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
 
   expect(jsErrors, `uncaught JS errors: ${jsErrors.join(' | ')}`).toHaveLength(0)
 })
+
+type Box = { top: number; bottom: number; left: number; right: number }
+
+function boxesOverlap(a: Box, b: Box, epsilon = 1): boolean {
+  return (
+    a.left < b.right - epsilon &&
+    b.left < a.right - epsilon &&
+    a.top < b.bottom - epsilon &&
+    b.top < a.bottom - epsilon
+  )
+}
+
+async function visibleInScroller(
+  page: import('@playwright/test').Page,
+  testId: string,
+): Promise<Box | null> {
+  return page.evaluate((id) => {
+    const el = document.querySelector(`[data-testid="${id}"]`)
+    const scroller = document.querySelector('[data-testid="available-agents-scroller"]')
+    if (!(el instanceof HTMLElement) || !(scroller instanceof HTMLElement)) return null
+    const a = el.getBoundingClientRect()
+    const b = scroller.getBoundingClientRect()
+    const top = Math.max(a.top, b.top)
+    const bottom = Math.min(a.bottom, b.bottom)
+    const left = Math.max(a.left, b.left)
+    const right = Math.min(a.right, b.right)
+    if (bottom - top < 1 || right - left < 1) return null
+    return { top, bottom, left, right }
+  }, testId)
+}
+
+const VIEWPORTS = [
+  { name: 'desktop', width: 1280, height: 800 },
+  { name: 'mobile', width: 375, height: 812 },
+] as const
+
+for (const viewport of VIEWPORTS) {
+  test(`#100 available agents kinds do not overlap at ${viewport.name} ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await stubComposerApis(page, LONG_AGENTS)
+    await page.goto('/')
+    // Rail Teams control is off-canvas on narrow viewports; open via the same
+    // event the rail button dispatches so the pane layout is what we assert.
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('swarm:open-team-composer'))
+    })
+    await expect(page.getByRole('heading', { name: /new team/i })).toBeVisible()
+
+    const scroller = page.getByTestId('available-agents-scroller')
+    await scroller.scrollIntoViewIfNeeded()
+    await expect(scroller).toBeVisible()
+    await expect(page.getByTestId('available-agents-kind-api')).toHaveText(/API\s*\(16\)/)
+    await expect(page.getByTestId('available-agents-kind-cli')).toHaveText(/CLI\s*\(2\)/)
+    await expect(page.getByTestId('available-agents-kind-remote')).toHaveText(/remote\s*\(1\)/)
+
+    const overflow = await scroller.evaluate((el) => {
+      const style = getComputedStyle(el)
+      const lists = [...el.querySelectorAll('[data-testid^="available-agents-group-"] ul')].map(
+        (ul) => getComputedStyle(ul).overflowY,
+      )
+      return { pane: style.overflowY, lists }
+    })
+    expect(overflow.pane).toBe('auto')
+    expect(overflow.lists).toHaveLength(3)
+    for (const value of overflow.lists) {
+      expect(value === 'visible' || value === 'clip').toBeTruthy()
+    }
+
+    const shotDir = artifactsDir()
+    await page.getByRole('dialog', { name: /new team/i }).screenshot({
+      path: path.join(shotDir, `issue-100-available-${viewport.name}-top.png`),
+    })
+
+    const kinds = ['api', 'cli', 'remote'] as const
+    const topBoxes = []
+    for (const kind of kinds) {
+      topBoxes.push(await visibleInScroller(page, `available-agents-kind-${kind}`))
+    }
+    const visibleTop = topBoxes.filter((box): box is Box => box !== null)
+    for (let i = 0; i < visibleTop.length; i += 1) {
+      for (let j = i + 1; j < visibleTop.length; j += 1) {
+        expect(
+          boxesOverlap(visibleTop[i], visibleTop[j]),
+          `${viewport.name}: kind headers overlap before scroll`,
+        ).toBe(false)
+      }
+    }
+
+    await scroller.evaluate((el) => {
+      el.scrollTop = Math.min(120, el.scrollHeight)
+    })
+    const apiRow = scroller.getByText('API Agent 0')
+    const cliHeader = page.getByTestId('available-agents-kind-cli')
+    if ((await apiRow.isVisible()) && (await cliHeader.isVisible())) {
+      const apiBox = await apiRow.boundingBox()
+      const cliBox = await cliHeader.boundingBox()
+      if (apiBox && cliBox) {
+        expect(
+          boxesOverlap(apiBox, cliBox),
+          `${viewport.name}: scrolling API covers CLI`,
+        ).toBe(false)
+      }
+    }
+
+    await scroller.evaluate((el) => {
+      el.scrollTop = el.scrollHeight
+    })
+    await expect(page.getByTestId('available-agents-kind-remote')).toBeVisible()
+    await expect(scroller.getByText('ACP harness')).toBeVisible()
+    const bottomBoxes = []
+    for (const kind of kinds) {
+      bottomBoxes.push(await visibleInScroller(page, `available-agents-kind-${kind}`))
+    }
+    const visibleBottom = bottomBoxes.filter((box): box is Box => box !== null)
+    for (let i = 0; i < visibleBottom.length; i += 1) {
+      for (let j = i + 1; j < visibleBottom.length; j += 1) {
+        expect(
+          boxesOverlap(visibleBottom[i], visibleBottom[j]),
+          `${viewport.name}: kind headers overlap after scroll`,
+        ).toBe(false)
+      }
+    }
+
+    await page.getByRole('dialog', { name: /new team/i }).screenshot({
+      path: path.join(shotDir, `issue-100-available-${viewport.name}-scrolled.png`),
+    })
+    await testInfo.attach(`issue-100-${viewport.name}`, {
+      path: path.join(shotDir, `issue-100-available-${viewport.name}-scrolled.png`),
+      contentType: 'image/png',
+    })
+
+    await scroller.getByRole('button', { name: 'Add' }).last().click()
+    const roster = page.getByRole('list', { name: /roster members/i })
+    await expect(roster.getByText('ACP harness')).toBeVisible()
+  })
+}
