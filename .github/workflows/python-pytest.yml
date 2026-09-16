@@ -7,37 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: webui/frontend/package-lock.json
-
-      - name: Build ADR-001 SPA (make frontend)
-        run: ./scripts/build_frontend.sh
-
-      - name: Confirm dist/index.html
-        run: test -f webui/frontend/dist/index.html
-
-      - name: Install Playwright Chromium
-        working-directory: webui/frontend
-        run: npx playwright install --with-deps chromium
-
-      - name: Playwright chat-send mock inference (REQ-13)
-        working-directory: webui/frontend
-        run: npx playwright test e2e/chat-send.spec.ts
-        env:
-          CI: true
-
-  # REQ-171C-7 / C-H9 / #616: SPA contract tests must gate PRs. Visual
-  # golden-journey stays HOLD (REQ-89) — do not recover Vitest by flipping
-  # visual-regression.yml. Source-grep REQ locks are not this job.
+  # Playwright e2e and per-REQ own-diff workflows are workflow_dispatch only
+  # (Actions budget / #250). Vitest remains the SPA PR gate (REQ-171C-7).
   vitest:
     runs-on: ubuntu-latest
     steps:
@@ -62,9 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # Support the current stable line only: floor 3.12 + latest stable 3.13.
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12"]
 
     steps:
       - uses: actions/checkout@v4

@@ -1,67 +1,7 @@
 name: REQ-88 provider rate limits
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/provider_rate_limit.py"
-      - "src/swarm/core/config_ownership.py"
-      - "src/swarm/core/transcript_roles.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/rate_limits_api.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/urls.py"
-      - "tests/core/test_provider_rate_limit.py"
-      - "tests/core/test_req88_consumer_queue.py"
-      - "tests/core/test_config_ownership.py"
-      - "tests/views/test_rate_limits_api.py"
-      - "webui/frontend/src/lib/providerRateLimits.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/chatWs.ts"
-      - "webui/frontend/src/lib/transcriptReconstruct.ts"
-      - "webui/frontend/src/lib/__tests__/providerRateLimits.test.ts"
-      - "webui/frontend/src/lib/__tests__/chatWs.test.ts"
-      - "webui/frontend/src/components/ProviderRateLimitFields.tsx"
-      - "webui/frontend/src/components/RateLimitStatusLine.tsx"
-      - "webui/frontend/src/components/CliAgentsSettingsPane.tsx"
-      - "webui/frontend/src/components/SettingsSheet.tsx"
-      - "webui/frontend/src/components/__tests__/ProviderRateLimitFields.test.tsx"
-      - "webui/frontend/src/components/__tests__/RateLimitStatusLine.test.tsx"
-      - "webui/frontend/src/components/__tests__/SettingsSheet.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/App.tsx"
-      - "webui/frontend/src/index.css"
-      - ".github/workflows/req88-provider-rate-limits.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/provider_rate_limit.py"
-      - "src/swarm/core/config_ownership.py"
-      - "src/swarm/core/transcript_roles.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/rate_limits_api.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/urls.py"
-      - "tests/core/test_provider_rate_limit.py"
-      - "tests/core/test_req88_consumer_queue.py"
-      - "tests/core/test_config_ownership.py"
-      - "tests/views/test_rate_limits_api.py"
-      - "webui/frontend/src/lib/providerRateLimits.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/chatWs.ts"
-      - "webui/frontend/src/lib/transcriptReconstruct.ts"
-      - "webui/frontend/src/lib/__tests__/providerRateLimits.test.ts"
-      - "webui/frontend/src/lib/__tests__/chatWs.test.ts"
-      - "webui/frontend/src/components/ProviderRateLimitFields.tsx"
-      - "webui/frontend/src/components/RateLimitStatusLine.tsx"
-      - "webui/frontend/src/components/CliAgentsSettingsPane.tsx"
-      - "webui/frontend/src/components/SettingsSheet.tsx"
-      - "webui/frontend/src/components/__tests__/ProviderRateLimitFields.test.tsx"
-      - "webui/frontend/src/components/__tests__/RateLimitStatusLine.test.tsx"
-      - "webui/frontend/src/components/__tests__/SettingsSheet.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/App.tsx"
-      - "webui/frontend/src/index.css"
-      - ".github/workflows/req88-provider-rate-limits.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

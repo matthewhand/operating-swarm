@@ -1,35 +1,7 @@
 name: REQ-209 rail sections
 
 on:
-  pull_request:
-    paths:
-      - "webui/frontend/src/lib/railSections.ts"
-      - "webui/frontend/src/lib/__tests__/railSections.test.ts"
-      - "webui/frontend/src/lib/railContextMenu.ts"
-      - "webui/frontend/src/lib/__tests__/railContextMenu.test.ts"
-      - "webui/frontend/src/components/RailContextMenu.tsx"
-      - "webui/frontend/src/components/RailSectionHeader.tsx"
-      - "webui/frontend/src/components/AgentSidebar.tsx"
-      - "webui/frontend/src/components/__tests__/RailContextMenu.test.tsx"
-      - "webui/frontend/src/components/__tests__/RailSections.test.tsx"
-      - "webui/frontend/src/index.css"
-      - "tests/unit/test_req209_rail_sections.py"
-      - ".github/workflows/req209-rail-sections.yml"
-  push:
-    branches: [main]
-    paths:
-      - "webui/frontend/src/lib/railSections.ts"
-      - "webui/frontend/src/lib/__tests__/railSections.test.ts"
-      - "webui/frontend/src/lib/railContextMenu.ts"
-      - "webui/frontend/src/lib/__tests__/railContextMenu.test.ts"
-      - "webui/frontend/src/components/RailContextMenu.tsx"
-      - "webui/frontend/src/components/RailSectionHeader.tsx"
-      - "webui/frontend/src/components/AgentSidebar.tsx"
-      - "webui/frontend/src/components/__tests__/RailContextMenu.test.tsx"
-      - "webui/frontend/src/components/__tests__/RailSections.test.tsx"
-      - "webui/frontend/src/index.css"
-      - "tests/unit/test_req209_rail_sections.py"
-      - ".github/workflows/req209-rail-sections.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

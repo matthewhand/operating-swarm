@@ -1,39 +1,7 @@
 name: REQ-162 mailbox ACL
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/agent_mailbox_acl.py"
-      - "src/swarm/views/mailbox_acl_api.py"
-      - "src/swarm/urls.py"
-      - "webui/frontend/src/components/MailboxAclEditor.tsx"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/lib/mailboxAcl.ts"
-      - "tests/core/test_agent_mailbox.py"
-      - "tests/core/test_agent_mailbox_acl.py"
-      - "tests/views/test_mailbox_acl_api.py"
-      - "tests/unit/test_req162_mailbox_acl.py"
-      - "docs/adr/009-peer-mailbox.md"
-      - "docs/PEER_MAILBOX.md"
-      - ".github/workflows/req162-mailbox-acl.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/agent_mailbox_acl.py"
-      - "src/swarm/views/mailbox_acl_api.py"
-      - "src/swarm/urls.py"
-      - "webui/frontend/src/components/MailboxAclEditor.tsx"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/lib/mailboxAcl.ts"
-      - "tests/core/test_agent_mailbox.py"
-      - "tests/core/test_agent_mailbox_acl.py"
-      - "tests/views/test_mailbox_acl_api.py"
-      - "tests/unit/test_req162_mailbox_acl.py"
-      - "docs/adr/009-peer-mailbox.md"
-      - "docs/PEER_MAILBOX.md"
-      - ".github/workflows/req162-mailbox-acl.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

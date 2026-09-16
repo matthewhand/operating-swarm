@@ -1,47 +1,7 @@
 name: Issue #219 CoS topology
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/cos_topology.py"
-      - "src/swarm/core/agent_sections.py"
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/agent_mailbox_acl.py"
-      - "src/swarm/core/agent_roles.py"
-      - "src/swarm/core/roles/adapters.py"
-      - "src/swarm/core/blueprint_base.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/views/mailbox_acl_api.py"
-      - "tests/core/test_cos_topology.py"
-      - "tests/core/test_agent_sections.py"
-      - "tests/core/test_agent_mailbox_acl.py"
-      - "tests/views/test_mailbox_acl_api.py"
-      - "tests/unit/test_issue219_cos_topology.py"
-      - "docs/COS_TOPOLOGY.md"
-      - "docs/PEER_MAILBOX.md"
-      - ".github/workflows/issue219-cos-topology.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/cos_topology.py"
-      - "src/swarm/core/agent_sections.py"
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/agent_mailbox_acl.py"
-      - "src/swarm/core/agent_roles.py"
-      - "src/swarm/core/roles/adapters.py"
-      - "src/swarm/core/blueprint_base.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/views/mailbox_acl_api.py"
-      - "tests/core/test_cos_topology.py"
-      - "tests/core/test_agent_sections.py"
-      - "tests/core/test_agent_mailbox_acl.py"
-      - "tests/views/test_mailbox_acl_api.py"
-      - "tests/unit/test_issue219_cos_topology.py"
-      - "docs/COS_TOPOLOGY.md"
-      - "docs/PEER_MAILBOX.md"
-      - ".github/workflows/issue219-cos-topology.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

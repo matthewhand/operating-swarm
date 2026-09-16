@@ -46,19 +46,22 @@ Pytest is configured in `pyproject.toml` (Django settings, asyncio mode,
 test paths). Some suites are skipped without API keys or optional services;
 that is expected.
 
-**CI goal is green `main`.** The `Python Tests` workflow (3.10 / 3.11 /
-3.12) must collect and pass on tip of `main`. The sibling `vitest` job
-runs `npm ci` then `npm test` in `webui/frontend` (REQ-171C-7 / #616).
-Own-diff triage is still the first question when a PR is red (did *this*
-change break it?), but that is not permission to live with a permanent
-pytest collection, Vitest, or matrix red. Do not skip or weaken unrelated
-tests to paper over a product/export mismatch. Do not treat `test_req*`
-source greps as SPA coverage.
+**CI is a thin default suite** (Actions budget / #250). On every PR/`main`
+push: `Python Tests` (pytest **3.12** + Vitest). `tsc-ratchet` only when
+`webui/frontend/**` changes. Per-REQ own-diff workflows and Playwright
+visual/e2e are **`workflow_dispatch` only** — not on every PR.
+
+If a job fails in 2–7s with **no steps and no logs**, that is an Actions
+account block (spending limit / payment), not a code failure. Prefer
+cutting workflows over raising the spend cap.
+
+Do not skip or weaken unrelated tests to paper over a product/export
+mismatch. Do not treat `test_req*` source greps as SPA coverage.
 
 **Intentional HOLDs** (skipped on purpose; not unexplained red):
 
-- `golden-journey` in `.github/workflows/visual-regression.yml` (`if: false`)
-  — REQ-89 [#446](https://github.com/matthewhand/open-swarm/issues/446).
+- `golden-journey` in `.github/workflows/visual-regression.yml` (`if: false`,
+  `workflow_dispatch` only) — REQ-89 [#446](https://github.com/matthewhand/open-swarm/issues/446).
   Screenshot / tour lock is stale. Do not delete the workflow; do not
   treat the skip as a pytest waiver. Re-enable only after recapture.
   Vitest is gated by `python-pytest.yml`, not this HOLD.

@@ -1,25 +1,7 @@
 name: REQ-171A-4 hydrate chat threads honestly
 
 on:
-  pull_request:
-    paths:
-      - "webui/frontend/src/lib/agentChat.ts"
-      - "webui/frontend/src/lib/__tests__/agentChat.test.ts"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.hydrate.test.tsx"
-      - "tests/unit/test_req171a4_hydrate_honest.py"
-      - "tests/views/test_chat_retention.py"
-      - ".github/workflows/req171a4-hydrate-honest.yml"
-  push:
-    branches: [main]
-    paths:
-      - "webui/frontend/src/lib/agentChat.ts"
-      - "webui/frontend/src/lib/__tests__/agentChat.test.ts"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.hydrate.test.tsx"
-      - "tests/unit/test_req171a4_hydrate_honest.py"
-      - "tests/views/test_chat_retention.py"
-      - ".github/workflows/req171a4-hydrate-honest.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:
