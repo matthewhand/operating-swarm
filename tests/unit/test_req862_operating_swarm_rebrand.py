@@ -165,7 +165,8 @@ def test_req862_operator_chrome_no_longer_says_open_swarm():
     readme = _text(README)
     assert "(and nested Operating Swarm / OS instance)" in readme
     # Historical OpenAI Swarm lineage — not product chrome.
-    assert "Open Swarm began as an extension of OpenAI" in readme
+    assert "Operating Swarm began as **Open Swarm**" in readme
+    assert "extension of OpenAI" in readme
 
     sheet = _text(SETTINGS_SHEET)
     assert ">Operating Swarm</span>" in sheet

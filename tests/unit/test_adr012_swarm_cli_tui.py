@@ -42,7 +42,7 @@ def test_feature_status_and_vision_mark_tui_scaffolded():
     status = FEATURE_STATUS.read_text(encoding="utf-8")
     assert "REQ-111" in status
     assert "ADR-012" in status
-    assert "swarm-cli tui" in status
+    assert "os-cli tui" in status
     vision = VISION.read_text(encoding="utf-8")
     assert "#481" in vision
     assert "TUI" in vision

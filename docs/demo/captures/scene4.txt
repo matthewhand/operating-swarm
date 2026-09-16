@@ -1,5 +1,5 @@
 $ # 3. MoA: consensus then scripted specialists (--backend fake)
-$ SWARM_TEST_MODE=1 uv run swarm-cli moa --backend fake --team --workdir /tmp/moa-demo "Should we ship the release?"
+$ SWARM_TEST_MODE=1 uv run os-cli moa --backend fake --team --workdir /tmp/moa-demo "Should we ship the release?"
 MoA mode: consensus_then_team
 Question: Should we ship the release?
 

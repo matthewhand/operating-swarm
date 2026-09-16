@@ -28,7 +28,7 @@ Use this wording in README, announce posts, and GIF captions.
 APIs, but still do not talk to **remote harnesses** (Hermes, OpenMousBot as
 remote, and the like).
 
-**Open Swarm.** A **Grok-agnostic** Grok-Bot-like UI **and** a **bridge** —
+**Operating Swarm.** A **Grok-agnostic** Grok-Bot-like UI **and** a **bridge** —
 task one place, coordinate across CLI, API, remotes, and local blueprints.
 
 ### Differentiator (lead with this)
@@ -51,7 +51,7 @@ task one place, coordinate across CLI, API, remotes, and local blueprints.
 - **Single pane of glass** to track and task **all types** of agentic
   solutions (CLI, API, remotes, blueprints / teams).
 - **Uses your existing setups** — you do not replace Herdr / Hermes /
-  OpenMousBot; you point Open Swarm at them.
+  OpenMousBot; you point Operating Swarm at them.
 - **Mobile / on the road:** a desk terminal is fine; on a phone you want
   the **remote in the WebUI**, with **auto-suggestions**
   ([#441](https://github.com/matthewhand/open-swarm/issues/441)) so you can
@@ -59,11 +59,11 @@ task one place, coordinate across CLI, API, remotes, and local blueprints.
   — not Herdr-only.
 - **Agents for all parts of the workflow** — gating, suggestions, Chief of
   Staff coordination / comms. Legacy UIs constrain users with forms and
-  menus; Open Swarm aims **natural language first** (Settings still exists
+  menus; Operating Swarm aims **natural language first** (Settings still exists
   where needed). Embrace agents as much as possible.
-- **Native sessions, not a cage.** When Open Swarm drives a CLI or remote,
+- **Native sessions, not a cage.** When Operating Swarm drives a CLI or remote,
   the session is via **native tooling**. Users can switch freely:
-  Open Swarm WebUI (and later TUI [#481](https://github.com/matthewhand/open-swarm/issues/481)),
+  Operating Swarm WebUI (and later TUI [#481](https://github.com/matthewhand/open-swarm/issues/481)),
   or the tool directly (`grok`, `agy`, Hermes UI, …) for deeper config or
   troubleshooting. Pick up that native session when they return
   ([#468](https://github.com/matthewhand/open-swarm/issues/468) /
@@ -80,7 +80,7 @@ task one place, coordinate across CLI, API, remotes, and local blueprints.
 
 > AI enthusiasts juggle many frameworks; some combine CLIs and APIs, but
 > still don’t talk to **remote harnesses** (Hermes, OpenMousBot as remote,
-> …). Open Swarm is a **Grok-agnostic** Grok-Bot-like UI **and** a bridge —
+> …). Operating Swarm is a **Grok-agnostic** Grok-Bot-like UI **and** a bridge —
 > task one place, coordinate across CLI, API, remotes, and local blueprints.
 
 ---
@@ -140,10 +140,10 @@ move across kinds. Captions are on-screen; no voiceover.
 | t | Beat | On-screen caption (spiel) | Picture |
 |---|---|---|---|
 | 0–3s | Problem | Some tools mix CLIs and APIs. They still don’t talk to **remote harnesses**. | Split: “CLI + API only” vs empty remote seat |
-| 3–6s | Solution | **Grok-agnostic** Grok-Bot-like UI **and** a multi-harness **bridge**. | Quiet chrome + Open Swarm wordmark |
+| 3–6s | Solution | **Grok-agnostic** Grok-Bot-like UI **and** a multi-harness **bridge**. | Quiet chrome + Operating Swarm wordmark |
 | 6–10s | One pane / one task | Task **one** place. Chief of Staff coordinates the team. | Composer: “Ship the release notes.” CoS accepts |
 | 10–16s | Coordination | Hermes Remote · OpenMousBot Remote · Antigravity CLI · OpenCode CLI · BA → Engineer → Tester | Members light in sequence; not five chats |
-| 16–20s | Existing setups + chips | Point Open Swarm at what you already run. **Task without typing.** Native sessions, not a cage. | Suggestion chips on a remote row; native-escape note |
+| 16–20s | Existing setups + chips | Point Operating Swarm at what you already run. **Task without typing.** Native sessions, not a cage. | Suggestion chips on a remote row; native-escape note |
 
 Skeptic lock: FAIL if the clip is a screenshot dump or five unrelated
 threads. PASS only if one CoS task visibly fans out across CLI + remote +

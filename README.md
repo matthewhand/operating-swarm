@@ -26,7 +26,7 @@ Brand marks live under [`assets/brand/`](assets/brand/): **minimal** for the tab
   <img src="docs/assets/readme/announce-bridge.gif" alt="Storyboard: one Chief of Staff task coordinates Hermes Remote, OpenMousBot Remote, Antigravity CLI, OpenCode CLI, and a BA → Engineer → Tester blueprint" width="720"/>
 </p>
 
-Announce copy, storyboard, and recapture checklist: [docs/ANNOUNCE.md](docs/ANNOUNCE.md) (REQ-136 / [#529](https://github.com/matthewhand/open-swarm/issues/529)). Asset path for this hero and the later CLI / API / remotes / combined kit: [`docs/assets/readme/`](docs/assets/readme/README.md) ([#456](https://github.com/matthewhand/open-swarm/issues/456)).
+Announce copy, storyboard, and recapture checklist: [docs/ANNOUNCE.md](docs/ANNOUNCE.md) (REQ-136 / [#529](https://github.com/matthewhand/open-swarm/issues/529)) — **Grok-agnostic** chrome plus a CLI/API/remote harness bridge. Asset path for this hero and the later CLI / API / remotes / combined kit: [`docs/assets/readme/`](docs/assets/readme/README.md) ([#456](https://github.com/matthewhand/open-swarm/issues/456)).
 
 Direction: [docs/VISION.md](docs/VISION.md). Vocabulary: [docs/GLOSSARY.md](docs/GLOSSARY.md).
 
@@ -199,7 +199,7 @@ Recipes and pattern diagrams stay in [docs/EXAMPLES.md](docs/EXAMPLES.md) and [d
 
 ## Acknowledgements
 
-Open Swarm began as an extension of OpenAI’s experimental [Swarm](https://github.com/openai/swarm) and migrated to the [openai-agents SDK](https://github.com/openai/openai-agents-python) for agents, tools, and handoffs.
+Operating Swarm began as **Open Swarm**, an extension of OpenAI’s experimental [Swarm](https://github.com/openai/swarm), and migrated to the [openai-agents SDK](https://github.com/openai/openai-agents-python) for agents, tools, and handoffs.
 
 ## License
 
