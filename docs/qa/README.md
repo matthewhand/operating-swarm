@@ -48,3 +48,4 @@ source-lock so the spec cannot silently regress.
 | REQ-862 | Operating Swarm (OS) identity lock (`os-*`, README hero) | [REQ-862-rebrand-swarm-bot.md](./REQ-862-rebrand-swarm-bot.md) | `tests/unit/test_req862_operating_swarm_rebrand.py` |
 | REQ-882 | Public demo site, mocked inference, scripted flows (#279) | [REQ-882-demo-site-mocked-inference.md](./REQ-882-demo-site-mocked-inference.md) | `tests/unit/test_req882_demo_site_mocked_inference.py` |
 | REQ-887 | Teams + Plugins marketplaces (MCP Registry + Agent Skills + OS team packs) | [REQ-887-teams-plugins-marketplaces.md](./REQ-887-teams-plugins-marketplaces.md) | `tests/unit/test_req887_marketplace.py` |
+| REQ-893 | Rail seats are `/v1/models` ids or they are not advertised as one (#426) | [REQ-893-rail-seat-model-ids.md](./REQ-893-rail-seat-model-ids.md) | `tests/unit/test_req893_rail_seat_model_ids.py` |
