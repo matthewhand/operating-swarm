@@ -20,7 +20,12 @@ def test_index_css_fades_identity_label_and_protects_controls():
 
 def test_chat_page_navbar_priority_classes():
     tsx = CHAT_PAGE_TSX.read_text(encoding="utf-8")
-    assert 'className="os-chat-header overflow-hidden gap-1.5 sm:gap-3"' in tsx
+    # #445: the header clips nothing. Its `overflow: hidden` (class and CSS rule)
+    # cropped the routing flyout — an absolutely-positioned child of the picker
+    # inside this header — to its first row. The REQ-865 width behaviour is
+    # asserted above, on the label that owns the title, and still holds.
+    assert 'className="os-chat-header gap-1.5 sm:gap-3"' in tsx
+    assert "os-chat-header overflow-hidden" not in tsx
     assert "os-chat-header__identity" in tsx
     assert "os-navbar-identity-label" in tsx
     assert "os-chat-header__controls" in tsx
