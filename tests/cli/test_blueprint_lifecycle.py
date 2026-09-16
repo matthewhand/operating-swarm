@@ -163,7 +163,7 @@ def test_launch_missing_all_tiers_exits_1(xdg):
 
     assert result.exit_code == 1
     assert "not found or not executable" in result.stdout
-    assert "swarm-cli compile" in result.stdout
+    assert "os-cli compile" in result.stdout
 
 
 @patch("subprocess.run")
