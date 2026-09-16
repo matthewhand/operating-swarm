@@ -1047,6 +1047,7 @@ export interface CustomBlueprint {
 }
 
 export interface CreateCustomBlueprintRequest {
+  id?: string
   name: string
   description?: string
   code?: string

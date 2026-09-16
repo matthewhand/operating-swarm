@@ -2,17 +2,22 @@
 
 import pytest
 
+from swarm.core.decision_question import parse_decision_question
 from swarm.core.support_nl_blueprint import (
+    ADD_AS_AGENT_LABEL,
     PIPELINE_EDGES,
+    SAVE_AS_BLUEPRINT_LABEL,
     SUPPORT_NL_FIXTURE,
     SUPPORT_NL_SOURCE,
+    TEAM_PURPOSE_QUESTION_ID,
     TEMPLATE_PIPELINE,
     TEMPLATE_TEAM,
     class_name_for_id,
     create_nl_blueprint,
     interpret_nl,
+    nl_create_or_socratic,
+    nl_design_is_specified,
     persist_custom_item,
-    render_apikind_python,
     slugify_blueprint_id,
     unique_blueprint_id,
     wants_code_reveal,
@@ -45,7 +50,8 @@ def test_generated_python_is_apikind_and_matches_handoff_edges():
     )
     assert created.spec.template == TEMPLATE_PIPELINE
     assert created.spec.edges == PIPELINE_EDGES
-    assert created.usable is True
+    assert created.usable is False
+    assert created.persisted is False
     assert created.chat_href == "/chat?blueprint=ba_eng_tester"
     assert "class " in created.code
     assert "ApiKindBase" in created.code
@@ -62,9 +68,14 @@ def test_user_reply_hides_python_fence_by_default():
     assert created.card_payload()["userWrotePython"] is False
     assert SUPPORT_NL_FIXTURE in reply
     assert "View / edit code" in reply
+    assert ADD_AS_AGENT_LABEL in reply
+    assert SAVE_AS_BLUEPRINT_LABEL in reply
+    assert "Open in chat" not in reply
     assert wants_nl_create("Create a team")
     assert not wants_code_reveal("Create a team")
     assert wants_code_reveal("show me the code")
+    assert not nl_design_is_specified("Create a team")
+    assert nl_design_is_specified("Create a BA → Engineer → Tester workflow")
 
 
 def test_persist_stamps_rail_seat_without_user_python(tmp_path, monkeypatch):
@@ -73,7 +84,7 @@ def test_persist_stamps_rail_seat_without_user_python(tmp_path, monkeypatch):
 
     monkeypatch.setattr(lib, "get_user_config_dir_for_swarm", lambda: tmp_path)
     api_views._custom_blueprints_registry.clear()
-    created = create_nl_blueprint("Create a BA engineer tester handoff")
+    created = create_nl_blueprint("Create a BA engineer tester handoff", persist=False)
     item = persist_custom_item(created.item, disk=True)
     assert item["rail"] is True
     assert item["kind"] == "api"
@@ -101,7 +112,7 @@ async def test_support_nl_blueprint_chatable_and_on_rail(tmp_path, monkeypatch):
     api_views._custom_blueprints_registry.clear()
 
     # Create and persist BA Engineer Tester
-    created = create_nl_blueprint("Create a BA → Engineer → Tester workflow")
+    created = create_nl_blueprint("Create a BA → Engineer → Tester workflow", persist=True)
     persist_custom_item(created.item, disk=True)
 
     # 1. Verify blueprint is discovered and stamped as rail seat
@@ -124,7 +135,7 @@ async def test_support_nl_blueprint_chatable_and_on_rail(tmp_path, monkeypatch):
     assert "PONG" in chunks[0]["messages"][0]["content"]
 
     # Create and persist First Team
-    created_team = create_nl_blueprint("Create a team")
+    created_team = create_nl_blueprint("Create a team", persist=True)
     persist_custom_item(created_team.item, disk=True)
 
     avail = get_available_blueprints_sync()
@@ -132,4 +143,40 @@ async def test_support_nl_blueprint_chatable_and_on_rail(tmp_path, monkeypatch):
     team_instance = await get_blueprint_instance(created_team.spec.blueprint_id)
     assert team_instance is not None
     assert team_instance.blueprint_id == created_team.spec.blueprint_id
+
+
+def test_underspecified_create_team_is_socratic():
+    reply = nl_create_or_socratic("Create a team")
+    assert reply is not None
+    assert "```question" in reply
+    parsed = parse_decision_question(reply)
+    assert parsed is not None
+    assert parsed["id"] == TEAM_PURPOSE_QUESTION_ID
+    assert "Software delivery" in parsed["choices"][0]
+    assert "```swarm-nl-blueprint" not in reply
+
+
+def test_specified_nl_create_drafts_without_persist():
+    reply = nl_create_or_socratic("Create a BA → Engineer → Tester workflow")
+    assert reply is not None
+    assert "```swarm-nl-blueprint" in reply
+    assert ADD_AS_AGENT_LABEL in reply
+    assert SAVE_AS_BLUEPRINT_LABEL in reply
+    assert '"persisted": false' in reply
+    assert "Open in chat" not in reply
+
+
+def test_purpose_answer_drafts_pipeline():
+    history = [
+        {"role": "user", "content": "Create a team"},
+        {"role": "assistant", "content": nl_create_or_socratic("Create a team")},
+    ]
+    reply = nl_create_or_socratic(
+        "Software delivery (BA → Engineer → Tester)",
+        history,
+    )
+    assert reply is not None
+    assert "BA → Engineer → Tester" in reply
+    assert "```swarm-nl-blueprint" in reply
+    assert '"persisted": false' in reply
 

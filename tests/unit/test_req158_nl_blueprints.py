@@ -29,6 +29,10 @@ def test_happy_path_and_under_the_hood_are_documented():
     assert "ApiKindBase" in blob or "blueprint class" in blob.lower()
     assert "ask **Support**" in blob or "ask Support" in blob
     assert "View / edit code" in blob
+    assert "Add as agent" in docs
+    assert "Save as blueprint" in docs
+    assert "Socratic" in docs or "socratic" in docs.lower()
+    assert "Open in chat" not in docs
     # Guided path is GitHub-only; README may still mention the REQ-156 seed host.
     assert ":8001" not in docs
     assert "WAVE" not in docs
