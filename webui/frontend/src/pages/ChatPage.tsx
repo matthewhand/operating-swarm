@@ -3319,7 +3319,15 @@ const ChatPage = () => {
 
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
-      <header className="os-chat-header overflow-hidden gap-1.5 sm:gap-3">
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      <header className="os-chat-header gap-1.5 sm:gap-3">
         <div className="os-chat-header__identity flex min-w-0 flex-1 items-center gap-2 group">
           {narrow ? (
             <button
