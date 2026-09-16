@@ -373,4 +373,36 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     expect(screen.getByRole('menuitem', { name: 'qwen2.5-coder:32b' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'qwen2.5-coder:7b' })).toBeInTheDocument()
   })
+
+  it('lists nested OpenMousBot agents without defaulting to the first bot (#102)', () => {
+    const { onChange } = renderPicker({
+      seatKind: 'remote',
+      agents: [{ id: 'omb', label: 'OpenMousBot' }],
+      selectedAgent: 'omb',
+      models: ['desk-1', 'spec-9'],
+      modelOptions: [
+        { id: 'desk-1', label: 'Desk' },
+        { id: 'spec-9', label: 'Specialist' },
+      ],
+      selectedModel: '',
+      footerAction: { id: '__add_remote__', label: 'Add remote', onSelect: vi.fn() },
+    })
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('OpenMousBot')
+    const modelPill = screen.getByTestId('routing-pill-model')
+    expect(modelPill).toHaveAttribute('aria-label', 'OpenMousBot agent')
+    expect(modelPill).not.toHaveTextContent('Desk')
+    expect(modelPill).not.toHaveTextContent('Specialist')
+    fireEvent.click(modelPill)
+    const menu = screen.getByTestId('routing-menu-model')
+    expect(within(menu).getByRole('menuitem', { name: 'Desk' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Specialist' })).toBeInTheDocument()
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Desk' }))
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changed: 'model',
+        agent: 'omb',
+        model: 'desk-1',
+      }),
+    )
+  })
 })

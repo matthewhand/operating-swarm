@@ -75,6 +75,41 @@ async def test_send_params(bp):
     op.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_send_params_pass_omb_bot_target(bp):
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.operate",
+        return_value=OperateResult(remote="omb", op="send", ok=True, detail="started"),
+    ) as op:
+        out = await _ask(
+            bp,
+            "",
+            params={
+                "op": "send",
+                "name": "omb",
+                "prompt": "hello desk",
+                "target": "desk-1",
+            },
+        )
+    assert "OK" in out
+    op.assert_called_once_with("omb", "send", prompt="hello desk", target="desk-1")
+
+
+@pytest.mark.asyncio
+async def test_send_params_session_is_omb_target(bp):
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.operate",
+        return_value=OperateResult(remote="omb", op="send", ok=True, detail="started"),
+    ) as op:
+        out = await _ask(
+            bp,
+            "",
+            params={"op": "send", "name": "omb", "prompt": "hi", "session": "bot-uuid"},
+        )
+    assert "OK" in out
+    op.assert_called_once_with("omb", "send", prompt="hi", target="bot-uuid")
+
+
 def test_render_operate_omb_reply_is_plain_text_not_uuid_ack():
     result = OperateResult(
         remote="omb",

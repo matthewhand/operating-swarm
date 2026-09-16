@@ -66,6 +66,8 @@ export interface NavbarRoutingPickerProps {
   selectedAgent: string
   models: string[]
   selectedModel: string
+  /** Nested options with labels (OpenMousBot bots, etc.). Ids feed `models`. */
+  modelOptions?: RoutingAgentOption[]
   modelWarning?: string | null
   preferredEffort?: string
   onChange: (next: RoutingPathChange) => void
@@ -107,6 +109,7 @@ export function NavbarRoutingPicker({
   selectedAgent,
   models,
   selectedModel,
+  modelOptions,
   modelWarning,
   preferredEffort,
   onChange,
@@ -131,18 +134,37 @@ export function NavbarRoutingPicker({
   const [activeIndex, setActiveIndex] = useState(0)
   const [hoverPill, setHoverPill] = useState<RoutingDimension | null>(null)
 
+  const resolvedModels = useMemo(() => {
+    if (models.length > 0) return models
+    return (modelOptions ?? []).map((row) => row.id)
+  }, [models, modelOptions])
+  const modelLabelById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const row of modelOptions ?? []) {
+      if (row.id) map.set(row.id, row.label || row.id)
+    }
+    return map
+  }, [modelOptions])
+  const nestedRemoteAgents =
+    seatKind === 'remote' && (resolvedModels.length > 0 || Boolean(modelWarning))
+
   const path = useMemo(() => {
     const raw = routingPathFromSelection({
       agent: selectedAgent,
       model: selectedModel,
       effort: preferredEffort,
     })
+    // Remote nested agents (OMB bots) must not default to the first listed
+    // specialist — empty selection stays empty (#102).
+    if (seatKind === 'remote' || (modelOptions && modelOptions.length > 0)) {
+      return raw
+    }
     if (
       !raw.model ||
       isHiddenRoutingLabel(raw.model) ||
       isHiddenRoutingLabel(raw.modelBase)
     ) {
-      const resolved = resolveComposedModel(models, '', preferredEffort)
+      const resolved = resolveComposedModel(resolvedModels, '', preferredEffort)
       if (!resolved) return { ...raw, model: '', modelBase: '', effort: null }
       return {
         ...raw,
@@ -152,7 +174,7 @@ export function NavbarRoutingPicker({
       }
     }
     return raw
-  }, [selectedAgent, selectedModel, preferredEffort, models])
+  }, [selectedAgent, selectedModel, preferredEffort, resolvedModels, seatKind, modelOptions])
 
   const previewModelsQuery = useQuery({
     queryKey: ['cli-models', previewAgent],
@@ -167,19 +189,28 @@ export function NavbarRoutingPicker({
         seatKind,
         previewAgent,
         selectedAgent,
-        models,
+        resolvedModels,
         previewModelsQuery.data?.models,
       ),
     [
       seatKind,
       previewAgent,
       selectedAgent,
-      models,
+      resolvedModels,
       previewModelsQuery.data?.models,
     ],
   )
-  const selectedModels = useMemo(() => displayableModels(models), [models])
-  const families = useMemo(() => groupModelsByFamily(previewModels), [previewModels])
+  const selectedModels = useMemo(() => displayableModels(resolvedModels), [resolvedModels])
+  const families = useMemo(() => {
+    if (modelOptions && modelOptions.length > 0) {
+      return modelOptions.map((row) => ({
+        base: row.id,
+        efforts: [] as EffortToken[],
+        ids: [row.id],
+      }))
+    }
+    return groupModelsByFamily(previewModels)
+  }, [modelOptions, previewModels])
   const selectedFamilies = useMemo(
     () => groupModelsByFamily(selectedModels),
     [selectedModels],
@@ -195,7 +226,10 @@ export function NavbarRoutingPicker({
   // CLI seats always expose the model pill so a click can show Loading...
   // while the lazy probe is in flight (REQ-870).
   const showModel =
-    seatKind === 'cli' || selectedFamilies.length > 0 || Boolean(modelWarning)
+    seatKind === 'cli' ||
+    selectedFamilies.length > 0 ||
+    nestedRemoteAgents ||
+    Boolean(modelWarning)
   const selectedFamily = selectedFamilies.find((row) => row.base === path.modelBase)
   const showEffort = Boolean(selectedFamily && familyHasEffort(selectedFamily))
   const agentLabel =
@@ -204,7 +238,11 @@ export function NavbarRoutingPicker({
     placeholder ||
     (seatKind === 'remote' ? 'Remote' : 'Agent')
   const modelLabel = showModel
-    ? path.modelBase || selectedModel || '—'
+    ? modelLabelById.get(selectedModel) ||
+      modelLabelById.get(path.model) ||
+      path.modelBase ||
+      selectedModel ||
+      (seatKind === 'remote' && !modelWarning ? '' : '—')
     : ''
   const effortLabel = showEffort ? path.effort || '' : ''
   const groupLabel = ariaLabel || (seatKind === 'cli' ? 'CLI' : seatKind === 'remote' ? 'Remote' : 'Routing')
@@ -289,12 +327,15 @@ export function NavbarRoutingPicker({
               seatKind,
               agentId,
               selectedAgent,
-              models,
+              resolvedModels,
               agentId === previewAgent ? previewModelsQuery.data?.models : undefined,
             )
       const nextFamilies = groupModelsByFamily(nextModels)
       emit('agent', { agent: agentId, model: '', modelBase: '', effort: null })
-      if (cascade && nextFamilies.length > 0) {
+      if (
+        cascade &&
+        (nextFamilies.length > 0 || (seatKind === 'remote' && Boolean(modelWarning)))
+      ) {
         setPreviewAgent(agentId)
         openSheetAt('model')
         return
@@ -307,6 +348,8 @@ export function NavbarRoutingPicker({
       footerAction,
       models,
       openSheetAt,
+      resolvedModels,
+      modelWarning,
       previewAgent,
       previewModelsQuery.data?.models,
       seatKind,
@@ -427,19 +470,24 @@ export function NavbarRoutingPicker({
     if (dim === 'model') {
       return families.map((family) => ({
         id: family.base,
-        label: family.base,
+        label: modelLabelById.get(family.base) || family.base,
         kind: 'model' as const,
         hasChildren: familyHasEffort(family),
       }))
     }
     return agentItems.map((row) => ({
       ...row,
-      hasChildren: seatKind === 'cli' && row.id !== footerAction?.id,
+      hasChildren:
+        row.id !== footerAction?.id &&
+        (seatKind === 'cli' || resolvedModels.length > 0),
     }))
   }, [
     agentItems,
     families,
     footerAction?.id,
+    modelLabelById,
+    nestedRemoteAgents,
+    resolvedModels.length,
     open,
     previewAgent,
     previewModel,
@@ -555,18 +603,26 @@ export function NavbarRoutingPicker({
       : isModel
         ? families.map((family) => ({
             id: family.base,
-            label: family.base,
+            label: modelLabelById.get(family.base) || family.base,
             kind: 'model' as const,
-            current: path.modelBase === family.base,
+            current: path.model === family.base || path.modelBase === family.base,
             hasChildren: familyHasEffort(family),
           }))
         : agentItems.map((row) => ({
             ...row,
             kind: 'agent' as const,
             current: selectedAgent === row.id,
-            hasChildren: seatKind === 'cli' && row.id !== footerAction?.id,
+            hasChildren:
+              (seatKind === 'cli' || resolvedModels.length > 0) &&
+              row.id !== footerAction?.id,
           }))
-    const heading = isEffort ? 'Effort' : isModel ? 'Model' : groupLabel
+    const heading = isEffort
+      ? 'Effort'
+      : isModel
+        ? seatKind === 'remote'
+          ? 'Agent'
+          : 'Model'
+        : groupLabel
     return (
       <div
         className={`os-routing-menu ${nested ? 'os-routing-menu--nested' : ''}`}
@@ -666,7 +722,10 @@ export function NavbarRoutingPicker({
   const showAgentFlyout = desktopOpen && open === 'agent'
   const showModelFlyout =
     desktopOpen &&
-    (open === 'model' || (open === 'agent' && seatKind === 'cli' && Boolean(previewAgent)))
+    (open === 'model' ||
+      (open === 'agent' &&
+        ((seatKind === 'cli' && Boolean(previewAgent)) ||
+          (nestedRemoteAgents && Boolean(previewAgent)))))
   const showEffortFlyout =
     desktopOpen &&
     (open === 'effort' ||
@@ -685,7 +744,15 @@ export function NavbarRoutingPicker({
       data-testid={dim === 'agent' ? 'routing-pill-agent' : dim === 'model' ? 'routing-pill-model' : 'routing-pill-effort'}
       data-legacy-testid={extraTestId}
       data-value={dim === 'agent' ? selectedAgent : dim === 'model' ? path.modelBase : path.effort || ''}
-      aria-label={dim === 'agent' ? groupLabel : dim === 'model' ? 'Model' : 'Effort'}
+      aria-label={
+        dim === 'agent'
+          ? groupLabel
+          : dim === 'model'
+            ? seatKind === 'remote'
+              ? 'OpenMousBot agent'
+              : 'Model'
+            : 'Effort'
+      }
       aria-haspopup={useModelPalette ? 'dialog' : 'menu'}
       aria-expanded={
         useModelPalette
