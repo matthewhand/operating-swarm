@@ -141,7 +141,7 @@ import {
   getChatConnection,
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
-import {teamSidepaneStack } from '../lib/avatarStack'
+import { markStackWorking, teamSidepaneStack } from '../lib/avatarStack'
 import {
   defaultSessionForRemote,
   defaultSessionForTeam,
@@ -3049,11 +3049,29 @@ export default function AgentSidebar({
             const badge = live ? roleBadgeLabel(role) : ''
             const pinActive = Boolean(selectedId && selectedId === pin.id)
             const pinUnread = unreadIds.includes(pin.id)
+            const pinTeam = pin.id.startsWith('team:')
+              ? teams.find((item) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
+              : undefined
+            const pinTeamPlan = pinTeam
+              ? (() => {
+                  const stacked = teamSidepaneStack(stackFacesForTeam(pinTeam))
+                  const marked = markStackWorking(
+                    stacked.faces,
+                    (id) => cliRunningIds.has(id) || peekCliRunning(id),
+                  )
+                  return { ...marked, remainder: stacked.remainder }
+                })()
+              : null
+            const pinWorkerBusy = Boolean(
+              pinTeamPlan?.anyWorking ||
+                cliRunningIds.has(pin.id) ||
+                peekCliRunning(pin.id),
+            )
             const pinClass = `os-fav-tile group/tile ${
               draggingId === pin.id ? 'os-fav-tile--dragging' : ''
             } ${dropTargetId === pin.id ? 'os-fav-tile--drop' : ''} ${
               pinActive ? 'os-fav-tile--active' : ''
-            }`
+            } ${pinWorkerBusy ? 'os-fav-tile--working-stack' : ''}`
             const pinFace = (
               <>
                 {pinUnread && (
@@ -3087,12 +3105,23 @@ export default function AgentSidebar({
                     {badge}
                   </span>
                 ) : null}
+                {pinTeamPlan && pinTeamPlan.faces.length >= 2 ? (
+                  <AvatarStack
+                    faces={pinTeamPlan.faces}
+                    remainder={pinTeamPlan.remainder}
+                    animate={pinWorkerBusy}
+                    label={`${pinName} members`}
+                  />
+                ) : (
                 <AgentAvatar
                   src={live?.avatar_path}
                   agentId={pin.id}
                   size="lg"
                   className="os-fav-tile__avatar"
+                  status={pinWorkerBusy ? 'working' : 'idle'}
+                  active={pinWorkerBusy}
                 />
+                )}
                 <span className="os-fav-tile__name">{pinName}</span>
                 {pinIdx < 9 && (
                   <span

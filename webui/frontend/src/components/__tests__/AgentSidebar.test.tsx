@@ -15,6 +15,7 @@ import {
 import { BUMP_COMPLETED_KEY, HOSTNAME_OVERRIDE_KEY } from '../../lib/settingsPrefs'
 import { saveAgentSessions, type AgentSession } from '../../lib/scaleOutSessions'
 import { publishChatConnection, resetChatConnection } from '../../lib/chatConnection'
+import { notifyCliRunState, resetCliRunState } from '../../lib/cliRunState'
 
 function blueprint(
   id: string,
@@ -2615,6 +2616,27 @@ describe('AgentSidebar REQ-861 conceal', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     localStorage.clear()
+  })
+
+  it('#432 pinned team slides members when a worker is working', async () => {
+    resetCliRunState()
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'team:research', name: 'Research' }]),
+    )
+    renderSidebar()
+    const tile = await screen.findByRole('link', { name: 'Research' })
+    expect(tile).toHaveClass('os-fav-tile')
+    expect(tile).not.toHaveClass('os-fav-tile--working-stack')
+    act(() => {
+      notifyCliRunState('ada', true)
+    })
+    expect(tile).toHaveClass('os-fav-tile--working-stack')
+    act(() => {
+      notifyCliRunState('ada', false)
+    })
+    expect(tile).not.toHaveClass('os-fav-tile--working-stack')
+    resetCliRunState()
   })
 
   it('renders a bee collapse button that collapses the desktop rail (#417)', async () => {
