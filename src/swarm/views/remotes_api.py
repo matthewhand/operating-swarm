@@ -255,12 +255,12 @@ class RemoteOperateView(APIView):
                 "target": serializers.CharField(
                     required=False,
                     allow_blank=True,
-                    help_text="OpenMousBot/Rakazo bot id, Herdr pane/CLI id, AnythingLLM workspace:thread, Letta agent id, Open WebUI chat id, or Flowise flow id",
+                    help_text="OpenMousBot/Rakazo bot id, Herdr pane/CLI id, AnythingLLM workspace:thread, Letta agent id, Open WebUI chat id, Flowise flow id, or n8n workflow id",
                 ),
                 "session_id": serializers.CharField(
                     required=False,
                     allow_blank=True,
-                    help_text="Resume key (Letta agent id, AnythingLLM workspace/thread, Open WebUI chat id, or Flowise flow id)",
+                    help_text="Resume key (Letta agent id, AnythingLLM workspace/thread, Open WebUI chat id, Flowise flow id, or n8n workflow id)",
                 ),
                 "timeout": serializers.FloatField(
                     required=False,

@@ -433,7 +433,7 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
       ).map((row) => ({ id: row.id, name: row.title !== row.id ? row.title : undefined })),
     [bots, sessionQuery],
   )
-  const isSessionsRemote = Boolean(remote.capabilities?.sessions) || ['anythingllm', 'letta', 'openwebui', 'flowise'].includes(remote.id)
+  const isSessionsRemote = Boolean(remote.capabilities?.sessions) || ['anythingllm', 'letta', 'openwebui', 'flowise', 'n8n'].includes(remote.id)
   const healthTone =
     health?.state === 'UP' ? 'success' : health?.state === 'DOWN' ? 'warning' : health ? 'info' : undefined
 

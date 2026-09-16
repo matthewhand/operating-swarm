@@ -21,6 +21,8 @@ const REMOTE_IMPL_IDS = new Set([
   'owui',
   'flowise',
   'flowiseai',
+  'n8n',
+  'n8n-io',
   'omb',
   'rakazo',
   'openmausbot',

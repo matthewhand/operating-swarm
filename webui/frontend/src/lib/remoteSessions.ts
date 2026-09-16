@@ -1,6 +1,6 @@
 /**
  * Remote thread/session list for harnesses that advertise ``capabilities.sessions``
- * (Letta agents, Open WebUI chats, Flowise chatflows, AnythingLLM threads, Hermes sessions). Resume key is the row ``id``.
+ * (Letta agents, Open WebUI chats, Flowise chatflows, n8n workflows, AnythingLLM threads, Hermes sessions). Resume key is the row ``id``.
  */
 
 import { operateRemote, type RemoteOperateResult } from './api'
@@ -15,7 +15,7 @@ export interface RemoteThreadRow {
   channel?: string
 }
 
-const SESSION_KINDS = new Set(['letta', 'openwebui', 'open-webui', 'open_webui', 'owui', 'flowise', 'flowiseai', 'anythingllm', 'hermes'])
+const SESSION_KINDS = new Set(['letta', 'openwebui', 'open-webui', 'open_webui', 'owui', 'flowise', 'flowiseai', 'n8n', 'n8n-io', 'anythingllm', 'hermes'])
 
 export function remoteListsSessions(
   remote: Pick<RemoteEntry, 'id' | 'kind'> & { capabilities?: { sessions?: boolean } },

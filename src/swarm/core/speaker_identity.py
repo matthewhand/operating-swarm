@@ -121,6 +121,11 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "path": "delimiter",
         "notes": "Flowise prediction stream; resume key is flowId or flowId:chatId.",
     },
+    "remote:n8n": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "n8n webhook/chat workflow resume; session is workflow id or webhook path.",
+    },
     "remote:omb": {
         "name_field": "stripped",
         "path": "delimiter",
