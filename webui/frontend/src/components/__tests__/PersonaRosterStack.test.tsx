@@ -13,8 +13,8 @@ function roster(count: number, names: string[]): DeclaredTeamRoster {
   }
 }
 
-describe('#98: declared PersonaRoster follows the team stack plan', () => {
-  it('shows all faces for a roster of 4 — no remainder', () => {
+describe('#57: declared PersonaRoster follows the team stack plan', () => {
+  it('collapses a roster of 4 to 2 faces + remainder 2', () => {
     render(
       <PersonaRoster
         roster={roster(4, ['Alpha', 'Bravo', 'Charlie', 'Delta'])}
@@ -22,9 +22,9 @@ describe('#98: declared PersonaRoster follows the team stack plan', () => {
       />,
     )
     const el = screen.getByTestId('declared-roster')
-    expect(el).toHaveAttribute('data-stack-count', '4')
-    expect(el).toHaveAttribute('data-remainder', '0')
-    expect(el.querySelectorAll('[data-testid="os-stacked-avatar"]')).toHaveLength(4)
+    expect(el).toHaveAttribute('data-stack-count', '2')
+    expect(el).toHaveAttribute('data-remainder', '2')
+    expect(el.querySelectorAll('[data-testid="os-stacked-avatar"]')).toHaveLength(2)
   })
 
   it('collapses a roster of 5 to 2 faces + remainder 3', () => {

@@ -604,6 +604,19 @@ const ChatPage = () => {
     [summariesByThread, threadKey],
   )
 
+  const handleSaveSummary = useCallback(
+    (summaryId: number, nextText: string) => {
+      if (!messagesEditable) return
+      setSummariesByThread((prev) => ({
+        ...prev,
+        [threadKey]: (prev[threadKey] ?? []).map((row) =>
+          row.id === summaryId ? { ...row, body: nextText } : row,
+        ),
+      }))
+    },
+    [messagesEditable, threadKey],
+  )
+
   const wsRef = useRef<WebSocket | null>(null)
   const emptyRemoteOpenedForRef = useRef('')
   const conversationIdRef = useRef(conversationId)
@@ -3452,6 +3465,8 @@ const ChatPage = () => {
                     setHiddenSummaryIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
                   }
                   onToggleContext={handleToggleSummaryContext}
+                  canEdit={messagesEditable}
+                  onSaveEdit={handleSaveSummary}
                 />
               )
             }
@@ -4170,6 +4185,8 @@ function SummaryBlock({
   hiddenIds = [],
   onHide,
   onToggleContext,
+  canEdit = false,
+  onSaveEdit,
 }: {
   summary: ConversationSummary
   byId: Record<number, ConversationSummary>
@@ -4178,6 +4195,8 @@ function SummaryBlock({
   onHide?: (id: number) => void
   /** #214: persist the include-in-context tick for this summary. */
   onToggleContext?: (id: number, include: boolean) => void
+  canEdit?: boolean
+  onSaveEdit?: (id: number, text: string) => void
 }) {
   const parent =
     summary.parent_summary_id != null ? byId[summary.parent_summary_id] : undefined
@@ -4192,6 +4211,8 @@ function SummaryBlock({
       onRemove={() => onHide?.(summary.id)}
       inContext={summary.include_in_context !== false}
       onToggleContext={(include) => onToggleContext?.(summary.id, include)}
+      canEdit={canEdit}
+      onSaveEdit={(text) => onSaveEdit?.(summary.id, text)}
       nested={
         parent && !hiddenIds.includes(parent.id) ? (
           <SummaryBlock
@@ -4201,6 +4222,8 @@ function SummaryBlock({
             hiddenIds={hiddenIds}
             onHide={onHide}
             onToggleContext={onToggleContext}
+            canEdit={canEdit}
+            onSaveEdit={onSaveEdit}
           />
         ) : null
       }

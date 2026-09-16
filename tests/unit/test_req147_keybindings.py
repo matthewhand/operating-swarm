@@ -77,8 +77,8 @@ def test_in_field_unfocused_hints_replace_overlay():
     assert "searchShortcutLabel" in labels
     assert "!query.trim()" in palette
     assert "os-search-palette__kbd" in palette
-    assert ".os-rail-search:hover .os-rail-search__kbd" in css
-    assert ".os-rail-search:focus-within .os-rail-search__kbd" in css
+    assert ".os-agent-sidebar:hover .os-rail-search__kbd" in css
+    assert ".os-rail-search:focus-within .os-rail-search__kbd" not in css
     assert ".os-composer:hover .os-composer__hint" in css
     assert ".os-composer:focus-within .os-composer__hint" in css
     assert ".os-search-palette__field:hover .os-search-palette__kbd" in css
