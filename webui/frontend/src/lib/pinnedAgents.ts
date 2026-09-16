@@ -28,17 +28,33 @@ export interface PinnedAgent {
 }
 
 let activeDrag: PinnedAgent | null = null
+const dragListeners = new Set<() => void>()
+
+function notifyAgentDrag(): void {
+  dragListeners.forEach((fn) => fn())
+}
+
+/** Subscribe to begin/end of an agent drag (empty pin grid uses this to appear). */
+export function subscribeAgentDrag(listener: () => void): () => void {
+  dragListeners.add(listener)
+  return () => {
+    dragListeners.delete(listener)
+  }
+}
 
 export function beginAgentDrag(agent: PinnedAgent): void {
   if (!agent.id) {
     activeDrag = null
+    notifyAgentDrag()
     return
   }
   activeDrag = { id: agent.id, name: agent.name || agent.id }
+  notifyAgentDrag()
 }
 
 export function endAgentDrag(): void {
   activeDrag = null
+  notifyAgentDrag()
 }
 
 export function peekAgentDrag(): PinnedAgent | null {

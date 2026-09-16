@@ -908,6 +908,9 @@ html:not([data-theme="light"]) .os-composer,
   background: transparent;
   min-height: 2.75rem;
 }
+.os-fav-grid--empty {
+  min-height: 2.75rem;
+}
 .os-fav-grid__hint {
   grid-column: 1 / -1;
   display: flex;

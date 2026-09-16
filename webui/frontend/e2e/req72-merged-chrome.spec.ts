@@ -246,7 +246,7 @@ test('REQ-5c #322: pin persists across reload; Unpin clears the grid', async ({ 
 
   await page.getByLabel('Pinned agents').getByRole('link', { name: 'Codey' }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: /^Unpin$/i }).click()
-  await expect(page.getByLabel('Pinned agents').getByRole('link', { name: 'Codey' })).toHaveCount(0)
+  await expect(page.getByLabel('Pinned agents')).toHaveCount(0)
   await expect(list.getByRole('link', { name: /Codey/ })).toBeVisible()
 })
 

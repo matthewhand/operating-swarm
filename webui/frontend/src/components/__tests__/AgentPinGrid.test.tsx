@@ -124,10 +124,11 @@ describe('AgentPinGrid drag-to-pin', () => {
 
     expect(screen.queryByText(/Favourites/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /Favourites/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('agent-pin-grid')).not.toBeInTheDocument()
 
-    const grid = screen.getByTestId('agent-pin-grid')
     const dt = mockDataTransfer()
     fireEvent.dragStart(codey, { dataTransfer: dt })
+    const grid = screen.getByTestId('agent-pin-grid')
     fireEvent.dragOver(grid, { dataTransfer: dt })
     fireEvent.drop(grid, { dataTransfer: dt })
     fireEvent.dragEnd(codey, { dataTransfer: dt })
@@ -179,7 +180,7 @@ describe('AgentPinGrid drag-to-pin', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Remove Stewie/i }))
     await waitFor(() => {
-      expect(within(grid).queryByRole('link', { name: /Stewie/ })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('agent-pin-grid')).not.toBeInTheDocument()
     })
     expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
     expect(screen.getByRole('navigation', { name: 'Agent list' })).toBeInTheDocument()

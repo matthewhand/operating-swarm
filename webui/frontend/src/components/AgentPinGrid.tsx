@@ -1,4 +1,4 @@
-import { useCallback, useState, type DragEvent as ReactDragEvent } from 'react'
+import { useCallback, useEffect, useState, type DragEvent as ReactDragEvent } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
@@ -10,6 +10,7 @@ import {
   parseAgentDragPayload,
   peekAgentDrag,
   pinAgent,
+  subscribeAgentDrag,
   unpinAgent,
   type PinnedAgent,
 } from '../lib/pinnedAgents'
@@ -28,6 +29,9 @@ export default function AgentPinGrid() {
 
   const [pins, setPins] = useState<PinnedAgent[]>(() => loadPinnedAgents())
   const [over, setOver] = useState(false)
+  const [dragging, setDragging] = useState(() => Boolean(peekAgentDrag()))
+
+  useEffect(() => subscribeAgentDrag(() => setDragging(Boolean(peekAgentDrag()))), [])
 
   const blueprintsQuery = useQuery({
     queryKey: ['blueprints'],
@@ -78,6 +82,8 @@ export default function AgentPinGrid() {
   const removePin = (id: string) => {
     setPins((current) => unpinAgent(id, current))
   }
+
+  if (pins.length === 0 && !dragging && !over) return null
 
   return (
     <section
