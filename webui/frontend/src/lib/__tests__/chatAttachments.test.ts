@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   attachmentCaption,
+  composerFileAttachSupported,
   createPendingAttachment,
   dataTransferHasFiles,
   filesFromList,
@@ -11,6 +12,12 @@ import {
 } from '../chatAttachments'
 
 describe('chatAttachments helpers', () => {
+  it('#427 file attach is for API/blueprint, not CLI or remote', () => {
+    expect(composerFileAttachSupported({})).toBe(true)
+    expect(composerFileAttachSupported({ isCli: true })).toBe(false)
+    expect(composerFileAttachSupported({ isRemote: true })).toBe(false)
+  })
+
   it('classifies images and formats size', () => {
     expect(isImageFile({ type: 'image/png' })).toBe(true)
     expect(isImageFile({ type: 'text/plain' })).toBe(false)

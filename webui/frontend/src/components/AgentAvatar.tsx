@@ -191,6 +191,12 @@ export default function AgentAvatar({
           data-agent-avatar="custom"
           onError={() => setBroken(true)}
         />
+        {eyeState === 'active' ? (
+          <span className="os-still-eyes" aria-hidden="true" data-testid="still-working-eyes">
+            <span className="os-still-eye" />
+            <span className="os-still-eye" />
+          </span>
+        ) : null}
       </div>,
     )
   }

@@ -118,6 +118,14 @@ export async function uploadChatAttachment(file: File): Promise<ChatAttachmentRe
   return apiPostForm<ChatAttachmentRecord>(CHAT_ATTACHMENTS_PATH, body)
 }
 
+/** API/blueprint/team can consume upload ids. CLI/remote native sessions cannot (#427). */
+export function composerFileAttachSupported(opts: {
+  isCli?: boolean
+  isRemote?: boolean
+}): boolean {
+  return !opts.isCli && !opts.isRemote
+}
+
 export function readyAttachmentIds(items: PendingAttachment[]): string[] {
   return items
     .map((item) => item.uploadId)
