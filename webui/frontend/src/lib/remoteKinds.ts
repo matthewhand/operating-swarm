@@ -5,6 +5,7 @@ export const REMOTE_KIND_LABELS: Record<string, string> = {
   hermes: 'Hermes',
   anythingllm: 'AnythingLLM',
   letta: 'Letta',
+  openwebui: 'Open WebUI',
   omb: OPENMOUSBOT_LABEL,
   rakazo: 'Rakazo',
   herdr: 'Herdr',

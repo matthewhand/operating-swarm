@@ -12,6 +12,7 @@ Remote implementation, not a fifth kind.
 | **Herdr** | `herdr` | CLI local / SSH remote | health, list, send, interrogate | no |
 | **Nested open-swarm** | `swarm` (`open-swarm`) | HTTP | health, list, send | no |
 | **TrueForge** | `trueforge` | HTTP | health, list, send, routines | no |
+| **Open WebUI** | `openwebui` (`open-webui`) | HTTP | health, list, send | no — **external** Open WebUI, not OS WebUI |
 
 Typed protocol: `from swarm.core.remote_harness import RemoteHarness`. Settings
 `GET /v1/remotes/` `kinds[]` uses `kind=remote` and `id`/`impl` as the
@@ -72,6 +73,7 @@ Kind defaults (override when adding). Unused kinds are not pre-seeded cards:
 | **rakazo** | Windows2 | API `http://198.51.100.32:3100`, UI `:5173`, tree `C:\rakazo` | `RAKAZO_API_KEY` and/or `RAKAZO_SESSION_COOKIE` |
 | **swarm** | another open-swarm process | stub `http://127.0.0.1:9` (not this listen URL) | `SWARM_REMOTE_API_KEY` (Bearer; env var name only) |
 | **trueforge** | local/remote | `http://127.0.0.1:8791` | `TRUEFORGE_API_KEY` (optional Bearer) |
+| **openwebui** | your Open WebUI | `http://127.0.0.1:8080` | `OPENWEBUI_API_KEY` (Bearer; env var name only). External Open WebUI — not OS WebUI. |
 
 ```bash
 swarm-cli remotes set hermes --base-url http://198.51.100.36:8642 --api-key-env HERMES_API_KEY
@@ -92,7 +94,7 @@ Equivalent persist:
 * `swarm-cli config add --section remotes --name hermes --json '{...}'`
 * Edit `~/.config/swarm/swarm_config.json` → `"remotes"` (or `SWARM_CONFIG_PATH`)
 
-Env overrides win over the file: `HERMES_BASE_URL`, `OMB_BASE_URL`, `RAKAZO_BASE_URL`, `SWARM_REMOTE_BASE_URL`, `TRUEFORGE_BASE_URL`.
+Env overrides win over the file: `HERMES_BASE_URL`, `OMB_BASE_URL`, `RAKAZO_BASE_URL`, `SWARM_REMOTE_BASE_URL`, `TRUEFORGE_BASE_URL`, `ANYTHINGLLM_BASE_URL`, `OPENWEBUI_BASE_URL`.
 
 Settings → **Remotes** lists only added remotes (secrets redacted). Missing
 catalog is empty, not a default Hermes card. `swarm-cli remotes get hermes`
@@ -127,6 +129,7 @@ report, not an exception. Auth-gated 401/403 on a live port counts as **UP**
 | **Rakazo** | `POST /rpc/bots/list` | `POST /rpc/threads/send` `{botId,text}` | **Better Auth session required** for RPC. Public `GET /health` works without auth. Set `RAKAZO_SESSION_COOKIE` from a signed-in UI session. No unauthenticated job API in upstream. |
 | **swarm** | `GET /v1/blueprints/` (fallback `GET /v1/models/`) | `POST /v1/chat/completions/` `{"model":"<blueprint>","messages":[…]}` | Network remote only. Unreachable child is the same DOWN / operate-fail as other remotes (no hang). Do not persist this process listen URL. |
 | **TrueForge** | `GET /api/v1/agents` | `POST /api/v1/sessions` + `POST /turns` + poll `GET /turns/{id}` + `GET /events` | Async sessions/turns/events job workflow. Optional Bearer auth via `TRUEFORGE_API_KEY`. |
+| **Open WebUI** | `GET /api/v1/chats/` (search: `GET /api/v1/chats/search?text=`) | `POST /api/chat/completions` `{chat_id, messages, stream}` then `POST /api/chat/completed` | External Open WebUI only — not Operating Swarm's WebUI. Send requires an existing chat id; never mints. Bearer `OPENWEBUI_API_KEY`. |
 | **Herdr** | `herdr agent list` (local or over SSH) | `herdr agent prompt` / `herdr agent get` (interrogate) | SSH-shaped. Not HTTP like the rows above. Missing ssh_host/ssh_user is a clear error. Stub SSH in tests; no live LAN. |
 
 ```bash

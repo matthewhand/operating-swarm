@@ -80,4 +80,17 @@ describe('sessionPicker (REQ-68 / REQ-66 shared)', () => {
     expect(empty).toEqual([])
     expect(shouldShowSelectAgent(empty)).toBe(false)
   })
+
+  it('does not invent a fake row for Open WebUI with no agents yet', () => {
+    const openwebui = sessionsForRemote({
+      id: 'openwebui',
+      kind: 'openwebui',
+      title: 'Open WebUI',
+      configured: true,
+      agents: [],
+      capabilities: { sessions: true },
+    })
+    expect(openwebui).toEqual([])
+    expect(shouldShowSelectAgent(openwebui)).toBe(false)
+  })
 })

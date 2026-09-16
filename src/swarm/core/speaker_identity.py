@@ -108,6 +108,14 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
             "assistant_message content; no Chat Completions message objects."
         ),
     },
+    "remote:openwebui": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": (
+            "External Open WebUI chat completions; resume key is an existing "
+            "chat id. Not Operating Swarm's own WebUI."
+        ),
+    },
     "remote:omb": {
         "name_field": "stripped",
         "path": "delimiter",

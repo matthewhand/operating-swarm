@@ -273,6 +273,22 @@ class TestRemoteOperate:
         assert kwargs["query"] == "hacker"
 
     @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_forwards_session_id_and_query(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="openwebui", op="list", ok=True, detail="listed", data={"sessions": []}
+        )
+        resp = api_client.post(
+            "/v1/remotes/openwebui/operate/",
+            {"op": "list", "query": "hacker", "session_id": "abc"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        mock_op.assert_called_once()
+        kwargs = mock_op.call_args.kwargs
+        assert kwargs.get("query") == "hacker"
+        assert kwargs.get("session_id") == "abc"
+
+    @patch("swarm.views.remotes_api.remotes_core.operate")
     def test_swarm_send(self, mock_op, api_client):
         mock_op.return_value = OperateResult(
             remote="swarm",

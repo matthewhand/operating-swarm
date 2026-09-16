@@ -86,7 +86,7 @@ export function sessionsForTeam(team: TeamRoster): MemberSession[] {
 }
 
 export function sessionsForRemote(remote: RemoteEntry): MemberSession[] {
-  // Session-capable remotes (AnythingLLM threads) are listed via operate(),
+  // Session-capable remotes (AnythingLLM/Letta/Open WebUI) are listed via operate(),
   // not a fake single-agent row that cannot resume.
   if (!remote.agents.length && remote.capabilities?.sessions) {
     return []

@@ -145,3 +145,43 @@ describe('remoteSessions (issue #89 Letta)', () => {
     expect(sessions[0].memberId).toBe('agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
   })
 })
+
+describe('remoteSessions (issue #90 Open WebUI)', () => {
+  it('treats Open WebUI as a session-list remote', () => {
+    expect(remoteListsSessions({ id: 'openwebui', kind: 'openwebui' })).toBe(true)
+    expect(remoteListsSessions({ id: 'owui', kind: 'open-webui' })).toBe(true)
+  })
+
+  it('passes session_id on chat turn params for resume', () => {
+    expect(remoteChatTurnParams('openwebui', '550e8400-e29b-41d4-a716-446655440000')).toEqual({
+      remote: 'openwebui',
+      name: 'openwebui',
+      op: 'send',
+      session_id: '550e8400-e29b-41d4-a716-446655440000',
+      target: '550e8400-e29b-41d4-a716-446655440000',
+    })
+    expect(remoteChatTurnParams('openwebui')).toEqual({
+      remote: 'openwebui',
+      name: 'openwebui',
+      op: 'send',
+    })
+  })
+
+  it('normalizes operate list sessions and filters when many', () => {
+    const rows = sessionsFromOperateResult({
+      remote: 'openwebui',
+      op: 'list',
+      ok: true,
+      detail: 'listed',
+      data: {
+        sessions: [
+          { id: 'aaa', title: 'latest hacker news?', snippet: 'hn' },
+          { id: 'bbb', title: 'onboarding docs', snippet: 'welcome' },
+        ],
+      },
+    })
+    expect(rows.map((row) => row.id)).toEqual(['aaa', 'bbb'])
+    expect(filterRemoteSessionRows(rows, 'hacker').map((row) => row.id)).toEqual(['aaa'])
+    expect(filterRemoteSessionRows(rows, 'zzz')).toEqual([])
+  })
+})
