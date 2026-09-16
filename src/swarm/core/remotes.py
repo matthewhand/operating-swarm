@@ -40,6 +40,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
@@ -227,7 +229,9 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "Rakazo API :3100, Vite UI :5173, tree C:\\rakazo. "
             "GET /health is public. bots.list / threads.send live under "
             "/rpc/* and require a Better Auth session (cookie or bearer). "
-            "Health works without auth; operate fails honestly on 401."
+            "Operate sends Cookie from RAKAZO_SESSION_COOKIE and/or Bearer "
+            "from RAKAZO_API_KEY via env/secret-store (names only). "
+            "Health works without auth; 401 is an honest gap when unset."
         ),
     },
     "herdr": {
@@ -737,6 +741,25 @@ def _as_env_name(value: str) -> str:
     return derived or raw
 
 
+def get_secret(name: str) -> str:
+    """Read ``name`` from the process env (the secret-store). Never log the value."""
+    key = (name or "").strip()
+    if not key:
+        return ""
+    return os.environ.get(key, "").strip()
+
+
+def _expand_secret(value: Any) -> str:
+    """Resolve ``${ENV}`` placeholders via get_secret. Do not expandvars raw secrets."""
+    raw = str(value or "").strip()
+    env_name = _placeholder_env_name(raw)
+    if env_name:
+        return get_secret(env_name)
+    if _is_unresolved_placeholder(raw):
+        return ""
+    return raw
+
+
 def _coerce_bool(value: Any, default: bool = True) -> bool:
     if value is None or value == "":
         return default
@@ -950,18 +973,10 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
     if env_ui and (ownership.field_is_forced(env_ui_key) or not persisted_ui):
         spec.ui_url = env_ui
 
-    # Secrets stay env-only: file may hold ${VAR}; live value comes from env.
+    # Secrets stay env-only: file may hold ${VAR}; live value comes from
+    # get_secret (process env is the secret-store). Never log values.
     env_key_name = f"{kind.upper()}_{inst_slug}_API_KEY" if inst_slug else (_ENV_KEY.get(kind) or "")
     kind_env_key_name = _ENV_KEY.get(kind) or ""
-    env_key = os.environ.get(env_key_name, "").strip() if env_key_name else ""
-    if not env_key and inst_slug and kind_env_key_name:
-        env_key = os.environ.get(kind_env_key_name, "").strip()
-    if env_key:
-        spec.api_key = env_key
-    env_cookie = _ENV_COOKIE.get(kind)
-    if env_cookie and os.environ.get(env_cookie, "").strip():
-        spec.cookie = os.environ[env_cookie].strip()
-
     if not spec.api_key_env:
         spec.api_key_env = (
             _placeholder_env_name(str(spec.api_key or ""))
@@ -970,7 +985,21 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             or ""
         )
     if not spec.session_cookie_env:
-        spec.session_cookie_env = _placeholder_env_name(str(spec.cookie or ""))
+        spec.session_cookie_env = (
+            _placeholder_env_name(str(spec.cookie or ""))
+            or _ENV_COOKIE.get(kind)
+            or ""
+        )
+    stored_key = get_secret(env_key_name)
+    if not stored_key and inst_slug:
+        stored_key = get_secret(kind_env_key_name)
+    if not stored_key:
+        stored_key = get_secret(spec.api_key_env)
+    spec.api_key = stored_key or _expand_secret(spec.api_key)
+    stored_cookie = get_secret(spec.session_cookie_env)
+    if not stored_cookie:
+        stored_cookie = get_secret(_ENV_COOKIE.get(kind) or "")
+    spec.cookie = stored_cookie or _expand_secret(spec.cookie)
 
     if kind == "herdr":
         env_ssh_host = os.environ.get(_ENV_HERDR_SSH_HOST, "").strip()
@@ -995,8 +1024,6 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
 
     spec.base_url = _normalize_base_url(_expand(spec.base_url))
     spec.ui_url = _normalize_base_url(_expand(spec.ui_url)) if spec.ui_url else ""
-    spec.api_key = str(_expand(spec.api_key) or "")
-    spec.cookie = str(_expand(spec.cookie) or "")
     spec.health_path = spec.health_path or "/health"
     spec.version_path = spec.version_path or spec.health_path
     if not spec.health_path.startswith("/"):
@@ -1017,6 +1044,11 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
         "api_key": ownership.badge_for(
             env_var=spec.api_key_env or kind_env_key_name,
             persisted=f"${{{spec.api_key_env}}}" if spec.api_key_env else "",
+            secret=True,
+        ),
+        "cookie": ownership.badge_for(
+            env_var=spec.session_cookie_env or _ENV_COOKIE.get(kind) or "",
+            persisted=f"${{{spec.session_cookie_env}}}" if spec.session_cookie_env else "",
             secret=True,
         ),
     }
@@ -1515,14 +1547,16 @@ def remove_remote(
 
 def _auth_headers(spec: RemoteSpec) -> dict[str, str]:
     headers = {"Accept": "application/json", "User-Agent": "open-swarm-remotes/1"}
-    if spec.api_key:
-        headers["Authorization"] = f"Bearer {spec.api_key}"
-        headers["X-API-Key"] = spec.api_key
+    key = spec.api_key
+    if key and not _is_unresolved_placeholder(key):
+        headers["Authorization"] = f"Bearer {key}"
+        headers["X-API-Key"] = key
         kind = (spec.kind or spec.id or "").strip().lower()
         if kind == "n8n" or kind.startswith("n8n"):
-            headers["X-N8N-API-KEY"] = spec.api_key
-    if spec.cookie:
-        headers["Cookie"] = spec.cookie
+            headers["X-N8N-API-KEY"] = key
+    cookie = spec.cookie
+    if cookie and not _is_unresolved_placeholder(cookie):
+        headers["Cookie"] = cookie
     return headers
 
 
@@ -2503,9 +2537,36 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
 
 def _rakazo_rpc(spec: RemoteSpec, path: str, payload: dict[str, Any], timeout: float) -> HttpResult:
     url = f"{spec.base_url}{path}"
-    headers = _auth_headers(spec)
-    # oRPC envelope used by the mobile probe and Hono RPCHandler.
-    return http_json("POST", url, headers=headers, body={"json": payload}, timeout=timeout)
+    headers = dict(_auth_headers(spec))
+    headers.setdefault("Content-Type", "application/json")
+    started = time.monotonic()
+    # httpx so respx can mock CI; never log header values.
+    try:
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
+            resp = client.post(url, headers=headers, json={"json": payload})
+        text = resp.text or ""
+        parsed: Any = None
+        if text.strip():
+            try:
+                parsed = resp.json()
+            except ValueError:
+                parsed = None
+        return HttpResult(
+            status=resp.status_code,
+            body=parsed,
+            text=text,
+            error="" if resp.status_code < 400 else f"http {resp.status_code}",
+            url=url,
+            latency_ms=round((time.monotonic() - started) * 1000),
+            headers={k.lower(): v for k, v in resp.headers.items()},
+        )
+    except (httpx.HTTPError, OSError, ValueError) as exc:
+        return HttpResult(
+            status=None,
+            error=f"{type(exc).__name__}: {exc}",
+            url=url,
+            latency_ms=round((time.monotonic() - started) * 1000),
+        )
 
 
 def _rakazo_list(spec: RemoteSpec, timeout: float) -> OperateResult:
@@ -2529,8 +2590,8 @@ def _rakazo_list(spec: RemoteSpec, timeout: float) -> OperateResult:
             detail=(
                 "Rakazo /rpc/bots/list requires a Better Auth session. "
                 "Health (GET /health) is public; operate is not. "
-                "Set remotes.rakazo.cookie (or RAKAZO_SESSION_COOKIE) from a signed-in UI session, "
-                "or a bearer if this deploy added API-key auth."
+                "Export RAKAZO_SESSION_COOKIE and/or RAKAZO_API_KEY "
+                "(env/secret-store names only; never persist values)."
             ),
             http_status=result.status,
             data=result.body,

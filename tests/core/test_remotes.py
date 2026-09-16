@@ -16,7 +16,7 @@ def clean_remotes_env(monkeypatch):
     for var in (
         "HERMES_BASE_URL", "HERMES_API_KEY",
         "OMB_BASE_URL", "OMB_API_KEY",
-        "RAKAZO_BASE_URL", "RAKAZO_API_KEY",
+        "RAKAZO_BASE_URL", "RAKAZO_API_KEY", "RAKAZO_SESSION_COOKIE",
         "TRUEFORGE_BASE_URL", "TRUEFORGE_API_KEY",
         "SWARM_REMOTE_BASE_URL", "SWARM_REMOTE_API_KEY",
     ):
