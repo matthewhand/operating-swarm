@@ -264,6 +264,124 @@ def test_trueforge_list_agents(tf_server, monkeypatch):
     assert len(listed.data["data"]) == 2
 
 
+# --- #425: a list row is an agent id, not a session to resume -------------------
+
+
+def test_trueforge_list_documents_the_resume_key(tf_server, monkeypatch):
+    """#425: the list must name which field send resumes on (session, not agent)."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/agents"): (
+            200,
+            {"data": [{"id": "agent-1", "name": "orchestrator"}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    listed = remotes_core.operate("trueforge", "list", config=cfg)
+
+    assert listed.ok is True
+    assert listed.data["rows_are"] == "agents"
+    assert listed.data["resume_key"] == "session_id"
+    assert "agent" in listed.detail.lower() and "session" in listed.detail.lower()
+
+
+def test_trueforge_send_recovers_when_the_key_is_an_agent_id(tf_server, monkeypatch):
+    """#425: the SPA forwards a list row id as ``session_id``, and the rows are
+    agents, so ``404 Session not found`` must recover by starting a session for
+    that agent instead of failing the send."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions/agent-1/turns"): (
+            404,
+            {"error": "Session not found"},
+        ),
+        ("POST", "/api/v1/sessions"): (201, {"data": {"id": "sess-new"}}),
+        ("POST", "/api/v1/sessions/sess-new/turns"): (
+            202,
+            {"data": {"id": "turn-1", "state": "running"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-new/turns/turn-1"): (
+            200,
+            {"data": {"id": "turn-1", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-new/turns/turn-1/events"): (
+            200,
+            {"data": [{"type": "model.message", "content": "Recovered."}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    sent = remotes_core.operate(
+        "trueforge", "send", prompt="hi", session_id="agent-1", config=cfg
+    )
+
+    assert sent.ok is True, sent.detail
+    assert sent.detail == "Recovered."
+    assert sent.data["session_id"] == "sess-new"
+    assert sent.data["session_created_for"] == "agent-1"
+    sess_req = next(b for m, p, b in router.received_bodies if p == "/api/v1/sessions")
+    assert sess_req["agent"]["name"] == "agent-1"
+
+
+def test_trueforge_send_says_no_session_to_resume_instead_of_a_raw_404(
+    tf_server, monkeypatch
+):
+    """#425: when no session can be started either, answer in words."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions/agent-1/turns"): (
+            404,
+            {"error": "Session not found"},
+        ),
+        ("POST", "/api/v1/sessions"): (401, {"error": "unauthorized"}),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    sent = remotes_core.operate(
+        "trueforge", "send", prompt="hi", session_id="agent-1", config=cfg
+    )
+
+    assert sent.ok is False
+    assert sent.gap == "trueforge_no_session"
+    assert "404" not in sent.detail
+    assert "Session not found" not in sent.detail
+    assert "agent-1" in sent.detail
+
+
+def test_trueforge_send_uses_a_real_session_id_as_is(tf_server, monkeypatch):
+    """#425 regression: a genuine session id is resumed, not replaced."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions/sess-real/turns"): (
+            202,
+            {"data": {"id": "turn-real", "state": "running"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-real/turns/turn-real"): (
+            200,
+            {"data": {"id": "turn-real", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-real/turns/turn-real/events"): (
+            200,
+            {"data": [{"type": "model.message", "content": "Resumed."}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    sent = remotes_core.operate(
+        "trueforge", "send", prompt="hi", session_id="sess-real", config=cfg
+    )
+
+    assert sent.ok is True, sent.detail
+    assert sent.data["session_id"] == "sess-real"
+    assert "session_created_for" not in sent.data
+    assert ("POST", "/api/v1/sessions") not in router.route_hits
+
+
 def test_trueforge_send_turn_and_poll_events(tf_server, monkeypatch):
     """Send: POST /sessions -> POST /turns -> poll /turns/{id} -> GET /events."""
     host, port, router = tf_server
