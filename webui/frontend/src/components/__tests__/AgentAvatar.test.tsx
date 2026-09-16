@@ -13,6 +13,7 @@ import {
   saveAvatarTheme,
 } from '../../lib/avatarTheme'
 import { rememberGeneratedAvatar, resetGeneratedAvatars } from '../../lib/agentAvatars'
+import { BEE_VARIANTS } from '../../lib/beeAvatar'
 
 describe('AgentAvatar', () => {
   afterEach(() => {
@@ -58,19 +59,29 @@ describe('AgentAvatar', () => {
     const svg = container.querySelector('svg[data-avatar-theme="bee"]')
     expect(svg).toBeInTheDocument()
     expect(svg).toHaveAttribute('data-agent-id', 'codey')
-    expect(['side-on', 'face-only']).toContain(svg?.getAttribute('data-bee-variant'))
+    expect([...BEE_VARIANTS]).toContain(svg?.getAttribute('data-bee-variant'))
     expect(svg?.querySelector('[data-googly="true"]')).toBeInTheDocument()
+    expect(svg).toHaveAttribute('data-bee-accessory')
   })
 
   it('assigns side-on and face-only Bee variants deterministically by agent id', () => {
     saveAvatarTheme('bee')
-    const ids = ['codey', 'stewie', 'reachy', 'jeeves', 'atlas', 'nova', 'oriole', 'pip']
+    const ids = Array.from({ length: 48 }, (_, i) => `agent-${i}`).concat([
+      'codey',
+      'stewie',
+      'reachy',
+      'jeeves',
+      'atlas',
+      'nova',
+      'oriole',
+      'pip',
+    ])
     const variants = new Set<string>()
     for (const id of ids) {
       const view = render(<AgentAvatar agentId={id} />)
       const svg = view.container.querySelector('svg[data-avatar-theme="bee"]')
       const variant = svg?.getAttribute('data-bee-variant')
-      expect(variant === 'side-on' || variant === 'face-only').toBe(true)
+      expect([...BEE_VARIANTS]).toContain(variant)
       if (variant) variants.add(variant)
       view.unmount()
     }
