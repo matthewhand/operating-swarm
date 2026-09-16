@@ -186,7 +186,7 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    fireEvent.click(await screen.findByTestId('routing-option-agent-orchestration-mini'))
+    fireEvent.click(await screen.findByTestId('os-model-row-orchestration-mini'))
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'route this turn' } })
     fireEvent.submit(composer.closest('form')!)

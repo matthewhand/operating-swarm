@@ -288,6 +288,37 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
   })
 
+  it('API seat opens the searchable model palette, not the agent dropdown (#281)', () => {
+    const { onChange } = renderPicker({
+      seatKind: 'api',
+      agents: [
+        { id: 'orchestration', label: 'Orchestration' },
+        { id: 'gpt-4o', label: 'gpt-4o' },
+        { id: 'anthropic/claude-3-5-sonnet', label: 'claude-3-5-sonnet' },
+      ],
+      selectedAgent: 'orchestration',
+      models: [],
+      selectedModel: '',
+      defaultAgent: 'orchestration',
+      footerAction: undefined,
+    })
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('Orchestration')
+    fireEvent.mouseEnter(screen.getByTestId('routing-pill-agent'))
+    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    const palette = screen.getByTestId('os-model-search-palette')
+    expect(palette).toHaveClass('os-search-palette')
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Filter models' })).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('os-model-row-gpt-4o'))
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ changed: 'agent', agent: 'gpt-4o' }),
+    )
+    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+  })
+
   it('opens nested menus toward inline-start in RTL', () => {
     document.documentElement.setAttribute('dir', 'rtl')
     renderPicker()
