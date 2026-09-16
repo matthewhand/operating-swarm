@@ -188,6 +188,7 @@ import {
   renameSection,
   sectionIdForAgent,
   toggleSectionCollapsed,
+  toggleSectionInternalOnly,
   UNASSIGNED_SECTION_ID,
   type RailSectionsState,
 } from '../lib/railSections'
@@ -1205,6 +1206,11 @@ export default function AgentSidebar({
       }
       if (id === 'section-rename') {
         startSectionRename(sectionId, sectionName)
+        return
+      }
+      if (id === 'section-talk-lock') {
+        setSectionState((current) => toggleSectionInternalOnly(current, sectionId))
+        closeMenu()
         return
       }
       if (id === 'section-move-up') {
@@ -2238,6 +2244,10 @@ export default function AgentSidebar({
         canMoveDown:
           sectionState.sections.findIndex((section) => section.id === sectionMenu.sectionId) <
           sectionState.sections.length - 1,
+        internalOnly: Boolean(
+          sectionState.sections.find((section) => section.id === sectionMenu.sectionId)
+            ?.internalOnly,
+        ),
       })
     : []
 
@@ -3108,6 +3118,7 @@ export default function AgentSidebar({
                         data-section-id={block.id}
                         data-section-custom={block.custom ? 'true' : 'false'}
                         data-collapsed={block.collapsed ? 'true' : 'false'}
+                        data-internal-only={block.internalOnly ? 'true' : 'false'}
                       >
                         {isAvatarOnly ? null : (
                           <RailSectionHeader
@@ -3116,6 +3127,7 @@ export default function AgentSidebar({
                             count={block.rows.length}
                             collapsed={block.collapsed}
                             custom={block.custom}
+                            internalOnly={Boolean(block.internalOnly)}
                             editing={editingSectionId === block.id}
                             editValue={editingSectionId === block.id ? editingSectionName : block.name}
                             dropActive={sectionDropId === block.id}
@@ -3126,6 +3138,14 @@ export default function AgentSidebar({
                                 setSectionState((current) => toggleSectionCollapsed(current, block.id))
                               }
                             }}
+                            onToggleTalkLock={
+                              block.custom
+                                ? () =>
+                                    setSectionState((current) =>
+                                      toggleSectionInternalOnly(current, block.id),
+                                    )
+                                : undefined
+                            }
                             onContextMenu={
                               block.custom
                                 ? ({ clientX, clientY }) =>

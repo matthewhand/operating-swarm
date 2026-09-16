@@ -185,6 +185,7 @@ import {
   remoteSelectPlaceholder,
 } from '../lib/remotes'
 import { enabledToolsParam } from '../lib/chatPluginTools'
+import { railSectionsParam } from '../lib/railSections'
 import { publishCurrentChatScope } from '../lib/chatScope'
 import {
   AGENT_REMOTE_BINDINGS_CHANGED_EVENT,
@@ -2010,12 +2011,14 @@ const ChatPage = () => {
       lastUserTextRef.current = trimmed
       // Team compose adds params { team, target: "all" | memberId }.
       const pluginParams = enabledToolsParam(conversationIdRef.current)
+      const sectionParams = railSectionsParam()
       if (teamFromUrl) {
         ws.send(
           buildChatWsFrame(trimmed, undefined, {
             team: teamFromUrl,
             target: memberTarget || ALL_MEMBERS_TARGET,
             ...pluginParams,
+            ...sectionParams,
           }),
         )
         return true
@@ -2027,6 +2030,7 @@ const ChatPage = () => {
             name: remoteFromUrl,
             op: 'send',
             ...pluginParams,
+            ...sectionParams,
           }),
         )
         return true
@@ -2106,6 +2110,7 @@ const ChatPage = () => {
                   ...pluginParams,
                   ...folderParams,
                   ...skillParams,
+                  ...sectionParams,
                 }
             : undefined,
         ),
