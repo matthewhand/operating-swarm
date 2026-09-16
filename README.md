@@ -90,7 +90,7 @@ Four user-facing kinds. **Team is not a fifth kind.**
 | **CLI** | Host executable (`grok`, `agy`, `claude`, `gemini`, `opencode`, …). Native session. |
 | **API** | **True inference seat** — OpenAI-compatible chat completions (base URL / model / key-env). Not a graph. |
 | **Blueprint** | **Programmatic recipe** — openai-agents handoffs, MoA, custom Python. May *use* inference underneath; the seat is the recipe. Same id via CLI and API only — blueprints do not ship a webpage. The Grok-like WebUI is the product chrome. |
-| **Remote** | Another agentic harness. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr** (and nested Open Swarm). Variants are adapters, not extra kinds. Herdr is SSH-shaped, not another HTTP remote. |
+| **Remote** | Another agentic harness. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr** (and nested Operating Swarm / OS instance). Variants are adapters, not extra kinds. Herdr is SSH-shaped, not another HTTP remote. |
 
 **Team** = a **Blueprint subtype**: a roster plus openai-agents **handoff / agent-as-tool** so CLI, API, Blueprint, and Remote members can see and talk. Do not call `/v1/teams` aliases a Team — those are **Profiles** (LLM-profile aliases).
 

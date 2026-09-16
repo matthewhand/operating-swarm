@@ -25,6 +25,8 @@ INDEX_CSS = REPO / "webui" / "frontend" / "src" / "index.css"
 SPEC = REPO / "docs" / "qa" / "REQ-862-rebrand-swarm-bot.md"
 UV_LOCK = REPO / "uv.lock"
 SETTINGS_DASHBOARD = REPO / "src" / "swarm" / "templates" / "settings_dashboard.html"
+LOGIN_HTML = REPO / "src" / "swarm" / "templates" / "account" / "login.html"
+DJANGO_TEMPLATES = REPO / "src" / "swarm" / "templates"
 SETTINGS_SHEET = REPO / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
 UPDATE_CHROME = REPO / "webui" / "frontend" / "src" / "components" / "UpdateChrome.tsx"
 AGENT_ROUTER = REPO / "webui" / "frontend" / "src" / "pages" / "AgentRouterPage.tsx"
@@ -138,10 +140,27 @@ def test_req862_spec_doc_is_shipped():
 
 
 def test_req862_operator_chrome_no_longer_says_open_swarm():
+    login = _text(LOGIN_HTML)
+    assert '<h1 class="brand-name">Operating Swarm</h1>' in login
+    assert "<title>Login &middot; Operating Swarm</title>" in login
+    assert "Open Swarm" not in login
+
     dashboard = _text(SETTINGS_DASHBOARD)
     assert "{% block title %}Settings - Operating Swarm{% endblock %}" in dashboard
     assert "Configuration management for Operating Swarm (OS)" in dashboard
     assert "Open Swarm" not in dashboard
+
+    leftover = [
+        str(path.relative_to(REPO))
+        for path in DJANGO_TEMPLATES.rglob("*.html")
+        if "Open Swarm" in _text(path)
+    ]
+    assert leftover == [], f"Django templates still say Open Swarm: {leftover}"
+
+    readme = _text(README)
+    assert "(and nested Operating Swarm / OS instance)" in readme
+    # Historical OpenAI Swarm lineage — not product chrome.
+    assert "Open Swarm began as an extension of OpenAI" in readme
 
     sheet = _text(SETTINGS_SHEET)
     assert ">Operating Swarm</span>" in sheet
