@@ -2633,6 +2633,23 @@ describe('AgentSidebar REQ-861 conceal', () => {
     expect(expand).toHaveAttribute('data-testid', 'sidebar-expand')
   })
 
+  it('#421 collapsed rail hides Calendar label and info-i (hostname-only chrome)', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+    expect(css).toMatch(/os-agent-sidebar--avatar-only \.os-calendar-label/)
+    expect(css).toMatch(/os-agent-sidebar--avatar-only \[data-testid="rail-update-chrome"\]/)
+
+    renderSidebar()
+    expect(screen.getByTestId('rail-update-chrome')).toBeInTheDocument()
+    expect(screen.getByLabelText('Hostname')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.getByTestId('os-calendar-button').querySelector('.os-calendar-label')).toBeTruthy()
+    expect(screen.queryByTestId('rail-update-chrome')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Hostname')).not.toBeInTheDocument()
+  })
+
   it('restores the rail from the collapsed expand control (#417)', async () => {
     renderSidebar()
     fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))

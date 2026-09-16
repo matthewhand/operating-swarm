@@ -3400,7 +3400,7 @@ export default function AgentSidebar({
               }}
             >
               <Trash2 className="h-5 w-5 shrink-0" aria-hidden="true" />
-              <span className="text-xs font-semibold uppercase tracking-wider">Delete</span>
+              <span className="os-bin-label text-xs font-semibold uppercase tracking-wider">Delete</span>
             </div>
           ) : (
             <>
@@ -3457,6 +3457,8 @@ export default function AgentSidebar({
                     />
                   )}
                 </button>
+                {!isAvatarOnly ? (
+                  <>
                 <label className="sr-only" htmlFor="os-rail-hostname">
                   Hostname
                 </label>
@@ -3486,6 +3488,8 @@ export default function AgentSidebar({
                   }}
                 />
                 <UpdateChrome />
+                  </>
+                ) : null}
                 {remotesPopupOpen && (
                   <RemoteSessionsPopup
                     isOpen={remotesPopupOpen}
