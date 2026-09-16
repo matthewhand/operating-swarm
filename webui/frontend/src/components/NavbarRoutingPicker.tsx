@@ -183,7 +183,13 @@ export function NavbarRoutingPicker({
     [path, selectedModels],
   )
   const joined = useMemo(() => joinRoutingPath(faceParts), [faceParts])
-  const showModel = selectedFamilies.length > 0 || Boolean(modelWarning)
+  const modelsLoading =
+    seatKind === 'cli' &&
+    (previewModelsQuery.isFetching || previewModelsQuery.isLoading)
+  // CLI seats always expose the model pill so a click can show Loading...
+  // while the lazy probe is in flight (REQ-870).
+  const showModel =
+    seatKind === 'cli' || selectedFamilies.length > 0 || Boolean(modelWarning)
   const selectedFamily = selectedFamilies.find((row) => row.base === path.modelBase)
   const showEffort = Boolean(selectedFamily && familyHasEffort(selectedFamily))
   const agentLabel =
@@ -192,7 +198,7 @@ export function NavbarRoutingPicker({
     placeholder ||
     (seatKind === 'remote' ? 'Remote' : 'Agent')
   const modelLabel = showModel
-    ? path.modelBase || selectedModel || (modelWarning ? '—' : '')
+    ? path.modelBase || selectedModel || '—'
     : ''
   const effortLabel = showEffort ? path.effort || '' : ''
   const groupLabel = ariaLabel || (seatKind === 'cli' ? 'CLI' : seatKind === 'remote' ? 'Remote' : 'Routing')
@@ -573,16 +579,25 @@ export function NavbarRoutingPicker({
             Back
           </button>
         ) : null}
-        {isModel && previewModelsQuery.isFetching && families.length === 0 ? (
-          <div className="os-routing-menu__empty">Loading models…</div>
+        {isModel && modelsLoading && families.length === 0 ? (
+          <div
+            className="os-routing-menu__loading"
+            data-testid="routing-model-loading"
+            role="status"
+            aria-live="polite"
+            aria-label="Loading..."
+          >
+            <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+            <span>Loading...</span>
+          </div>
         ) : null}
-        {isModel && modelWarning && families.length === 0 ? (
+        {isModel && modelWarning && families.length === 0 && !modelsLoading ? (
           <div className="os-routing-menu__warning" data-testid="routing-model-warning" role="status">
             {modelWarning}
           </div>
         ) : null}
         {items.length === 0 &&
-        !(isModel && previewModelsQuery.isFetching) &&
+        !(isModel && modelsLoading) &&
         !(isModel && modelWarning) ? (
           <div className="os-routing-menu__empty">No options</div>
         ) : null}
