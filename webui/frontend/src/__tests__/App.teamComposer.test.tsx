@@ -45,7 +45,8 @@ describe('SPA + team composer entry', () => {
     expect(await screen.findByRole('heading', { name: /new team/i })).toBeInTheDocument()
     expect(screen.getByTestId('team-drop-zone')).toHaveTextContent(/drop agents here/i)
     expect(screen.getByTestId('team-cos-select')).toBeDisabled()
-    expect(screen.getByText(/add agents first/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)
+    expect(screen.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'true')
     // Overlay — Chat route stays mounted (REQ-364 / #364).
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
   })
