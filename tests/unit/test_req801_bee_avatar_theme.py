@@ -1,4 +1,4 @@
-"""#801 Bee avatar theme — enum, both locked variants, brand reuse, custom wins."""
+"""#801 Bee avatar theme — enum, pack variants, brand reuse, custom wins."""
 
 from pathlib import Path
 
@@ -8,6 +8,10 @@ BEE_AVATAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "BeeA
 AGENT_AVATAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentAvatar.tsx"
 THEME_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "avatarTheme.ts"
 GEOMETRIC_SVG = REPO_ROOT / "assets" / "brand" / "webui-geometric.svg"
+
+PACK_VARIANTS = "['side-on', 'face-only', 'flying', 'honeycell', 'bumblebee', 'top-down']"
+PACK_ACCENTS = "['#EFAB22', '#EBA222', '#C48A1C', '#F4C400', '#D4921A', '#A66B12']"
+PACK_ACCESSORIES = "['none', 'blush', 'brow', 'sparkle']"
 
 
 def test_req801_theme_enum_includes_bee():
@@ -39,15 +43,34 @@ def test_req801_bee_is_opt_in_not_forced_default():
 
 def test_req801_both_locked_variants_are_assigned():
     content = BEE_AVATAR_TS.read_text(encoding="utf-8")
-    assert "['side-on', 'face-only']" in content
+    assert PACK_VARIANTS in content
+    assert "'side-on'" in content
+    assert "'face-only'" in content
     assert "beeSpecForAgent" in content
     assert "variant === 'face-only'" in content
     tsx = BEE_AVATAR_TSX.read_text(encoding="utf-8")
-    assert 'data-bee-variant={spec.variant}' in tsx
+    assert "data-bee-variant={spec.variant}" in tsx
     assert "spec.variant === 'side-on'" in tsx
     assert "FaceOnlyBee" in tsx
     assert "SideOnBee" in tsx
     assert 'data-googly="true"' in tsx
+
+
+def test_req801_pack_expands_variants_accents_and_accessories():
+    content = BEE_AVATAR_TS.read_text(encoding="utf-8")
+    assert PACK_VARIANTS in content
+    assert PACK_ACCENTS in content
+    assert PACK_ACCESSORIES in content
+    assert "BEE_ACCESSORIES" in content
+    tsx = BEE_AVATAR_TSX.read_text(encoding="utf-8")
+    assert "FlyingBee" in tsx
+    assert "HoneycellBee" in tsx
+    assert "BumbleBee" in tsx
+    assert "TopDownBee" in tsx
+    assert "data-bee-accessory={spec.accessory}" in tsx
+    assert "os-bee-accessory" in tsx
+    assert "os-bee-accessory--" in tsx
+    assert "BeeAccessoryLayer" in tsx
 
 
 def test_req801_reuses_geometric_webui_paths_not_cyber_swarm():

@@ -1718,7 +1718,7 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     const headerBee = document.querySelector('.os-chat-header [data-avatar-theme="bee"]')
     expect(headerBee).toBeInTheDocument()
     expect(headerBee?.querySelector('[data-googly="true"]')).toBeTruthy()
-    expect(['side-on', 'face-only']).toContain(
+    expect(['side-on', 'face-only', 'flying', 'honeycell', 'bumblebee', 'top-down']).toContain(
       headerBee?.querySelector('svg')?.getAttribute('data-bee-variant')
       || headerBee?.getAttribute('data-bee-variant'),
     )
