@@ -9,9 +9,23 @@ from __future__ import annotations
 
 from swarm.core import cli_catalog
 
+# Names that must never appear as the CLI-default starting set (#147).
+FAKE_CLIS = ("echo", "fake", "dummy", "mock", "testcli", "placeholder")
+
 
 def _only_grok(exe, path=None):
     return "/usr/bin/grok" if exe == "grok" else None
+
+
+def _start_set(payload: dict) -> set[str]:
+    names = set(payload.get("discovered") or [])
+    names.update(payload.get("installed") or [])
+    names.update((payload.get("suggestions") or {}).keys())
+    for row in payload.get("rail") or []:
+        cli = row.get("cli")
+        if cli:
+            names.add(str(cli))
+    return names
 
 
 def test_shipped_defaults_cli_on_other_modes_off(monkeypatch):
@@ -61,6 +75,8 @@ def test_absent_catalog_cli_is_not_invented(monkeypatch):
     assert rows["cli_agent"]["installed"] is False
     assert "pi" not in {row.get("cli") for row in payload["rail"]}
     assert "grok" not in {row.get("cli") for row in payload["rail"] if row.get("cli")}
+    leaked = _start_set(payload) & set(FAKE_CLIS)
+    assert not leaked, leaked
 
 
 def test_enabling_api_mode_adds_api_agent_rail_row(monkeypatch):
@@ -96,3 +112,17 @@ def test_known_vs_discovered_vs_configured(monkeypatch):
     assert added["configured"] == ["grok"]
     assert "grok" not in added["suggestions"]
     assert added["discovered"] == ["grok"]
+
+
+def test_catalog_and_discovered_exclude_fake_clis(monkeypatch):
+    """Issue #147: starting set is discovered host CLIs — no fake/echo CLIs."""
+    assert set(cli_catalog.catalog_names()).isdisjoint(FAKE_CLIS)
+    monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
+    payload = cli_catalog.cli_agents_catalog_payload({})
+    surfaced = _start_set(payload)
+    leaked = surfaced & set(FAKE_CLIS)
+    assert not leaked, leaked
+    assert payload["discovered"] == ["grok"]
+    assert "pi" not in payload["discovered"]
+    # known/clis/catalog may list real catalog names (docs, not the start set)
+    assert "pi" in payload["known"]
