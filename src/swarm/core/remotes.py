@@ -2061,6 +2061,164 @@ def _omb_mint_dedicated_bot(spec: RemoteSpec, headers: dict[str, str], timeout_s
     )
 
 
+def _omb_bot_target(target: str) -> str:
+    """Treat remote-kind ids as no bot so send does not POST /api/bots/omb."""
+    raw = (target or "").strip()
+    if not raw or raw.lower() in _OMB_NON_BOT_TARGETS:
+        return ""
+    return raw
+
+
+def _omb_message_text(msg: Any) -> str:
+    if not isinstance(msg, dict):
+        return ""
+    for key in ("text", "content"):
+        val = msg.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _omb_is_bot_text(msg: Any) -> bool:
+    if not isinstance(msg, dict):
+        return False
+    role = str(msg.get("role") or "").lower()
+    if role not in ("bot", "assistant", "model"):
+        return False
+    kind = str(msg.get("kind") or "text").lower()
+    if kind in ("activity", "tool", "card", "screen", "image"):
+        return False
+    return bool(_omb_message_text(msg))
+
+
+def _omb_messages_from(payload: Any) -> list[Any]:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    for key in ("messages", "thread"):
+        val = payload.get(key)
+        if isinstance(val, list):
+            return val
+    return []
+
+
+def _omb_find_bot(payload: Any, bot_id: str) -> dict[str, Any] | None:
+    if isinstance(payload, dict):
+        bots = payload.get("bots") or payload.get("agents") or payload.get("data") or []
+    else:
+        bots = payload
+    if not isinstance(bots, list):
+        return None
+    for item in bots:
+        if isinstance(item, dict) and str(item.get("id") or "") == bot_id:
+            return item
+    return None
+
+
+def _omb_receipt_ids(body: Any) -> tuple[str, str]:
+    """threadId and user message id from POST /messages 202 receipt."""
+    if not isinstance(body, dict):
+        return "", ""
+    thread_id = str(body.get("threadId") or "").strip()
+    msg = body.get("message")
+    user_id = ""
+    if isinstance(msg, dict):
+        user_id = str(msg.get("id") or "").strip()
+        if not thread_id:
+            thread_id = str(msg.get("threadId") or "").strip()
+    return thread_id, user_id
+
+
+def _omb_assistant_after(
+    messages: list[Any], *, after_id: str = "", prompt: str = ""
+) -> tuple[str, str]:
+    """First bot text after the user turn. Returns (text, message_id)."""
+    msgs = [m for m in messages if isinstance(m, dict)]
+    start = 0
+    if after_id:
+        for i, msg in enumerate(msgs):
+            if str(msg.get("id") or "") == after_id:
+                start = i + 1
+                break
+    elif prompt.strip():
+        want = prompt.strip()
+        for i, msg in enumerate(msgs):
+            if str(msg.get("role") or "").lower() == "user" and _omb_message_text(msg) == want:
+                start = i + 1
+    for msg in msgs[start:]:
+        if _omb_is_bot_text(msg):
+            return _omb_message_text(msg), str(msg.get("id") or "").strip()
+    return "", ""
+
+
+def _omb_poll_assistant(
+    spec: RemoteSpec,
+    *,
+    bot_id: str,
+    prompt: str,
+    thread_id: str,
+    after_id: str,
+    timeout: float,
+) -> tuple[str, str, str, str]:
+    """Poll OMB until a bot text exists after the user turn.
+
+    Returns ``(text, thread_id, error, message_id)``. Follow-ups on the same
+    thread are not waited for here — ``omb_session_watch`` (issue #125).
+    """
+    headers = _auth_headers(spec)
+    base_url = (spec.base_url or "").rstrip("/")
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    http_timeout = min(_OMB_POLL_HTTP_TIMEOUT_S, max(float(timeout), 0.5))
+    last_activity = ""
+    saw_bot = False
+    busy = True
+    while True:
+        listed = http_json(
+            "GET",
+            f"{base_url}/api/bots?messages=20",
+            headers=headers,
+            timeout=http_timeout,
+        )
+        bot = _omb_find_bot(listed.body, bot_id) if listed.status in _UP else None
+        messages: list[Any] = []
+        if isinstance(bot, dict):
+            saw_bot = True
+            thread_id = thread_id or str(bot.get("threadId") or "").strip()
+            last_activity = str(bot.get("activity") or "")
+            busy = bool(bot.get("busy"))
+            messages = _omb_messages_from(bot)
+        if thread_id:
+            page = http_json(
+                "GET",
+                f"{base_url}/api/threads/{thread_id}/messages?limit=40",
+                headers=headers,
+                timeout=http_timeout,
+            )
+            if page.status in _UP:
+                thread_msgs = _omb_messages_from(page.body)
+                if thread_msgs:
+                    messages = thread_msgs
+        reply, reply_id = _omb_assistant_after(messages, after_id=after_id, prompt=prompt)
+        if last_activity in ("dead", "no-signal"):
+            return "", thread_id, f"OpenMousBot turn {last_activity.replace('-', ' ')}", ""
+        settled = last_activity == "waiting-on-you" or (saw_bot and not busy)
+        if reply:
+            terminal = False
+            for msg in reversed(messages):
+                if isinstance(msg, dict) and _omb_is_bot_text(msg) and _omb_message_text(msg) == reply:
+                    terminal = bool(msg.get("turnTerminal"))
+                    break
+            if terminal or settled:
+                return reply, thread_id, "", reply_id
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if last_activity == "waiting-on-you" and not reply:
+                return "", thread_id, "OpenMousBot is waiting for operator input", ""
+            return "", thread_id, "OpenMousBot reply timed out", ""
+        time.sleep(min(max(_OMB_POLL_INTERVAL_S, 0.0), remaining))
+
+
 def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)

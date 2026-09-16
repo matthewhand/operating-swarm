@@ -387,6 +387,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     self.messages = []
                     self.ui_events = []
                 await self._emit_suggestions_if_enabled(self.default_blueprint)
+                self._start_omb_session_watch()
             else:
                 # Close after accept so the client sees 4401 (not 1006).
                 # receive() re-checks auth so anonymous clients cannot hit the LLM.
@@ -413,7 +414,84 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         except Exception:
             logger.debug("spa_hello advertise failed", exc_info=True)
 
+    def _start_omb_session_watch(self):
+        """Register this socket for OpenMousBot follow-up assistant turns (#125)."""
+        try:
+            from swarm.core import chat_store, omb_session_watch
+
+            self._omb_watch_queue = asyncio.Queue(maxsize=200)
+            user_key = chat_store.user_key_for(self.user)
+            omb_session_watch.register_consumer(
+                user_key,
+                self._omb_watch_queue,
+                loop=asyncio.get_running_loop(),
+            )
+            self._omb_watch_drain_task = asyncio.ensure_future(self._drain_omb_followups())
+        except Exception:
+            logger.debug("omb session watch registration failed", exc_info=True)
+
+    async def _drain_omb_followups(self):
+        queue = getattr(self, "_omb_watch_queue", None)
+        if queue is None:
+            return
+        while True:
+            payload = await queue.get()
+            try:
+                await self._emit_omb_followup(payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug("omb follow-up emit failed", exc_info=True)
+
+    async def _emit_omb_followup(self, payload):
+        """Append a later OpenMousBot bot text as its own assistant bubble."""
+        if not isinstance(payload, dict):
+            return
+        cid = str(payload.get("conversation_id") or "")
+        if cid and cid != str(getattr(self, "conversation_id", "") or ""):
+            return
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            events = payload.get("events") or []
+            if events and isinstance(events[0], dict):
+                text = str(events[0].get("text") or "").strip()
+        if not text:
+            return
+        for row in self.messages or []:
+            if row.get("role") == "assistant" and str(row.get("content") or "").strip() == text:
+                return
+        message_id = uuid.uuid4().hex
+        contents_div_id = f"message-response-{message_id}"
+        start_html = render_to_string(
+            "websocket_partials/system_message.html",
+            {"contents_div_id": contents_div_id},
+        )
+        await self.send(text_data=start_html)
+        await self.send(text_data=_oob_append_html(contents_div_id, text))
+        final_html = render_to_string(
+            "websocket_partials/final_system_message.html",
+            {"contents_div_id": contents_div_id, "message": text},
+        )
+        await self.send(text_data=final_html)
+        _record_turn(self, "assistant", text, ts=_message_ts())
+        await self._persist_completed_turn()
+
     async def disconnect(self, close_code):
+        task = getattr(self, "_omb_watch_drain_task", None)
+        if task is not None:
+            task.cancel()
+        try:
+            from swarm.core import chat_store, omb_session_watch
+
+            if getattr(self, "_omb_watch_queue", None) is not None:
+                omb_session_watch.unregister_consumer(self._omb_watch_queue)
+                if getattr(self.user, "is_authenticated", False):
+                    omb_session_watch.unwatch_conversation(
+                        chat_store.user_key_for(self.user),
+                        getattr(self, "conversation_id", "") or "",
+                    )
+        except Exception:
+            logger.debug("omb session watch cleanup failed", exc_info=True)
         if self.user.is_authenticated:
             from swarm.core.cli_session_error import is_uncontinued_fatal_init
 
