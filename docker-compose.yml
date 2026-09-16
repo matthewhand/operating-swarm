@@ -77,6 +77,9 @@ services:
       # remap with an override rather than editing this published default.
       # For bind-mount + uvicorn --reload, use: make dev (docker-compose.dev.yml, :8002).
       - "8000:8000"
+    extra_hosts:
+      # Host TrueForge / OMB / Rakazo at 127.0.0.1:* rewrite to this name.
+      - "host.docker.internal:host-gateway"
     environment:
       # Pin the in-container listen port. `environment` wins over `env_file`, so
       # this shields the container from a host-oriented PORT in .env (e.g. the
@@ -110,6 +113,7 @@ services:
       # and not bare-metal. Pinokio pinokio/start.js also sets this. Values:
       # bare-metal | sandbox-home | sandbox-isolated
       SWARM_RUNTIME: "${SWARM_RUNTIME:-sandbox-home}"
+      SWARM_HOST_GATEWAY: "${SWARM_HOST_GATEWAY:-host.docker.internal}"
       ENABLE_WEBUI: "${ENABLE_WEBUI:-true}"
     volumes:
       # Your swarm config (llm profiles + any cli_agents) — read-only.

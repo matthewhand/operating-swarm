@@ -806,3 +806,41 @@ def test_other_remotes_routines_unsupported():
         assert res.ok is False
         assert "does not support routines" in res.detail
         assert res.data["routines"] == []
+
+
+def test_localhost_base_url_prefers_ipv4(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    spec = remotes_core.load_remote(
+        "trueforge",
+        config={"remotes": {"trueforge": {"base_url": "http://localhost:8791"}}},
+    )
+    assert spec.base_url == "http://127.0.0.1:8791"
+
+
+def test_container_rewrites_loopback_trueforge_not_listen_port(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "1")
+    monkeypatch.setenv("SWARM_HOST_GATEWAY", "host.docker.internal")
+    monkeypatch.setenv("PORT", "8000")
+    spec = remotes_core.load_remote(
+        "trueforge",
+        config={"remotes": {"trueforge": {"base_url": "http://127.0.0.1:8791"}}},
+    )
+    assert spec.base_url == "http://host.docker.internal:8791"
+
+
+def test_trueforge_send_refused_names_url(monkeypatch):
+    from swarm.blueprints.remote_harness.blueprint_remote_harness import _render_operate
+
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    sent = remotes_core.operate(
+        "trueforge",
+        "send",
+        prompt="hi",
+        config={"remotes": {"trueforge": {"base_url": "http://127.0.0.1:9"}}},
+    )
+    assert sent.ok is False
+    assert "127.0.0.1:9" in sent.detail
+    assert "refused" in sent.detail.lower()
+    out = _render_operate(sent)
+    assert "trueforge send: FAIL" in out
+    assert out.rstrip().endswith('""') is False
