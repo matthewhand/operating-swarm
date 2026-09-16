@@ -653,6 +653,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     "openwebui",
                     "flowise",
                     "n8n",
+                    "slack",
                     "omb",
                     "rakazo",
                     "herdr",

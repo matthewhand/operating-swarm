@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
-REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "omb", "rakazo", "herdr", "swarm", "trueforge")
-REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 
 def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> str:
@@ -87,6 +87,8 @@ def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> st
         return "flowise"
     if raw.startswith("n8n"):
         return "n8n"
+    if raw.startswith("slack"):
+        return "slack"
     return raw or (remote_id or "")
 
 
@@ -105,7 +107,7 @@ def _instance_slug(remote_id: str, kind: str | None = None) -> str:
     tail = raw[len(k) + 1 :] if (raw.startswith(k) and len(raw) > len(k) and raw[len(k)] in ("-", "_")) else raw
     return re.sub(r"[^a-z0-9]+", "_", tail).strip("_").upper()
 # Kinds that never appear until the user (or env) adds them.
-OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "letta", "openwebui", "flowise", "n8n"})
+OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack"})
 REMOTE_KIND_LABELS: dict[str, str] = {
     "hermes": "Hermes",
     "anythingllm": "AnythingLLM",
@@ -113,6 +115,7 @@ REMOTE_KIND_LABELS: dict[str, str] = {
     "openwebui": "Open WebUI",
     "flowise": "Flowise",
     "n8n": "n8n",
+    "slack": "Slack",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -138,6 +141,11 @@ _KIND_ALIASES: dict[str, str] = {
     "flowiseai": "flowise",
     "flowise-ai": "flowise",
     "n8n-io": "n8n",
+    "slackbot": "slack",
+    "slack-api": "slack",
+    "slack_api": "slack",
+    "nemo-slack": "slack",
+    "nemo_slack": "slack",
 }
 
 # REQ-11 default roster. ``swarm`` is in the catalog but is not auto-placed
@@ -166,6 +174,7 @@ _TOOL_NAMES: dict[str, str] = {
     "openwebui": "consult_openwebui",
     "flowise": "consult_flowise",
     "n8n": "consult_n8n",
+    "slack": "consult_slack",
     "omb": "consult_omb",
     "rakazo": "consult_rakazo",
     "herdr": "consult_herdr",
@@ -350,7 +359,24 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "id and never mints a new workflow. Opt-in: not placed until + Add."
         ),
     },
-
+    "slack": {
+        "title": "Slack (NemoHermes)",
+        "host_label": "slack",
+        "base_url": "https://slack.com/api",
+        "ui_url": "",
+        "api_key": "${SLACK_BOT_TOKEN}",
+        "health_path": "/auth.test",
+        "version_path": "/auth.test",
+        "notes": (
+            "Slack Web API for NemoHermes threads-as-sessions. "
+            "POST auth.test health; conversations.list + conversations.history "
+            "list channel threads as resumable sessions (resume key "
+            "channel_id:thread_ts). chat.postMessage posts into an existing "
+            "thread; send never mints a new thread. Bot token from "
+            "SLACK_BOT_TOKEN (xoxb-… env-var name only). Opt-in: not placed "
+            "until + Add. Do not clone NemoHermes source."
+        ),
+    },
     "trueforge": {
         "title": "TrueForge",
         "host_label": "trueforge",
@@ -382,6 +408,7 @@ _ENV_BASE = {
     "openwebui": "OPENWEBUI_BASE_URL",
     "flowise": "FLOWISE_BASE_URL",
     "n8n": "N8N_BASE_URL",
+    "slack": "SLACK_BASE_URL",
 }
 _ENV_KEY = {
     "hermes": "HERMES_API_KEY",
@@ -395,6 +422,7 @@ _ENV_KEY = {
     "openwebui": "OPENWEBUI_API_KEY",
     "flowise": "FLOWISE_API_KEY",
     "n8n": "N8N_API_KEY",
+    "slack": "SLACK_BOT_TOKEN",
 }
 _ENV_UI = {"rakazo": "RAKAZO_UI_URL", "hermes": "HERMES_UI_URL"}
 _ENV_COOKIE = {"rakazo": "RAKAZO_SESSION_COOKIE"}
@@ -1628,6 +1656,9 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
         herdr_health = _herdr_health(spec, timeout, config)
         if herdr_health is not None:
             return herdr_health
+
+    if spec.kind == "slack" or kind_of_instance(spec.id, config) == "slack":
+        return _slack_health(spec, timeout)
 
     if not spec.base_url:
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="base_url is empty")
@@ -4934,6 +4965,330 @@ def _n8n_send(
 
 
 
+_SLACK_AUTH_ERRORS = frozenset(
+    {"invalid_auth", "not_authed", "token_revoked", "account_inactive", "token_expired"}
+)
+_SLACK_CHANNEL_CAP = 20
+
+
+def _slack_method_url(spec: RemoteSpec, method: str) -> str:
+    base = (spec.base_url or "").rstrip("/")
+    return f"{base}/{method.lstrip('/')}"
+
+
+def _slack_ok(body: Any) -> bool:
+    return isinstance(body, dict) and body.get("ok") is True
+
+
+def _slack_error(body: Any, fallback: str = "") -> str:
+    if isinstance(body, dict):
+        err = str(body.get("error") or "").strip()
+        if err:
+            return err
+    return fallback
+
+
+def _slack_api(
+    spec: RemoteSpec,
+    method: str,
+    timeout: float,
+    body: dict[str, Any] | None = None,
+) -> HttpResult:
+    """POST one Slack Web API method. Slack returns HTTP 200 with ok=false."""
+    return http_json(
+        "POST",
+        _slack_method_url(spec, method),
+        headers=_auth_headers(spec),
+        body=body if body is not None else {},
+        timeout=timeout,
+    )
+
+
+def _parse_slack_session_id(raw: str) -> tuple[str, str]:
+    """Split ``channel_id:thread_ts``. thread_ts is ``epoch.seq`` (contains a dot)."""
+    sid = (raw or "").strip()
+    channel_id, _, thread_ts = sid.partition(":")
+    return channel_id.strip(), thread_ts.strip()
+
+
+def _slack_health(spec: RemoteSpec, timeout: float) -> HealthResult:
+    """POST auth.test. HTTP 200 + ok=false still means Slack is reachable."""
+    if not spec.base_url:
+        return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="base_url is empty")
+    host, port = spec.origin()
+    tcp_ms: float | None = None
+    if host and port:
+        tcp_ms = _tcp_probe(host, port, timeout)
+        if tcp_ms is None:
+            return HealthResult(
+                remote=spec.id,
+                ok=False,
+                state="DOWN",
+                detail=f"tcp {host}:{port} refused/timed out",
+                url=spec.base_url,
+            )
+    result = _slack_api(spec, "auth.test", timeout, {})
+    body = result.body if isinstance(result.body, dict) else {}
+    url = _slack_method_url(spec, "auth.test")
+    if _slack_ok(body):
+        version = {key: body[key] for key in ("team", "user", "bot_id", "url") if key in body}
+        team = str(body.get("team") or "").strip()
+        detail = "Slack auth.test ok"
+        if team:
+            detail += f" team={team}"
+        if tcp_ms is not None:
+            detail = f"tcp {tcp_ms}ms · {detail}"
+        return HealthResult(
+            remote=spec.id,
+            ok=True,
+            state="UP",
+            detail=detail,
+            http_status=result.status,
+            version=version or body,
+            latency_ms=result.latency_ms,
+            url=url,
+        )
+    err = _slack_error(body, result.error or (f"http {result.status}" if result.status else "no response"))
+    if result.status in _AUTH or err in _SLACK_AUTH_ERRORS:
+        return HealthResult(
+            remote=spec.id,
+            ok=True,
+            state="UP",
+            detail=f"Slack auth.test {err} (auth required — endpoint is alive)",
+            http_status=result.status or 401,
+            version={"auth_required": True, "error": err},
+            latency_ms=result.latency_ms,
+            url=url,
+        )
+    if result.status is not None:
+        return HealthResult(
+            remote=spec.id,
+            ok=False,
+            state="DEGRADED",
+            detail=f"Slack auth.test failed: {err}",
+            http_status=result.status,
+            latency_ms=result.latency_ms,
+            url=url,
+        )
+    return HealthResult(
+        remote=spec.id,
+        ok=False,
+        state="DEGRADED",
+        detail=f"Slack auth.test failed: {err}",
+        latency_ms=result.latency_ms,
+        url=url,
+    )
+
+
+def _slack_list(spec: RemoteSpec, timeout: float) -> OperateResult:
+    """List Slack channel threads as sessions (id = channel_id:thread_ts).
+
+    conversations.list + conversations.history. A message with ``reply_count``
+    is a thread parent — the same mapping AnythingLLM uses for workspace
+    threads. Send never mints a new thread.
+    """
+    from swarm.core.remote_harness import remote_session_from_dict
+
+    listed = _slack_api(
+        spec,
+        "conversations.list",
+        timeout,
+        {
+            "exclude_archived": True,
+            "limit": 100,
+            "types": "public_channel,private_channel,mpim,im",
+        },
+    )
+    body = listed.body if isinstance(listed.body, dict) else {}
+    data: dict[str, Any] = {"sessions": [], "source": "slack"}
+    err = _slack_error(body)
+    if listed.status in _AUTH or err in _SLACK_AUTH_ERRORS:
+        return OperateResult(
+            remote="slack",
+            op="list",
+            ok=False,
+            detail=(
+                "Slack conversations.list requires a valid bot token. "
+                "Set remotes.slack.api_key or SLACK_BOT_TOKEN "
+                "(xoxb-… env-var name only)."
+            ),
+            http_status=listed.status or 401,
+            data=data,
+        )
+    if not _slack_ok(body):
+        return OperateResult(
+            remote="slack",
+            op="list",
+            ok=False,
+            detail=f"Slack list failed: {err or listed.error or f'http {listed.status}'}",
+            http_status=listed.status,
+            data=data,
+        )
+    channels = body.get("channels") or []
+    if not isinstance(channels, list):
+        channels = []
+    normalized: list[dict[str, Any]] = []
+    scanned = 0
+    for channel in channels:
+        if not isinstance(channel, dict):
+            continue
+        channel_id = str(channel.get("id") or "").strip()
+        if not channel_id:
+            continue
+        scanned += 1
+        if scanned > _SLACK_CHANNEL_CAP:
+            break
+        channel_name = str(channel.get("name") or channel.get("user") or channel_id).strip()
+        hist = _slack_api(
+            spec,
+            "conversations.history",
+            timeout,
+            {"channel": channel_id, "limit": 100},
+        )
+        hist_body = hist.body if isinstance(hist.body, dict) else {}
+        if not _slack_ok(hist_body):
+            continue
+        messages = hist_body.get("messages") or []
+        if not isinstance(messages, list):
+            continue
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            try:
+                reply_count = int(msg.get("reply_count") or 0)
+            except (TypeError, ValueError):
+                reply_count = 0
+            if reply_count <= 0:
+                continue
+            thread_ts = str(msg.get("thread_ts") or msg.get("ts") or "").strip()
+            if not thread_ts:
+                continue
+            text = str(msg.get("text") or "").strip()
+            title = (text.splitlines()[0] if text else f"#{channel_name} thread")[:200]
+            session = remote_session_from_dict(
+                {
+                    "id": f"{channel_id}:{thread_ts}",
+                    "title": title,
+                    "snippet": text[:240],
+                    "source": "slack",
+                    "updated_at": str(msg.get("latest_reply") or thread_ts),
+                    "channel": (channel_name or channel_id)[:128],
+                    "thread_ts": thread_ts[:64],
+                }
+            )
+            if session is not None:
+                normalized.append(session.as_dict())
+    data = {"sessions": normalized, "source": "slack"}
+    return OperateResult(
+        remote="slack",
+        op="list",
+        ok=True,
+        detail=f"listed {len(normalized)} Slack thread(s) across {scanned} channel(s)",
+        http_status=listed.status,
+        data=data,
+    )
+
+
+def _slack_send(
+    spec: RemoteSpec,
+    prompt: str,
+    timeout: float,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+) -> OperateResult:
+    """Post into an existing Slack thread (never mints a new one).
+
+    ``session_id`` is ``channel_id:thread_ts``. chat.postMessage with
+    ``thread_ts`` replies in that thread; conversations.replies is read once
+    for a NemoHermes bot reply (no retry loop).
+    """
+    sid = (session_id or target or "").strip()
+    channel_id, thread_ts = _parse_slack_session_id(sid)
+    if not channel_id or not thread_ts:
+        return OperateResult(
+            remote="slack",
+            op="send",
+            ok=False,
+            detail=(
+                "Pick a Slack thread. Open Swarm does not mint new "
+                "threads. Pass session_id as channel_id:thread_ts "
+                "(list the remote to see available threads)."
+            ),
+            gap="slack_thread_required",
+        )
+    if not prompt.strip():
+        return OperateResult(remote="slack", op="send", ok=False, detail="prompt is required")
+    posted = _slack_api(
+        spec,
+        "chat.postMessage",
+        timeout,
+        {"channel": channel_id, "thread_ts": thread_ts, "text": prompt},
+    )
+    body = posted.body if isinstance(posted.body, dict) else {}
+    err = _slack_error(body)
+    if posted.status in _AUTH or err in _SLACK_AUTH_ERRORS:
+        return OperateResult(
+            remote="slack",
+            op="send",
+            ok=False,
+            detail="Slack chat.postMessage requires a valid bot token (SLACK_BOT_TOKEN).",
+            http_status=posted.status or 401,
+            data=body,
+        )
+    if not _slack_ok(body):
+        return OperateResult(
+            remote="slack",
+            op="send",
+            ok=False,
+            detail=f"Slack send failed: {err or posted.error or f'http {posted.status}'}",
+            http_status=posted.status,
+            data=body or posted.text,
+        )
+    posted_ts = str(body.get("ts") or "").strip()
+    replies = _slack_api(
+        spec,
+        "conversations.replies",
+        timeout,
+        {"channel": channel_id, "ts": thread_ts, "limit": 50},
+    )
+    reply_text = ""
+    replies_body = replies.body if isinstance(replies.body, dict) else {}
+    if _slack_ok(replies_body):
+        messages = replies_body.get("messages") or []
+        if isinstance(messages, list):
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                ts = str(msg.get("ts") or "")
+                if ts == thread_ts:
+                    continue
+                if posted_ts and ts and ts <= posted_ts:
+                    continue
+                if msg.get("bot_id") or msg.get("subtype") == "bot_message":
+                    reply_text = str(msg.get("text") or "").strip()
+                    if reply_text:
+                        break
+    data: dict[str, Any] = {
+        "channel": channel_id,
+        "thread": f"{channel_id}:{thread_ts}",
+        "posted_ts": posted_ts,
+    }
+    if reply_text:
+        data["response"] = reply_text
+        detail = f"Slack thread {thread_ts} replied"
+    else:
+        detail = f"posted into Slack thread {thread_ts}; no NemoHermes reply yet"
+    return OperateResult(
+        remote="slack",
+        op="send",
+        ok=True,
+        detail=detail,
+        http_status=posted.status,
+        data=data,
+    )
+
+
 def operate(
     remote_id: str,
     op: str,
@@ -5040,6 +5395,10 @@ def operate(
             return _n8n_send(
                 spec, prompt, send_timeout, session_id=resume_id, target=target
             )
+        if rkind == "slack":
+            return _slack_list(spec, timeout) if action == "list" else _slack_send(
+                spec, prompt, timeout, session_id=resume_id, target=target
+            )
         if rkind == "omb":
             return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
         if rkind == "rakazo":
@@ -5111,6 +5470,19 @@ def _anythingllm_send_bound(
     session_id: str | None = None,
 ) -> OperateResult:
     return _anythingllm_send(spec, prompt, timeout, session_id=session_id, target=target)
+
+
+def _slack_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    return _slack_send(spec, prompt, timeout, session_id=session_id, target=target)
+
 
 
 def _n8n_send_bound(
@@ -5380,6 +5752,16 @@ def _install_remote_harnesses() -> None:
             health_fn=_bind_health("n8n"),
             list_fn=_bind_http_list(_n8n_list),
             send_fn=_n8n_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="slack",
+            label="Slack",
+            capabilities=capabilities_for("slack"),
+            health_fn=_bind_health("slack"),
+            list_fn=_bind_http_list(_slack_list),
+            send_fn=_slack_send_bound,
         )
     )
     register_harness(

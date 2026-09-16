@@ -35,6 +35,12 @@ const REMOTE_IMPL_IDS = new Set([
   'trueforge',
   'true_forge',
   'true-forge',
+  'slack',
+  'slackbot',
+  'slack-api',
+  'slack_api',
+  'nemo-slack',
+  'nemo_slack',
 ])
 
 export function isRemoteImplId(raw: string | null | undefined): boolean {

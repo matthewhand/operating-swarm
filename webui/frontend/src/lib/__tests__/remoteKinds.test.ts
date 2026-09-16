@@ -8,6 +8,7 @@ describe('remoteKindLabel', () => {
     expect(remoteKindLabel('hermes')).toBe('Hermes')
     expect(remoteKindLabel('rakazo')).toBe('Rakazo')
     expect(remoteKindLabel('herdr')).toBe('Herdr')
+    expect(remoteKindLabel('slack')).toBe('Slack')
     expect(remoteKindLabel('omb')).not.toBe('OMB')
     expect(isOpenMousBotKind('omb')).toBe(true)
     expect(isOpenMousBotKind('hermes')).toBe(false)

@@ -38,6 +38,8 @@ KIND_TO_TYPE: dict[str, str] = {
     "open-swarm": "remote",
     "trueforge": "remote",
     "true_forge": "remote",
+    "slack": "remote",
+    "slackbot": "remote",
 }
 
 AGENT_TYPE_CATALOG: tuple[dict[str, str], ...] = (
