@@ -30,6 +30,8 @@ def test_get_defaults_off(api_client):
     assert body["agent_id"] == "worker"
     assert body["new_chat_per_task"] is False
     assert body.get("folder") is None
+    assert body["speech_mode"] == "inherit"
+    assert body["auto_speak_replies"] is False
 
 
 def test_patch_folder_roundtrip(api_client):

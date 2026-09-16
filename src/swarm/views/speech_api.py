@@ -26,6 +26,29 @@ from swarm.core import speech as speech_core
 logger = logging.getLogger(__name__)
 
 
+def _agent_id_from_request(request) -> str:
+    body = getattr(request, "data", None)
+    if isinstance(body, dict):
+        raw = body.get("agent_id") or body.get("agent")
+        if raw:
+            return str(raw).strip()
+    query = getattr(request, "query_params", None)
+    if query is not None:
+        raw = query.get("agent_id") or query.get("agent")
+        if raw:
+            return str(raw).strip()
+    return ""
+
+
+def _bind_for_request(request, *, settings=None):
+    try:
+        return speech_core.bind_for_agent(_agent_id_from_request(request), settings=settings)
+    except Exception:
+        logger.exception("speech bind: falling back to global settings")
+        spec = settings if settings is not None else speech_core.load_settings()
+        return speech_core.AgentSpeechBind(settings=spec)
+
+
 def _settings_payload(probe: bool = True) -> dict:
     spec = speech_core.load_settings()
     if probe:
@@ -146,12 +169,13 @@ class SpeechTranscribeView(APIView):
             )
         data = uploaded.read()
         spec = speech_core.load_settings()
+        bind = _bind_for_request(request, settings=spec)
         try:
             text = speech_core.transcribe_audio(
                 data,
                 filename=getattr(uploaded, "name", "") or "audio.webm",
                 content_type=getattr(uploaded, "content_type", "") or "audio/webm",
-                settings=spec,
+                settings=bind.settings,
             )
         except speech_core.SpeechError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -177,6 +201,8 @@ class SpeechSpeakView(APIView):
                 "text": serializers.CharField(required=False, allow_blank=True),
                 "input": serializers.CharField(required=False, allow_blank=True),
                 "voice": serializers.CharField(required=False, allow_blank=True),
+                "instruction": serializers.CharField(required=False, allow_blank=True),
+                "agent_id": serializers.CharField(required=False, allow_blank=True),
             },
         ),
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
@@ -184,14 +210,21 @@ class SpeechSpeakView(APIView):
     def post(self, request, *_args, **_kwargs):
         body = request.data if isinstance(request.data, dict) else {}
         text = str(body.get("text") or body.get("input") or "").strip()
-        voice = str(body.get("voice") or "").strip()
         spec = speech_core.load_settings()
+        bind = _bind_for_request(request, settings=spec)
+        voice = str(body.get("voice") or bind.voice or "").strip()
+        instruction = str(body.get("instruction") or bind.instruction or "").strip()
         try:
             audio, content_type = speech_core.synthesize_speech(
-                text, voice=voice, settings=spec
+                text,
+                voice=voice,
+                instruction=instruction,
+                settings=bind.settings,
             )
         except speech_core.SpeechError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         response = HttpResponse(audio, content_type=content_type or "audio/mpeg")
         response["X-Speech-Path"] = "custom"
+        if bind.mode:
+            response["X-Speech-Mode"] = bind.mode
         return response

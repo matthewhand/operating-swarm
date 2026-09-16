@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -78,6 +78,25 @@ class SpeechSettings:
             "object": "speech",
             "stt": self.stt.public_dict("stt"),
             "tts": self.tts.public_dict("tts"),
+        }
+
+
+@dataclass(frozen=True)
+class AgentSpeechBind:
+    """Resolved per-agent speech overlay (#116). Unset bind == global."""
+
+    settings: SpeechSettings
+    mode: str = "inherit"
+    voice: str = ""
+    instruction: str = ""
+    auto_speak_replies: bool = False
+
+    def public_dict(self) -> dict[str, Any]:
+        return {
+            "speech_mode": self.mode,
+            "tts_voice": self.voice,
+            "tts_voice_instruction": self.instruction,
+            "auto_speak_replies": self.auto_speak_replies,
         }
 
 
@@ -206,6 +225,100 @@ def _apply_env(endpoint: SpeechEndpoint, *, prefix: str) -> None:
     endpoint.base_url = _normalize_base_url(endpoint.base_url)
     endpoint.source = _normalize_source(endpoint.source)
     endpoint.api_key_env = _as_env_name(endpoint.api_key_env)
+
+
+def _overlay_endpoint(
+    endpoint: SpeechEndpoint,
+    *,
+    base_url: str = "",
+    model: str = "",
+    api_key_env: str = "",
+) -> SpeechEndpoint:
+    next_ep = replace(endpoint)
+    url = _normalize_base_url(base_url)
+    if url and not _looks_like_forbidden_host(url):
+        next_ep.base_url = url
+        next_ep.source = SOURCE_CUSTOM
+    if (model or "").strip():
+        next_ep.model = model.strip()
+    env_name = _as_env_name(api_key_env)
+    if env_name:
+        next_ep.api_key_env = env_name
+        live = os.environ.get(env_name, "").strip()
+        next_ep.api_key = live or str(_expand(f"${{{env_name}}}") or "")
+    return next_ep
+
+
+def bind_for_agent(agent_id: str | None, *, settings: SpeechSettings | None = None) -> AgentSpeechBind:
+    """Apply an agent's voice bind on top of global speech. Missing bind is inherit."""
+    spec = settings if settings is not None else load_settings()
+    fallback = AgentSpeechBind(settings=spec)
+    agent = (agent_id or "").strip()
+    if not agent:
+        return fallback
+    try:
+        from swarm.core.agent_settings import (
+            KEY_AUTO_SPEAK_REPLIES,
+            KEY_SPEECH_MODE,
+            KEY_STT_API_KEY_ENV,
+            KEY_STT_BASE_URL,
+            KEY_STT_MODEL,
+            KEY_TTS_API_KEY_ENV,
+            KEY_TTS_BASE_URL,
+            KEY_TTS_MODEL,
+            KEY_TTS_VOICE,
+            KEY_TTS_VOICE_INSTRUCTION,
+            SPEECH_MODE_ENDPOINT,
+            SPEECH_MODE_INHERIT,
+            SPEECH_MODE_VOICE,
+            get_settings,
+        )
+
+        row = get_settings(agent)
+    except Exception:
+        logger.exception("speech bind: failed to load agent settings for %s", agent)
+        return fallback
+    mode = str(row.get(KEY_SPEECH_MODE) or SPEECH_MODE_INHERIT).strip().lower()
+    if mode not in (SPEECH_MODE_INHERIT, SPEECH_MODE_VOICE, SPEECH_MODE_ENDPOINT):
+        mode = SPEECH_MODE_INHERIT
+    voice = str(row.get(KEY_TTS_VOICE) or "").strip()
+    instruction = str(row.get(KEY_TTS_VOICE_INSTRUCTION) or "").strip()
+    auto_speak = bool(row.get(KEY_AUTO_SPEAK_REPLIES))
+    if mode == SPEECH_MODE_INHERIT:
+        return AgentSpeechBind(
+            settings=spec,
+            mode=mode,
+            auto_speak_replies=auto_speak,
+        )
+    if mode == SPEECH_MODE_VOICE:
+        return AgentSpeechBind(
+            settings=spec,
+            mode=mode,
+            voice=voice,
+            instruction=instruction,
+            auto_speak_replies=auto_speak,
+        )
+    overlaid = SpeechSettings(
+        stt=_overlay_endpoint(
+            spec.stt,
+            base_url=str(row.get(KEY_STT_BASE_URL) or ""),
+            model=str(row.get(KEY_STT_MODEL) or ""),
+            api_key_env=str(row.get(KEY_STT_API_KEY_ENV) or ""),
+        ),
+        tts=_overlay_endpoint(
+            spec.tts,
+            base_url=str(row.get(KEY_TTS_BASE_URL) or ""),
+            model=str(row.get(KEY_TTS_MODEL) or ""),
+            api_key_env=str(row.get(KEY_TTS_API_KEY_ENV) or ""),
+        ),
+    )
+    return AgentSpeechBind(
+        settings=overlaid,
+        mode=mode,
+        voice=voice,
+        instruction=instruction,
+        auto_speak_replies=auto_speak,
+    )
 
 
 def load_settings(config: dict[str, Any] | None = None) -> SpeechSettings:
@@ -513,6 +626,7 @@ def synthesize_speech(
     text: str,
     *,
     voice: str = "",
+    instruction: str = "",
     settings: SpeechSettings | None = None,
     opener=None,
     timeout: float = _SPEAK_TIMEOUT_S,
@@ -533,6 +647,8 @@ def synthesize_speech(
         payload["model"] = spec.tts.model.strip()
     if (voice or "").strip():
         payload["voice"] = voice.strip()
+    if (instruction or "").strip():
+        payload["instruction"] = instruction.strip()
     body = json.dumps(payload).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
