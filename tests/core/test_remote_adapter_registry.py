@@ -297,7 +297,12 @@ class TestSlice2Forwarding:
             adapter_cls(spec).list(8.0, query="q")
             adapter_cls(spec).send("hi", 9.0, target="t", session_id="s1")
         ml.assert_called_once_with(spec, 8.0)
-        ms.assert_called_once_with(spec, "hi", "t", 9.0)
+        if kind == "swarm":
+            # OS-peer send forwards the stored child thread so a follow-up turn
+            # lands in the same conversation (conversation_id on the payload).
+            ms.assert_called_once_with(spec, "hi", "t", 9.0, session_id="s1")
+        else:
+            ms.assert_called_once_with(spec, "hi", "t", 9.0)
 
 
 class TestSlice2Operate:

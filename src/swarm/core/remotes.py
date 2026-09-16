@@ -1,4 +1,4 @@
-"""Remote agent-harness connectivity: Hermes, OpenMousBot (id omb), Rakazo, Herdr, nested swarm.
+"""Remote agent-harness connectivity: Hermes, OpenMousBot (id omb), Rakazo, Herdr, OS-peer.
 
 Operating Swarm is a harness *for* other harnesses. This module is the single
 source of truth for:
@@ -27,9 +27,11 @@ never route: "not configured" is the only reachable answer, and
 probe. The product's real documented port is kept in the URL and in ``notes``
 so the operator still sees where to point it.
 
-The ``swarm`` kind (alias ``open-swarm``) is another open-swarm *process*
-reached over HTTP — own listen port, own local DB. Nesting is network
-remote, not in-process recursion. v1 refuses a swarm base URL that matches
+The ``swarm`` kind (aliases ``open-swarm``, ``os-peer``, ``operating-swarm``)
+is another Operating Swarm *process* reached over HTTP — own listen port, own
+local DB. Nesting is network remote, not in-process recursion, and named
+instances (``swarm-2``, ``swarm_gpu``) share the impl with per-instance env
+slugs. v1 refuses a swarm base URL that matches
 this server's listen URL. Do not auto-add this instance as its own remote;
 a child is not required to nest the parent. The catalog default is the
 loopback discard port ``http://127.0.0.1:9`` (RFC 863) — a placeholder that
@@ -135,7 +137,7 @@ REMOTE_KIND_LABELS: dict[str, str] = {
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
-    "swarm": "Swarm",
+    "swarm": "Operating Swarm",
     "trueforge": "TrueForge",
     "octop": "Tencent Octop",
     "openmuse": "OpenMuse",
@@ -148,6 +150,11 @@ _KIND_ALIASES: dict[str, str] = {
     "open-swarm": "swarm",
     "openswarm": "swarm",
     "open_swarm": "swarm",
+    "operating-swarm": "swarm",
+    "operating_swarm": "swarm",
+    "os-peer": "swarm",
+    "ospeer": "swarm",
+    "os_peer": "swarm",
     "true_forge": "trueforge",
     "true-forge": "trueforge",
     "tencent-octop": "octop",
@@ -272,8 +279,8 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         ),
     },
     "swarm": {
-        "title": "Nested open-swarm",
-        "host_label": "remote-swarm",
+        "title": "OS-peer",
+        "host_label": "os-peer",
         # RFC 863 discard port: a placeholder that can never be a service.
         # Reported as "not configured" (never "down") until an operator points
         # it at a real instance.
@@ -283,14 +290,15 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "health_path": "/health",
         "version_path": "/v1/models",
         "notes": (
-            "Another open-swarm instance (own process, own local DB). "
-            "GET /health, GET /v1/blueprints/ (agents), POST /v1/chat/completions/ "
-            "(handoff). Auth is Bearer via remotes.swarm.api_key or "
-            "SWARM_REMOTE_API_KEY — env var name only. Catalog default "
-            "http://127.0.0.1:9 is an unreachable stub, not this server. "
-            "v1 refuses a base URL that matches this process listen URL. "
-            "Do not auto-add this instance as its own remote; a child is "
-            "not required to nest the parent."
+            "Another Operating Swarm instance (OS-peer: own process, own local DB). "
+            "GET /health (version), GET /v1/blueprints/ (agents), GET /api/sessions/, "
+            "GET /v1/agent-team/, POST /v1/chat/completions/ (chat turns). Auth is "
+            "Bearer via remotes.swarm.api_key or SWARM_REMOTE_API_KEY — env var "
+            "name only. Named instances (swarm-2, swarm_gpu) share this impl and "
+            "use per-instance env slugs. Catalog default http://127.0.0.1:9 is an "
+            "unreachable stub, not this server. v1 refuses a base URL that matches "
+            "this process listen URL. Do not auto-add this instance as its own "
+            "remote; a child is not required to nest the parent."
         ),
     },
     "anythingllm": {
@@ -701,6 +709,10 @@ class HealthResult:
     # (#494). A renderer's only honest options for these are "not configured"
     # and a remedy link — never "down" / offline, because no request was sent.
     gap: str = ""
+    # OS-peer compatibility note (e.g. major-version mismatch or a child that
+    # advertised no version). Empty on every non-swarm kind and on a compatible
+    # peer. Advisory only: an UP probe stays UP.
+    warning: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -2258,6 +2270,30 @@ def _extract_version(payload: Any) -> Any:
 _HEALTH_CONFIRM_DELAY_S = 0.4
 
 
+def _with_peer_warning(spec: RemoteSpec, result: HealthResult) -> HealthResult:
+    """Attach the OS-peer compatibility note to a reachable nested-swarm probe.
+
+    Only ``swarm`` peers negotiate a version. A missing or non-semver version
+    is a warning, never a failed probe: the child answered, so the verdict
+    stays UP and the operator gets an advisory line instead of a fake outage.
+    Every other kind and a compatible peer are returned untouched.
+    """
+    if not result.ok:
+        return result
+    kind = spec.kind or kind_of_instance(spec.id)
+    if kind != "swarm":
+        return result
+    from swarm.core.app_version import get_app_version
+    from swarm.core.swarm_peer import peer_version_warning, version_string
+
+    warning = peer_version_warning(version_string(result.version), get_app_version())
+    if not warning:
+        return result
+    result.warning = warning
+    result.detail = f"{result.detail} · {warning}" if result.detail else warning
+    return result
+
+
 def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> HealthResult:
     """Honest health/version. Never raises. DOWN is confirm-retried (#1181).
 
@@ -2313,12 +2349,12 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
 
     first = _once()
     if first.state != "DOWN":
-        return first
+        return _with_peer_warning(spec, first)
     try:
         time.sleep(_HEALTH_CONFIRM_DELAY_S)
     except Exception:  # noqa: BLE001 — a sleep crash must never break health
         pass
-    return _once()
+    return _with_peer_warning(spec, _once())
 
 
 # #1169: states a pre-flight may abort on. DOWN is the honest "gateway is not
@@ -2574,7 +2610,13 @@ def _check_health_spec(
 
 
 def check_all_health(*, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> list[HealthResult]:
-    return [check_health(rid, config=config, timeout=timeout) for rid in REMOTE_IDS]
+    """Probe the catalog plus every configured instance (``swarm-2``, …)."""
+    cfg = config if isinstance(config, dict) else None
+    ids = list(REMOTE_IDS)
+    for rid in configured_remote_ids(cfg):
+        if rid not in ids:
+            ids.append(rid)
+    return [check_health(rid, config=config, timeout=timeout) for rid in ids]
 
 
 def _latest_trueforge_session(

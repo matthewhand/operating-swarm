@@ -481,6 +481,7 @@ export type RemoteKindId =
   | 'herdr'
   | 'open-swarm'
   | 'swarm'
+  | 'os-peer'
 export interface RemoteKind {
   id: string
   label: string
@@ -604,6 +605,11 @@ export interface RemoteHealthResult {
    * instance to reach, so it must read as *not configured*, never as offline.
    */
   gap?: string
+  /**
+   * OS-peer compatibility note (e.g. major-version mismatch, or a child that
+   * advertised no version). Advisory: an UP probe stays UP.
+   */
+  warning?: string
 }
 export interface RemoteOperateResult {
   remote: string

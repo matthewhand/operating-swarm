@@ -35,6 +35,8 @@ KIND_TO_TYPE: dict[str, str] = {
     "omb": "remote",
     "rakazo": "remote",
     "open-swarm": "remote",
+    "operating-swarm": "remote",
+    "os-peer": "remote",
     "trueforge": "remote",
     "true_forge": "remote",
 }

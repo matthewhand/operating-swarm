@@ -963,7 +963,7 @@ ${folderComment}`
               </p>
               <p className="mt-1 text-xs text-base-content/60">
                 {selectedKind === 'remote'
-                  ? `Connect Hermes, ${OPENMOUSBOT_LABEL}, Rakazo, Herdr, or nested open-swarm — implementations of Remote, not extra kinds.`
+                  ? `Connect Hermes, ${OPENMOUSBOT_LABEL}, Rakazo, Herdr, or an OS-peer — implementations of Remote, not extra kinds.`
                   : `Get started by creating your first ${kindLabel} agent below.`}
               </p>
               <Button

@@ -62,7 +62,7 @@ A Blueprint **catalog** row is a template. A Blueprint **agent** (ADR-006) is a 
 
 ## Team (handoff members — REQ-11)
 
-A **Team** wires **API** (inference), **CLI**, **Blueprint** (programmatic), and **remote** agents (Hermes, OpenMausBot, Rakazo, nested open-swarm) so they can **see and talk** to each other via openai-agents **handoff / as_tool**. On `main` today, “API agents” in this sentence still means the conflated recipe bucket — see [ADR-006](./adr/006-api-vs-blueprint-kinds.md). Remotes are Team *members* (`consult_hermes`, `consult_omb`, `consult_rakazo`, `consult_swarm`). Place or unplace them with `swarm-cli remotes place|unplace` / `PATCH /v1/agent-team/` (`agent_team.members` in `swarm_config.json`). Blueprint: `remote_harness`. Nested swarm is a network remote (own process, own DB); do not auto-add this instance as its own remote.
+A **Team** wires **API** (inference), **CLI**, **Blueprint** (programmatic), and **remote** agents (Hermes, OpenMausBot, Rakazo, OS-peer) so they can **see and talk** to each other via openai-agents **handoff / as_tool**. On `main` today, “API agents” in this sentence still means the conflated recipe bucket — see [ADR-006](./adr/006-api-vs-blueprint-kinds.md). Remotes are Team *members* (`consult_hermes`, `consult_omb`, `consult_rakazo`, `consult_swarm`). Place or unplace them with `swarm-cli remotes place|unplace` / `PATCH /v1/agent-team/` (`agent_team.members` in `swarm_config.json`). Blueprint: `remote_harness`. An **OS-peer** is another Operating Swarm process over HTTP (own DB); do not auto-add this instance as its own remote. Named instances (`swarm-2`, `swarm_gpu`) share the `swarm` impl.
 
 This is **not** the Django `/teams/` + `/v1/teams/` JSON registry.
 

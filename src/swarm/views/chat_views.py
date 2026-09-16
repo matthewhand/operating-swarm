@@ -159,13 +159,18 @@ def backend_fingerprint(model_name: str, meta: dict[str, Any] | None) -> str:
 
 
 class HealthCheckView(APIView):
-    """ Simple health check endpoint. """
+    """Liveness, resolved config root (#1434), and OS-peer identity."""
     permission_classes = [AllowAny]
     def get(self, request, *_args, **_kwargs):
-        """ Returns 'ok' plus the resolved config root (#1434). """
+        """Returns ok + config root + advertised version so a parent OS-peer
+        can negotiate compatibility."""
+        from swarm.core.app_version import get_app_version
         from swarm.core.paths import config_root
+        from swarm.core.swarm_peer import health_payload
 
-        return Response({"status": "ok", "config_root": str(config_root())})
+        body = health_payload(get_app_version())
+        body["config_root"] = str(config_root())
+        return Response(body)
 
 class ChatCompletionsView(APIView):
     """
