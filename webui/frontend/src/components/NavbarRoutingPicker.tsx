@@ -207,6 +207,7 @@ export function NavbarRoutingPicker({
 
   const close = useCallback(() => {
     setOpen(null)
+    setSheetDim(null)
     setHoverPill(null)
     setActiveIndex(0)
   }, [])
@@ -292,7 +293,7 @@ export function NavbarRoutingPicker({
       emit,
       footerAction,
       models,
-      narrow,
+      openSheetAt,
       previewAgent,
       previewModelsQuery.data?.models,
       seatKind,
@@ -331,7 +332,7 @@ export function NavbarRoutingPicker({
     [
       close,
       emit,
-      narrow,
+      openSheetAt,
       path.effort,
       preferredEffort,
       previewAgent,
@@ -387,8 +388,13 @@ export function NavbarRoutingPicker({
     return rows
   }, [agents, footerAction])
 
+  // #275: sheet follows the dimension the user asked for. Cascade (pick agent →
+  // model → effort) and Back update sheetDim via openSheetAt — never infer the
+  // level from families.length (that sent Model clicks to the CLI list).
+  const sheetLevel: RoutingDimension = sheetDim ?? 'agent'
+
   const currentMenuItems = useMemo(() => {
-    const dim = open === 'sheet' ? (showEffort && previewModel ? 'effort' : showModel && previewAgent ? 'model' : 'agent') : open
+    const dim = open === 'sheet' ? sheetLevel : open
     if (dim === 'effort') {
       const family =
         families.find(
@@ -426,8 +432,7 @@ export function NavbarRoutingPicker({
     seatKind,
     selectedFamily,
     selectedModel,
-    showEffort,
-    showModel,
+    sheetLevel,
   ])
 
   useEffect(() => {
@@ -483,11 +488,12 @@ export function NavbarRoutingPicker({
     }
     if (event.key === closeSub) {
       event.preventDefault()
-      if (open === 'effort') {
+      const dim = open === 'sheet' ? sheetLevel : open
+      if (dim === 'effort') {
         openSheetAt('model')
         return
       }
-      if (open === 'model') {
+      if (dim === 'model') {
         openSheetAt('agent')
         return
       }
@@ -507,30 +513,6 @@ export function NavbarRoutingPicker({
     }
     pickEffort(id as EffortToken)
   }
-
-  // #275: in sheet mode the level follows the dimension the user asked for
-  // (`sheetDim`); only the cascade advances it (agent pick → model → effort).
-  const sheetIsEffort =
-    open === 'effort' ||
-    (open === 'sheet' &&
-      (sheetDim === 'effort' ||
-        (sheetDim === 'model' && showEffort && Boolean(previewModel) && families.some(familyHasEffort))))
-  const sheetIsModel =
-    open === 'model' ||
-    (open === 'sheet' &&
-      (sheetDim === 'model' || (sheetDim === 'agent' && families.length > 0 && previewAgent !== '')))
-
-  const sheetLevel: RoutingDimension = sheetIsEffort
-    ? previewModels.length && groupModelsByFamily(previewModels).some((row) =>
-        row.base ===
-          routingPathFromSelection({ agent: previewAgent, model: previewModel || selectedModel }).modelBase &&
-        familyHasEffort(row),
-      )
-      ? 'effort'
-      : 'model'
-    : sheetIsModel
-      ? 'model'
-      : 'agent'
 
   const renderMenu = (dim: RoutingDimension, nested = false) => {
     const isAgent = dim === 'agent'
@@ -714,8 +696,13 @@ export function NavbarRoutingPicker({
         id={labelId}
         title={joined}
         data-testid="routing-face"
-        onClick={() => {
-          if (open === null) openDimension('agent')
+        onClick={(event) => {
+          // #275: pills stopPropagation and open their own dimension. Only leftover
+          // face padding (not a pill) may open the agent list.
+          if (open !== null) return
+          const target = event.target as HTMLElement | null
+          if (target?.closest('[data-routing-pill]')) return
+          openDimension('agent')
         }}
       >
         {pill('agent', agentLabel, seatKind === 'cli' ? 'cli-select' : seatKind === 'remote' ? 'remote-select' : undefined)}
