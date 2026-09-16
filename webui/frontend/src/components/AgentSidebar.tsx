@@ -244,8 +244,9 @@ import {
   isAvatarOnlyWidth,
   MIN_RAIL_WIDTH,
   MAX_RAIL_WIDTH,
+  DEFAULT_RAIL_WIDTH,
 } from '../lib/railResize'
-import { SidebarConcealButton } from './SidepaneConceal'
+import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
 
 const EMPTY_BLUEPRINTS: Blueprint[] = []
 
@@ -594,6 +595,11 @@ export default function AgentSidebar({
     setRailWidth(MIN_RAIL_WIDTH)
     saveRailWidth(MIN_RAIL_WIDTH)
   }, [narrow, onClose])
+
+  const expandSidebar = useCallback(() => {
+    setRailWidth(DEFAULT_RAIL_WIDTH)
+    saveRailWidth(DEFAULT_RAIL_WIDTH)
+  }, [])
 
   const startDragXRef = useRef(0)
   const startWidthRef = useRef(railWidth)
@@ -2954,19 +2960,21 @@ export default function AgentSidebar({
             onKeyDown={handleResizeKeyDown}
           />
         ) : null}
-        {!isAvatarOnly ? (
-          <div className="flex items-center justify-between gap-2 px-3 pt-3">
+        <div className="flex items-center justify-between gap-2 px-3 pt-3">
+          {isAvatarOnly ? (
+            <SidebarExpandButton onClick={expandSidebar} />
+          ) : (
             <SidebarConcealButton onClick={concealSidebar} />
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs btn-circle lg:hidden"
-              aria-label="Close agents sidebar"
-              onClick={onClose}
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
-        ) : null}
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs btn-circle lg:hidden"
+            aria-label="Close agents sidebar"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
 
         <div className="os-rail-search-row flex items-center gap-1.5 px-3 pb-2 pt-3">
           <button

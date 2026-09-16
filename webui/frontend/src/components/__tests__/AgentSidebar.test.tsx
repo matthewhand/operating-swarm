@@ -2617,16 +2617,29 @@ describe('AgentSidebar REQ-861 conceal', () => {
     localStorage.clear()
   })
 
-  it('renders a mono brand conceal button that collapses the desktop rail', async () => {
+  it('renders a bee collapse button that collapses the desktop rail (#417)', async () => {
     renderSidebar()
-    const conceal = await screen.findByRole('button', { name: 'Conceal sidebar' })
-    expect(conceal).toHaveAttribute('title', 'Conceal sidebar')
+    const conceal = await screen.findByRole('button', { name: 'Collapse sidebar' })
+    expect(conceal).toHaveAttribute('title', 'Collapse sidebar')
+    expect(conceal).toHaveAttribute('data-testid', 'sidebar-conceal')
     expect(conceal.querySelector('.os-brand-mark-geometric')).toBeTruthy()
     expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'false')
+    expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
 
     fireEvent.click(conceal)
     expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
-    expect(screen.queryByRole('button', { name: 'Conceal sidebar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument()
+    const expand = screen.getByRole('button', { name: 'Expand sidebar' })
+    expect(expand).toHaveAttribute('data-testid', 'sidebar-expand')
+  })
+
+  it('restores the rail from the collapsed expand control (#417)', async () => {
+    renderSidebar()
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }))
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'false')
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
   })
 
   it('conceals the mobile drawer via the logo button and backdrop', async () => {
@@ -2641,7 +2654,7 @@ describe('AgentSidebar REQ-861 conceal', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    const conceal = await screen.findByRole('button', { name: 'Conceal sidebar' })
+    const conceal = await screen.findByRole('button', { name: 'Collapse sidebar' })
     fireEvent.click(conceal)
     expect(onClose).toHaveBeenCalledTimes(1)
 
