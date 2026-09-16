@@ -148,7 +148,7 @@ describe('ChatPage OMB navbar agents (#102)', () => {
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'remote')
     expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('OpenMousBot')
     const modelPill = await screen.findByTestId('routing-pill-model')
-    expect(modelPill).toHaveAttribute('aria-label', 'OpenMousBot agent')
+    expect(modelPill).toHaveAttribute('aria-label', 'Remote agent')
     expect(modelPill).not.toHaveTextContent('Desk')
     fireEvent.click(modelPill)
     const menu = await screen.findByTestId('routing-menu-model')

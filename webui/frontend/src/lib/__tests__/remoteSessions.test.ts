@@ -3,6 +3,7 @@ import * as api from '../api'
 import {
   filterRemoteSessionRows,
   memberSessionsFromRemoteOperate,
+  remoteAgentsFromOperate,
   remoteChatTurnParams,
   remoteListsSessions,
   sessionsFromOperateResult,
@@ -11,6 +12,20 @@ import {
 describe('remoteSessions (issue #88 AnythingLLM)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('maps operate list agents for the navbar dropdown', () => {
+    expect(
+      remoteAgentsFromOperate({
+        agents: [
+          { id: 'desk', name: 'Desk' },
+          { id: 'spec', title: 'Specialist' },
+        ],
+      }),
+    ).toEqual([
+      { id: 'desk', label: 'Desk' },
+      { id: 'spec', label: 'Specialist' },
+    ])
   })
 
   it('treats AnythingLLM as a session-list remote', () => {

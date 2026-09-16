@@ -227,6 +227,7 @@ export function NavbarRoutingPicker({
   // while the lazy probe is in flight (REQ-870).
   const showModel =
     seatKind === 'cli' ||
+    seatKind === 'remote' ||
     selectedFamilies.length > 0 ||
     nestedRemoteAgents ||
     Boolean(modelWarning)
@@ -242,7 +243,7 @@ export function NavbarRoutingPicker({
       modelLabelById.get(path.model) ||
       path.modelBase ||
       selectedModel ||
-      (seatKind === 'remote' && !modelWarning ? '' : '—')
+      (seatKind === 'remote' && !modelWarning ? 'Agents' : '—')
     : ''
   const effortLabel = showEffort ? path.effort || '' : ''
   const groupLabel = ariaLabel || (seatKind === 'cli' ? 'CLI' : seatKind === 'remote' ? 'Remote' : 'Routing')
@@ -749,7 +750,7 @@ export function NavbarRoutingPicker({
           ? groupLabel
           : dim === 'model'
             ? seatKind === 'remote'
-              ? 'OpenMousBot agent'
+              ? 'Remote agent'
               : 'Model'
             : 'Effort'
       }
@@ -820,7 +821,7 @@ export function NavbarRoutingPicker({
         }}
       >
         {pill('agent', agentLabel, seatKind === 'cli' ? 'cli-select' : seatKind === 'remote' ? 'remote-select' : undefined)}
-        {showModel ? pill('model', modelLabel, seatKind === 'cli' ? 'cli-model-select' : undefined) : null}
+        {showModel ? pill('model', modelLabel, seatKind === 'cli' ? 'cli-model-select' : seatKind === 'remote' ? 'remote-agent-select' : undefined) : null}
         {showEffort && effortLabel ? pill('effort', effortLabel, seatKind === 'cli' ? 'cli-effort-select' : undefined) : null}
       </div>
       {desktopOpen ? (

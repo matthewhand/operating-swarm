@@ -4,8 +4,14 @@
  */
 
 import { operateRemote, type RemoteOperateResult } from './api'
+import { ombBotsFromOperate, ombNavbarOptions } from './ombBots'
 import type { RemoteEntry } from './remotesCatalog'
 import type { MemberSession } from './sessionPicker'
+
+/** Operate-list rows that are agents/bots on the far side (navbar 2nd dropdown). */
+export function remoteAgentsFromOperate(payload: unknown): Array<{ id: string; label: string }> {
+  return ombNavbarOptions(ombBotsFromOperate(payload))
+}
 
 export interface RemoteThreadRow {
   id: string

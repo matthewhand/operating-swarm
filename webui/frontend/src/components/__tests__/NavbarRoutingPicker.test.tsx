@@ -389,7 +389,7 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     })
     expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('OpenMousBot')
     const modelPill = screen.getByTestId('routing-pill-model')
-    expect(modelPill).toHaveAttribute('aria-label', 'OpenMousBot agent')
+    expect(modelPill).toHaveAttribute('aria-label', 'Remote agent')
     expect(modelPill).not.toHaveTextContent('Desk')
     expect(modelPill).not.toHaveTextContent('Specialist')
     fireEvent.click(modelPill)
