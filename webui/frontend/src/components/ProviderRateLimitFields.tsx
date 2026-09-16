@@ -82,7 +82,7 @@ export default function ProviderRateLimitFields({
         Optional caps for this provider. Empty means no limit. Every agent and
         team worker that sends through this provider waits on the same queue.
       </p>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid min-w-0 gap-2 sm:grid-cols-2 [&>*]:min-w-0">
         {RATE_LIMIT_RULE_KEYS.map((key) => (
           <Input
             key={key}

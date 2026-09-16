@@ -95,6 +95,13 @@ class TestAsgiWiring:
     def test_settings_point_at_this_application(self):
         assert settings.ASGI_APPLICATION == "swarm.asgi.application"
 
+    def test_http_branch_wraps_staticfiles_when_debug(self):
+        from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
+
+        # pytest sets DJANGO_DEBUG before swarm.asgi import (TESTING in settings).
+        http_app = application.application_mapping["http"]
+        assert isinstance(http_app, ASGIStaticFilesHandler)
+
     def test_channels_and_daphne_installed(self):
         assert "channels" in settings.INSTALLED_APPS
         # daphne must precede contrib apps for its runserver override

@@ -1,4 +1,6 @@
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -6,7 +8,7 @@ class MCPServerConfig(BaseModel):
     """
     Configuration for an MCP (Multi-Agent Control Plane) server.
     """
-    name: str = Field(..., description="Unique name for the MCP server instance.")
+    name: str = Field("", description="Unique name for the MCP server instance.")
     url: str | None = Field(None, description="URL of the MCP server endpoint, if applicable.")
 
     # Optional fields that might be part of a server's configuration
@@ -21,5 +23,12 @@ class MCPServerConfig(BaseModel):
     # token_env_var: Optional[str] = Field(None, description="Environment variable name holding an auth token for this server.")
 
     # Allow extra fields if loaded from a more complex config (pydantic v2 style)
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", hide_input_in_errors=True)
+
+    @classmethod
+    def from_named_dict(cls, name: str, data: dict[str, Any] | None) -> "MCPServerConfig":
+        """Build from a ``mcpServers`` row whose name is the map key, not a field."""
+        payload = dict(data or {})
+        payload.setdefault("name", name)
+        return cls(**payload)
 
