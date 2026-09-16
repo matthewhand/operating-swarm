@@ -18,7 +18,7 @@ export interface TeamRoster {
   name: string
   members: TeamRosterMember[]
   wires?: { handoff: boolean; as_tool: boolean }
-  /** Optional team-scoped CoS (REQ-107). Null = no CoS; never auto-picked. */
+  /** Optional team-scoped CoS (REQ-107). Composer defaults to First agent (#105). */
   chief_of_staff_id?: string | null
   chief_of_staff_instructions?: string
 }
@@ -68,6 +68,7 @@ export const KIND_LABEL: Record<MemberKind, string> = {
 
 export const DRAG_MIME = 'application/x-swarm-team-agent'
 export const ROLE_DRAG_MIME = 'application/x-swarm-team-role'
+export const ROSTER_DRAG_MIME = 'application/x-swarm-team-roster-index'
 
 export interface RoleSlot {
   id: string
@@ -91,6 +92,8 @@ export const COS_REMOTE_REASON =
 export const COS_NESTED_REASON = 'Nested teams and Herdr slots cannot be Chief of Staff.'
 
 export const NO_COS_VALUE = ''
+/** Sentinel for the Team lead picker: CoS tracks members[0] (issue #105). */
+export const FIRST_AGENT_VALUE = '__first__'
 
 export interface TeamAgent {
   id: string
@@ -254,6 +257,26 @@ export function removeMember(
   return members.filter((row) => memberKey(row) !== key)
 }
 
+export function reorderMembers(
+  members: TeamRosterMember[],
+  fromIndex: number,
+  toIndex: number,
+): TeamRosterMember[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= members.length ||
+    toIndex >= members.length
+  ) {
+    return members
+  }
+  const next = members.slice()
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
+}
+
 export function setMemberRole(
   members: TeamRosterMember[],
   agent: Pick<TeamRosterMember, 'kind' | 'id' | 'source'>,
@@ -412,6 +435,19 @@ export function isCosEligibleKind(kind: string | undefined): boolean {
 
 export function isCosEligibleMember(member: Pick<TeamRosterMember, 'kind'>): boolean {
   return isCosEligibleKind(member.kind)
+}
+
+export function firstAgentLeadId(members: TeamRosterMember[]): string | null {
+  const first = members[0]
+  if (!first || !isCosEligibleMember(first)) return null
+  return first.id
+}
+
+export function parseDragRosterIndex(raw: string): number | null {
+  if (typeof raw !== 'string') return null
+  const text = raw.trim()
+  if (!/^\d+$/.test(text)) return null
+  return Number(text)
 }
 
 export function assignableMembersForSlot(

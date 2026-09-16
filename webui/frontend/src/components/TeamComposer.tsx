@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Tags, Users } from 'lucide-react'
+import { GripVertical, Plus, Tags, Users } from 'lucide-react'
 import { Alert, Badge, Button, Input, Modal, Textarea } from './DaisyUI'
 import { MarketplaceScanSection } from './MarketplaceScanSection'
 import {
@@ -29,6 +29,8 @@ import {
   emptyRosterDraft,
   encodeDragAgent,
   encodeDragRole,
+  FIRST_AGENT_VALUE,
+  firstAgentLeadId,
   isCosEligibleMember,
   KIND_LABEL,
   memberByKey,
@@ -37,12 +39,15 @@ import {
   NO_COS_VALUE,
   parseDragAgent,
   parseDragRole,
+  parseDragRosterIndex,
   parseRosterMember,
   PLACEHOLDER_TEAM_AGENTS,
   removeMember,
   removeRoleSlot,
+  reorderMembers,
   restoreCosId,
   ROLE_DRAG_MIME,
+  ROSTER_DRAG_MIME,
   rosterHasMember,
   setMemberRole,
   slotsFromMembers,
@@ -81,6 +86,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     ...DEFAULT_TEAM_WIRES,
   })
   const [chiefOfStaffId, setChiefOfStaffId] = useState<string | null>(null)
+  const [leadFollowsFirst, setLeadFollowsFirst] = useState(true)
   const [cosInstructions, setCosInstructions] = useState(DEFAULT_COS_STARTER)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -128,6 +134,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     setMembers(draft.members)
     setWires({ ...draft.wires })
     setChiefOfStaffId(draft.chiefOfStaffId)
+    setLeadFollowsFirst(true)
     setCosInstructions(draft.chiefOfStaffInstructions)
     setRoleSlots([])
     setSavedId(null)
@@ -158,7 +165,8 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     }
   }, [menu, closeMenu])
 
-  const applyChiefOfStaff = useCallback((nextId: string | null) => {
+  const applyChiefOfStaff = useCallback((nextId: string | null, followsFirst = false) => {
+    setLeadFollowsFirst(followsFirst)
     setChiefOfStaffId(nextId)
     setMembers((prev) => {
       const stamped = stampCosRole(prev, nextId)
@@ -178,10 +186,26 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   }, [])
 
   const addFromAgent = useCallback((agent: TeamAgent) => {
-    setMembers((prev) => addMember(prev, agent))
+    setMembers((prev) => {
+      const next = addMember(prev, agent)
+      if (!leadFollowsFirst) return next
+      const lead = firstAgentLeadId(next)
+      setChiefOfStaffId(lead)
+      const stamped = stampCosRole(next, lead)
+      const holder = lead ? stamped.find((row) => row.id === lead) : undefined
+      const nextKey = holder ? memberKey(holder) : null
+      setRoleSlots((slots) =>
+        slots.map((slot) => {
+          if (slot.role === 'chief_of_staff') return { ...slot, memberKey: nextKey }
+          if (nextKey && slot.memberKey === nextKey) return { ...slot, memberKey: null }
+          return slot
+        }),
+      )
+      return stamped
+    })
     setStatus(null)
     closeMenu()
-  }, [closeMenu])
+  }, [closeMenu, leadFollowsFirst])
 
   const addFromRole = useCallback(
     (role: ComposableTeamRole) => {
@@ -203,23 +227,40 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const removeFromAgent = useCallback((agent: Pick<TeamRosterMember, 'kind' | 'id' | 'source'>) => {
     setMembers((prev) => {
       const next = removeMember(prev, agent)
-      if (chiefOfStaffId && agent.id === chiefOfStaffId) {
-        setChiefOfStaffId(null)
-      }
       if (next.length === 0) {
+        setChiefOfStaffId(null)
+        setLeadFollowsFirst(true)
         setRoleSlots([])
-      } else {
-        setRoleSlots((slots) => unassignSlotsForMember(slots, agent))
+        return next
       }
+      const lostLead = Boolean(chiefOfStaffId && agent.id === chiefOfStaffId)
+      const followsFirst = leadFollowsFirst || lostLead
+      if (followsFirst) {
+        setLeadFollowsFirst(true)
+        const lead = firstAgentLeadId(next)
+        setChiefOfStaffId(lead)
+        const stamped = stampCosRole(next, lead)
+        const holder = lead ? stamped.find((row) => row.id === lead) : undefined
+        const nextKey = holder ? memberKey(holder) : null
+        setRoleSlots((slots) =>
+          unassignSlotsForMember(slots, agent).map((slot) => {
+            if (slot.role === 'chief_of_staff') return { ...slot, memberKey: nextKey }
+            if (nextKey && slot.memberKey === nextKey) return { ...slot, memberKey: null }
+            return slot
+          }),
+        )
+        return stamped
+      }
+      setRoleSlots((slots) => unassignSlotsForMember(slots, agent))
       return next
     })
     closeMenu()
-  }, [chiefOfStaffId, closeMenu])
+  }, [chiefOfStaffId, closeMenu, leadFollowsFirst])
 
   const removeSlot = useCallback(
     (slot: RoleSlot) => {
       if (slot.role === 'chief_of_staff') {
-        if (slot.memberKey) applyChiefOfStaff(null)
+        if (slot.memberKey) applyChiefOfStaff(null, false)
       } else if (slot.memberKey) {
         const prev = memberByKey(members, slot.memberKey)
         if (prev) setMembers((current) => setMemberRole(current, prev, 'default'))
@@ -234,12 +275,12 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       const nextMember = memberByKey(members, nextKey) ?? null
       if (slot.role === 'chief_of_staff') {
         if (nextMember && !isCosEligibleMember(nextMember)) return
-        applyChiefOfStaff(nextMember?.id ?? null)
+        applyChiefOfStaff(nextMember?.id ?? null, false)
         return
       }
       setMembers((prev) => applySlotMemberChange(prev, slot, nextMember))
       if (nextMember && chiefOfStaffId === nextMember.id) {
-        applyChiefOfStaff(null)
+        applyChiefOfStaff(null, false)
       }
       setRoleSlots((slots) =>
         assignRoleSlot(slots, slot.id, nextMember ? memberKey(nextMember) : null),
@@ -286,6 +327,14 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       setDragOver(false)
       return
     }
+    if (
+      dataTransferHasType(event.dataTransfer, ROSTER_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, DRAG_MIME)
+    ) {
+      event.dataTransfer.dropEffect = 'none'
+      setDragOver(false)
+      return
+    }
     event.dataTransfer.dropEffect = 'copy'
     setDragOver(true)
   }
@@ -304,10 +353,47 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     ) {
       return
     }
+    if (
+      dataTransferHasType(event.dataTransfer, ROSTER_DRAG_MIME) &&
+      !dataTransferHasType(event.dataTransfer, DRAG_MIME)
+    ) {
+      return
+    }
     const raw = event.dataTransfer.getData(DRAG_MIME) || event.dataTransfer.getData('text/plain')
     if (parseDragRole(raw) && !parseDragAgent(raw)) return
+    if (parseDragRosterIndex(raw) !== null && !parseDragAgent(raw)) return
     const agent = parseDragAgent(raw)
     if (agent) addFromAgent(agent)
+  }
+
+  const onRosterDragStart = (event: React.DragEvent<HTMLElement>, index: number) => {
+    event.stopPropagation()
+    clearForeignDrag(event)
+    event.dataTransfer.setData(ROSTER_DRAG_MIME, String(index))
+    event.dataTransfer.setData('text/plain', String(index))
+    event.dataTransfer.effectAllowed = 'move'
+    clearForeignDrag(event)
+  }
+
+  const onRosterDragOver = (event: React.DragEvent<HTMLElement>) => {
+    if (!dataTransferHasType(event.dataTransfer, ROSTER_DRAG_MIME)) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+  }
+
+  const onRosterDrop = (event: React.DragEvent<HTMLElement>, toIndex: number) => {
+    const raw =
+      event.dataTransfer.getData(ROSTER_DRAG_MIME) || event.dataTransfer.getData('text/plain')
+    const fromIndex = parseDragRosterIndex(raw)
+    if (fromIndex === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDragOver(false)
+    const next = reorderMembers(members, fromIndex, toIndex)
+    if (next === members) return
+    setMembers(next)
+    if (leadFollowsFirst) applyChiefOfStaff(firstAgentLeadId(next), true)
   }
 
   const onRoleDragOver = (event: React.DragEvent<HTMLElement>) => {
@@ -382,6 +468,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       setName(roster.name)
       setMembers(stampCosRole(nextMembers, nextCos))
       setChiefOfStaffId(nextCos)
+      setLeadFollowsFirst(!nextCos || nextCos === firstAgentLeadId(nextMembers))
       setCosInstructions(
         nextCos ? roster.chief_of_staff_instructions || DEFAULT_COS_STARTER : DEFAULT_COS_STARTER,
       )
@@ -403,6 +490,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     })
     setMembers(stampCosRole(nextMembers, nextCos))
     setChiefOfStaffId(nextCos)
+    setLeadFollowsFirst(!nextCos || nextCos === firstAgentLeadId(nextMembers))
     setCosInstructions(
       nextCos ? roster.chief_of_staff_instructions || DEFAULT_COS_STARTER : DEFAULT_COS_STARTER,
     )
@@ -521,22 +609,32 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           data-testid="team-cos-fieldset"
         >
           <legend className="px-1 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/45">
-            Chief of Staff
+            Team
           </legend>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium">Chief of Staff</span>
             <select
               className="select select-sm"
-              value={chiefOfStaffId ?? NO_COS_VALUE}
+              value={
+                leadFollowsFirst
+                  ? FIRST_AGENT_VALUE
+                  : (chiefOfStaffId ?? NO_COS_VALUE)
+              }
               disabled={members.length === 0}
               aria-label="Chief of Staff"
               data-testid="team-cos-select"
               onChange={(event) => {
-                const next = event.target.value.trim()
-                applyChiefOfStaff(next ? next : null)
+                const next = event.target.value
+                if (next === FIRST_AGENT_VALUE) {
+                  applyChiefOfStaff(firstAgentLeadId(members), true)
+                  return
+                }
+                applyChiefOfStaff(next ? next : null, false)
               }}
             >
-              <option value={NO_COS_VALUE}>No Chief of Staff</option>
+              <option value={FIRST_AGENT_VALUE}>First agent</option>
+              {!leadFollowsFirst && !chiefOfStaffId ? (
+                <option value={NO_COS_VALUE} hidden />
+              ) : null}
               {cosChoices.map((member) => (
                 <option key={`${member.kind}:${member.id}`} value={member.id}>
                   {agentDisplayName(member)}
@@ -548,8 +646,8 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             <p className="mt-2 text-xs text-base-content/50">{COS_EMPTY_ROSTER_HINT}</p>
           ) : (
             <p className="mt-2 text-xs text-base-content/50">
-              Optional. Do not auto-assign — pick one roster member, or leave unset.
-              Remotes stay off this list until runtime can inject a CoS brief.
+              First agent is roster #1. Drag members to reorder. Remotes stay off
+              this list until runtime can inject a CoS brief.
             </p>
           )}
           <Textarea
@@ -603,7 +701,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
               </div>
             ) : (
               <ul className="flex flex-col gap-2 os-scrollable-picker-list pr-1" aria-label="Roster members">
-                {members.map((member) => {
+                {members.map((member, index) => {
                   const agent: TeamAgent = {
                     id: member.id,
                     name: member.id,
@@ -613,7 +711,13 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                   return (
                     <li key={`${member.kind}:${member.source}`}>
                       <article
-                        className="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2"
+                        draggable
+                        data-testid="roster-member"
+                        data-index={index}
+                        className="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2 cursor-grab active:cursor-grabbing"
+                        onDragStart={(event) => onRosterDragStart(event, index)}
+                        onDragOver={onRosterDragOver}
+                        onDrop={(event) => onRosterDrop(event, index)}
                         onContextMenu={(event) => {
                           event.preventDefault()
                           setMenu({
@@ -624,6 +728,13 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                           })
                         }}
                       >
+                        <GripVertical className="h-4 w-4 shrink-0 text-base-content/40" aria-hidden="true" />
+                        <span
+                          className="badge badge-ghost badge-sm font-mono"
+                          data-testid="roster-index"
+                        >
+                          {index + 1}
+                        </span>
                         <span className="font-medium">{agentDisplayName(member)}</span>
                         <Badge type={kindBadgeType(member.kind)} size="sm">
                           {KIND_LABEL[member.kind]}

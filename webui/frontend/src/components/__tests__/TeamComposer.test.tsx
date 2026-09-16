@@ -2,7 +2,15 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import TeamComposer from '../TeamComposer'
-import { DRAG_MIME, encodeDragAgent, encodeDragRole, memberKey, ROLE_DRAG_MIME } from '../../lib/teamRoster'
+import {
+  DRAG_MIME,
+  encodeDragAgent,
+  encodeDragRole,
+  FIRST_AGENT_VALUE,
+  memberKey,
+  ROLE_DRAG_MIME,
+  ROSTER_DRAG_MIME,
+} from '../../lib/teamRoster'
 import type { TeamAgent } from '../../lib/api'
 
 const AGENTS: TeamAgent[] = [
@@ -48,6 +56,9 @@ function mockDataTransfer(initial: Record<string, string> = {}) {
       store[type] = value
     },
     getData: (type: string) => store[type] ?? '',
+    get types() {
+      return Object.keys(store)
+    },
     effectAllowed: 'copy' as const,
     dropEffect: 'copy' as const,
   }
@@ -128,6 +139,7 @@ describe('TeamComposer first-launch overlay', () => {
     const roster = await screen.findByRole('list', { name: /roster members/i })
     expect(within(roster).getByText('Jeeves')).toBeInTheDocument()
     expect(within(roster).getByText('API')).toBeInTheDocument()
+    expect(within(roster).getByTestId('roster-index')).toHaveTextContent('1')
     expect(within(roster).queryByDisplayValue('default')).not.toBeInTheDocument()
     expect(within(roster).queryByRole('radio')).not.toBeInTheDocument()
   })
@@ -171,9 +183,10 @@ describe('TeamComposer first-launch overlay', () => {
         expect(body.members[0]).toMatchObject({
           id: 'grok',
           kind: 'cli',
-          role: 'default',
+          role: 'chief_of_staff',
           source: 'cli:grok',
         })
+        expect(body.chief_of_staff_id).toBe('grok')
         expect(body.wires).toEqual({ handoff: true, as_tool: true })
         return {
           ok: true,
@@ -205,11 +218,12 @@ describe('TeamComposer first-launch overlay', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
   })
 
-  it('keeps CoS disabled until agents are added and does not auto-pick', async () => {
+  it('keeps the Team lead picker disabled until agents are added and defaults to First agent', async () => {
     renderComposer()
     const select = await screen.findByTestId('team-cos-select')
     expect(select).toBeDisabled()
-    expect(select).toHaveDisplayValue('No Chief of Staff')
+    expect(select).toHaveDisplayValue('First agent')
+    expect(within(screen.getByTestId('team-cos-fieldset')).queryByRole('option', { name: /no chief of staff/i })).not.toBeInTheDocument()
     expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)
     expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
 
@@ -217,8 +231,9 @@ describe('TeamComposer first-launch overlay', () => {
     fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
     const enabled = screen.getByTestId('team-cos-select')
     expect(enabled).not.toBeDisabled()
-    expect(enabled).toHaveValue('')
-    expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
+    expect(enabled).toHaveDisplayValue('First agent')
+    expect(enabled).toHaveValue(FIRST_AGENT_VALUE)
+    expect(screen.getByTestId('team-cos-instructions')).not.toBeDisabled()
   })
 
   it('selects a CoS, saves team-scoped instructions, and can clear CoS', async () => {
@@ -280,13 +295,17 @@ describe('TeamComposer first-launch overlay', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
     expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
-    expect(screen.getByTestId('team-cos-select')).toHaveValue('jeeves')
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+    expect(screen.getByTestId('team-cos-select')).toHaveValue(FIRST_AGENT_VALUE)
     expect(screen.getByTestId('team-cos-instructions')).toHaveValue(
       'prefer grok_agent for revision control',
     )
 
-    fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: '' } })
-    expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
+    fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: 'grok' } })
+    expect(screen.getByTestId('team-cos-select')).toHaveValue('grok')
+    fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: FIRST_AGENT_VALUE } })
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+    expect(screen.getByTestId('team-cos-instructions')).not.toBeDisabled()
   })
 
   it('omits remotes from the CoS picker', async () => {
@@ -294,8 +313,96 @@ describe('TeamComposer first-launch overlay', () => {
     const available = await screen.findByRole('list', { name: /available agents list/i })
     fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[2])
     const select = screen.getByTestId('team-cos-select')
+    expect(select).toHaveDisplayValue('First agent')
     expect(within(select).queryByRole('option', { name: /acp/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/cos n\/a/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
+  })
+
+  it('numbers roster members and reordering member 2 to first updates First agent', async () => {
+    const fetchMock = vi.mocked(fetch)
+    renderComposer()
+    const available = await screen.findByRole('list', { name: /available agents list/i })
+    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
+    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[1])
+
+    const roster = await screen.findByRole('list', { name: /roster members/i })
+    const rows = within(roster).getAllByTestId('roster-member')
+    expect(within(rows[0]).getByTestId('roster-index')).toHaveTextContent('1')
+    expect(within(rows[0]).getByText('Jeeves')).toBeInTheDocument()
+    expect(within(rows[1]).getByTestId('roster-index')).toHaveTextContent('2')
+    expect(within(rows[1]).getByText('grok')).toBeInTheDocument()
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+    expect(screen.getByTestId('team-cos-select')).toHaveValue(FIRST_AGENT_VALUE)
+
+    fireEvent.drop(rows[0], {
+      dataTransfer: mockDataTransfer({ [ROSTER_DRAG_MIME]: '1' }),
+    })
+
+    const reordered = within(roster).getAllByTestId('roster-member')
+    expect(within(reordered[0]).getByText('grok')).toBeInTheDocument()
+    expect(within(reordered[0]).getByTestId('roster-index')).toHaveTextContent('1')
+    expect(within(reordered[1]).getByText('Jeeves')).toBeInTheDocument()
+    expect(within(reordered[1]).getByTestId('roster-index')).toHaveTextContent('2')
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+
+    fireEvent.change(screen.getByLabelText(/team name/i), {
+      target: { value: 'Research Squad' },
+    })
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init?.body))
+        expect(body.members.map((m: { id: string }) => m.id)).toEqual(['grok', 'jeeves'])
+        expect(body.chief_of_staff_id).toBe('grok')
+        expect(body.members[0].role).toBe('chief_of_staff')
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: 'research-squad',
+            object: 'team_roster',
+            name: 'Research Squad',
+            members: body.members,
+            wires: body.wires,
+            chief_of_staff_id: 'grok',
+            chief_of_staff_instructions: body.chief_of_staff_instructions,
+          }),
+        } as Response
+      }
+      if (url.includes('/v1/team-agents')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: AGENTS }),
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ object: 'list', data: [] }),
+      } as Response
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+  })
+
+  it('keeps an explicit named lead when the roster is reordered', async () => {
+    renderComposer()
+    const available = await screen.findByRole('list', { name: /available agents list/i })
+    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
+    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[1])
+    fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: 'jeeves' } })
+    expect(screen.getByTestId('team-cos-select')).toHaveValue('jeeves')
+
+    const roster = screen.getByRole('list', { name: /roster members/i })
+    const rows = within(roster).getAllByTestId('roster-member')
+    fireEvent.drop(rows[0], {
+      dataTransfer: mockDataTransfer({ [ROSTER_DRAG_MIME]: '1' }),
+    })
+    expect(within(roster).getAllByTestId('roster-member')[0]).toHaveTextContent('grok')
+    expect(screen.getByTestId('team-cos-select')).toHaveValue('jeeves')
+    expect(screen.getByTestId('team-cos-instructions')).not.toBeDisabled()
   })
 
   it('marks available rows as HTML5-draggable (no dnd-kit)', async () => {
@@ -411,21 +518,20 @@ describe('TeamComposer first-launch overlay', () => {
 
     const skeptic = screen.getByTestId('team-role-assign-skeptic')
     const gate = screen.getByTestId('team-role-assign-gate')
-    expect(within(skeptic).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
+    expect(within(skeptic).queryByRole('option', { name: 'Jeeves' })).not.toBeInTheDocument()
     expect(within(skeptic).getByRole('option', { name: 'grok' })).toBeInTheDocument()
 
-    fireEvent.change(skeptic, { target: { value: memberKey({ id: 'jeeves', kind: 'api', source: 'blueprint:jeeves' }) } })
-    expect(within(gate).queryByRole('option', { name: 'Jeeves' })).not.toBeInTheDocument()
-    expect(within(gate).getByRole('option', { name: 'grok' })).toBeInTheDocument()
-    expect(within(skeptic).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
+    fireEvent.change(skeptic, { target: { value: memberKey({ id: 'grok', kind: 'cli', source: 'cli:grok' }) } })
+    expect(within(gate).queryByRole('option', { name: 'grok' })).not.toBeInTheDocument()
+    expect(within(skeptic).getByRole('option', { name: 'grok' })).toBeInTheDocument()
 
     fireEvent.change(skeptic, { target: { value: '' } })
-    expect(within(gate).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
+    expect(within(gate).getByRole('option', { name: 'grok' })).toBeInTheDocument()
 
-    fireEvent.change(skeptic, { target: { value: memberKey({ id: 'jeeves', kind: 'api', source: 'blueprint:jeeves' }) } })
+    fireEvent.change(skeptic, { target: { value: memberKey({ id: 'grok', kind: 'cli', source: 'cli:grok' }) } })
     fireEvent.click(screen.getByRole('button', { name: /remove skeptic role/i }))
     expect(screen.queryByTestId('team-role-assign-skeptic')).not.toBeInTheDocument()
-    expect(within(screen.getByTestId('team-role-assign-gate')).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('team-role-assign-gate')).getByRole('option', { name: 'grok' })).toBeInTheDocument()
   })
 
   it('assigns CoS from a role-slot dropdown with eligibility, and keeps No CoS valid', async () => {
