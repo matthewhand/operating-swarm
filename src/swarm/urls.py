@@ -432,6 +432,8 @@ urlpatterns = [
     path("v1/team-agents/", TeamAgentsAPIView.as_view(), name="team-agents-api"),
     path("v1/roles", RolesAPIView.as_view(), name="roles-api-no-slash"),
     path("v1/roles/", RolesAPIView.as_view(), name="roles-api"),
+    path("v1/roles/<str:role_id>", RolesAPIView.as_view(), name="roles-api-detail-no-slash"),
+    path("v1/roles/<str:role_id>/", RolesAPIView.as_view(), name="roles-api-detail"),
     # Remote harnesses (Hermes / OpenMausBot / Rakazo) — config + health + operate
     path("v1/remotes", RemotesListView.as_view(), name="remotes-list-no-slash"),
     path("v1/remotes/", RemotesListView.as_view(), name="remotes-list"),

@@ -31,7 +31,7 @@ const AGENT_ROLES: readonly AgentRole[] = [
 ]
 
 function isAgentRole(value: unknown): value is AgentRole {
-  return typeof value === 'string' && (AGENT_ROLES as readonly string[]).includes(value)
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 export interface AgentEdit {
@@ -124,8 +124,11 @@ export function saveAgentEdit(agentId: string, patch: AgentEdit): AgentEdit {
     else delete next.name
   }
   if (patch.role !== undefined) {
-    const role = isAgentRole(patch.role) ? patch.role : 'default'
-    if (role !== 'default') next.role = role
+    const role =
+      typeof patch.role === 'string'
+        ? patch.role.trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_')
+        : 'default'
+    if (role && role !== 'default' && role !== 'none') next.role = role
     else delete next.role
   }
   if (patch.roleOverridden !== undefined) {

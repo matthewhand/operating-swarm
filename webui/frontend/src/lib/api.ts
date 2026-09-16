@@ -217,6 +217,7 @@ export type AgentRole =
   | 'chief_of_staff'
   | 'engineer'
   | 'suggestions'
+  | (string & {})
 
 /** Optional openai-agents workflow hint on a blueprint (REQ-75). */
 export type BlueprintWorkflow = 'handoff' | 'as_tool'
@@ -559,10 +560,29 @@ export interface RoleDescriptor {
   mechanism: string
   mechanism_detail: string
   css_class: string
+  custom?: boolean
+}
+
+export interface CreateRoleRequest {
+  name: string
+  label?: string
+  aliases?: string[]
+  allow_all?: boolean
+  mechanism?: string
+  mechanism_detail?: string
+  css_class?: string
 }
 
 export async function fetchRoles(): Promise<{ object: string; data: RoleDescriptor[] }> {
   return apiGet<{ object: string; data: RoleDescriptor[] }>('/v1/roles/')
+}
+
+export async function createRole(request: CreateRoleRequest): Promise<RoleDescriptor> {
+  return apiPost<RoleDescriptor>('/v1/roles/', request)
+}
+
+export async function deleteRole(roleName: string): Promise<void> {
+  return apiDelete(`/v1/roles/${encodeURIComponent(roleName)}/`)
 }
 
 export function fetchTeamRosters(): Promise<ListResponse<TeamRosterRecord>> {
