@@ -1,15 +1,22 @@
-"""Per-agent Routines store (REQ-80 / #432, REQ-884 / #285).
+"""Per-agent Routines store (REQ-80 / #432, REQ-884 / #285, #222).
 
-File-backed JSON so the computer-icon pane, Test run, GitHub PR-merged
-delivery, and GitHub webhook events share one source of truth. Instruction
-is the runtime prompt, not UI chrome. No live GitHub HTTP, no Neon.
+File-backed JSON so the computer-icon pane, Test run, GitHub events,
+time-based schedules, and mailbox triggers share one source of truth.
+Instruction is the runtime prompt, not UI chrome. No live GitHub HTTP, no
+Neon. Schema 2 is backward-compatible with schema 1 files.
+
+Trigger kinds: ``github_pr_merged``, ``github_event``, ``interval``,
+``cron``, ``one_shot``, ``mailbox_message``.
+
+Schedules tick inside the Django process (see ``schedule_engine``). No
+distributed claims. No secrets in the store.
 
 Layout::
 
     <user-config>/agent_routines.json
 
     {
-      "schema": 1,
+      "schema": 2,
       "agents": {
         "<agent_id>": [
           {
@@ -17,18 +24,19 @@ Layout::
             "name": "...",
             "instruction": "...",
             "active": true,
+            "next_run": "...",
             "trigger": {
-              "kind": "github_pr_merged",
-              "owner_repo": "owner/repo",
-              "event": "merged",
-              "actor": "anyone"
+              "kind": "interval",
+              "seconds": 3600
             },
             "history": [
               {
                 "id": "...",
                 "ran_at": "...",
                 "status": "success",
-                "source": "test_run"
+                "source": "run_now",
+                "duration_ms": 12,
+                "token_cost": 0
               }
             ]
           }
@@ -46,6 +54,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,10 +62,28 @@ from typing import Any, Callable
 
 from swarm.core.chat_store import normalize_agent_id
 from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
+from swarm.core.schedule_triggers import (
+    ROUTINE_TRIGGER_KINDS,
+    TIME_TRIGGER_KINDS,
+    TRIGGER_CRON,
+    TRIGGER_INTERVAL,
+    TRIGGER_MAILBOX_MESSAGE,
+    TRIGGER_ONE_SHOT,
+    compute_next_run,
+    is_due,
+    mailbox_event_matches,
+    parse_dt,
+    public_history_extras,
+    public_time_trigger,
+    reject_secrets,
+    time_trigger_summary,
+    to_iso,
+    utcnow,
+)
 
 logger = logging.getLogger(__name__)
 
-SCHEMA = 1
+SCHEMA = 2
 ENV_ROUTINES_PATH = "SWARM_AGENT_ROUTINES_PATH"
 ENV_GITHUB_WEBHOOK_SECRET = "GITHUB_WEBHOOK_SECRET"
 TRIGGER_GITHUB_PR_MERGED = "github_pr_merged"
@@ -64,8 +91,11 @@ TRIGGER_GITHUB_EVENT = "github_event"
 EVENT_MERGED = "merged"
 ACTOR_ANYONE = "anyone"
 SOURCE_TEST_RUN = "test_run"
+SOURCE_RUN_NOW = "run_now"
 SOURCE_GITHUB_PR_MERGED = "github_pr_merged"
 SOURCE_GITHUB_WEBHOOK = "github_webhook"
+SOURCE_MAILBOX_MESSAGE = "mailbox_message"
+SOURCE_SCHEDULE = "schedule"
 HISTORY_STATUS_SUCCESS = "success"
 HISTORY_STATUS_ERROR = "error"
 GITHUB_WEBHOOK_USER_KEY = "github-webhook"
@@ -226,6 +256,8 @@ def public_github_event_filters(raw: Any) -> dict[str, Any]:
 def public_trigger(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     incoming = raw if isinstance(raw, dict) else {}
     kind = str(incoming.get("kind") or TRIGGER_GITHUB_PR_MERGED).strip()
+    if kind in {TRIGGER_INTERVAL, TRIGGER_CRON, TRIGGER_ONE_SHOT, TRIGGER_MAILBOX_MESSAGE}:
+        return public_time_trigger(incoming, allowed=ROUTINE_TRIGGER_KINDS)
     if kind == TRIGGER_GITHUB_EVENT:
         event_type = str(incoming.get("event_type") or incoming.get("event") or "").strip()
         if event_type not in GITHUB_EVENT_TYPES:
@@ -241,10 +273,12 @@ def public_trigger(raw: dict[str, Any] | None = None) -> dict[str, Any]:
             "filters": public_github_event_filters(incoming.get("filters")),
         }
     if kind != TRIGGER_GITHUB_PR_MERGED:
-        raise ValueError("v1 supports GitHub PR-merged and github_event triggers.")
+        raise ValueError(
+            "Supported trigger kinds: github_pr_merged, github_event, interval, cron, one_shot, mailbox_message."
+        )
     event = str(incoming.get("event") or EVENT_MERGED).strip().lower()
     if event != EVENT_MERGED:
-        raise ValueError("v1 GitHub trigger event must be merged.")
+        raise ValueError("GitHub PR-merged trigger event must be merged.")
     return {
         "kind": TRIGGER_GITHUB_PR_MERGED,
         "owner_repo": normalize_owner_repo(_coerce_owner_repo(incoming)),
@@ -253,7 +287,7 @@ def public_trigger(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
-def public_history_row(raw: dict[str, Any] | None = None) -> dict[str, str] | None:
+def public_history_row(raw: dict[str, Any] | None = None) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     ran_at = str(raw.get("ran_at") or "").strip()
@@ -262,53 +296,69 @@ def public_history_row(raw: dict[str, Any] | None = None) -> dict[str, str] | No
     status = str(raw.get("status") or HISTORY_STATUS_SUCCESS).strip() or HISTORY_STATUS_SUCCESS
     source = str(raw.get("source") or SOURCE_TEST_RUN).strip() or SOURCE_TEST_RUN
     row_id = str(raw.get("id") or "").strip() or _new_id()
-    row = {
+    row: dict[str, Any] = {
         "id": row_id,
         "ran_at": ran_at,
         "status": status,
         "source": source,
     }
-    event = str(raw.get("event") or "").strip()
+    event = reject_secrets(str(raw.get("event") or "").strip(), "event")
     if event:
         row["event"] = event
-    conversation_id = str(raw.get("conversation_id") or "").strip()
+    conversation_id = reject_secrets(str(raw.get("conversation_id") or "").strip(), "conversation_id")
     if conversation_id:
         row["conversation_id"] = conversation_id
-    summary = str(raw.get("summary") or "").strip()
+    summary = reject_secrets(str(raw.get("summary") or "").strip(), "summary")
     if summary:
         row["summary"] = summary
+    row.update(public_history_extras(raw))
     return row
+
+
+def _last_run_dt(history: list[dict[str, Any]]) -> datetime | None:
+    if not history:
+        return None
+    return parse_dt(history[0].get("ran_at"))
 
 
 def public_routine(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     incoming = raw if isinstance(raw, dict) else {}
-    history: list[dict[str, str]] = []
+    history: list[dict[str, Any]] = []
     for item in incoming.get("history") or []:
         row = public_history_row(item if isinstance(item, dict) else None)
         if row:
             history.append(row)
     history.sort(key=lambda row: row["ran_at"], reverse=True)
-    name = str(incoming.get("name") or "").strip() or "New routine"
+    name = reject_secrets(str(incoming.get("name") or "").strip() or "New routine", "name")
     instruction = incoming.get("instruction")
     if instruction is None:
         instruction = ""
     else:
-        instruction = str(instruction)
+        instruction = reject_secrets(str(instruction), "instruction")
+    trigger = public_trigger(incoming.get("trigger") if isinstance(incoming.get("trigger"), dict) else None)
+    next_run = str(incoming.get("next_run") or "").strip() or None
+    if not next_run:
+        nxt = compute_next_run(trigger, last_run=_last_run_dt(history))
+        next_run = to_iso(nxt) if nxt else None
     return {
         "id": str(incoming.get("id") or "").strip() or _new_id(),
         "name": name,
         "instruction": instruction,
         "active": bool(incoming.get("active", True)),
-        "trigger": public_trigger(incoming.get("trigger") if isinstance(incoming.get("trigger"), dict) else None),
+        "trigger": trigger,
         "history": history,
+        "next_run": next_run,
     }
 
 
 def trigger_summary(trigger: dict[str, Any] | None) -> str:
     """When-to-run subtitle for the Routines list."""
     data = public_trigger(trigger if isinstance(trigger, dict) else None)
+    kind = str(data.get("kind") or "")
+    if kind in {TRIGGER_INTERVAL, TRIGGER_CRON, TRIGGER_ONE_SHOT, TRIGGER_MAILBOX_MESSAGE}:
+        return time_trigger_summary(data)
     repo = data.get("owner_repo") or "a GitHub repo"
-    if data.get("kind") == TRIGGER_GITHUB_EVENT:
+    if kind == TRIGGER_GITHUB_EVENT:
         event_type = str(data.get("event_type") or TRIGGER_GITHUB_EVENT)
         filters = data.get("filters") if isinstance(data.get("filters"), dict) else {}
         extras: list[str] = []
@@ -393,7 +443,7 @@ def update_routine(agent_id: str, routine_id: str, patch: dict[str, Any] | None 
     unknown = [
         key
         for key in incoming
-        if key not in {"name", "instruction", "active", "trigger"}
+        if key not in {"name", "instruction", "active", "trigger", "next_run"}
     ]
     if unknown:
         raise ValueError(f"Unknown routine field(s): {', '.join(sorted(unknown))}.")
@@ -419,9 +469,10 @@ def update_routine(agent_id: str, routine_id: str, patch: dict[str, Any] | None 
             raise ValueError("active must be a boolean.")
     if "trigger" in incoming:
         current["trigger"] = public_trigger(incoming.get("trigger") if isinstance(incoming.get("trigger"), dict) else None)
+        current["next_run"] = None
     rows = [current if row["id"] == current["id"] else row for row in list_routines(agent_id)]
     _persist_agent(agent_id, rows)
-    return current
+    return get_routine(agent_id, routine_id) or current
 
 
 def delete_routine(agent_id: str, routine_id: str) -> bool:
@@ -460,11 +511,15 @@ def append_history(
     event: str = "",
     conversation_id: str = "",
     summary: str = "",
+    duration_ms: int | None = None,
+    token_cost: int | None = None,
+    artifact: dict[str, Any] | None = None,
+    error: str = "",
 ) -> dict[str, Any]:
     routine = get_routine(agent_id, routine_id)
     if routine is None:
         raise KeyError(f"Routine '{routine_id}' not found.")
-    row = {
+    row: dict[str, Any] = {
         "id": _new_id(),
         "ran_at": _now_iso(),
         "status": str(status or "").strip() or HISTORY_STATUS_SUCCESS,
@@ -474,23 +529,160 @@ def append_history(
         row["event"] = str(event).strip()
     if str(conversation_id or "").strip():
         row["conversation_id"] = str(conversation_id).strip()
+        if artifact is None:
+            artifact = {
+                "kind": "chat",
+                "url": f"/chat?agent={normalize_agent_id(agent_id)}&conversation={conversation_id}",
+                "label": "Chat log",
+            }
     if str(summary or "").strip():
         row["summary"] = str(summary).strip()
+    if duration_ms is not None:
+        row["duration_ms"] = max(0, int(duration_ms))
+    if token_cost is not None:
+        row["token_cost"] = max(0, int(token_cost))
+    if artifact:
+        row["artifact"] = artifact
+    if str(error or "").strip():
+        row["error"] = str(error).strip()
     history = [row, *list(routine.get("history") or [])]
     history.sort(key=lambda item: str(item.get("ran_at") or ""), reverse=True)
     routine["history"] = history
+    trigger = routine.get("trigger") if isinstance(routine.get("trigger"), dict) else {}
+    if str(trigger.get("kind") or "") in TIME_TRIGGER_KINDS:
+        nxt = compute_next_run(trigger, last_run=parse_dt(row["ran_at"]))
+        routine["next_run"] = to_iso(nxt) if nxt else None
+        if str(trigger.get("kind") or "") == TRIGGER_ONE_SHOT and source in {
+            SOURCE_SCHEDULE,
+            SOURCE_RUN_NOW,
+        }:
+            routine["active"] = False
+            routine["next_run"] = None
     rows = [routine if item["id"] == routine["id"] else item for item in list_routines(agent_id)]
     _persist_agent(agent_id, rows)
     return get_routine(agent_id, routine_id) or routine
 
 
-def test_run(agent_id: str, routine_id: str) -> dict[str, Any]:
-    """Fire the Instruction once without waiting for the trigger."""
+def fire_routine(
+    agent_id: str,
+    routine_id: str,
+    *,
+    source: str,
+    prompt: str | None = None,
+    event: str = "",
+    conversation_id: str = "",
+    summary: str = "",
+    token_cost: int = 0,
+    artifact: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the instruction, record duration/status, and append history."""
     routine = get_routine(agent_id, routine_id)
     if routine is None:
         raise KeyError(f"Routine '{routine_id}' not found.")
-    run_instruction(agent_id, str(routine.get("instruction") or ""), SOURCE_TEST_RUN)
-    return append_history(agent_id, routine_id, source=SOURCE_TEST_RUN)
+    instruction = prompt if prompt is not None else str(routine.get("instruction") or "")
+    started = time.monotonic()
+    status = HISTORY_STATUS_SUCCESS
+    error = ""
+    try:
+        run_instruction(agent_id, instruction, source)
+    except Exception as exc:
+        logger.exception("Routine %s failed", routine_id)
+        status = HISTORY_STATUS_ERROR
+        error = str(exc) or "Routine execution failed."
+    duration_ms = int((time.monotonic() - started) * 1000)
+    return append_history(
+        agent_id,
+        routine_id,
+        source=source,
+        status=status,
+        event=event,
+        conversation_id=conversation_id,
+        summary=error or summary,
+        duration_ms=duration_ms,
+        token_cost=token_cost,
+        artifact=artifact,
+        error=error,
+    )
+
+
+def test_run(agent_id: str, routine_id: str) -> dict[str, Any]:
+    """Fire the Instruction once without waiting for the trigger."""
+    return fire_routine(agent_id, routine_id, source=SOURCE_TEST_RUN)
+
+
+def run_now(agent_id: str, routine_id: str) -> dict[str, Any]:
+    """Operator run-now. Same path as a scheduled fire; source is run_now."""
+    return fire_routine(agent_id, routine_id, source=SOURCE_RUN_NOW)
+
+
+def tick_due_routines(now: datetime | None = None) -> list[dict[str, Any]]:
+    """Fire due interval/cron/one_shot routines. Single-process; no distributed lock."""
+    moment = now or utcnow()
+    fired: list[dict[str, Any]] = []
+    for row in list_all_routines():
+        if not row.get("active"):
+            continue
+        trigger = row.get("trigger") if isinstance(row.get("trigger"), dict) else {}
+        if str(trigger.get("kind") or "") not in TIME_TRIGGER_KINDS:
+            continue
+        last_run = _last_run_dt(list(row.get("history") or []))
+        if not is_due(trigger, now=moment, last_run=last_run, next_run=row.get("next_run")):
+            continue
+        agent_id = str(row.get("agent_id") or "")
+        updated = fire_routine(
+            agent_id,
+            str(row.get("id") or ""),
+            source=SOURCE_SCHEDULE,
+            event=str(trigger.get("kind") or SOURCE_SCHEDULE),
+            summary=f"Scheduled {trigger.get('kind')} run.",
+        )
+        fired.append({"agent_id": normalize_agent_id(agent_id), "routine": updated})
+    return fired
+
+
+def deliver_mailbox_message(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Fire matching Active mailbox_message routines. Tests inject the event."""
+    incoming = payload if isinstance(payload, dict) else {}
+    content = reject_secrets(str(incoming.get("content") or incoming.get("body") or incoming.get("text") or ""), "content")
+    event = {
+        "sender": reject_secrets(str(incoming.get("sender") or incoming.get("sender_id") or "").strip(), "sender"),
+        "content": content,
+        "subject": reject_secrets(str(incoming.get("subject") or "").strip(), "subject"),
+        "body": content,
+        "text": content,
+        "message": content,
+    }
+    fired: list[dict[str, Any]] = []
+    for row in list_all_routines():
+        if not row.get("active"):
+            continue
+        trigger = row.get("trigger") if isinstance(row.get("trigger"), dict) else {}
+        if not mailbox_event_matches(trigger, event):
+            continue
+        agent_id = str(row.get("agent_id") or "")
+        briefing = "\n".join(
+            part
+            for part in (
+                f"Mailbox message from {event['sender'] or 'unknown'}.",
+                f"Subject: {event['subject']}" if event["subject"] else "",
+                event["content"],
+                "",
+                "---",
+                "Routine instruction:",
+                str(row.get("instruction") or ""),
+            )
+            if part is not None
+        ).strip()
+        updated = fire_routine(
+            agent_id,
+            str(row.get("id") or ""),
+            source=SOURCE_MAILBOX_MESSAGE,
+            prompt=briefing,
+            event=TRIGGER_MAILBOX_MESSAGE,
+            summary=f"Mailbox from {event['sender'] or 'unknown'}.",
+        )
+        fired.append({"agent_id": normalize_agent_id(agent_id), "routine": updated})
+    return fired
 
 
 def _actor_matches(trigger_actor: str, event_actor: str) -> bool:
@@ -577,8 +769,12 @@ def deliver_github_pr_merged(payload: dict[str, Any] | None) -> list[dict[str, A
                 continue
             if not _actor_matches(trigger["actor"], event["actor"]):
                 continue
-            run_instruction(agent_id, str(routine.get("instruction") or ""), SOURCE_GITHUB_PR_MERGED)
-            updated = append_history(agent_id, routine["id"], source=SOURCE_GITHUB_PR_MERGED)
+            updated = fire_routine(
+                agent_id,
+                routine["id"],
+                source=SOURCE_GITHUB_PR_MERGED,
+                event=EVENT_MERGED,
+            )
             fired.append({"agent_id": normalize_agent_id(agent_id), "routine": updated})
     return fired
 
@@ -823,23 +1019,15 @@ def deliver_github_event(
                 continue
             prompt = format_github_event_briefing(event, str(routine.get("instruction") or ""))
             conversation_id = github_event_conversation_id(event)
-            status = HISTORY_STATUS_SUCCESS
-            summary = f"Agent ran routine {routine.get('name')} for {event_label}."
-            try:
-                spawn_github_event_session(agent_id, conversation_id, prompt)
-                run_instruction(agent_id, prompt, SOURCE_GITHUB_WEBHOOK)
-            except Exception as exc:
-                logger.exception("GitHub webhook routine %s failed", routine.get("id"))
-                status = HISTORY_STATUS_ERROR
-                summary = str(exc) or "Routine execution failed."
-            updated = append_history(
+            spawn_github_event_session(agent_id, conversation_id, prompt)
+            updated = fire_routine(
                 agent_id,
                 routine["id"],
                 source=SOURCE_GITHUB_WEBHOOK,
-                status=status,
+                prompt=prompt,
                 event=event_label,
                 conversation_id=conversation_id,
-                summary=summary,
+                summary=f"Agent ran routine {routine.get('name')} for {event_label}.",
             )
             fired.append({"agent_id": normalize_agent_id(agent_id), "routine": updated})
     return fired

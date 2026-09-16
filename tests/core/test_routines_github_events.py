@@ -130,13 +130,7 @@ def test_create_github_event_trigger_and_summary(tmp_path, monkeypatch):
     )
 
 
-def test_rejects_cron_and_unknown_event_type():
-    try:
-        store.create_routine("codey", {"trigger": {"kind": "cron"}})
-    except ValueError as exc:
-        assert "GitHub" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
+def test_rejects_unknown_event_type():
     try:
         store.create_routine(
             "codey",
@@ -146,6 +140,19 @@ def test_rejects_cron_and_unknown_event_type():
         assert "event_type" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_cron_trigger_is_accepted_with_expression():
+    created = store.create_routine(
+        "codey",
+        {
+            "name": "Nightly",
+            "instruction": "Nightly recap.",
+            "trigger": {"kind": "cron", "expression": "0 3 * * *"},
+        },
+    )
+    assert created["trigger"]["kind"] == "cron"
+    assert created["trigger"]["expression"] == "0 3 * * *"
 
 
 def test_issues_opened_fires_and_records_history():

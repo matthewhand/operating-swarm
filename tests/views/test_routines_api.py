@@ -140,6 +140,30 @@ def test_unmerged_github_payload_is_rejected(api_client):
     assert "merged" in response.json()["error"].lower()
 
 
+def test_run_now_and_mailbox_delivery(api_client):
+    created = api_client.post(
+        "/v1/agents/codey/routines/",
+        {
+            "name": "Mailbox prove",
+            "instruction": "Handle it.",
+            "trigger": {"kind": "mailbox_message", "sender": "support", "pattern": "prove"},
+        },
+        format="json",
+    ).json()
+    ran = api_client.post(f"/v1/agents/codey/routines/{created['id']}/run-now/", {}, format="json")
+    assert ran.status_code == 200
+    assert ran.json()["history"][0]["source"] == "run_now"
+
+    delivery = api_client.post(
+        "/v1/routines/mailbox-message/",
+        {"sender": "support", "content": "please prove remote"},
+        format="json",
+    )
+    assert delivery.status_code == 200
+    assert delivery.json()["count"] >= 1
+    assert delivery.json()["object"] == "routine_mailbox_delivery"
+
+
 def test_list_all_routines(api_client):
     api_client.post(
         "/v1/agents/codey/routines/",

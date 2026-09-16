@@ -101,6 +101,27 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
         if (url.includes('/routines') && method === 'GET') {
           return jsonResponse({ object: 'routine_list', agent_id: 'codey', routines })
         }
+        if (url.includes('/test-schedules/status')) {
+          return jsonResponse({ object: 'test_schedule_status', failure_count: 0, failures: [] })
+        }
+        if (url.includes('/test-schedules') && method === 'GET') {
+          return jsonResponse({
+            object: 'test_schedule_list',
+            schedules: [
+              {
+                id: 'seed-remote-harness-health',
+                name: 'Remote harness health',
+                active: false,
+                trigger: { kind: 'interval', seconds: 3600 },
+                target: { kind: 'fleet', fleet: 'all' },
+                check: { kind: 'harness_health', name: 'remote_health' },
+                history: [],
+                when_to_run: 'Every 1 hour…',
+              },
+            ],
+            failure_count: 0,
+          })
+        }
         return jsonResponse({ data: [] })
       }),
     )
@@ -198,6 +219,17 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
     expect(await within(dialog).findByRole('heading', { name: 'Routines' })).toBeInTheDocument()
     expect(within(dialog).queryByText('Ship notes')).not.toBeInTheDocument()
     expect(within(dialog).getByText('No routines yet.')).toBeInTheDocument()
+  })
+
+  it('switches to the Test schedule pane with seeded fleet proofs', async () => {
+    const dialog = await openPane()
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('tab', { name: /Test schedule/ }))
+    })
+    expect(await within(dialog).findByTestId('test-schedule-pane')).toBeInTheDocument()
+    expect(within(dialog).getByRole('heading', { name: 'Test schedule' })).toBeInTheDocument()
+    expect(await within(dialog).findByText('Remote harness health')).toBeInTheDocument()
+    expect(within(dialog).getByText('Every 1 hour…')).toBeInTheDocument()
   })
 
   it('opens from the chrome overlay bus without leaving chat chrome', async () => {
