@@ -277,11 +277,12 @@ Shared fleet Success criteria (remote prove, same-origin hydrate, health JSON, h
 | CI | 🟡 | pytest remains SQLite; `postgres-migrate` job uses Actions Postgres when Actions is unblocked. No live Neon. Fixes #508. Private-repo Actions currently die before step 1 ([#250](https://github.com/matthewhand/open-swarm-private/issues/250)). |
 | Native / PyPI SQLite (#323) | ✅ | Default `<get_user_data_dir_for_swarm()>/db.sqlite3` when no Postgres. Parent dir 0700. Compose still injects Postgres. Pytest uses an isolated temp file, not `/tmp/db.sqlite3`. |
 
-## 15. Desktop package (REQ-151) — 📋 planned
+## 15. Desktop package (REQ-151 / REQ-883) — 📋 planned
 
 | Feature | Status | Evidence |
 |---|---|---|
 | Windows desktop zip (local server + window) | 📋 | [ADR-003](docs/adr/003-desktop-packaging.md) (Phase 0). **Pick:** OpenMausBot *shape* (loopback ASGI + owned window); **pywebview + PyInstaller onedir**, not Electron. No installer in the ADR PR. Pinokio/Docker stays the container path. Native `grok`/`agy`/… stay on the host. Fixes #554 when the ADR merges; Phase 1–2 are split Issues. REQ-883 / macOS follow-up is not a shipped binary. |
+| Windows + macOS desktop plan + boot scaffold | 📋 | [REQ-883](docs/qa/REQ-883-desktop-app-packaging-windows-macos.md) / #280 extends ADR-003 to macOS (`.app` / `.dmg`, arm64+x86_64, `notarytool`) and scaffolds `swarm-desktop --print-plan` (IPv4 loopback, Operating Swarm profile, PATH merge, no window). Source lock: `tests/unit/test_req883_desktop_app_packaging.py`. No installer in this change. |
 
 ## Regeneration
 

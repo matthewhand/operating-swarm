@@ -140,6 +140,10 @@ _custom_blueprint_request = inline_serializer(
             help_text="Opt the seat onto the AGENTS rail (CLI/API creates set true).",
         ),
         "source": serializers.CharField(required=False, help_text="Provenance, e.g. add-agent."),
+        "remote": serializers.DictField(
+            required=False,
+            help_text="Optional CLI remote endpoint {host, port, username, password_env, box}.",
+        ),
     },
 )
 
@@ -393,7 +397,7 @@ class CustomBlueprintsView(APIView):
                         "env_vars": body.get("env_vars") or [],
                         **{
                             key: body[key]
-                            for key in ("kind", "command", "cli", "rail", "source")
+                            for key in ("kind", "command", "cli", "rail", "source", "remote")
                             if key in body
                         },
                     }
@@ -480,6 +484,7 @@ class CustomBlueprintDetailView(APIView):
                 "cli",
                 "rail",
                 "source",
+                "remote",
             ]:
                 if key in body:
                     item[key] = body[key]

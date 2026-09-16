@@ -11,8 +11,11 @@ from pathlib import Path
 
 from swarm.core import cli_catalog
 from swarm.core.cli_models import (
+    PROBE_TIMEOUT_S,
     ListModelsResult,
+    clear_probe_cache,
     list_models,
+    list_models_many,
     parse_models_stdout,
     probe_list_models,
 )
@@ -128,7 +131,8 @@ async def test_probe_uses_opencode_fixture_stdout(monkeypatch):
         return 0, stdout, ""
 
     monkeypatch.setattr(
-        "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/opencode"
+        "swarm.core.cli_models._resolve_executable",
+        lambda *_a, **_k: "/usr/bin/opencode",
     )
     result = await probe_list_models("opencode", run_exec=fake_run)
     assert result.cli == "opencode"
@@ -300,3 +304,91 @@ async def test_probe_falls_back_to_presets_when_stdout_empty(monkeypatch):
     result = await probe_list_models("grok", run_exec=fake_run)
     assert result.models == list(cli_catalog.CLI_MODELS["grok"])
     assert "no model ids" in (result.warning or "")
+
+
+def test_default_probe_timeout_is_bounded():
+    assert PROBE_TIMEOUT_S <= 1.5
+    assert cli_catalog.LIST_MODELS_TIMEOUT <= 1.5
+
+
+def test_concurrent_hanging_clis_do_not_stack_timeouts(monkeypatch):
+    # Two real sleepers through the shipped _run_exec path. Concurrent + short
+    # probe grace must finish in ~one timeout, not two sequential 30s hangs.
+    sleeper = [PY, "-c", "import time; time.sleep(30)"]
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", sleeper)
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "claude", list(sleeper))
+    clear_probe_cache()
+    t0 = time.monotonic()
+    rows = list_models_many(["grok", "claude"], timeout=0.4)
+    elapsed = time.monotonic() - t0
+    assert {row.cli for row in rows} == {"grok", "claude"}
+    assert all(row.models == [] for row in rows)
+    assert all("timed out" in (row.warning or "").lower() for row in rows)
+    assert elapsed < 3.0
+
+
+def test_cache_skips_second_shipped_probe(monkeypatch, tmp_path):
+    count = tmp_path / "count"
+    count.write_text("0")
+    script = tmp_path / "probe.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        f"p = Path({str(count)!r})\n"
+        "p.write_text(str(int(p.read_text() or '0') + 1))\n"
+        "print('cached-model')\n"
+    )
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    first = list_models_many(["grok"])
+    second = list_models_many(["grok"])
+    assert first[0].models == ["cached-model"]
+    assert second[0].models == ["cached-model"]
+    assert first[0].warning is None
+    assert count.read_text().strip() == "1"
+
+
+def test_expired_cache_returns_immediately_without_waiting(monkeypatch, tmp_path):
+    script = tmp_path / "probe.py"
+    script.write_text("print('stale-model')\n")
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    first = list_models_many(["grok"])
+    assert first[0].models == ["stale-model"]
+    from swarm.core import cli_models as cm
+
+    with cm._CACHE_LOCK:
+        cm._RESULT_CACHE["grok"].ts = time.monotonic() - cm.PROBE_CACHE_TTL_S - 1
+    monkeypatch.setitem(
+        cli_catalog.LIST_MODELS, "grok", [PY, "-c", "import time; time.sleep(30)"]
+    )
+    t0 = time.monotonic()
+    second = list_models_many(["grok"])
+    elapsed = time.monotonic() - t0
+    assert second[0].models == ["stale-model"]
+    assert elapsed < 0.5
+
+
+def test_failed_refresh_keeps_last_good_models(monkeypatch, tmp_path):
+    mode = tmp_path / "mode"
+    mode.write_text("ok")
+    script = tmp_path / "probe.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        f"mode = Path({str(mode)!r}).read_text().strip()\n"
+        "if mode == 'ok':\n"
+        "    print('keep-me')\n"
+        "else:\n"
+        "    raise SystemExit('auth expired')\n"
+    )
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    ok = list_models_many(["grok"])
+    assert ok[0].models == ["keep-me"]
+    mode.write_text("fail")
+    from swarm.core import cli_models as cm
+
+    cm._refresh_names(["grok"], timeout=2.0)
+    served = list_models_many(["grok"])
+    assert served[0].models == ["keep-me"]
+    assert "failed" in (served[0].warning or "").lower()
+

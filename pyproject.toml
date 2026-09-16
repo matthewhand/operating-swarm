@@ -72,6 +72,7 @@ Changelog = "https://github.com/matthewhand/operating-swarm/blob/main/CHANGELOG.
 os-cli = "swarm.core.swarm_cli:app"
 os = "swarm.core.swarm_cli:app"
 os-api = "swarm.core.swarm_api:main"
+swarm-desktop = "swarm.desktop.cli:main"
 codey = "swarm.blueprints.codey.codey_cli:main"
 suggestion = "swarm.blueprints.suggestion.suggestion_cli:main"
 
@@ -88,6 +89,10 @@ sandbox = [
     # conflicts with the project's httpx>=0.25.2,<0.26.0 pin (same class of
     # problem as django-mcp-server — see the note below).
     "daytona>=0.5.0 ; python_version < '3'",
+]
+desktop = [
+    # REQ-883B: pywebview window. Not required for `swarm-desktop --print-plan`.
+    "pywebview>=5.0,<6",
 ]
 memory = [
     # The mem0 integration imports `from mem0 import Memory`; that module is

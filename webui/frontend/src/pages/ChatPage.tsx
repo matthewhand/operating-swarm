@@ -258,6 +258,7 @@ import {
   roleCssClass,
 } from '../lib/agentRoles'
 import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit, loadInferenceList } from '../lib/agentEdits'
+import { isRemoteCapableCli, remoteEndpointLabel } from '../lib/cliRemote'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
 import { chatFolderParams } from '../lib/agentFolder'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
@@ -2155,10 +2156,15 @@ const ChatPage = () => {
         ...persistedSkills,
         ...parseComposerSkillNames(trimmed),
       ])
+      const seatRemote = loadAgentEdit(agentIdForInference).remote
+      const sessionRemote =
+        (searchParams.get('cli_remote') ?? '').trim() ||
+        (seatRemote?.box || remoteEndpointLabel(seatRemote) || '')
       const cliParams = isCliAgent
         ? {
             cli: currentCli,
             ...(selectedModelParam && selectedModelParam !== 'default' ? { model: selectedModelParam } : {}),
+            ...(sessionRemote ? { cli_remote: sessionRemote } : {}),
           }
         : isApiAgent && selectedModelParam && selectedModelParam !== 'default'
           ? { model: selectedModelParam }
@@ -3212,6 +3218,46 @@ const ChatPage = () => {
               cli={currentCli}
               agentName={selectedAgentName}
             />
+          ) : null}
+          {isCliAgent && currentCli && isRemoteCapableCli(currentCli, cliQuery.data?.remote) ? (
+            <label className="flex items-center gap-1 min-w-0">
+              <span className="sr-only">CLI remote box</span>
+              <select
+                className="select select-xs select-bordered h-7 min-h-0 max-w-[12rem] font-medium"
+                aria-label="CLI remote box"
+                data-testid="select-cli-session-remote"
+                value={(searchParams.get('cli_remote') ?? '').trim() || loadAgentEdit(selectedBlueprint).remote?.box || ''}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setSearchParams(
+                    (prevParams) => {
+                      const nextParams = new URLSearchParams(prevParams)
+                      if (next) nextParams.set('cli_remote', next)
+                      else nextParams.delete('cli_remote')
+                      return nextParams
+                    },
+                    { replace: true },
+                  )
+                }}
+              >
+                <option value="">Local</option>
+                {(cliQuery.data?.remote_boxes ?? []).map((box) => (
+                  <option key={box.id || box.host} value={box.id || `${box.host}:${box.port}`}>
+                    {box.id || box.host}:{box.port}
+                  </option>
+                ))}
+                {loadAgentEdit(selectedBlueprint).remote?.host ? (
+                  <option
+                    value={
+                      loadAgentEdit(selectedBlueprint).remote?.box ||
+                      remoteEndpointLabel(loadAgentEdit(selectedBlueprint).remote)
+                    }
+                  >
+                    {remoteEndpointLabel(loadAgentEdit(selectedBlueprint).remote)}
+                  </option>
+                ) : null}
+              </select>
+            </label>
           ) : null}
           {productModes.api && isApiAgent ? (
             /* #108: API seats route through LLM profiles, not host CLIs. */

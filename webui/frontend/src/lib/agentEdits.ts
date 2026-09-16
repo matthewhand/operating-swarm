@@ -59,6 +59,14 @@ export interface AgentEdit {
   inferenceList?: string[]
   /** REQ-212 attached SKILL.md names for API / Blueprint-backed seats. */
   skills?: string[]
+  /** Issue #180: optional remote serve endpoint (host/port/auth_env/box). */
+  remote?: {
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }
 }
 
 export type AgentEditMap = Record<string, AgentEdit>
@@ -175,6 +183,22 @@ export function saveAgentEdit(agentId: string, patch: AgentEdit): AgentEdit {
     const skills = [...new Set(patch.skills.map((name) => name.trim()).filter(Boolean))]
     if (skills.length) next.skills = skills
     else delete next.skills
+  }
+  if (patch.remote !== undefined) {
+    const remote = patch.remote
+    const host = String(remote?.host || '').trim()
+    const port = Number(remote?.port)
+    if (host && Number.isInteger(port) && port > 0) {
+      next.remote = {
+        host,
+        port,
+        ...(remote?.username ? { username: remote.username } : {}),
+        ...(remote?.password_env ? { password_env: remote.password_env } : {}),
+        ...(remote?.box ? { box: remote.box } : {}),
+      }
+    } else {
+      delete next.remote
+    }
   }
 
   if (Object.keys(next).length === 0) delete map[agentId]

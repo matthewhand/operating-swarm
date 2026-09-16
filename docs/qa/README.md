@@ -17,6 +17,16 @@ Success checklist (docs only), not a look-only audit.
 
 Umbrella [#596](https://github.com/matthewhand/open-swarm/issues/596) also asks for surfaces A (chat/composer/session) and C (CLI/API/remote harness). Those are sibling look-only reports, not this file.
 
+## Investigation + implementation plans
+
+These are **forward plans** (not shipped product). Each has a
+`tests/unit/test_req###_*.py` source-lock so the decision cannot silently
+regress, plus any scaffold the ticket named.
+
+| REQ | Surface | Spec | Lock test |
+|-----|---------|------|-----------|
+| REQ-883 | Self-contained desktop packaging for Windows + macOS (#280) | [REQ-883-desktop-app-packaging-windows-macos.md](./REQ-883-desktop-app-packaging-windows-macos.md) | `tests/unit/test_req883_desktop_app_packaging.py` |
+
 ## Requirement + lock specs (shipped features)
 
 These are **feature requirement specs**, retro-fitted on top of shipped fixes:

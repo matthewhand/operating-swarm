@@ -14,6 +14,8 @@ from swarm.core.chat_transcript import (
 def test_notice_helpers_match_honest_copy():
     assert is_new_cli_session_notice("Started a new grok session.")
     assert is_cli_session_notice("Resumed opencode session.")
+    assert is_cli_session_notice("Started a new opencode session on dev-gpu.lan:4096.")
+    assert is_new_cli_session_notice("Started a new opencode session on dev-gpu.lan:4096.")
     assert not is_new_cli_session_notice("Resumed grok session.")
     assert not is_cli_session_notice("CLI: antigravity → grok")
 

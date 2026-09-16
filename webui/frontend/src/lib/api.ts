@@ -1023,6 +1023,14 @@ export interface CustomBlueprint {
   cli?: string
   rail?: boolean
   source?: string
+  /** Issue #180: optional remote serve endpoint for opencode/kilocode. */
+  remote?: {
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }
 }
 
 export interface CreateCustomBlueprintRequest {
@@ -1035,6 +1043,13 @@ export interface CreateCustomBlueprintRequest {
   command?: string
   rail?: boolean
   source?: string
+  remote?: {
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }
 }
 
 export function fetchCustomBlueprints(): Promise<ListResponse<CustomBlueprint>> {
@@ -1369,6 +1384,25 @@ export interface CliAgentsInfo {
   /** Argv table for list-models probes — not live model ids. */
   list_models?: Record<string, string[]>
   list_sessions?: Record<string, unknown>
+  /** Issue #180: per-CLI remote/headless capability (serve / ssh / api / none). */
+  remote?: Record<string, {
+    capability?: string
+    how?: string
+    serve_cmd?: string[] | null
+    attach_flag?: string | null
+    default_port?: number | null
+    default_hostname?: string | null
+    auth?: string | null
+    notes?: string
+  }>
+  remote_boxes?: Array<{
+    id?: string
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }>
 }
 
 export function fetchCliAgents(): Promise<CliAgentsInfo> {
