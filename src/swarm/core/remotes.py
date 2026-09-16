@@ -1310,7 +1310,12 @@ def persist_agent_team(
     """Persist which remotes sit in the handoff Team (``agent_team.members``)."""
     resolved: list[str] = []
     for item in members:
-        rid = _require_id(str(item))
+        # Validate, but store the *instance* id. _require_id collapses
+        # "trueforge-2" to its kind "trueforge", which silently dropped named
+        # instances from the Team (#452). load_placed_members already reads with
+        # normalize_instance_id, so the writer must agree with the reader.
+        _require_id(str(item))
+        rid = normalize_instance_id(str(item))
         if rid not in resolved:
             resolved.append(rid)
     cfg, path = load_raw_config(config_path)
@@ -1330,7 +1335,9 @@ def persist_agent_team(
 
 
 def place_team_member(remote_id: str, *, config_path: str | Path | None = None) -> tuple[list[str], Path]:
-    rid = _require_id(remote_id)
+    # Keep the instance id, not the kind — see persist_agent_team (#452).
+    _require_id(remote_id)
+    rid = normalize_instance_id(remote_id)
     cfg, path = load_raw_config(config_path)
     current = load_placed_members(cfg)
     if rid not in current:
@@ -1339,7 +1346,10 @@ def place_team_member(remote_id: str, *, config_path: str | Path | None = None) 
 
 
 def unplace_team_member(remote_id: str, *, config_path: str | Path | None = None) -> tuple[list[str], Path]:
-    rid = _require_id(remote_id)
+    # Match the instance id that place_team_member stored (#452), otherwise
+    # unplacing one instance would drop the kind and every sibling with it.
+    _require_id(remote_id)
+    rid = normalize_instance_id(remote_id)
     cfg, path = load_raw_config(config_path)
     current = [m for m in load_placed_members(cfg) if m != rid]
     return persist_agent_team(current, config_path=path)
