@@ -12,6 +12,15 @@ PR_OK = {
     "python-pytest.yml",
     "tsc-ratchet.yml",
     "docker-io-fly-deploy.yml",
+    # #238 requires these two own-diff workflows to keep firing on
+    # pull_request, and this test previously demanded the opposite for them —
+    # so one of the two always failed. They are safe to list here: their only
+    # job is quarantined (`if: false` citing #250/#238), so a run costs no
+    # minutes, and both are path-filtered to a narrow file set. Keeping them
+    # listed is what makes this file agree with
+    # tests/unit/test_issue238_ci_honesty.py.
+    "issue136-kind-chat-e2e.yml",
+    "req79-survival.yml",
 }
 
 
