@@ -1,10 +1,12 @@
-"""Per-agent Routines API (REQ-80 / #432, REQ-884 / #285).
+"""Per-agent Routines API (REQ-80 / #432, REQ-884 / #285, #222).
 
 GET/POST ``/v1/agents/<id>/routines/``
 GET/PATCH/DELETE ``/v1/agents/<id>/routines/<routine_id>/``
 POST ``/v1/agents/<id>/routines/<routine_id>/test-run/``
+POST ``/v1/agents/<id>/routines/<routine_id>/run-now/``
 POST ``/v1/routines/github-merge/`` — inbound fake GitHub PR-merged event.
 POST ``/v1/routines/events/github/`` — signed GitHub webhook ingest.
+POST ``/v1/routines/mailbox-message/`` — inbound mailbox event for matching routines.
 """
 
 from __future__ import annotations
@@ -24,10 +26,12 @@ from swarm.core.routines import (
     delete_routine,
     deliver_github_event,
     deliver_github_pr_merged,
+    deliver_mailbox_message,
     get_routine,
     github_webhook_secret,
     list_all_routines,
     list_routines,
+    run_now,
     test_run,
     trigger_summary,
     update_routine,
@@ -164,6 +168,28 @@ class AgentRoutineTestRunAPIView(APIView):
         return Response(_routine_payload(agent, routine), status=status.HTTP_200_OK)
 
 
+class AgentRoutineRunNowAPIView(APIView):
+    """POST /v1/agents/<agent_id>/routines/<routine_id>/run-now/"""
+
+    permission_classes = ROUTINES_API_PERMISSIONS
+
+    @extend_schema(
+        operation_id="v1_agent_routine_run_now",
+        summary="Run a routine now without waiting for its trigger (#222)",
+        responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, agent_id: str, routine_id: str, *_args, **_kwargs):
+        agent = normalize_agent_id(agent_id)
+        try:
+            routine = run_now(agent, routine_id)
+        except KeyError:
+            return _error("Routine not found.", status.HTTP_404_NOT_FOUND)
+        except OSError:
+            logger.exception("Failed to run-now routine %s for %s", routine_id, agent)
+            return _error("Could not run routine.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(_routine_payload(agent, routine), status=status.HTTP_200_OK)
+
+
 class GithubRoutineMergeAPIView(APIView):
     """POST /v1/routines/github-merge/ — fake or connector-delivered merge event."""
 
@@ -264,6 +290,41 @@ class AllRoutinesAPIView(APIView):
             {
                 "object": "routine_list",
                 "routines": [_routine_payload(r.get("agent_id", ""), r) for r in rows],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class MailboxRoutineMessageAPIView(APIView):
+    """POST /v1/routines/mailbox-message/ — deliver a mailbox event to matching routines."""
+
+    permission_classes = ROUTINES_API_PERMISSIONS
+
+    @extend_schema(
+        operation_id="v1_routines_mailbox_message",
+        summary="Deliver a mailbox message event to matching Active routines (#222)",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, *_args, **_kwargs):
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            fired = deliver_mailbox_message(body)
+        except ValueError as exc:
+            return _error(str(exc), status.HTTP_400_BAD_REQUEST)
+        except OSError:
+            logger.exception("Failed to deliver mailbox routine event")
+            return _error("Could not deliver mailbox event.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(
+            {
+                "object": "routine_mailbox_delivery",
+                "fired": [
+                    {
+                        "agent_id": row["agent_id"],
+                        "routine": _routine_payload(row["agent_id"], row["routine"]),
+                    }
+                    for row in fired
+                ],
+                "count": len(fired),
             },
             status=status.HTTP_200_OK,
         )

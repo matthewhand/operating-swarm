@@ -4,15 +4,27 @@ on:
   pull_request:
     paths:
       - "src/swarm/core/routines.py"
+      - "src/swarm/core/schedule_triggers.py"
+      - "src/swarm/core/schedule_engine.py"
+      - "src/swarm/core/test_schedules.py"
       - "src/swarm/views/routines_api.py"
+      - "src/swarm/views/test_schedules_api.py"
       - "src/swarm/urls.py"
       - "tests/core/test_routines.py"
+      - "tests/core/test_routines_github_events.py"
+      - "tests/core/test_schedule_triggers.py"
+      - "tests/core/test_schedule_engine.py"
+      - "tests/core/test_test_schedules.py"
       - "tests/views/test_routines_api.py"
+      - "tests/views/test_test_schedules_api.py"
       - "tests/unit/test_req80_routines_chrome.py"
+      - "tests/unit/test_req222_test_schedule_chrome.py"
       - "webui/frontend/src/lib/routines.ts"
+      - "webui/frontend/src/lib/testSchedules.ts"
       - "webui/frontend/src/lib/__tests__/routines.test.ts"
       - "webui/frontend/src/components/ComputerControlStub.tsx"
       - "webui/frontend/src/components/ComputerRoutinesPane.tsx"
+      - "webui/frontend/src/components/TestSchedulePane.tsx"
       - "webui/frontend/src/components/__tests__/ComputerControlStub.test.tsx"
       - "webui/frontend/src/components/__tests__/OverlaysKeepChatMounted.test.tsx"
       - "webui/frontend/src/pages/ChatPage.tsx"
@@ -23,15 +35,27 @@ on:
     branches: [main]
     paths:
       - "src/swarm/core/routines.py"
+      - "src/swarm/core/schedule_triggers.py"
+      - "src/swarm/core/schedule_engine.py"
+      - "src/swarm/core/test_schedules.py"
       - "src/swarm/views/routines_api.py"
+      - "src/swarm/views/test_schedules_api.py"
       - "src/swarm/urls.py"
       - "tests/core/test_routines.py"
+      - "tests/core/test_routines_github_events.py"
+      - "tests/core/test_schedule_triggers.py"
+      - "tests/core/test_schedule_engine.py"
+      - "tests/core/test_test_schedules.py"
       - "tests/views/test_routines_api.py"
+      - "tests/views/test_test_schedules_api.py"
       - "tests/unit/test_req80_routines_chrome.py"
+      - "tests/unit/test_req222_test_schedule_chrome.py"
       - "webui/frontend/src/lib/routines.ts"
+      - "webui/frontend/src/lib/testSchedules.ts"
       - "webui/frontend/src/lib/__tests__/routines.test.ts"
       - "webui/frontend/src/components/ComputerControlStub.tsx"
       - "webui/frontend/src/components/ComputerRoutinesPane.tsx"
+      - "webui/frontend/src/components/TestSchedulePane.tsx"
       - "webui/frontend/src/components/__tests__/ComputerControlStub.test.tsx"
       - "webui/frontend/src/components/__tests__/OverlaysKeepChatMounted.test.tsx"
       - "webui/frontend/src/pages/ChatPage.tsx"
@@ -59,8 +83,14 @@ jobs:
         run: |
           uv run pytest \
             tests/core/test_routines.py \
+            tests/core/test_routines_github_events.py \
+            tests/core/test_schedule_triggers.py \
+            tests/core/test_schedule_engine.py \
+            tests/core/test_test_schedules.py \
             tests/views/test_routines_api.py \
-            tests/unit/test_req80_routines_chrome.py
+            tests/views/test_test_schedules_api.py \
+            tests/unit/test_req80_routines_chrome.py \
+            tests/unit/test_req222_test_schedule_chrome.py
         env:
           DJANGO_ALLOW_ASYNC_UNSAFE: "true"
 

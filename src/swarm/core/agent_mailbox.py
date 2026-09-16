@@ -497,6 +497,7 @@ class MailboxContext:
         }
         if not delivered:
             result["warning"] = "delivery_skipped_no_user_key"
+        self._maybe_fire_mailbox_routines(target, body)
         return result
 
     def _deliver(self, target_id: str, content: str) -> bool:
@@ -538,6 +539,22 @@ class MailboxContext:
             base_dir=base,
         )
         return path is not None
+
+    def _maybe_fire_mailbox_routines(self, target_id: str, content: str) -> None:
+        """Best-effort: fire Active mailbox_message routines. Never raises."""
+        try:
+            from swarm.core.routines import deliver_mailbox_message
+
+            deliver_mailbox_message(
+                {
+                    "sender": self.caller_id,
+                    "content": content,
+                    "subject": "",
+                    "target_id": target_id,
+                }
+            )
+        except Exception:
+            logger.exception("mailbox routine delivery failed")
 
     def list_agents_tool(self, kind: str = V1_KIND) -> dict[str, Any]:
         return self.list_peers(kind=kind)

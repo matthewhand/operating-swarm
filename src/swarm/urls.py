@@ -137,10 +137,18 @@ from swarm.views.mailbox_acl_api import (
 from swarm.views.routines_api import (
     AgentRoutineDetailAPIView,
     AgentRoutinesAPIView,
+    AgentRoutineRunNowAPIView,
     AgentRoutineTestRunAPIView,
     AllRoutinesAPIView,
     GithubRoutineEventsAPIView,
     GithubRoutineMergeAPIView,
+    MailboxRoutineMessageAPIView,
+)
+from swarm.views.test_schedules_api import (
+    TestScheduleDetailAPIView,
+    TestScheduleRunNowAPIView,
+    TestSchedulesAPIView,
+    TestScheduleStatusAPIView,
 )
 from swarm.views.cli_runs_api import CliRunStatusAPIView, CliRunTerminateAPIView
 from swarm.views.cli_sessions_api import CliSessionListAPIView, CliSessionSelectAPIView
@@ -494,6 +502,16 @@ urlpatterns = [
         AgentRoutineTestRunAPIView.as_view(),
         name="agent-routine-test-run-api",
     ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/run-now",
+        AgentRoutineRunNowAPIView.as_view(),
+        name="agent-routine-run-now-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/run-now/",
+        AgentRoutineRunNowAPIView.as_view(),
+        name="agent-routine-run-now-api",
+    ),
     path("v1/routines", AllRoutinesAPIView.as_view(), name="routines-list-all-no-slash"),
     path("v1/routines/", AllRoutinesAPIView.as_view(), name="routines-list-all"),
     path("v1/routines/github-merge", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api-no-slash"),
@@ -507,6 +525,40 @@ urlpatterns = [
         "v1/routines/events/github/",
         csrf_exempt(GithubRoutineEventsAPIView.as_view()),
         name="routines-github-events-api",
+    ),
+    path(
+        "v1/routines/mailbox-message",
+        MailboxRoutineMessageAPIView.as_view(),
+        name="routines-mailbox-message-api-no-slash",
+    ),
+    path(
+        "v1/routines/mailbox-message/",
+        MailboxRoutineMessageAPIView.as_view(),
+        name="routines-mailbox-message-api",
+    ),
+    path("v1/test-schedules/status", TestScheduleStatusAPIView.as_view(), name="test-schedules-status-no-slash"),
+    path("v1/test-schedules/status/", TestScheduleStatusAPIView.as_view(), name="test-schedules-status"),
+    path("v1/test-schedules", TestSchedulesAPIView.as_view(), name="test-schedules-api-no-slash"),
+    path("v1/test-schedules/", TestSchedulesAPIView.as_view(), name="test-schedules-api"),
+    path(
+        "v1/test-schedules/<str:schedule_id>/run-now",
+        TestScheduleRunNowAPIView.as_view(),
+        name="test-schedule-run-now-api-no-slash",
+    ),
+    path(
+        "v1/test-schedules/<str:schedule_id>/run-now/",
+        TestScheduleRunNowAPIView.as_view(),
+        name="test-schedule-run-now-api",
+    ),
+    path(
+        "v1/test-schedules/<str:schedule_id>",
+        TestScheduleDetailAPIView.as_view(),
+        name="test-schedule-detail-api-no-slash",
+    ),
+    path(
+        "v1/test-schedules/<str:schedule_id>/",
+        TestScheduleDetailAPIView.as_view(),
+        name="test-schedule-detail-api",
     ),
     path(
         "v1/agents/<str:agent_id>/avatar/generate",

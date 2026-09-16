@@ -133,12 +133,12 @@ def test_github_shaped_payload_and_actor_filter(tmp_path, monkeypatch):
     assert only_me["id"] not in ids
 
 
-def test_rejects_non_github_trigger_and_bad_repo(tmp_path, monkeypatch):
+def test_rejects_unknown_trigger_and_bad_repo(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     try:
-        store.create_routine("codey", {"trigger": {"kind": "cron"}})
+        store.create_routine("codey", {"trigger": {"kind": "file_watch"}})
     except ValueError as exc:
-        assert "GitHub" in str(exc)
+        assert "kind" in str(exc).lower() or "Supported" in str(exc)
     else:
         raise AssertionError("expected ValueError")
     try:
@@ -147,6 +147,98 @@ def test_rejects_non_github_trigger_and_bad_repo(tmp_path, monkeypatch):
         assert "owner/repo" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_interval_run_now_and_tick(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    _isolate(tmp_path, monkeypatch)
+    created = store.create_routine(
+        "codey",
+        {
+            "name": "Hourly",
+            "instruction": "Recap the hour.",
+            "trigger": {"kind": "interval", "seconds": 60},
+        },
+    )
+    assert created["trigger"]["kind"] == "interval"
+    assert store.trigger_summary(created["trigger"]) == "Every 1 min…"
+    ran = store.run_now("codey", created["id"])
+    assert ran["history"][0]["source"] == "run_now"
+    assert ran["history"][0]["duration_ms"] >= 0
+
+    now = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    row = store.get_routine("codey", created["id"])
+    row["history"] = []
+    row["next_run"] = (now - timedelta(seconds=1)).isoformat()
+    store._persist_agent("codey", [row])
+    fired = store.tick_due_routines(now)
+    assert fired
+    assert store.get_routine("codey", created["id"])["history"][0]["source"] == "schedule"
+
+
+def test_mailbox_message_delivery(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    matching = store.create_routine(
+        "codey",
+        {
+            "name": "Prove",
+            "instruction": "Handle the mailbox note.",
+            "trigger": {"kind": "mailbox_message", "sender": "support", "pattern": "prove"},
+        },
+    )
+    store.create_routine(
+        "codey",
+        {
+            "name": "Other",
+            "instruction": "Ignore.",
+            "trigger": {"kind": "mailbox_message", "sender": "support", "pattern": "unrelated"},
+        },
+    )
+    fired = store.deliver_mailbox_message(
+        {"sender": "support", "content": "please prove the remote health"}
+    )
+    ids = {row["routine"]["id"] for row in fired}
+    assert matching["id"] in ids
+    assert len(ids) == 1
+    assert store.get_routine("codey", matching["id"])["history"][0]["source"] == "mailbox_message"
+
+
+def test_schema_v2_reads_v1_file(tmp_path, monkeypatch):
+    import json
+
+    _isolate(tmp_path, monkeypatch)
+    path = tmp_path / "agent_routines.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "agents": {
+                    "codey": [
+                        {
+                            "id": "legacy",
+                            "name": "Legacy",
+                            "instruction": "Old recap.",
+                            "active": True,
+                            "trigger": {
+                                "kind": "github_pr_merged",
+                                "owner_repo": "owner/repo",
+                                "event": "merged",
+                                "actor": "anyone",
+                            },
+                            "history": [],
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    store.reset_routines_cache()
+    row = store.get_routine("codey", "legacy")
+    assert row is not None
+    assert row["trigger"]["kind"] == "github_pr_merged"
+    assert row["name"] == "Legacy"
 
 
 def test_rejects_secret_looking_actor(tmp_path, monkeypatch):

@@ -1,18 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, GitMerge, Plus } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Clock, GitMerge, Mail, Plus, Timer } from 'lucide-react'
 import { Button, Input, Select, Textarea } from './DaisyUI'
 import {
   createRoutine,
   deleteRoutine,
+  emptyTrigger,
   fetchRoutines,
+  formatDurationMs,
   formatRoutineHistoryTime,
+  GITHUB_EVENT_TYPES,
+  historySucceeded,
   ROUTINE_ACTOR_ANYONE,
   ROUTINE_EVENT_MERGED,
+  ROUTINE_TRIGGER_CRON,
+  ROUTINE_TRIGGER_GITHUB_EVENT,
   ROUTINE_TRIGGER_GITHUB_PR_MERGED,
+  ROUTINE_TRIGGER_INTERVAL,
+  ROUTINE_TRIGGER_MAILBOX_MESSAGE,
+  ROUTINE_TRIGGER_ONE_SHOT,
+  runNowRoutine,
   testRunRoutine,
   triggerSummary,
   updateRoutine,
   type Routine,
+  type RoutineTrigger,
+  type RoutineTriggerKind,
 } from '../lib/routines'
 
 export interface ComputerRoutinesPaneProps {
@@ -21,15 +33,30 @@ export interface ComputerRoutinesPaneProps {
   /** True only when a real computer-control session exists. Tests stay false. */
   hasScreenSession?: boolean
   nowMs?: number
+  showThumbnail?: boolean
 }
 
 type PaneView = 'list' | 'editor'
+
+function triggerIcon(kind: string | undefined) {
+  if (kind === ROUTINE_TRIGGER_MAILBOX_MESSAGE) return Mail
+  if (kind === ROUTINE_TRIGGER_INTERVAL || kind === ROUTINE_TRIGGER_CRON || kind === ROUTINE_TRIGGER_ONE_SHOT) {
+    return Timer
+  }
+  return GitMerge
+}
+
+function ownerRepoOf(trigger: RoutineTrigger): string {
+  if ('owner_repo' in trigger) return trigger.owner_repo || ''
+  return ''
+}
 
 export function ComputerRoutinesPane({
   agentId,
   agentName,
   hasScreenSession = false,
   nowMs,
+  showThumbnail = true,
 }: ComputerRoutinesPaneProps) {
   const [view, setView] = useState<PaneView>('list')
   const [routines, setRoutines] = useState<Routine[]>([])
@@ -53,7 +80,6 @@ export function ComputerRoutinesPane({
 
   useEffect(() => {
     void load()
-    // Reload when the selected agent changes; stay on the list.
     setView('list')
     setEditing(null)
     setConfirmDelete(false)
@@ -100,6 +126,13 @@ export function ComputerRoutinesPane({
     }
   }
 
+  const onChangeKind = async (kind: RoutineTriggerKind) => {
+    if (!editing) return
+    const next = emptyTrigger(kind)
+    setEditing({ ...editing, trigger: next })
+    await onSaveField({ trigger: next })
+  }
+
   const onTestRun = async () => {
     if (!agentId || !editing || busy) return
     setBusy(true)
@@ -110,6 +143,21 @@ export function ComputerRoutinesPane({
       setRoutines((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Test run failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onRunNow = async () => {
+    if (!agentId || !editing || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await runNowRoutine(agentId, editing.id)
+      setEditing(updated)
+      setRoutines((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Run now failed.')
     } finally {
       setBusy(false)
     }
@@ -138,6 +186,8 @@ export function ComputerRoutinesPane({
     return rows
   }, [editing])
 
+  const trigger = editing?.trigger
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="computer-routines-pane">
       {error ? (
@@ -148,18 +198,18 @@ export function ComputerRoutinesPane({
 
       {view === 'list' ? (
         <>
-          <figure className="space-y-2" data-testid="agent-screen-thumbnail">
-            <div
-              className="flex aspect-video w-full items-center justify-center rounded-box border border-base-300 bg-base-200 text-sm text-base-content/60"
-              role="img"
-              aria-label={screenCaption}
-            >
-              {hasScreenSession
-                ? 'Last frame'
-                : 'No screen session'}
-            </div>
-            <figcaption className="text-sm text-base-content/70">{screenCaption}</figcaption>
-          </figure>
+          {showThumbnail ? (
+            <figure className="space-y-2" data-testid="agent-screen-thumbnail">
+              <div
+                className="flex aspect-video w-full items-center justify-center rounded-box border border-base-300 bg-base-200 text-sm text-base-content/60"
+                role="img"
+                aria-label={screenCaption}
+              >
+                {hasScreenSession ? 'Last frame' : 'No screen session'}
+              </div>
+              <figcaption className="text-sm text-base-content/70">{screenCaption}</figcaption>
+            </figure>
+          ) : null}
 
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-base font-semibold">Routines</h3>
@@ -178,27 +228,35 @@ export function ComputerRoutinesPane({
             <p className="text-sm text-base-content/60">No routines yet.</p>
           ) : (
             <ul className="menu w-full rounded-box bg-base-200 p-0">
-              {routines.map((routine) => (
-                <li key={routine.id}>
-                  <button
-                    type="button"
-                    className="flex items-start gap-3 text-left"
-                    onClick={() => openEditor(routine)}
-                  >
-                    <GitMerge className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0">
-                      <span className="block font-medium">{routine.name}</span>
-                      <span className="block text-xs text-base-content/60">
-                        {routine.when_to_run || triggerSummary(routine.trigger)}
+              {routines.map((routine) => {
+                const Icon = triggerIcon(routine.trigger?.kind)
+                return (
+                  <li key={routine.id}>
+                    <button
+                      type="button"
+                      className="flex items-start gap-3 text-left"
+                      onClick={() => openEditor(routine)}
+                    >
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0">
+                        <span className="block font-medium">
+                          {routine.name}
+                          {!routine.active ? (
+                            <span className="ml-2 text-xs font-normal text-base-content/50">Paused</span>
+                          ) : null}
+                        </span>
+                        <span className="block text-xs text-base-content/60">
+                          {routine.when_to_run || triggerSummary(routine.trigger)}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </>
-      ) : editing ? (
+      ) : editing && trigger ? (
         <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="routine-editor">
           <div className="flex items-center justify-between gap-2">
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => void backToList()}>
@@ -220,6 +278,9 @@ export function ComputerRoutinesPane({
                 onChange={(event) => void onSaveField({ active: event.target.checked })}
               />
             </label>
+            <Button type="button" size="sm" variant="ghost" onClick={() => void onRunNow()} disabled={busy}>
+              Run now
+            </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => void onTestRun()} disabled={busy}>
               Test run
             </Button>
@@ -249,49 +310,222 @@ export function ComputerRoutinesPane({
             <Select
               label="Trigger"
               size="sm"
-              value={ROUTINE_TRIGGER_GITHUB_PR_MERGED}
-              onChange={() => undefined}
+              value={trigger.kind}
+              onChange={(event) => void onChangeKind(event.target.value as RoutineTriggerKind)}
             >
               <option value={ROUTINE_TRIGGER_GITHUB_PR_MERGED}>When a PR merges</option>
+              <option value={ROUTINE_TRIGGER_GITHUB_EVENT}>GitHub event</option>
+              <option value={ROUTINE_TRIGGER_INTERVAL}>Interval</option>
+              <option value={ROUTINE_TRIGGER_CRON}>Cron</option>
+              <option value={ROUTINE_TRIGGER_ONE_SHOT}>One-shot</option>
+              <option value={ROUTINE_TRIGGER_MAILBOX_MESSAGE}>Mailbox message</option>
             </Select>
-            <Input
-              label="Repository"
-              size="sm"
-              placeholder="owner/repo"
-              value={editing.trigger.owner_repo}
-              onChange={(event) =>
-                setEditing({
-                  ...editing,
-                  trigger: { ...editing.trigger, owner_repo: event.target.value },
-                })
-              }
-              onBlur={(event) =>
-                void onSaveField({
-                  trigger: { ...editing.trigger, owner_repo: event.target.value },
-                })
-              }
-            />
-            <Input label="Event" size="sm" value="Merged" readOnly />
-            <Input
-              label="Actor"
-              size="sm"
-              value={editing.trigger.actor || ROUTINE_ACTOR_ANYONE}
-              onChange={(event) =>
-                setEditing({
-                  ...editing,
-                  trigger: { ...editing.trigger, actor: event.target.value || ROUTINE_ACTOR_ANYONE },
-                })
-              }
-              onBlur={(event) =>
-                void onSaveField({
-                  trigger: {
-                    ...editing.trigger,
-                    actor: event.target.value || ROUTINE_ACTOR_ANYONE,
-                    event: ROUTINE_EVENT_MERGED,
-                  },
-                })
-              }
-            />
+
+            {trigger.kind === ROUTINE_TRIGGER_GITHUB_PR_MERGED ? (
+              <>
+                <Input
+                  label="Repository"
+                  size="sm"
+                  placeholder="owner/repo"
+                  value={ownerRepoOf(trigger)}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      trigger: { ...trigger, owner_repo: event.target.value },
+                    })
+                  }
+                  onBlur={(event) =>
+                    void onSaveField({
+                      trigger: { ...trigger, owner_repo: event.target.value },
+                    })
+                  }
+                />
+                <Input label="Event" size="sm" value="Merged" readOnly />
+                <Input
+                  label="Actor"
+                  size="sm"
+                  value={trigger.actor || ROUTINE_ACTOR_ANYONE}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      trigger: { ...trigger, actor: event.target.value || ROUTINE_ACTOR_ANYONE },
+                    })
+                  }
+                  onBlur={(event) =>
+                    void onSaveField({
+                      trigger: {
+                        ...trigger,
+                        actor: event.target.value || ROUTINE_ACTOR_ANYONE,
+                        event: ROUTINE_EVENT_MERGED,
+                      },
+                    })
+                  }
+                />
+              </>
+            ) : null}
+
+            {trigger.kind === ROUTINE_TRIGGER_GITHUB_EVENT ? (
+              <>
+                <Input
+                  label="Repository"
+                  size="sm"
+                  placeholder="owner/repo"
+                  value={trigger.owner_repo}
+                  onChange={(event) =>
+                    setEditing({ ...editing, trigger: { ...trigger, owner_repo: event.target.value } })
+                  }
+                  onBlur={(event) =>
+                    void onSaveField({ trigger: { ...trigger, owner_repo: event.target.value } })
+                  }
+                />
+                <Select
+                  label="Event type"
+                  size="sm"
+                  value={trigger.event_type}
+                  onChange={(event) =>
+                    void onSaveField({ trigger: { ...trigger, event_type: event.target.value } })
+                  }
+                >
+                  {GITHUB_EVENT_TYPES.map((eventType) => (
+                    <option key={eventType} value={eventType}>
+                      {eventType}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  label="Labels"
+                  size="sm"
+                  placeholder="bug, triage"
+                  value={(trigger.filters?.labels || []).join(', ')}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      trigger: {
+                        ...trigger,
+                        filters: {
+                          ...trigger.filters,
+                          labels: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
+                        },
+                      },
+                    })
+                  }
+                  onBlur={(event) => {
+                    const labels = event.target.value
+                      .split(',')
+                      .map((item) => item.trim())
+                      .filter(Boolean)
+                    void onSaveField({
+                      trigger: { ...trigger, filters: { ...trigger.filters, labels } },
+                    })
+                  }}
+                />
+                <Input
+                  label="Branch"
+                  size="sm"
+                  placeholder="main"
+                  value={trigger.filters?.branch || ''}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      trigger: { ...trigger, filters: { ...trigger.filters, branch: event.target.value } },
+                    })
+                  }
+                  onBlur={(event) =>
+                    void onSaveField({
+                      trigger: { ...trigger, filters: { ...trigger.filters, branch: event.target.value } },
+                    })
+                  }
+                />
+              </>
+            ) : null}
+
+            {trigger.kind === ROUTINE_TRIGGER_INTERVAL ? (
+              <Input
+                label="Every (seconds)"
+                size="sm"
+                type="number"
+                min={1}
+                value={String(trigger.seconds || 3600)}
+                onChange={(event) =>
+                  setEditing({
+                    ...editing,
+                    trigger: { ...trigger, seconds: Number(event.target.value) || 0 },
+                  })
+                }
+                onBlur={(event) =>
+                  void onSaveField({
+                    trigger: { kind: ROUTINE_TRIGGER_INTERVAL, seconds: Number(event.target.value) || 3600 },
+                  })
+                }
+              />
+            ) : null}
+
+            {trigger.kind === ROUTINE_TRIGGER_CRON ? (
+              <Input
+                label="Cron expression"
+                size="sm"
+                placeholder="0 3 * * *"
+                value={trigger.expression}
+                onChange={(event) =>
+                  setEditing({ ...editing, trigger: { ...trigger, expression: event.target.value } })
+                }
+                onBlur={(event) =>
+                  void onSaveField({
+                    trigger: { kind: ROUTINE_TRIGGER_CRON, expression: event.target.value },
+                  })
+                }
+              />
+            ) : null}
+
+            {trigger.kind === ROUTINE_TRIGGER_ONE_SHOT ? (
+              <Input
+                label="Run at"
+                size="sm"
+                placeholder="2026-09-16T03:00:00Z"
+                value={trigger.run_at}
+                onChange={(event) =>
+                  setEditing({ ...editing, trigger: { ...trigger, run_at: event.target.value } })
+                }
+                onBlur={(event) =>
+                  void onSaveField({
+                    trigger: { kind: ROUTINE_TRIGGER_ONE_SHOT, run_at: event.target.value },
+                  })
+                }
+              />
+            ) : null}
+
+            {trigger.kind === ROUTINE_TRIGGER_MAILBOX_MESSAGE ? (
+              <>
+                <Input
+                  label="Sender"
+                  size="sm"
+                  placeholder="anyone"
+                  value={trigger.sender}
+                  onChange={(event) =>
+                    setEditing({ ...editing, trigger: { ...trigger, sender: event.target.value } })
+                  }
+                  onBlur={(event) =>
+                    void onSaveField({
+                      trigger: { ...trigger, sender: event.target.value },
+                    })
+                  }
+                />
+                <Input
+                  label="Pattern"
+                  size="sm"
+                  placeholder="substring match"
+                  value={trigger.pattern}
+                  onChange={(event) =>
+                    setEditing({ ...editing, trigger: { ...trigger, pattern: event.target.value } })
+                  }
+                  onBlur={(event) =>
+                    void onSaveField({
+                      trigger: { ...trigger, pattern: event.target.value },
+                    })
+                  }
+                />
+              </>
+            ) : null}
           </fieldset>
 
           <section aria-label="Routine history" className="space-y-2">
@@ -300,15 +534,48 @@ export function ComputerRoutinesPane({
               <p className="text-sm text-base-content/60">No successful runs yet.</p>
             ) : (
               <ul className="space-y-2">
-                {history.map((row) => (
-                  <li key={row.id} className="flex items-center gap-2 text-sm">
-                    <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />
-                    <span>{formatRoutineHistoryTime(row.ran_at, nowMs)}</span>
-                  </li>
-                ))}
+                {history.map((row) => {
+                  const ok = historySucceeded(row)
+                  return (
+                    <li key={row.id} className="flex items-start gap-2 text-sm">
+                      {ok ? (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                      ) : (
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-error" aria-hidden="true" />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block">
+                          {formatRoutineHistoryTime(row.ran_at, nowMs)}
+                          {row.duration_ms != null ? (
+                            <span className="ml-2 text-xs text-base-content/60">
+                              {formatDurationMs(row.duration_ms)}
+                            </span>
+                          ) : null}
+                          {row.token_cost ? (
+                            <span className="ml-2 text-xs text-base-content/60">{row.token_cost} tok</span>
+                          ) : null}
+                        </span>
+                        {row.error || row.summary ? (
+                          <span className="block text-xs text-base-content/60">{row.error || row.summary}</span>
+                        ) : null}
+                        {row.artifact?.url ? (
+                          <a className="link text-xs" href={row.artifact.url}>
+                            {row.artifact.label || row.artifact.kind || 'Artifact'}
+                          </a>
+                        ) : null}
+                      </span>
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>
+          {editing.next_run ? (
+            <p className="flex items-center gap-1 text-xs text-base-content/60">
+              <Clock className="h-3 w-3" aria-hidden="true" />
+              Next run {editing.next_run}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
