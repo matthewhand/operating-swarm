@@ -756,7 +756,8 @@ html:not([data-theme="light"]) .os-composer,
   50% { transform: translate(0.8px, -0.8px) scale(1.15); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-robot-avatar[data-eye-state="active"] .os-robot-pupils {
+  .os-robot-avatar[data-eye-state="active"] .os-robot-pupils,
+  [data-avatar-theme][data-eye-state="active"] .os-robot-pupils {
     animation: none;
   }
 }
