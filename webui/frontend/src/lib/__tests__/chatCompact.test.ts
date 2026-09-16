@@ -68,6 +68,16 @@ describe('contextTextsForMeter', () => {
     expect(texts).toEqual(['short'])
   })
 
+  it('drops unticked summaries from the meter (#214 / #215)', () => {
+    const messages = [
+      bubble('1', 'user', 'aaaaaaaa'),
+      bubble('2', 'assistant', 'bbbbbbbb'),
+      bubble('3', 'user', 'later'),
+    ]
+    const archived = { ...summary(1, 0, 1, 'short'), include_in_context: false }
+    expect(contextTextsForMeter(messages, [archived])).toEqual(['later'])
+  })
+
   it('excludes status/info chrome from the meter (REQ-70)', () => {
     const messages: ChatBubble[] = [
       { key: 's', role: 'status', text: 'CLI: antigravity → grok', streaming: false },

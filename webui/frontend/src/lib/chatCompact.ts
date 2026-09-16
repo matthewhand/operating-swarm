@@ -100,13 +100,39 @@ export function buildDisplayItems(
   return items
 }
 
-/** Texts the token meter should count (summaries + uncovered raw). */
+/** #214/#215: ids of excluded summaries plus nested descendants. */
+export function excludedSummaryIds(summaries: ConversationSummary[]): Set<number> {
+  const byId = summariesById(summaries)
+  const excluded = new Set<number>()
+  const rowExcluded = (row: ConversationSummary): boolean => {
+    const seen = new Set<number>()
+    let current: ConversationSummary | undefined = row
+    while (current) {
+      if (excluded.has(current.id) || current.include_in_context === false) return true
+      if (seen.has(current.id)) return false
+      seen.add(current.id)
+      const parentId = current.parent_summary_id
+      current = parentId != null ? byId[parentId] : undefined
+    }
+    return false
+  }
+  for (const row of summaries) {
+    if (rowExcluded(row)) excluded.add(row.id)
+  }
+  return excluded
+}
+
+/** Texts the token meter should count (included summaries + uncovered raw). */
 export function contextTextsForMeter(
   messages: ChatBubble[],
   summaries: ConversationSummary[],
 ): string[] {
+  const excluded = excludedSummaryIds(summaries)
   return buildDisplayItems(messages, summaries)
-    .filter((item) => item.kind === 'summary' || (item.message.role !== 'status' && item.message.role !== 'system'))
+    .filter((item) => {
+      if (item.kind === 'summary') return !excluded.has(item.summary.id)
+      return item.message.role !== 'status' && item.message.role !== 'system'
+    })
     .map((item) => (item.kind === 'summary' ? item.summary.body : item.message.text))
 }
 

@@ -70,6 +70,8 @@ import { defaultAvatarPrompt, isImageGenConfigured, parseImageGenSettings } from
 import AgentAvatar from './AgentAvatar'
 import { openSettingsSheet } from './SettingsSheet'
 import MailboxAclEditor from './MailboxAclEditor'
+import { ContextUsageDetail } from './ContextUsageDetail'
+import { peekConversationIdForAgent } from '../lib/agentChat'
 
 /** Window event so the rail hover-edit and tests can open the agent editor. */
 export const OPEN_AGENT_EDITOR_EVENT = 'swarm:open-agent-editor'
@@ -996,6 +998,13 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             void saveAgentSettings(id, { folder: next.folder.trim() })
           }}
         />
+
+        {id ? (
+          <ContextUsageDetail
+            agentId={id}
+            conversationId={peekConversationIdForAgent(id)}
+          />
+        ) : null}
 
         <div
           className="tooltip tooltip-bottom w-full text-left"

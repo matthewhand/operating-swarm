@@ -103,6 +103,7 @@ from swarm.views.chat_persist_views import (
     chat_attachment_upload,
     chat_compact,
     chat_context_start,
+    chat_context_usage,
     chat_raw_context,
     chat_retention_action,
     chat_summary_toggle_context,
@@ -644,6 +645,8 @@ urlpatterns = [
     path("chat/thread/", chat_thread, name="chat_thread"),
     # #224: read-only "what the model sees" payload for the generations panel.
     path("chat/raw-context/", chat_raw_context, name="chat_raw_context"),
+    # #215: per-seat context-window usage (messages + summaries + overhead).
+    path("chat/context-usage/", chat_context_usage, name="chat_context_usage"),
     # REQ-38: composer file upload (sqlite metadata + local bytes).
     path("v1/chat/attachments", chat_attachment_upload, name="chat-attachments-no-slash"),
     path("v1/chat/attachments/", chat_attachment_upload, name="chat-attachments"),

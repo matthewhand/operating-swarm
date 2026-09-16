@@ -206,6 +206,35 @@ describe('parseChatWsMessage', () => {
     ).toEqual({ kind: 'tool_approval', id: 't2', name: 'wipe', agentId: 'codey' })
   })
 
+  it('parses a context_usage frame (#215)', () => {
+    expect(
+      parseChatWsMessage(
+        JSON.stringify({
+          type: 'context_usage',
+          conversation_id: 'c1',
+          agent_id: 'jeeves',
+          tokens: 12300,
+          window: null,
+          pct: null,
+          estimate: true,
+          breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+        }),
+      ),
+    ).toEqual({
+      kind: 'context_usage',
+      usage: {
+        type: 'context_usage',
+        conversation_id: 'c1',
+        agent_id: 'jeeves',
+        tokens: 12300,
+        window: null,
+        pct: null,
+        estimate: true,
+        breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+      },
+    })
+  })
+
   it('parses a suggestions frame (REQ-85)', () => {
     expect(
       parseChatWsMessage(

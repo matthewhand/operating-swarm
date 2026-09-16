@@ -5,6 +5,7 @@ import {
   isConversationSummary,
   type ConversationSummary,
 } from './chatCompact'
+import { parseContextUsage, type ContextUsage } from './contextUsage'
 import { newConversationId } from './chatWs'
 import { asTranscriptRole, isStatusRole, type ChatTranscriptRole } from './chatStatus'
 import { messagesFromThreadPayload } from './transcriptReconstruct'
@@ -180,6 +181,7 @@ export interface CompactResult {
   summary: ConversationSummary
   summaries: ConversationSummary[]
   raw_count?: number
+  usage?: ContextUsage | null
 }
 
 function parseThreadMessage(value: unknown): AgentThreadMessage | null {
@@ -348,6 +350,7 @@ export async function compactAgentThread(opts: {
     summary,
     summaries: summaries.length ? summaries : [summary],
     raw_count: data?.raw_count,
+    usage: parseContextUsage((data as { usage?: unknown })?.usage),
   }
 }
 
@@ -355,15 +358,15 @@ export async function compactAgentThread(opts: {
 export async function toggleSummaryInContext(opts: {
   summaryId: number
   includeInContext: boolean
-}): Promise<ConversationSummary> {
-  const data = await apiPost<{ summary: unknown }>('/chat/summary/toggle-context/', {
+}): Promise<{ summary: ConversationSummary; usage?: ContextUsage | null }> {
+  const data = await apiPost<{ summary: unknown; usage?: unknown }>('/chat/summary/toggle-context/', {
     summary_id: opts.summaryId,
     include_in_context: opts.includeInContext,
   })
   if (!isConversationSummary(data?.summary)) {
     throw new Error('Toggle returned no summary')
   }
-  return data.summary
+  return { summary: data.summary, usage: parseContextUsage(data?.usage) }
 }
 
 /** POST /chat/context-start/ — start chat context from a chosen message (REQ-121). */
