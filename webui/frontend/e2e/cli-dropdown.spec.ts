@@ -68,6 +68,7 @@ test('CLI-agent chat lists discovered CLIs and Manage CLI, not blueprints', asyn
   const menu = page.getByTestId('routing-menu-agent')
   await expect(menu.getByRole('menuitem', { name: 'grok' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Manage CLI' })).toBeVisible()
+  await expect(menu.getByTestId('manage-surface-divider')).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Codey' })).toHaveCount(0)
 })
 
@@ -81,7 +82,7 @@ test('blueprint-mode chat keeps Grok-Bot chrome without a Blueprint dropdown', a
   await expect(page.getByRole('combobox', { name: 'Blueprint' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'CLI' })).toHaveCount(0)
   await expect(page.getByTestId('navbar-routing-picker')).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: /Manage CLI/i })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: 'Manage CLI' })).toHaveCount(0)
 })
 
 test('running PATH/config CLI outside the catalog is listed and selected', async ({

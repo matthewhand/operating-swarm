@@ -6,6 +6,7 @@
  */
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -421,11 +422,12 @@ export function NavbarRoutingPicker({
     }
     return agentItems.map((row) => ({
       ...row,
-      hasChildren: seatKind === 'cli',
+      hasChildren: seatKind === 'cli' && row.id !== footerAction?.id,
     }))
   }, [
     agentItems,
     families,
+    footerAction?.id,
     open,
     previewAgent,
     previewModel,
@@ -477,7 +479,7 @@ export function NavbarRoutingPicker({
       event.preventDefault()
       const item = items[activeIndex]
       if (!item) return
-      if (item.kind === 'agent') {
+      if (item.kind === 'agent' && item.hasChildren) {
         setPreviewAgent(item.id)
         openSheetAt('model')
       } else if (item.kind === 'model') {
@@ -584,38 +586,49 @@ export function NavbarRoutingPicker({
         !(isModel && modelWarning) ? (
           <div className="os-routing-menu__empty">No options</div>
         ) : null}
-        {items.map((item, index) => (
-          <button
-            key={item.id}
-            type="button"
-            role="menuitem"
-            ref={(el) => {
-              if (!nested) itemRefs.current[index] = el
-            }}
-            data-testid={`routing-option-${dim}-${item.id}`}
-            className={`os-routing-option ${item.current ? 'os-routing-option--current' : ''}`}
-            aria-haspopup={item.hasChildren ? 'menu' : undefined}
-            data-active={index === activeIndex && !nested ? 'true' : 'false'}
-            onMouseEnter={() => {
-              setActiveIndex(index)
-              if (!narrow && item.hasChildren && isAgent) {
-                setPreviewAgent(item.id)
-              }
-              if (!narrow && item.hasChildren && isModel) {
-                const family = families.find((row) => row.base === item.id)
-                if (family) setPreviewModel(family.ids[0])
-              }
-            }}
-            onClick={() => activateItem(item.id, item.kind, !narrow)}
-          >
-            <span>{item.label}</span>
-            {item.hasChildren ? (
-              <span className="os-routing-option__more" aria-hidden="true">
-                ›
-              </span>
-            ) : null}
-          </button>
-        ))}
+        {items.map((item, index) => {
+          const isFooter = Boolean(isAgent && footerAction && item.id === footerAction.id)
+          return (
+            <Fragment key={item.id}>
+              {isFooter ? (
+                <div
+                  role="separator"
+                  className="my-1 border-t border-base-300"
+                  data-testid="manage-surface-divider"
+                />
+              ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                ref={(el) => {
+                  if (!nested) itemRefs.current[index] = el
+                }}
+                data-testid={`routing-option-${dim}-${item.id}`}
+                className={`os-routing-option ${item.current ? 'os-routing-option--current' : ''}`}
+                aria-haspopup={item.hasChildren ? 'menu' : undefined}
+                data-active={index === activeIndex && !nested ? 'true' : 'false'}
+                onMouseEnter={() => {
+                  setActiveIndex(index)
+                  if (!narrow && item.hasChildren && isAgent) {
+                    setPreviewAgent(item.id)
+                  }
+                  if (!narrow && item.hasChildren && isModel) {
+                    const family = families.find((row) => row.base === item.id)
+                    if (family) setPreviewModel(family.ids[0])
+                  }
+                }}
+                onClick={() => activateItem(item.id, item.kind, !narrow)}
+              >
+                <span>{item.label}</span>
+                {item.hasChildren ? (
+                  <span className="os-routing-option__more" aria-hidden="true">
+                    ›
+                  </span>
+                ) : null}
+              </button>
+            </Fragment>
+          )
+        })}
       </div>
     )
   }
