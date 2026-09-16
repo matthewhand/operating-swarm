@@ -1,5 +1,6 @@
 import { apiGet, apiPatch, apiPost } from './api'
 import { agentIdFromBlueprint } from './agentChat'
+import { parseVoiceBind, type AgentVoiceBind } from './agentVoiceBind'
 
 /** DaisyUI tooltip copy — keep in sync with Issue #393 / REQ-65. */
 export const NEW_CHAT_PER_TASK_LABEL = 'New chat per task'
@@ -22,7 +23,7 @@ export type AgentDropdownField = (typeof AGENT_DROPDOWN_FIELDS)[number]
 export type AgentDropdownChoice = Partial<Record<AgentDropdownField, string>>
 export type AgentDropdowns = Record<string, AgentDropdownChoice>
 
-export interface AgentSettings {
+export interface AgentSettings extends AgentVoiceBind {
   agent_id: string
   new_chat_per_task: boolean
   use_suggestions: boolean
@@ -32,12 +33,16 @@ export interface AgentSettings {
   active_sessions?: string[]
 }
 
+export type AgentSettingsPatch = Partial<
+  Pick<AgentSettings, 'new_chat_per_task' | 'use_suggestions' | 'folder'> & AgentVoiceBind
+>
+
 export interface OpenAgentEditorDetail {
   agentId: string
   agentName?: string
 }
 
-export interface AgentSettingsChangedDetail {
+export interface AgentSettingsChangedDetail extends Partial<AgentVoiceBind> {
   agentId: string
   new_chat_per_task?: boolean
   use_suggestions?: boolean
@@ -242,7 +247,7 @@ export function loadLocalUseSuggestions(agentId: string): boolean {
 
 function writeLocalSettings(
   agentId: string,
-  patch: { new_chat_per_task?: boolean; use_suggestions?: boolean },
+  patch: AgentSettingsPatch,
 ): void {
   const agent = agentIdFromBlueprint(agentId)
   try {
@@ -276,6 +281,7 @@ function asSettings(
   data: Partial<AgentSettings> | null | undefined,
   fallback: { new_chat_per_task: boolean; use_suggestions: boolean },
 ): AgentSettings {
+  const bind = parseVoiceBind(data)
   return {
     agent_id: typeof data?.agent_id === 'string' ? data.agent_id : agent,
     new_chat_per_task:
@@ -286,6 +292,7 @@ function asSettings(
     remote_session_id: data?.remote_session_id ?? null,
     folder: typeof data?.folder === 'string' && data.folder.trim() ? data.folder.trim() : null,
     active_sessions: Array.isArray(data?.active_sessions) ? data.active_sessions : [],
+    ...bind,
   }
 }
 
@@ -308,13 +315,14 @@ export async function fetchAgentSettings(agentId: string): Promise<AgentSettings
       new_chat_per_task: localNew,
       use_suggestions: localSuggest,
       active_sessions: [],
+      ...parseVoiceBind(readLocalSettings(agent)),
     }
   }
 }
 
 export async function saveAgentSettings(
   agentId: string,
-  patch: { new_chat_per_task?: boolean; use_suggestions?: boolean; folder?: string | null },
+  patch: AgentSettingsPatch,
 ): Promise<AgentSettings> {
   const agent = agentIdFromBlueprint(agentId)
   if (patch.new_chat_per_task !== undefined) {
@@ -323,6 +331,7 @@ export async function saveAgentSettings(
   if (patch.use_suggestions !== undefined) {
     saveLocalUseSuggestions(agent, patch.use_suggestions)
   }
+  writeLocalSettings(agent, patch)
   try {
     const data = await apiPatch<AgentSettings>(
       `/v1/agents/${encodeURIComponent(agent)}/settings/`,
@@ -338,6 +347,7 @@ export async function saveAgentSettings(
       new_chat_per_task: patch.new_chat_per_task ?? loadLocalNewChatPerTask(agent),
       use_suggestions: patch.use_suggestions ?? loadLocalUseSuggestions(agent),
       active_sessions: [],
+      ...parseVoiceBind({ ...readLocalSettings(agent), ...patch }),
     }
   }
 }

@@ -30,6 +30,13 @@ import {
   openAgentEditor,
   type AgentSettingsChangedDetail,
 } from '../lib/agentSettings'
+import {
+  EMPTY_VOICE_BIND,
+  applyVoiceBindToSpeechSettings,
+  nextAutoSpeakText,
+  parseVoiceBind,
+  type AgentVoiceBind,
+} from '../lib/agentVoiceBind'
 import { openTeamEditor } from '../components/TeamEditor'
 import PersonaRoster from '../components/PersonaRoster'
 import { declaredRosterForTeam } from '../lib/declaredRoster'
@@ -93,6 +100,9 @@ import {
   listenSystemStt,
   recordMicrophoneAudio,
   resolveSttPath,
+  resolveTtsPath,
+  speakCustom,
+  speakSystem,
   sttUnavailableMessage,
   transcribeCustomBlob,
   type SpeechPath,
@@ -444,6 +454,7 @@ const ChatPage = () => {
   const [useSuggestions, setUseSuggestions] = useState(() =>
     teamFromUrl ? false : loadLocalUseSuggestions(defaultBlueprintId(searchParams.get('blueprint'))),
   )
+  const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
   const [suggestionChips, setSuggestionChips] = useState<string[]>([])
   const [threadReady, setThreadReady] = useState(false)
   /** Honest hydrate miss — not a blank new chat (REQ-171A-4 / #604). */
@@ -466,6 +477,8 @@ const ChatPage = () => {
   const [sttListening, setSttListening] = useState(false)
   const [sttPathUsed, setSttPathUsed] = useState<SpeechPath | null>(null)
   const sttStopRef = useRef<(() => void) | null>(null)
+  const spokenReplyKeysRef = useRef<Set<string>>(new Set())
+  const autoSpeakHydratedRef = useRef(false)
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
   const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
@@ -1244,6 +1257,7 @@ const ChatPage = () => {
     if (teamFromUrl) {
       setNewChatPerTask(false)
       setUseSuggestions(false)
+      setVoiceBind(EMPTY_VOICE_BIND)
       return
     }
     const agent = agentIdFromBlueprint(selectedBlueprint)
@@ -1258,6 +1272,7 @@ const ChatPage = () => {
         if (typeof detail.use_suggestions === 'boolean') {
           setUseSuggestions(detail.use_suggestions)
         }
+        setVoiceBind((prev) => parseVoiceBind({ ...prev, ...detail }))
       }
     }
     window.addEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
@@ -1267,12 +1282,68 @@ const ChatPage = () => {
       if (settings.agent_id && settings.agent_id !== agent) return
       setNewChatPerTask(settings.new_chat_per_task)
       setUseSuggestions(settings.use_suggestions)
+      setVoiceBind(parseVoiceBind(settings))
     })
     return () => {
       cancelled = true
       window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
     }
   }, [selectedBlueprint, teamFromUrl])
+
+  useEffect(() => {
+    spokenReplyKeysRef.current = new Set()
+    autoSpeakHydratedRef.current = false
+  }, [activeChatAgentId, conversationId])
+
+  useEffect(() => {
+    if (!autoSpeakHydratedRef.current) {
+      for (const message of messages) {
+        if (message.role === 'assistant' && !message.streaming) {
+          spokenReplyKeysRef.current.add(message.key)
+        }
+      }
+      if (threadReady) autoSpeakHydratedRef.current = true
+      return
+    }
+    const next = nextAutoSpeakText({
+      autoSpeak: voiceBind.auto_speak_replies,
+      messages,
+      alreadySpoken: spokenReplyKeysRef.current,
+      hydrated: true,
+    })
+    if (!next) return
+    spokenReplyKeysRef.current.add(next.key)
+    const seatSpeech = applyVoiceBindToSpeechSettings(
+      parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
+      voiceBind,
+    )
+    const path = resolveTtsPath(seatSpeech)
+    if (!path) return
+    void (async () => {
+      try {
+        if (path === 'system') {
+          speakSystem(next.text)
+          return
+        }
+        await speakCustom(next.text, {
+          voice: voiceBind.speech_mode === 'inherit' ? undefined : voiceBind.tts_voice || undefined,
+          instruction:
+            voiceBind.speech_mode === 'inherit'
+              ? undefined
+              : voiceBind.tts_voice_instruction || undefined,
+          agentId: activeChatAgentId,
+        })
+      } catch {
+        /* auto-speak is best-effort */
+      }
+    })()
+  }, [
+    messages,
+    voiceBind,
+    threadReady,
+    speechQuery.data,
+    activeChatAgentId,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -2319,7 +2390,10 @@ const ChatPage = () => {
     setInput(val)
   }
 
-  const speechSettings = parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH)
+  const speechSettings = applyVoiceBindToSpeechSettings(
+    parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
+    voiceBind,
+  )
 
   const handleMic = () => {
     if (sttListening) {
@@ -2375,7 +2449,9 @@ const ChatPage = () => {
           void (async () => {
             try {
               const blob = await session.stop()
-              const spoken = await transcribeCustomBlob(blob)
+              const spoken = await transcribeCustomBlob(blob, 'audio.webm', {
+                agentId: activeChatAgentId,
+              })
               if (spoken) setInput((prev) => appendTranscript(prev, spoken))
             } catch (err) {
               addToast({
@@ -3485,7 +3561,13 @@ const ChatPage = () => {
                 </ChatMessageBubble>
                 {message.role === 'assistant' && !message.streaming && (message.text.trim() || retryEnabled) ? (
                   <MessageRowActions text={message.text}>
-                    {message.text.trim() ? <ReadAloudButton text={message.text} /> : null}
+                    {message.text.trim() ? (
+                      <ReadAloudButton
+                        text={message.text}
+                        agentId={activeChatAgentId}
+                        bind={voiceBind}
+                      />
+                    ) : null}
                     {SHOW_MESSAGE_ACTIONS && (
                       <ChatMessageActions
                         text={message.text}
