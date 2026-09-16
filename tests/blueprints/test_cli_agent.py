@@ -605,6 +605,62 @@ def test_resolve_failover_chain_orders_and_dedups():
     assert support.resolve_failover_chain(cfg, {"cli": "a", "failover": False}, reg) == ["a"]
 
 
+def test_explicit_cli_is_strict_without_failover_flag():
+    """Dropdown / params.cli must not auto-append agy/claude/codex (#99)."""
+    cfg = {
+        "cli_agents": {
+            "pi": _ok("PI"),
+            "agy": _ok("AGY"),
+            "claude": _ok("CLAUDE"),
+            "codex": _ok("CODEX"),
+        }
+    }
+    reg = CliAdapterRegistry.from_config(cfg)
+    # Shipped Chat send path: explicit cli, with or without failover: false.
+    assert support.resolve_failover_chain(cfg, {"cli": "pi"}, reg) == ["pi"]
+    assert support.resolve_failover_chain(cfg, {"cli": "pi", "failover": False}, reg) == ["pi"]
+    chain = support.resolve_failover_chain(cfg, {"cli": "pi", "failover": True}, reg)
+    assert chain[0] == "pi"
+    assert set(chain) == {"pi", "agy", "claude", "codex"}
+
+
+async def test_explicit_cli_dropdown_runs_only_that_cli():
+    """SPA-like {cli: pi} mints a pi session and returns pi content (#99)."""
+    cfg = {
+        "cli_agents": {
+            "pi": _ok("PI"),
+            "agy": _ok("AGY"),
+            "claude": _ok("CLAUDE"),
+            "codex": _ok("CODEX"),
+        }
+    }
+    bp = CliAgentBlueprint(blueprint_id="cli_agent", config=cfg)
+    bp.set_params({"cli": "pi"})
+    chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
+    assert _session_notices(chunks) == ["Started a new pi session."]
+    assert _final_content(chunks) == "PI: ping"
+
+
+async def test_explicit_cli_failure_does_not_cascade_other_clis():
+    cfg = {
+        "cli_agents": {
+            "pi": _boom(),
+            "agy": _ok("AGY"),
+            "claude": _ok("CLAUDE"),
+            "codex": _ok("CODEX"),
+        }
+    }
+    bp = CliAgentBlueprint(blueprint_id="cli_agent", config=cfg)
+    bp.set_params({"cli": "pi", "failover": False})
+    chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
+    assert _session_notices(chunks) == ["Started a new pi session."]
+    text = _final_content(chunks) or ""
+    assert "AGY" not in text
+    assert "CLAUDE" not in text
+    assert "CODEX" not in text
+    assert "failed" in text.lower()
+
+
 # --------------------------------------------------------------------------- #
 # Consensus agents — designate an agent to run a panel instead of one call
 # --------------------------------------------------------------------------- #

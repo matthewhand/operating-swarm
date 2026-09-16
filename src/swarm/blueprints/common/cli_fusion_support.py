@@ -28,7 +28,7 @@ PARAM_WORKDIR = "workdir"    # working directory for the CLI(s)
 PARAM_CWD = "cwd"            # alias for workdir (MoA / hybrid twins)
 PARAM_ISOLATE = "isolate"    # fusion: per-panelist workdir isolation (bool)
 PARAM_FALLBACK = "fallback"  # single-CLI: explicit ordered failover list
-PARAM_FAILOVER = "failover"  # single-CLI: enable auto-failover (default True)
+PARAM_FAILOVER = "failover"  # single-CLI: auto-failover (off when params.cli is set)
 PARAM_CONSENSUS = "consensus"  # single-CLI: per-request consensus override (bool/int/list/dict)
 PARAM_SKILL = "skill"        # apply a named skill's instructions to the prompt
 PARAM_PROFILE = "profile"    # desired inference traits {intelligence,speed,cost} 0..1
@@ -315,16 +315,20 @@ def resolve_failover_chain(
 ) -> list[str]:
     """Ordered adapter names the single-CLI blueprint should try, in order.
 
-    The primary is :func:`select_single_cli`. Then, unless failover is disabled:
+    The primary is :func:`select_single_cli`. Then:
 
     * an explicit ``params['fallback']`` list is appended in order, **or**
-    * if no explicit list and ``params['failover']`` isn't ``False``, every other
-      *installed* adapter is appended (auto-failover) so a missing/broken primary
-      degrades to whatever the host actually has.
+    * if ``params['failover']`` is true, every other *installed* adapter is
+      appended (opt-in auto-failover).
+
+    An explicit ``params['cli']`` (dropdown / request) is **strict**: other
+    installed CLIs are not appended unless the caller passed ``failover: true``
+    or a ``fallback`` list. With no ``cli`` param, auto-failover remains the
+    default so a missing/broken ``default_cli`` still degrades to whatever the
+    host actually has.
 
     Names are deduped (order preserved) and filtered to configured adapters.
-    Returns ``[]`` when nothing is configured. Set ``failover: False`` for strict
-    single-CLI behaviour (never silently switch to a different model).
+    Returns ``[]`` when nothing is configured.
     """
     params = params or {}
     primary = select_single_cli(config, params, registry)
@@ -334,8 +338,10 @@ def resolve_failover_chain(
     fallback = params.get(PARAM_FALLBACK)
     if isinstance(fallback, list):
         chain.extend(str(n) for n in fallback)
-    elif params.get(PARAM_FAILOVER, True):
-        chain.extend(n for n in registry.available() if n not in chain)
+    else:
+        explicit_cli = bool(params.get(PARAM_CLI))
+        if params.get(PARAM_FAILOVER, not explicit_cli):
+            chain.extend(n for n in registry.available() if n not in chain)
 
     known = set(registry.names())
     seen: set[str] = set()

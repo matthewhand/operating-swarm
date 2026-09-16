@@ -160,6 +160,8 @@ import {
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
   newConversationId,
+  cliAgentChatParams,
+  mergeChatSendParams,
   parseChatWsMessage,
   summarizeUnknownWsFrame,
   type ChatWsEvent,
@@ -2423,14 +2425,13 @@ const ChatPage = () => {
           : undefined
       const cliParams = isCliAgent
         ? {
-            cli: currentCli,
-            ...(selectedModelParam && selectedModelParam !== 'default' ? { model: selectedModelParam } : {}),
+            ...cliAgentChatParams(currentCli, selectedModelParam),
             ...(sessionRemote ? { cli_remote: sessionRemote } : {}),
           }
         : isApiAgent && selectedModelParam && selectedModelParam !== 'default'
           ? { model: selectedModelParam }
           : selectedCli
-            ? { cli: selectedCli.cli }
+            ? { cli: selectedCli.cli, failover: false }
             : newChatPerTask
               ? { new_session: messages.length === 0 }
               : undefined
@@ -2459,23 +2460,16 @@ const ChatPage = () => {
         buildChatWsFrame(
           trimmed,
           runtimeBlueprint || selectedBlueprint || undefined,
-          supportParams ||
-          cliParams ||
-          inferenceParams ||
-          pluginParams ||
-          folderParams ||
-          elicitParams ||
-          Object.keys(skillParams).length              ? {
-                  ...cliParams,
-                  ...inferenceParams,
-                  ...supportParams,
-                  ...pluginParams,
-                  ...folderParams,
-                  ...skillParams,
-                  ...sectionParams,
-                  ...elicitParams,
-                }
-            : undefined,
+          mergeChatSendParams(
+            inferenceParams,
+            supportParams,
+            pluginParams,
+            folderParams,
+            skillParams,
+            sectionParams,
+            elicitParams,
+            cliParams,
+          ),
           attachArg,
         ),
       )

@@ -117,6 +117,29 @@ export function buildChatWsUrl(
 /** Optional per-message params (team target, CLI, …) forwarded to the consumer. */
 export type ChatWsParams = Record<string, unknown>
 
+/**
+ * Merge per-turn WS params. Later objects win on key conflicts so an explicit
+ * CLI dropdown (`cli` / `failover: false`) is not overwritten by inference seats.
+ */
+export function mergeChatSendParams(
+  ...parts: Array<ChatWsParams | undefined | null>
+): ChatWsParams | undefined {
+  const merged: ChatWsParams = {}
+  for (const part of parts) {
+    if (!part) continue
+    Object.assign(merged, part)
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined
+}
+
+/** cli_agent dropdown send params: try this CLI only (issue #99). */
+export function cliAgentChatParams(cli: string, model?: string): ChatWsParams {
+  const params: ChatWsParams = { cli, failover: false }
+  const trimmed = (model ?? '').trim()
+  if (trimmed && trimmed !== 'default') params.model = trimmed
+  return params
+}
+
 /** Build the JSON frame sent to DjangoChatConsumer.receive(). */
 export function buildChatWsFrame(
   message: string,

@@ -4,6 +4,8 @@ import {
   buildChatWsFrame,
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
+  cliAgentChatParams,
+  mergeChatSendParams,
   parseChatWsMessage,
   summarizeUnknownWsFrame,
 } from '../chatWs'
@@ -107,6 +109,44 @@ describe('buildChatWsFrame', () => {
     expect(JSON.parse(buildChatWsFrame('quote " and \\ slash')).message).toBe(
       'quote " and \\ slash',
     )
+  })
+
+  it('cli_agent dropdown frame is strict: cli + failover false', () => {
+    expect(
+      JSON.parse(buildChatWsFrame('hi', 'cli_agent', cliAgentChatParams('pi'))),
+    ).toEqual({
+      message: 'hi',
+      blueprint: 'cli_agent',
+      params: { cli: 'pi', failover: false },
+    })
+    expect(
+      JSON.parse(
+        buildChatWsFrame('hi', 'cli_agent', cliAgentChatParams('pi', 'pi-v1')),
+      ),
+    ).toEqual({
+      message: 'hi',
+      blueprint: 'cli_agent',
+      params: { cli: 'pi', failover: false, model: 'pi-v1' },
+    })
+  })
+
+  it('dropdown cli wins over inference-seat cli in the shipped merge', () => {
+    const params = mergeChatSendParams(
+      { cli: 'codex', inference_list: ['cli:codex'] },
+      { skills: ['writing'] },
+      cliAgentChatParams('pi'),
+    )
+    expect(params).toEqual({
+      cli: 'pi',
+      failover: false,
+      inference_list: ['cli:codex'],
+      skills: ['writing'],
+    })
+    expect(
+      JSON.parse(buildChatWsFrame('hi', 'cli_agent', params)),
+    ).toMatchObject({
+      params: { cli: 'pi', failover: false },
+    })
   })
 })
 
