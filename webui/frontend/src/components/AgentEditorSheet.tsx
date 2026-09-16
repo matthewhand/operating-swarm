@@ -11,6 +11,8 @@ import {
 } from '../lib/agentSettings'
 import { showsBlueprintEdit } from '../lib/agentRoles'
 import { agentLabel } from '../lib/supportAgent'
+import { ContextUsageDetail } from './ContextUsageDetail'
+import { peekConversationIdForAgent } from '../lib/agentChat'
 
 export interface AgentEditorSheetProps {
   isOpen: boolean
@@ -107,6 +109,13 @@ export default function AgentEditorSheet({
             Global Remotes and System stay under Settings.
           </p>
         </div>
+
+        {agent ? (
+          <ContextUsageDetail
+            agentId={agent}
+            conversationId={peekConversationIdForAgent(agent)}
+          />
+        ) : null}
 
         <div
           className="tooltip tooltip-bottom w-full text-left"

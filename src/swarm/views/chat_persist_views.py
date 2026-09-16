@@ -29,6 +29,32 @@ from swarm.core.thread_load import load_thread
 from swarm.core.thread_load import public_messages as _public_messages
 from swarm.models import ChatAttachment, ChatMessage, ConversationSummary
 
+
+def _usage_payload(*, user, agent: str, conversation_id: str, turns=None, model_id: str | None = None):
+    """#215: read-only usage snapshot. Failures stay off the main action path."""
+    from swarm.core.context_usage import usage_snapshot
+
+    cid = (conversation_id or "").strip()
+    agent_id = chat_store.normalize_agent_id(agent)
+    rows = turns
+    if rows is None:
+        loaded = load_thread(
+            user,
+            agent_id,
+            requested_cid=cid,
+            session_id=cid,
+            default_cid=cid,
+            fresh_task=False,
+        )
+        rows = loaded.turns
+    return usage_snapshot(
+        conversation_id=cid,
+        agent_id=agent_id,
+        turns=rows,
+        model_id=model_id,
+    )
+
+
 logger = logging.getLogger(__name__)
 
 _ALLOWED_ACTIONS = frozenset({"archive", "archive_all", "restore", "empty_trash"})
@@ -428,6 +454,38 @@ def chat_raw_context(request):
     )
 
 
+@login_required
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def chat_context_usage(request):
+    """#215: per-seat context-window usage — read-only estimate.
+
+    Tokens of current model context (messages + spliced summaries +
+    system/instructions + tool-schema overhead) against the seat's declared
+    window. ``estimate: true`` until a per-provider tokenizer is wired.
+    """
+    agent = chat_store.normalize_agent_id(request.GET.get("agent"))
+    requested_cid = (request.GET.get("conversation_id") or "").strip()
+    if not requested_cid:
+        return JsonResponse({"error": "conversation_id required"}, status=400)
+    model_id = (
+        (request.GET.get("model") or request.GET.get("llm_profile") or "")
+        .strip()
+        or None
+    )
+    try:
+        payload = _usage_payload(
+            user=request.user,
+            agent=agent,
+            conversation_id=requested_cid,
+            model_id=model_id,
+        )
+    except Exception:
+        logger.exception("context usage snapshot failed")
+        return JsonResponse({"error": "Could not estimate context usage."}, status=500)
+    return JsonResponse(payload)
+
+
 @require_http_methods(["POST"])
 def chat_attachment_upload(request):
     """Store one composer file and return its id (REQ-38).
@@ -548,14 +606,22 @@ def chat_compact(request):
     except Exception:
         logger.debug("compress last-event stamp skipped", exc_info=True)
 
-    return JsonResponse(
-        {
-            "summary": summary_to_dict(row),
-            "summaries": summaries,
-            "context": build_model_context(raw, list_summaries(conversation_id)),
-            "raw_count": len(raw),
-        }
-    )
+    payload = {
+        "summary": summary_to_dict(row),
+        "summaries": summaries,
+        "context": build_model_context(raw, list_summaries(conversation_id)),
+        "raw_count": len(raw),
+    }
+    try:
+        payload["usage"] = _usage_payload(
+            user=request.user,
+            agent=agent,
+            conversation_id=conversation_id,
+            turns=raw,
+        )
+    except Exception:
+        logger.debug("compact usage snapshot skipped", exc_info=True)
+    return JsonResponse(payload)
 
 
 @login_required
@@ -584,7 +650,17 @@ def chat_summary_toggle_context(request):
         return JsonResponse({"error": "Not your conversation."}, status=403)
     row.include_in_context = include
     row.save(update_fields=["include_in_context"])
-    return JsonResponse({"summary": summary_to_dict(row)})
+    body = {"summary": summary_to_dict(row)}
+    try:
+        conversation = row.conversation
+        body["usage"] = _usage_payload(
+            user=request.user,
+            agent=getattr(conversation, "agent_id", "") or "",
+            conversation_id=row.conversation_id,
+        )
+    except Exception:
+        logger.debug("toggle usage snapshot skipped", exc_info=True)
+    return JsonResponse(body)
 
 
 @login_required

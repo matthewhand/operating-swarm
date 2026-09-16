@@ -872,6 +872,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             return
 
         self._blueprint_instance = blueprint_instance
+        self._last_chat_params = params if isinstance(params, dict) else {}
 
         thread_params = {
             "conversation_id": getattr(self, "conversation_id", ""),
@@ -1444,6 +1445,35 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             logger.exception(
                 "Failed to persist completed chat turn %s", conversation_id
             )
+        await self._emit_context_usage()
+
+    async def _emit_context_usage(self):
+        """#215: JSON context_usage frame after a finished turn (read-only)."""
+        try:
+            from swarm.core.context_usage import usage_snapshot
+
+            conversation_id = getattr(self, "conversation_id", None) or ""
+            agent_id = str(
+                getattr(self, "active_agent", None)
+                or getattr(self, "default_blueprint", None)
+                or ""
+            )
+            params = getattr(self, "_last_chat_params", None)
+            model_id = None
+            if isinstance(params, dict):
+                raw = params.get("model") or params.get("llm_profile")
+                if isinstance(raw, str) and raw.strip():
+                    model_id = raw.strip()
+            payload = await database_sync_to_async(usage_snapshot)(
+                conversation_id=str(conversation_id),
+                agent_id=agent_id,
+                turns=list(getattr(self, "messages", None) or []),
+                model_id=model_id,
+                blueprint=getattr(self, "_blueprint_instance", None),
+            )
+            await self.send(text_data=json.dumps(payload))
+        except Exception:
+            logger.debug("context usage emit skipped", exc_info=True)
 
     async def _emit_suggestions_if_enabled(self, agent_id, blueprint=None):
         """REQ-85: JSON chips after a finished turn (never mid-token, never in LLM context)."""

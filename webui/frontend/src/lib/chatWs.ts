@@ -1,3 +1,4 @@
+import { parseContextUsage, type ContextUsage } from './contextUsage'
 import { parsePrOpened, type PrOpenedEvent } from './prOpened'
 import {
   isRateLimitWait,
@@ -67,6 +68,7 @@ export type ChatWsEvent =
   | { kind: 'subagent_fan_out'; event: SubagentFanOutData }
   | { kind: 'spa_hello'; spaVersion: string }
   | { kind: 'suggestions'; suggestions: string[] }
+  | { kind: 'context_usage'; usage: ContextUsage }
   | {
       kind: 'interbot_hop'
       id: string
@@ -215,6 +217,11 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
     if (type === 'suggestions') {
       const suggestions = parseSuggestions(payload)
       return { kind: 'suggestions', suggestions }
+    }
+    if (type === 'context_usage') {
+      const usage = parseContextUsage(payload)
+      if (!usage) return { kind: 'unknown', raw }
+      return { kind: 'context_usage', usage }
     }
     if (type === 'rate_limit_wait' || payload.object === 'open_swarm.rate_limit_wait') {
       if (isRateLimitWait(payload)) {

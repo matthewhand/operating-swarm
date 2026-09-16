@@ -149,6 +149,12 @@ import {
   summarizeUnknownWsFrame,
   type ChatWsEvent,
 } from '../lib/chatWs'
+import { ContextUsageBadge } from '../components/ContextUsageBadge'
+import {
+  fetchContextUsage,
+  publishContextUsage,
+  type ContextUsage,
+} from '../lib/contextUsage'
 import { ToolCallPopup } from '../components/ToolCallPopup'
 import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsPanel'
 import { PrOpenedCard } from '../components/PrOpenedCard'
@@ -475,6 +481,7 @@ const ChatPage = () => {
   const [contextStrategy, setContextStrategy] = useState<ContextStrategy>(DEFAULT_CONTEXT_STRATEGY)
   const [cullTriggerPct, setCullTriggerPct] = useState(DEFAULT_CULL_TRIGGER_PCT)
   const [contextMeta, setContextMeta] = useState<ContextMeta>({ start_offset: 0, last_event: null })
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null)
   const [startFromHereWarning, setStartFromHereWarning] = useState<{
     message: ChatMessage
     copy: string
@@ -585,7 +592,11 @@ const ChatPage = () => {
         ),
       }))
       try {
-        await toggleSummaryInContext({ summaryId, includeInContext: include })
+        const result = await toggleSummaryInContext({ summaryId, includeInContext: include })
+        if (result.usage) {
+          publishContextUsage(result.usage)
+          setContextUsage(result.usage)
+        }
       } catch {
         setSummariesByThread((prev) => ({ ...prev, [threadKey]: threadSummaries }))
       }
@@ -918,6 +929,29 @@ const ChatPage = () => {
       !isRemoteAgent &&
       !isCliAgent,
   )
+  const showContextUsage = isApiAgent || agentKind === 'blueprint'
+
+  useEffect(() => {
+    if (!showContextUsage || !conversationId) {
+      setContextUsage(null)
+      return
+    }
+    let cancelled = false
+    const agent = teamFromUrl || agentIdFromBlueprint(selectedBlueprint)
+    const modelId = (searchParams.get('model') ?? '').trim() || undefined
+    void fetchContextUsage({ agentId: agent, conversationId, modelId })
+      .then((usage) => {
+        if (cancelled) return
+        publishContextUsage(usage)
+        setContextUsage(usage)
+      })
+      .catch(() => {
+        if (!cancelled) setContextUsage(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showContextUsage, conversationId, teamFromUrl, selectedBlueprint, searchParams])
 
   const dropdownAgentId = teamFromUrl
     ? `team-${teamFromUrl}`
@@ -1655,6 +1689,11 @@ const ChatPage = () => {
       }
       if (event.kind === 'spa_hello') {
         publishExpectedSpaVersion(event.spaVersion)
+        return
+      }
+      if (event.kind === 'context_usage') {
+        publishContextUsage(event.usage)
+        setContextUsage(event.usage)
         return
       }
       if (event.kind === 'tool_status') {
@@ -2683,6 +2722,10 @@ const ChatPage = () => {
           })),
       })
       setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
+      if (result.usage) {
+        publishContextUsage(result.usage)
+        setContextUsage(result.usage)
+      }
     } catch (err) {
       const detail = err instanceof Error ? err.message.trim() : ''
       addToast({
@@ -2721,6 +2764,10 @@ const ChatPage = () => {
           spanEnd,
         })
         setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
+        if (result.usage) {
+          publishContextUsage(result.usage)
+          setContextUsage(result.usage)
+        }
       } catch (err) {
         const detail = err instanceof Error ? err.message.trim() : ''
         addToast({
@@ -3754,6 +3801,21 @@ const ChatPage = () => {
                   ? 'Sign in to chat — your draft is kept locally.'
                   : 'Chat is offline — you can keep typing; sends will queue until it reconnects.'}
               </span>
+            </div>
+          ) : null}
+          {showContextUsage && contextUsage ? (
+            <div
+              className="flex justify-end px-3 pt-1.5"
+              data-testid="context-usage-badge-slot"
+            >
+              <ContextUsageBadge
+                usage={contextUsage}
+                onOpenDetail={() =>
+                  openAgentEditor({
+                    agentId: selectedBlueprint || DEFAULT_AGENT_ID,
+                  })
+                }
+              />
             </div>
           ) : null}
           <form onSubmit={handleSend} className="os-composer-wrap">
