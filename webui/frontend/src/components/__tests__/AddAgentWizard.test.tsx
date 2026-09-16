@@ -671,4 +671,230 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
     })
     expect(onCreated).not.toHaveBeenCalled()
   })
+
+  describe('issue #68: group by provider with counts, filter on click', () => {
+    it('CLI tab lists detected providers with counts and click filters (clearable)', async () => {
+      vi.spyOn(api, 'fetchCliAgents').mockResolvedValue({
+        clis: ['agy', 'claude', 'grok'],
+        discovered: ['grok', 'claude'],
+        installed: ['grok', 'claude'],
+        configured: ['grok'],
+        native_consensus: {},
+        catalog: {},
+        rail: [],
+      })
+      vi.spyOn(api, 'fetchCustomBlueprints').mockResolvedValue({
+        object: 'list',
+        data: [
+          {
+            id: 'cli_grok_1',
+            name: 'Grok Coder',
+            description: 'CLI: grok',
+            category: 'cli',
+            tags: ['cli'],
+            requirements: '',
+            code: '# CLI agent: Grok Coder\n# Command: grok\n',
+            required_mcp_servers: [],
+            env_vars: [],
+          },
+          {
+            id: 'cli_claude_1',
+            name: 'Claude Coder',
+            description: 'CLI: claude',
+            category: 'cli',
+            tags: ['cli'],
+            requirements: '',
+            code: '# CLI agent: Claude Coder\n# Command: claude\n',
+            required_mcp_servers: [],
+            env_vars: [],
+          },
+        ],
+      })
+
+      renderWizard()
+      fireEvent.click(screen.getByTestId('kind-option-cli'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('manage-agent-groups')).toBeInTheDocument()
+        expect(screen.getByTestId('agent-group-grok')).toHaveTextContent('grok')
+        expect(screen.getByTestId('agent-group-count-grok')).toHaveTextContent('1')
+        expect(screen.getByTestId('agent-group-count-claude')).toHaveTextContent('1')
+        expect(screen.getByText('Grok Coder')).toBeInTheDocument()
+        expect(screen.getByText('Claude Coder')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByTestId('agent-group-grok'))
+      expect(screen.getByTestId('agent-group-grok')).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByText('Grok Coder')).toBeInTheDocument()
+      expect(screen.queryByText('Claude Coder')).not.toBeInTheDocument()
+      expect(screen.getByTestId('clear-group-filter')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('clear-group-filter'))
+      expect(screen.getByText('Grok Coder')).toBeInTheDocument()
+      expect(screen.getByText('Claude Coder')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('agent-group-claude'))
+      expect(screen.queryByText('Grok Coder')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('agent-group-claude'))
+      expect(screen.getByText('Grok Coder')).toBeInTheDocument()
+      expect(screen.getByText('Claude Coder')).toBeInTheDocument()
+    })
+
+    it('API tab groups custom vs catalog with counts and click filters', async () => {
+      vi.spyOn(api, 'fetchCustomBlueprints').mockResolvedValue({
+        object: 'list',
+        data: [
+          {
+            id: 'api_custom_1',
+            name: 'Custom Researcher',
+            description: 'Custom API',
+            category: 'ai_assistants',
+            tags: ['api'],
+            requirements: '',
+            code: 'You research',
+            required_mcp_servers: [],
+            env_vars: [],
+          },
+        ],
+      })
+      vi.spyOn(api, 'fetchBlueprints').mockResolvedValue({
+        object: 'list',
+        data: [
+          {
+            id: 'api_catalog_1',
+            name: 'Catalog Analyst',
+            description: 'Catalog API',
+            abbreviation: null,
+            required_mcp_servers: [],
+            tags: ['api'],
+            category: 'ai_assistants',
+            installed: true,
+            compiled: true,
+          } as any,
+        ],
+      })
+
+      renderWizard()
+      fireEvent.click(screen.getByTestId('kind-option-api'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-group-custom')).toBeInTheDocument()
+        expect(screen.getByTestId('agent-group-count-custom')).toHaveTextContent('1')
+        expect(screen.getByTestId('agent-group-count-catalog')).toHaveTextContent('1')
+        expect(screen.getByText('Custom Researcher')).toBeInTheDocument()
+        expect(screen.getByText('Catalog Analyst')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByTestId('agent-group-catalog'))
+      expect(screen.queryByText('Custom Researcher')).not.toBeInTheDocument()
+      expect(screen.getByText('Catalog Analyst')).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('clear-group-filter'))
+      expect(screen.getByText('Custom Researcher')).toBeInTheDocument()
+    })
+
+    it('Blueprint tab groups custom vs catalog and keeps create/edit', async () => {
+      vi.spyOn(api, 'fetchCustomBlueprints').mockResolvedValue({
+        object: 'list',
+        data: [
+          {
+            id: 'bp_custom_1',
+            name: 'Release Captain',
+            description: 'Custom blueprint',
+            category: 'blueprint',
+            tags: ['blueprint'],
+            requirements: '',
+            code: '# Blueprint',
+            required_mcp_servers: [],
+            env_vars: [],
+          },
+        ],
+      })
+      vi.spyOn(api, 'fetchBlueprints').mockResolvedValue({
+        object: 'list',
+        data: [
+          {
+            id: 'bp_catalog_1',
+            name: 'Catalog Pipeline',
+            description: 'Catalog blueprint',
+            abbreviation: null,
+            required_mcp_servers: [],
+            tags: ['blueprint'],
+            category: 'blueprint',
+            installed: true,
+            compiled: true,
+          } as any,
+        ],
+      })
+
+      renderWizard()
+      fireEvent.click(screen.getByTestId('kind-option-blueprint'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-group-count-custom')).toHaveTextContent('1')
+        expect(screen.getByTestId('agent-group-count-catalog')).toHaveTextContent('1')
+        expect(screen.getByText('Release Captain')).toBeInTheDocument()
+        expect(screen.getByText('Catalog Pipeline')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('add-agent-form')).toBeInTheDocument()
+      expect(screen.getByTestId('input-blueprint-name')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('edit-agent-bp_custom_1'))
+      expect(screen.getByTestId('input-blueprint-name')).toHaveValue('Release Captain')
+    })
+
+    it('Remote tab groups by implementation with counts and click filters', async () => {
+      vi.spyOn(api, 'fetchRemotes').mockResolvedValue({
+        object: 'list',
+        kinds: [
+          { id: 'hermes', label: 'Hermes' },
+          { id: 'omb', label: 'OpenMousBot' },
+          { id: 'rakazo', label: 'Rakazo' },
+          { id: 'herdr', label: 'Herdr' },
+          { id: 'open-swarm', label: 'open-swarm' },
+        ],
+        configured: [
+          {
+            id: 'hermes_1',
+            kind: 'hermes',
+            label: 'Hermes Live',
+            title: 'Hermes Live',
+            host_label: '',
+            base_url: 'http://127.0.0.1:8642',
+            source: 'config',
+          },
+          {
+            id: 'omb_1',
+            kind: 'omb',
+            label: 'OpenMousBot Live',
+            title: 'OpenMousBot Live',
+            host_label: '',
+            base_url: 'http://127.0.0.1:8802',
+            source: 'config',
+          },
+        ],
+      })
+
+      renderWizard()
+      fireEvent.click(screen.getByTestId('kind-option-remote'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-group-hermes')).toBeInTheDocument()
+        expect(screen.getByTestId('agent-group-count-hermes')).toHaveTextContent('1')
+        expect(screen.getByTestId('agent-group-count-omb')).toHaveTextContent('1')
+        expect(screen.getByTestId('agent-group-count-rakazo')).toHaveTextContent('0')
+        expect(screen.getByTestId('agent-group-count-herdr')).toHaveTextContent('0')
+        expect(screen.getByTestId('agent-group-open-swarm')).toHaveTextContent('nested')
+        expect(screen.getByTestId('agent-row-hermes_1')).toBeInTheDocument()
+        expect(screen.getByTestId('agent-row-omb_1')).toBeInTheDocument()
+      })
+      expect(screen.queryByText(/^OMB$/)).not.toBeInTheDocument()
+      expect(screen.getByTestId('add-agent-form')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('agent-group-omb'))
+      expect(screen.queryByTestId('agent-row-hermes_1')).not.toBeInTheDocument()
+      expect(screen.getByTestId('agent-row-omb_1')).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('clear-group-filter'))
+      expect(screen.getByTestId('agent-row-hermes_1')).toBeInTheDocument()
+    })
+  })
 })
