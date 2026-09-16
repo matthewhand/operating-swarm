@@ -2182,24 +2182,28 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     localStorage.clear()
   })
 
-  it('shows 2 team faces + N for a 5-member roster', async () => {
+  it('shows at most 3 team faces with no +N remainder for a 5-member roster, newest-active first when working (REQ-891)', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
-    // 5-member roster: crowded — first 2 roster faces plus a +3 chip.
-    expect(team).toHaveAttribute('data-stack-count', '2')
-    expect(team).toHaveAttribute('data-remainder', '3')
+    // 5-member roster: at most 3 faces, no +N remainder chip.
+    expect(team).toHaveAttribute('data-stack-count', '3')
+    expect(team).toHaveAttribute('data-remainder', '0')
     const stack = within(team).getByLabelText('Scale Out members')
     expect(stack).toHaveAttribute('data-avatar-stack', 'true')
-    expect(stack).toHaveAttribute('data-stack-count', '2')
-    expect(within(stack).getByText('+3')).toBeInTheDocument()
+    expect(stack).toHaveAttribute('data-stack-count', '3')
+    expect(within(team).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
     const faces = team.querySelectorAll('.os-avatar-stack__face')
-    expect(faces).toHaveLength(2)
-    // Roster order: Pat (CoS, running) then Ada (finished) — working class follows status.
+    expect(faces).toHaveLength(3)
+    // Working stack: newest-active first (Dee, Cyd, Bea)
+    expect(faces[0]!.getAttribute('data-face-id')).toBe('dee')
+    expect(faces[1]!.getAttribute('data-face-id')).toBe('cyd')
+    expect(faces[2]!.getAttribute('data-face-id')).toBe('bea')
     expect(faces[0]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
-    expect(faces[1]!.classList.contains('os-avatar-stack__face--working')).toBe(false)
+    expect(faces[1]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
+    expect(faces[2]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
     const delays = [...faces].map((face) => (face as HTMLElement).style.animationDelay)
-    expect(new Set(delays).size).toBe(2)
+    expect(new Set(delays).size).toBe(3)
     expect(delays).toContain('0ms')
   })
 
@@ -2221,8 +2225,9 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     const omb = await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ })
     expect(omb).toHaveTextContent('OpenMousBot')
     expect(omb).not.toHaveTextContent(/\bOMB\b/)
-    expect(omb).toHaveAttribute('data-stack-count', '2')
-    expect(omb).toHaveAttribute('data-remainder', '3')
+    expect(omb).toHaveAttribute('data-stack-count', '3')
+    expect(omb).toHaveAttribute('data-remainder', '0')
+    expect(within(omb).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Rakazo \(remote\)/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Lab swarm \(remote\)/ })).toBeInTheDocument()
 
@@ -2641,6 +2646,24 @@ describe('AgentSidebar REQ-861 conceal', () => {
       notifyCliRunState('ada', false)
     })
     expect(tile).not.toHaveClass('os-fav-tile--working-stack')
+    resetCliRunState()
+  })
+
+  it('REQ-891 sidepane team row gets os-agent-row--working-stack when a worker is working', async () => {
+    resetCliRunState()
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const team = await within(list).findByRole('link', { name: /Research \(team\)/ })
+    expect(team).toHaveClass('os-agent-row--team')
+    expect(team).not.toHaveClass('os-agent-row--working-stack')
+    act(() => {
+      notifyCliRunState('ada', true)
+    })
+    expect(team).toHaveClass('os-agent-row--working-stack')
+    act(() => {
+      notifyCliRunState('ada', false)
+    })
+    expect(team).not.toHaveClass('os-agent-row--working-stack')
     resetCliRunState()
   })
 

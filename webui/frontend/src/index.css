@@ -400,6 +400,7 @@ html:not([data-theme="light"]) .os-composer,
   border: 1.5px solid var(--color-base-100);
   flex: 0 0 auto;
   position: relative;
+  transition: transform 0.25s ease, opacity 0.25s ease;
 }
 .os-stacked-avatar--stacked {
   margin-inline-start: -0.42rem;
@@ -437,6 +438,9 @@ html:not([data-theme="light"]) .os-composer,
   background: color-mix(in srgb, var(--color-base-content) 10%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
+  .os-stacked-avatar {
+    transition: none;
+  }
   .os-stacked-avatar--pulse {
     animation: none;
   }
@@ -1029,20 +1033,26 @@ html:not([data-theme="light"]) .os-composer,
   opacity: 1;
 }
 
-/* #432: pinned team members slide out/in while a worker is working. */
-.os-fav-tile--working-stack .os-stacked-avatars {
+/* #432 / REQ-891: pinned team and sidepane team/remote members slide out/in while a worker is working. */
+.os-fav-tile--working-stack .os-stacked-avatars,
+.os-agent-row--working-stack .os-stacked-avatars {
   overflow: visible;
 }
-.os-fav-tile--working-stack .os-stacked-avatar--stacked {
+.os-fav-tile--working-stack .os-stacked-avatar--stacked,
+.os-agent-row--working-stack .os-stacked-avatar--stacked {
   animation: os-fav-member-slide 1.6s ease-in-out infinite;
+  transition: transform 0.25s ease, opacity 0.25s ease;
 }
-.os-fav-tile--working-stack .os-stacked-avatar--stacked:nth-child(1) {
+.os-fav-tile--working-stack .os-stacked-avatar--stacked:nth-child(1),
+.os-agent-row--working-stack .os-stacked-avatar--stacked:nth-child(1) {
   animation-delay: 0s;
 }
-.os-fav-tile--working-stack .os-stacked-avatar--stacked:nth-child(2) {
+.os-fav-tile--working-stack .os-stacked-avatar--stacked:nth-child(2),
+.os-agent-row--working-stack .os-stacked-avatar--stacked:nth-child(2) {
   animation-delay: 0.14s;
 }
-.os-fav-tile--working-stack .os-stacked-avatar--stacked:nth-child(3) {
+.os-fav-tile--working-stack .os-stacked-avatar--stacked:nth-child(3),
+.os-agent-row--working-stack .os-stacked-avatar--stacked:nth-child(3) {
   animation-delay: 0.28s;
 }
 @keyframes os-fav-member-slide {
@@ -1055,8 +1065,10 @@ html:not([data-theme="light"]) .os-composer,
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-fav-tile--working-stack .os-stacked-avatar--stacked {
+  .os-fav-tile--working-stack .os-stacked-avatar--stacked,
+  .os-agent-row--working-stack .os-stacked-avatar--stacked {
     animation: none;
+    transition: none;
   }
 }
 
