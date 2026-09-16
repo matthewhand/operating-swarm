@@ -18,8 +18,10 @@ import pytest
 
 from swarm.core.blueprint_base import BlueprintBase
 from swarm.core.config_loader import (
+    _apply_litellm_overrides,
     drop_unresolved_env_values,
     get_resolved_llm_profile,
+    named_profile_model,
     unresolved_env_placeholders,
 )
 
@@ -54,11 +56,45 @@ def _placeholder_config() -> dict:
     }
 
 
+# Every variable ``_apply_litellm_overrides`` reads. A dev host's ``.env``
+# normally sets several of these, so all of them must be cleared for the suite
+# to be hermetic (REQ-892 / #462). ``test_override_fixture_covers_every_env_var_
+# the_resolver_reads`` keeps this list in lockstep with the resolver.
+_OVERRIDE_ENV_VARS = (
+    "LITELLM_BASE_URL",
+    "LITELLM_API_KEY",
+    "LITELLM_MODEL",
+    "DEFAULT_LLM",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
+)
+
+
 @pytest.fixture
 def unset_litellm_env(monkeypatch):
-    """Hermetic: the placeholders under test resolve only if these are set."""
-    for name in ("LITELLM_BASE_URL", "LITELLM_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_KEY"):
+    """Hermetic: the placeholders under test resolve only if these are set.
+
+    Clears the *whole* override set, not just the URL/key pair — a host with
+    ``DEFAULT_LLM=auxiliary`` exported used to flip four assertions in this file.
+    """
+    for name in _OVERRIDE_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+
+
+def test_override_fixture_covers_every_env_var_the_resolver_reads():
+    """Future-proofing: a new override var must not silently de-hermeticise us."""
+    import inspect
+    import re
+
+    source = inspect.getsource(_apply_litellm_overrides)
+    read_vars = set(re.findall(r'os\.getenv\("([^"]+)"\)', source))
+    assert read_vars, "expected _apply_litellm_overrides to read env vars"
+    missing = read_vars - set(_OVERRIDE_ENV_VARS)
+    assert not missing, (
+        f"_apply_litellm_overrides reads {sorted(missing)}, which unset_litellm_env "
+        "does not clear — this suite would stop being env-hermetic"
+    )
 
 
 def test_unresolved_env_placeholders_walks_strings_lists_and_dicts():
@@ -124,7 +160,7 @@ def test_resolver_substitutes_the_values_when_the_env_is_set(monkeypatch):
     assert resolved["api_key"] == "sk-master"
 
 
-def test_resolver_leaves_literal_values_untouched():
+def test_resolver_leaves_literal_values_untouched(unset_litellm_env):
     config = {
         "llm": {
             "default": {
@@ -140,7 +176,7 @@ def test_resolver_leaves_literal_values_untouched():
     assert resolved["api_key"] == "sk-test"
 
 
-def test_resolver_deliberately_keeps_a_placeholder_model():
+def test_resolver_deliberately_keeps_a_placeholder_model(unset_litellm_env):
     """Documented scope: only api_key/base_url are dropped.
 
     A bad ``model`` fails at request time with the model name quoted back, so it
@@ -157,6 +193,29 @@ def test_resolver_deliberately_keeps_a_placeholder_model():
         }
     }
     assert get_resolved_llm_profile(config, "default")["model"] == "${DEFAULT_LLM}"
+
+
+def test_env_model_override_wins_on_the_resolved_copy_but_not_the_named_model(
+    unset_litellm_env, monkeypatch
+):
+    """Pins the interplay the rest of this file deliberately clears away.
+
+    ``_apply_litellm_overrides`` is env-first by design (see
+    ``tests/core/test_llm_provider.py``), so the resolved copy carries the env
+    model; ``named_profile_model`` is how a named profile recovers its own. The
+    unresolved-placeholder guard is independent of that override.
+    """
+    config = _placeholder_config()
+    monkeypatch.setenv("LITELLM_MODEL", "auxiliary")
+    monkeypatch.setenv("DEFAULT_LLM", "auxiliary")
+
+    resolved = get_resolved_llm_profile(config, "default")
+
+    assert resolved["model"] == "auxiliary"
+    assert named_profile_model(config, "default", resolved) == "gpt-4o-mini"
+    # The guard still fires: the env override does not resurrect a placeholder.
+    assert "api_key" not in resolved
+    assert "base_url" not in resolved
 
 
 def test_model_instance_never_hands_a_placeholder_to_the_client(unset_litellm_env, monkeypatch):
