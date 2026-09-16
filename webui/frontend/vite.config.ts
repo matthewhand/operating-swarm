@@ -27,6 +27,21 @@ export default defineConfig({
     ],
     server: {
         port: 3000,
+        // Vite default CORS reflects any Origin. Allowlist local SPA/Django
+        // only; extra LAN origins via VITE_DEV_CORS_ORIGINS (comma-separated).
+        // Do not reflect arbitrary Origins or send wildcard ACAO.
+        cors: {
+            origin: [
+                'http://localhost:3000',
+                'http://127.0.0.1:3000',
+                'http://localhost:8000',
+                'http://127.0.0.1:8000',
+                ...((process.env.VITE_DEV_CORS_ORIGINS || '')
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean)),
+            ],
+        },
         proxy: {
             // Proxy API routes used by the modern React webui (after porting/cleanup)
             // Enables direct fetch('/v1/...') and fetch('/teams/...') etc. in dev

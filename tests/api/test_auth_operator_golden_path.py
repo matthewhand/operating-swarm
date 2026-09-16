@@ -202,7 +202,7 @@ class TestAuthOperatorGoldenPath:
         denied_token = await alice_api.get(
             f"/v1/responses/{token_rid}", SERVER_NAME="localhost"
         )
-        assert denied_token.status_code == 403, (
+        assert denied_token.status_code == 404, (
             "Session user must not REST-read token-owned responses (bridge is Explorer-only)"
         )
 
@@ -218,18 +218,18 @@ class TestAuthOperatorGoldenPath:
             SERVER_NAME="localhost",
             headers={"Authorization": f"Bearer {TOKEN}"},
         )
-        assert token_denied_user.status_code == 403
+        assert token_denied_user.status_code == 404
 
         bob_api = AsyncClient()
         await sync_to_async(bob_api.force_login)(bob)
         bob_denied_alice = await bob_api.get(
             f"/v1/responses/{user_rid}", SERVER_NAME="localhost"
         )
-        assert bob_denied_alice.status_code == 403
+        assert bob_denied_alice.status_code == 404
         bob_denied_token = await bob_api.get(
             f"/v1/responses/{token_rid}", SERVER_NAME="localhost"
         )
-        assert bob_denied_token.status_code == 403
+        assert bob_denied_token.status_code == 404
 
         # Unrelated Bearer must not see either record via REST.
         settings.SWARM_API_KEYS = [TOKEN, FOREIGN_TOKEN]
@@ -245,8 +245,8 @@ class TestAuthOperatorGoldenPath:
             SERVER_NAME="localhost",
             headers={"Authorization": f"Bearer {FOREIGN_TOKEN}"},
         )
-        assert foreign_user.status_code == 403
-        assert foreign_token.status_code == 403
+        assert foreign_user.status_code == 404
+        assert foreign_token.status_code == 404
 
 
 def _llm_config() -> dict:
@@ -454,7 +454,7 @@ class TestLibraryCreateRunCloser:
         bob_api = AsyncClient()
         await sync_to_async(bob_api.force_login)(bob)
         denied = await bob_api.get(f"/v1/responses/{rid}", SERVER_NAME="localhost")
-        assert denied.status_code == 403
+        assert denied.status_code == 404
 
         # Bearer create also stamps token owner (curl path beside the runner).
         token_api = AsyncClient()
@@ -514,4 +514,4 @@ class TestLibraryCreateRunCloser:
         alice_rest_token = await alice_api.get(
             f"/v1/responses/{token_rid}", SERVER_NAME="localhost"
         )
-        assert alice_rest_token.status_code == 403
+        assert alice_rest_token.status_code == 404

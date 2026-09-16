@@ -109,7 +109,7 @@ class TestResponseOwnership:
         bob = User.objects.create_user(username="bob_p0", password="x")
         self._save("resp_owned_alice", "user:alice_p0")
 
-        from rest_framework.exceptions import PermissionDenied
+        from rest_framework.exceptions import NotFound
         from rest_framework.request import Request
 
         from swarm.views.responses_views import _assert_owner_access
@@ -123,7 +123,7 @@ class TestResponseOwnership:
         rec = responses_store.load("resp_owned_alice")
         with override_settings(ENABLE_API_AUTH=True, SWARM_API_KEY=TOKEN):
             assert request_principal(drf_req) == "user:bob_p0"
-            with pytest.raises(PermissionDenied):
+            with pytest.raises(NotFound):
                 _assert_owner_access(drf_req, rec)
 
         # Same principal OK
@@ -140,7 +140,7 @@ class TestResponseOwnership:
         factory = APIRequestFactory()
         req = factory.post("/v1/responses/resp_cancel_alice/cancel")
         force_authenticate(req, user=bob)
-        from rest_framework.exceptions import PermissionDenied
+        from rest_framework.exceptions import NotFound
         from rest_framework.request import Request
 
         from swarm.views.responses_views import _assert_owner_access
@@ -149,7 +149,7 @@ class TestResponseOwnership:
         drf_req.user = bob
         rec = responses_store.load("resp_cancel_alice")
         with override_settings(ENABLE_API_AUTH=True, SWARM_API_KEY=TOKEN):
-            with pytest.raises(PermissionDenied):
+            with pytest.raises(NotFound):
                 _assert_owner_access(drf_req, rec)
 
     def test_request_principal_session_and_token(self):
@@ -241,9 +241,9 @@ class TestResponseOwnershipHTTP:
         assert ok.status_code == 200
         assert json.loads(ok.content)["id"] == "resp_http_alice"
 
-        # Foreign principal denied
+        # Foreign principal denied (same 404 as missing — no existence oracle)
         denied = await bob_client.get("/v1/responses/resp_http_alice", SERVER_NAME="localhost")
-        assert denied.status_code == 403
+        assert denied.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_refuses_legacy_unowned_when_auth_on(self, store, bob_client, settings):
@@ -252,7 +252,7 @@ class TestResponseOwnershipHTTP:
         self._save("resp_http_legacy", None)  # no owner field
 
         denied = await bob_client.get("/v1/responses/resp_http_legacy", SERVER_NAME="localhost")
-        assert denied.status_code == 403
+        assert denied.status_code == 404
 
     @pytest.mark.asyncio
     async def test_legacy_unowned_open_when_auth_off(self, store, bob_client, settings):
@@ -261,6 +261,29 @@ class TestResponseOwnershipHTTP:
 
         ok = await bob_client.get("/v1/responses/resp_http_legacy_open", SERVER_NAME="localhost")
         assert ok.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_auth_off_owned_records_are_principal_scoped(
+        self, store, alice_client, bob_client, settings
+    ):
+        """SWARM_ALLOW_NO_AUTH / ENABLE_API_AUTH=False must not skip IDOR."""
+        settings.ENABLE_API_AUTH = False
+        self._save("resp_http_alice_open", "user:http_alice")
+
+        ok = await alice_client.get(
+            "/v1/responses/resp_http_alice_open", SERVER_NAME="localhost"
+        )
+        assert ok.status_code == 200
+
+        foreign = await bob_client.get(
+            "/v1/responses/resp_http_alice_open", SERVER_NAME="localhost"
+        )
+        missing = await bob_client.get(
+            "/v1/responses/resp_does_not_exist", SERVER_NAME="localhost"
+        )
+        assert foreign.status_code == 404
+        assert missing.status_code == 404
+        assert foreign.status_code == missing.status_code
 
     @pytest.mark.asyncio
     async def test_cancel_refuses_foreign_and_legacy_http(self, store, alice_client, bob_client, settings):
@@ -272,12 +295,12 @@ class TestResponseOwnershipHTTP:
         foreign = await bob_client.post(
             "/v1/responses/resp_http_cancel_alice/cancel", SERVER_NAME="localhost"
         )
-        assert foreign.status_code == 403
+        assert foreign.status_code == 404
 
         legacy = await bob_client.post(
             "/v1/responses/resp_http_cancel_legacy/cancel", SERVER_NAME="localhost"
         )
-        assert legacy.status_code == 403
+        assert legacy.status_code == 404
 
         # Owner can cancel
         ok = await alice_client.post(
@@ -296,13 +319,13 @@ class TestResponseOwnershipHTTP:
         foreign = await bob_client.delete(
             "/v1/responses/resp_http_del_alice", SERVER_NAME="localhost"
         )
-        assert foreign.status_code == 403
+        assert foreign.status_code == 404
         assert responses_store.load("resp_http_del_alice") is not None  # still there
 
         legacy = await bob_client.delete(
             "/v1/responses/resp_http_del_legacy", SERVER_NAME="localhost"
         )
-        assert legacy.status_code == 403
+        assert legacy.status_code == 404
         assert responses_store.load("resp_http_del_legacy") is not None
 
         ok = await alice_client.delete(
@@ -557,7 +580,7 @@ class TestChatBackgroundOwnership:
         assert ok.status_code == 200
         assert json.loads(ok.content)["id"] == rid
 
-        # Different principal is refused (IDOR).
+        # Different principal is refused (IDOR) — 404, same as missing.
         denied = await bob_client.get(f"/v1/responses/{rid}", SERVER_NAME="localhost")
-        assert denied.status_code == 403
+        assert denied.status_code == 404
 

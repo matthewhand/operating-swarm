@@ -448,7 +448,6 @@ class BlueprintBase(ABC):
         if not profile and self._config and self._config.get('blueprints'):
             logger.debug(f"[DEBUG _resolve_llm_profile] Checking per-blueprint config for: {name}")
             bp_cfg = self._config['blueprints'].get(name) or self._config['blueprints'].get(name.replace('Blueprint', ''))
-            logger.debug(f"[DEBUG _resolve_llm_profile] bp_cfg: {bp_cfg}")
             bp_profile = self._blueprint_section_profile_name(bp_cfg if isinstance(bp_cfg, dict) else None)
             if bp_profile:
                 profile = bp_profile
