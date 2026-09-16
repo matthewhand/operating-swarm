@@ -1,7 +1,8 @@
-import { useId, useState, type ReactNode } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { ChevronDown, Pencil } from 'lucide-react'
 import { compactedCardCopyText } from '../lib/compactedCardMenu'
 import { useCompactedCardMenu } from './CompactedCardContextMenu'
+import { Textarea } from './DaisyUI'
 
 export interface CompactSummaryCardProps {
   title?: string
@@ -17,6 +18,9 @@ export interface CompactSummaryCardProps {
   /** #214: live include-in-context state; omit for view-only/system pills. */
   inContext?: boolean
   onToggleContext?: (include: boolean) => void
+  /** #57: summaries edit the same way regular chat bubbles do. */
+  canEdit?: boolean
+  onSaveEdit?: (text: string) => void
 }
 
 /**
@@ -39,9 +43,14 @@ export function CompactSummaryCard({
   children,
   inContext,
   onToggleContext,
+  canEdit = false,
+  onSaveEdit,
 }: CompactSummaryCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [removed, setRemoved] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(body)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const contentId = useId()
   const copyText = compactedCardCopyText({ text: body, compacted })
   const { onContextMenu, onKeyDown, menuNode } = useCompactedCardMenu({
@@ -57,15 +66,56 @@ export function CompactSummaryCard({
     onToggleContext,
   })
 
+  useEffect(() => {
+    if (!editing) return
+    setDraft(body)
+    const id = window.setTimeout(() => textareaRef.current?.focus(), 0)
+    return () => window.clearTimeout(id)
+  }, [editing, body])
+
   if (removed) return null
   const hasContextToggle = typeof inContext === 'boolean'
   const excluded = hasContextToggle && !inContext
+  const startEdit = () => {
+    if (!canEdit || editing) return
+    setEditing(true)
+    setExpanded(true)
+  }
+  const cancelEdit = () => {
+    setDraft(body)
+    setEditing(false)
+  }
+  const saveEdit = () => {
+    onSaveEdit?.(draft)
+    setEditing(false)
+  }
+
+  const handleBodyClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!canEdit || editing) return
+    const target = event.target as HTMLElement | null
+    if (target?.closest('a, button, textarea, input')) return
+    startEdit()
+  }
+
+  const handleEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      cancelEdit()
+      return
+    }
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      saveEdit()
+    }
+  }
 
   return (
     <div
-      className={`${className} ${excluded ? 'opacity-60' : ''}`.trim()}
+      className={`group ${className} ${excluded ? 'opacity-60' : ''}`.trim()}
       data-testid="chat-summary"
       data-in-context={hasContextToggle ? String(inContext) : undefined}
+      data-can-edit={canEdit ? 'true' : 'false'}
       onContextMenu={onContextMenu}
     >
       <div className="inline-flex items-start gap-2">
@@ -102,10 +152,50 @@ export function CompactSummaryCard({
             aria-hidden="true"
           />
         </button>
+        {canEdit && !editing ? (
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs gap-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            aria-label="Edit message"
+            data-testid="summary-edit-button"
+            onClick={startEdit}
+          >
+            <Pencil className="h-3 w-3" aria-hidden="true" />
+            Edit
+          </button>
+        ) : null}
       </div>
       {expanded ? (
         <div id={contentId} data-testid="chat-summary-content">
-          <div className="chat-summary__body whitespace-pre-wrap break-words">{body}</div>
+          {editing ? (
+            <div className="mt-2">
+              <Textarea
+                ref={textareaRef}
+                aria-label="Edit message"
+                size="sm"
+                className="w-full min-h-24"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={handleEditorKeyDown}
+              />
+              <div className="mt-2 flex justify-end gap-1">
+                <button type="button" className="btn btn-ghost btn-xs" onClick={cancelEdit}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-primary btn-xs" onClick={saveEdit}>
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="chat-summary__body whitespace-pre-wrap break-words"
+              data-testid="chat-summary-body"
+              onClick={handleBodyClick}
+            >
+              {body}
+            </div>
+          )}
           {meta ? <div className="chat-summary__meta">{meta}</div> : null}
           {excluded ? (
             <div className="chat-summary__meta" data-testid="summary-excluded-note">

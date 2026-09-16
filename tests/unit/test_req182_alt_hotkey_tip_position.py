@@ -19,6 +19,6 @@ def test_alt_hotkey_tip_is_top_right():
     assert "bottom:" not in body, "Shortcut chip must not position from bottom"
     assert "right:" in body, "Shortcut chip must position from right"
 
-    # Hover and focus-within reveal
+    # Hover reveal only — #57: leave the tile and the hint hides (no focus stick).
     assert ".os-fav-tile:hover .os-fav-tile__shortcut" in css
-    assert ".os-fav-tile:focus-within .os-fav-tile__shortcut" in css
+    assert ".os-fav-tile:focus-within .os-fav-tile__shortcut" not in css

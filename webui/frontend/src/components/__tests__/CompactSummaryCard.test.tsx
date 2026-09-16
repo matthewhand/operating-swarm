@@ -121,3 +121,43 @@ describe('CompactSummaryCard include-in-context (#214)', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe('CompactSummaryCard edit (#57)', () => {
+  it('does not offer edit unless canEdit is set', () => {
+    render(<CompactSummaryCard body="digest" />)
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-can-edit', 'false')
+  })
+
+  it('edits like a chat bubble: hover Edit, save, cancel', () => {
+    const onSaveEdit = vi.fn()
+    render(<CompactSummaryCard body="outer digest" canEdit onSaveEdit={onSaveEdit} />)
+
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-can-edit', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    expect(editor).toHaveValue('outer digest')
+
+    fireEvent.change(editor, { target: { value: 'revised digest' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onSaveEdit).not.toHaveBeenCalled()
+    expect(screen.getByTestId('chat-summary-body')).toHaveTextContent('outer digest')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit message' }), {
+      target: { value: 'revised digest' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSaveEdit).toHaveBeenCalledWith('revised digest')
+  })
+
+  it('clicking the summary body enters edit, Ctrl/Cmd+Enter saves', () => {
+    const onSaveEdit = vi.fn()
+    render(<CompactSummaryCard body="digest" canEdit onSaveEdit={onSaveEdit} />)
+    fireEvent.click(screen.getByTestId('chat-summary-body'))
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    fireEvent.change(editor, { target: { value: 'from click' } })
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true })
+    expect(onSaveEdit).toHaveBeenCalledWith('from click')
+  })
+})

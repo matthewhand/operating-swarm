@@ -24,8 +24,8 @@ export default function PersonaRoster({
   const faces = facesFromDeclaredRoster(roster, groupId)
   const count = roster.parsed ? roster.count : 1
   const caption = label || (roster.parsed ? `${count} declared members` : 'Team')
-  // #98: declared rosters follow the same team stack plan as member rows —
-  // 4 or fewer show all faces, more collapse to 2 faces + a +N remainder.
+  // #57: declared rosters follow the same team stack plan as member rows —
+  // 1–3 show all faces, 4+ collapse to 2 faces + a +N remainder.
   const stack = teamSidepaneStack(faces)
 
   if (faces.length <= 1) {
@@ -73,8 +73,7 @@ export default function PersonaRoster({
       data-remainder={String(stack.remainder)}
       aria-label={caption}
     >
-      {/* maxFaces stays at the all-max so the planned 4-face roster is not
-          re-sliced to the default 3; the plan owns the remainder. */}
+      {/* maxFaces follows the team all-max so the plan owns the remainder. */}
       <AvatarStack
         faces={stack.faces}
         remainder={stack.remainder}

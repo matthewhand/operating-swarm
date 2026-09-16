@@ -847,8 +847,8 @@ html:not([data-theme="light"]) .os-composer,
   transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out;
   pointer-events: none;
 }
-.os-rail-search:hover .os-rail-search__kbd,
-.os-rail-search:focus-within .os-rail-search__kbd {
+/* #57: Ctrl/Cmd+K hint only while the pointer is over the rail. */
+.os-agent-sidebar:hover .os-rail-search__kbd {
   opacity: 1;
   background: color-mix(in srgb, var(--color-base-content) 16%, transparent) !important;
 }
@@ -980,8 +980,8 @@ html:not([data-theme="light"]) .os-composer,
   pointer-events: none;
   z-index: 10;
 }
-.os-fav-tile:hover .os-fav-tile__shortcut,
-.os-fav-tile:focus-within .os-fav-tile__shortcut {
+/* #57: Alt+N hint hides when the pointer leaves the tile (no focus stick). */
+.os-fav-tile:hover .os-fav-tile__shortcut {
   opacity: 1;
 }
 

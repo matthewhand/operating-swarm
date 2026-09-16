@@ -17,6 +17,6 @@ describe('Alt Hotkey Tip Position (REQ-182)', () => {
     expect(ruleBody).toMatch(/z-index:\s*10/)
 
     expect(css).toContain('.os-fav-tile:hover .os-fav-tile__shortcut')
-    expect(css).toContain('.os-fav-tile:focus-within .os-fav-tile__shortcut')
+    expect(css).not.toContain('.os-fav-tile:focus-within .os-fav-tile__shortcut')
   })
 })
