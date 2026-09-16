@@ -721,7 +721,8 @@ LIST_MODELS: dict[str, list[str]] = {
 }
 
 # List-models probes must stay cheap and never hang a Settings / #358 caller.
-LIST_MODELS_TIMEOUT = 15.0
+# REQ-877: hard cap is 1.5s so /v1/llm-profiles/ cannot block page hydration.
+LIST_MODELS_TIMEOUT = 1.5
 
 
 def list_models_argv(name: str) -> list[str] | None:
