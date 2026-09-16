@@ -149,6 +149,27 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
     })
   })
 
+  it('ignores a target list that belongs to another remote (#453)', async () => {
+    // Browser-verified on the LAN app: a stale OpenMousBot list reached the
+    // Herdr pane and its first row was adopted as the Herdr target — a UUID no
+    // Herdr pane can accept. A list from another remote is ignored outright.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'omb',
+      op: 'list',
+      ok: true,
+      detail: 'OpenMousBot listed 1 bot(s)',
+      data: { bots: [{ id: '3a383904-ec73-444c-ba8b-9805a05d18e3', name: 'hide-qa-beta' }] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    })
+    expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('')
+    expect(screen.queryByText(/hide-qa-beta/i)).not.toBeInTheDocument()
+  })
+
   it('renders routines section when capabilities.routines is true and displays routines', async () => {
     vi.spyOn(api, 'fetchRemoteRoutines').mockResolvedValue({
       remote: 'trueforge',

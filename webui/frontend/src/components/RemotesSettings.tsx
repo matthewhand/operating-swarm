@@ -344,6 +344,15 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   // mirrors the Interrogate CLI guard beside it. Other kinds keep Send enabled:
   // an empty target is legal for them (e.g. OMB creates a bot when none exist).
   const requiresTarget = isHerdr
+  // #453 follow-up, browser-verified on the LAN app: switching the Remote
+  // picker reused this component instance (same element type, same position),
+  // so `listed`, `botId`, and the target adopted from them survived the switch.
+  // The Herdr pane inherited OpenMousBot's 20 bots and auto-filled its target
+  // with an OMB bot UUID — a target no Herdr pane can accept. SettingsSheet now
+  // keys the pane by remote id, and these checks keep a late or mismatched
+  // response out of the pane regardless: a target list from one remote is never
+  // a valid target for another.
+  const belongsHere = (result: { remote?: string }) => result.remote === remote.id
   const hasRoutines = Boolean(remote.capabilities?.routines)
   const [health, setHealth] = useState<RemoteHealthResult | null>(null)
   const [listed, setListed] = useState<RemoteOperateResult | null>(null)
@@ -362,7 +371,9 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
 
   const healthMutation = useMutation({
     mutationFn: () => probeRemoteHealth(remote.id),
-    onSuccess: (result) => setHealth(result),
+    onSuccess: (result) => {
+      if (belongsHere(result)) setHealth(result)
+    },
     onError: (err: Error) => {
       setHealth({
         remote: remote.id,
@@ -376,6 +387,7 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   const listMutation = useMutation({
     mutationFn: () => operateRemote(remote.id, { op: 'list' }, { timeoutMs: OPERATE_LIST_TIMEOUT_MS }),
     onSuccess: (result) => {
+      if (!belongsHere(result)) return
       setListed(result)
       const bots = botsFromOperate(result)
       if (!botId && bots[0]?.id) setBotId(bots[0].id)
@@ -408,7 +420,9 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   const interrogateMutation = useMutation({
     mutationFn: () =>
       operateRemote(remote.id, { op: 'interrogate', target: botId.trim() }, { timeoutMs: 12000 }),
-    onSuccess: (result) => setInterrogated(result),
+    onSuccess: (result) => {
+      if (belongsHere(result)) setInterrogated(result)
+    },
     onError: (err: Error) => {
       setInterrogated({
         remote: remote.id,
@@ -431,7 +445,9 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
         },
         { timeoutMs: OPERATE_SEND_TIMEOUT_MS },
       ),
-    onSuccess: (result) => setSent(result),
+    onSuccess: (result) => {
+      if (belongsHere(result)) setSent(result)
+    },
     onError: (err: Error) => {
       error('Send failed', err.message)
       setSent({

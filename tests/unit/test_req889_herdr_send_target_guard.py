@@ -56,3 +56,42 @@ def test_list_adoption_never_overwrites_an_operator_choice():
 def test_manual_list_control_is_still_available():
     content = _settings_source()
     assert "onClick={() => listMutation.mutate()}" in content
+
+
+# --- §6: the pane must not inherit another remote's targets -------------------
+
+
+def test_pane_is_keyed_by_remote_id_so_a_switch_remounts_it():
+    """R6: reusing the instance leaked `listed`/`botId` across the Remote picker."""
+    sheet = (REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "<RemoteOperatePane key={selected.id} remote={selected} />" in sheet
+
+
+def test_a_result_from_another_remote_is_ignored():
+    """R7: a target list from one remote is never a target for another."""
+    content = _settings_source()
+    assert "const belongsHere = (result: { remote?: string }) => result.remote === remote.id" in content
+    # Every mutation that can adopt or display a remote-scoped result is guarded:
+    # list drops the result outright, health/interrogate/send keep this pane's own.
+    assert "if (!belongsHere(result)) return" in content
+    for setter in ("setHealth(result)", "setInterrogated(result)", "setSent(result)"):
+        assert f"if (belongsHere(result)) {setter}" in content
+    # The adoption line stays behind the ownership check, not before it.
+    adoption = content.index("if (!botId && bots[0]?.id) setBotId(bots[0].id)")
+    assert content.rindex("if (!belongsHere(result)) return", 0, adoption) < adoption
+
+
+def test_the_mount_list_still_runs_once_per_pane():
+    """R6 acceptance: remounting is what re-lists for the newly selected remote.
+
+    Pinned as a pair so neither half can regress alone: the key in SettingsSheet
+    makes a switch a fresh mount, and the ref keeps that mount idempotent.
+    """
+    content = _settings_source()
+    assert "const autoListedRef = useRef(false)" in content
+    sheet = (REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "key={selected.id}" in sheet

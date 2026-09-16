@@ -1150,7 +1150,10 @@ function RemotesCatalogPane({
             </ul>
           )}
 
-          {selected ? <RemoteOperatePane remote={selected} /> : null}
+          {/* Keyed by remote id: without it React reuses this pane across a
+              Remote switch, so the previous remote's list, adopted target, and
+              result panes leak into the next one (#453 follow-up). */}
+          {selected ? <RemoteOperatePane key={selected.id} remote={selected} /> : null}
 
           {adding ? (
             <form className="space-y-3 rounded-box border border-base-300 p-3" onSubmit={handleAdd}>

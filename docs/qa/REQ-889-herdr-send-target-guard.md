@@ -8,7 +8,11 @@
 **Status: shipped.** Lock test:
 `tests/unit/test_req889_herdr_send_target_guard.py`.
 Behaviour tests: `webui/frontend/src/components/__tests__/RemotesSettings.test.tsx`
-(the two `#453` cases).
+(the two `#453` cases) plus the two follow-up cases in §6.
+
+> §6 records what browser verification of this guard turned up on the live LAN app:
+> the guard held, but the pane it guarded could be showing **another remote's**
+> targets. Both halves ship together.
 
 ---
 
@@ -103,12 +107,14 @@ target, and its message stays as the last line of defence.
 
 | Behaviour | Source |
 |-----------|--------|
-| Kind-scoped requirement | `webui/frontend/src/components/RemotesSettings.tsx:346` (`requiresTarget`) |
-| Mount-time list (idempotent) | `webui/frontend/src/components/RemotesSettings.tsx:398-405` |
-| Send button guard | `webui/frontend/src/components/RemotesSettings.tsx:601` |
+| Kind-scoped requirement | `webui/frontend/src/components/RemotesSettings.tsx` (`const requiresTarget = isHerdr`) |
+| Mount-time list (idempotent) | `webui/frontend/src/components/RemotesSettings.tsx` (`const autoListedRef = useRef(false)`) |
+| Send button guard | `webui/frontend/src/components/RemotesSettings.tsx` (`disabled={requiresTarget && !botId.trim()}`) |
 | Interrogate guard it mirrors | `webui/frontend/src/components/RemotesSettings.tsx` (`disabled={!botId.trim()}`) |
-| Backend rejection (unchanged) | `src/swarm/core/remotes.py:3338` (`_herdr_send`) |
-| Backend interrogate rejection | `src/swarm/core/remotes.py:3408` |
+| Pane is keyed by remote id (§6) | `webui/frontend/src/components/SettingsSheet.tsx` (`<RemoteOperatePane key={selected.id} …>`) |
+| Foreign result is ignored (§6) | `webui/frontend/src/components/RemotesSettings.tsx` (`const belongsHere = …`) |
+| Backend rejection (unchanged) | `src/swarm/core/remotes.py` (`_herdr_send`) |
+| Backend interrogate rejection | `src/swarm/core/remotes.py` (`_herdr_interrogate`) |
 
 ---
 
@@ -134,3 +140,63 @@ target, and its message stays as the last line of defence.
 - Full frontend suite: same 11 pre-existing failures as the parent commit, with
   the two new `#453` cases added and passing; `tsc --noEmit` and `eslint` both
   unchanged (28 errors / 32 errors respectively, all pre-existing).
+
+---
+
+## 6. Follow-up: the pane kept the previous remote's targets
+
+**Status: shipped** in the same PR. Verified in a real browser, not by reading code.
+
+The closing ask was to confirm the guard "in the browser on the LAN app". Playwright
+(headless Chromium) against `http://10.0.0.36:8002/` did confirm the guard — Send is
+disabled with a blank target, enables once a target exists, and a re-list does not
+clobber a target the operator picked — but the pane it guarded was not the pane it
+claimed to be.
+
+### Observed (live, 2026-09-17)
+
+| Step | Pane heading | Target field | Rows shown |
+|---|---|---|---|
+| Open Settings → Remotes (default selection `omb`) | OpenMousBot | `3a383904-…` | 20 OMB bots |
+| Switch **Remote** → `herdr` | **Herdr** | `3a383904-…` (unchanged) | **the same 20 OMB bots** |
+| Switch back to `omb`, then `herdr` again | Herdr | unchanged | unchanged |
+
+So the Herdr pane was showing OpenMousBot's bots, and — because R2 adopts the first
+listed row — it auto-filled its target with an **OMB bot UUID**. The server's own
+Herdr list (`op=list`, captured in the same page load) returned 7 members named
+`w2:pG`, `w2:pD`, `w3:p1`, `w4:p1`, `w2`, `w3`, `w4`; none of them reached the UI.
+
+This is worse than the empty-target dead end it replaced: the guard's precondition
+was satisfied with a target no Herdr pane can accept, so the first Send would fail
+against Herdr instead of against its own validation.
+
+### Root cause
+
+`SettingsSheet` rendered `{selected ? <RemoteOperatePane remote={selected} /> : null}`.
+Same element type at the same position → React **reuses the instance** across a
+Remote switch, so `listed`, `botId`, and the adopted target survived it. The
+mount-time list in R2 is `useRef`-guarded and mount-only, so it never ran for the
+newly selected remote either.
+
+### Fix
+
+1. `SettingsSheet.tsx` keys the pane by remote id — `key={selected.id}` — so a
+   switch remounts it, which clears the previous remote's state and re-runs the
+   mount list for the one now selected (the R2 behaviour, applied per remote).
+2. `RemotesSettings.tsx` gains `belongsHere`, and every mutation's success handler
+   ignores a result whose `remote` is not this pane's. Defence in depth: a target
+   list from one remote is never a valid target for another, so a late or
+   mismatched response cannot be adopted again.
+
+### Tests (both fail against the unfixed pane)
+
+- `RemotesSettings.test.tsx` — *"ignores a target list that belongs to another
+  remote (#453)"*: a list result carrying `remote: 'omb'` must not populate the
+  Herdr pane; Send stays disabled.
+- `SettingsSheet.test.tsx` — *"reloads the pane when the Remote picker changes, so
+  one remote never keeps another's targets (#453)"*: with `omb` and `herdr` both
+  configured, switching the picker must load the new remote's own targets
+  (`w2:pG`) and drop the old remote's rows.
+
+Both were run with only the source fix stashed: they fail there and pass with it,
+which is what makes them regressions rather than restatements.
