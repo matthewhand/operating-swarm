@@ -28,8 +28,14 @@ def _boom_input(*_a, **_k):
 def _live_gawd_path(monkeypatch):
     monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
     monkeypatch.setattr("builtins.input", _boom_input)
+    # Patch the class object, not a dotted path: discovery may have inserted a
+    # file-loaded module into sys.modules without wiring parent packages, which
+    # makes pytest's dotted setattr fail to resolve blueprint_gawd.
+    from swarm.blueprints.gawd.blueprint_gawd import GAWDBlueprint
+
     monkeypatch.setattr(
-        "swarm.blueprints.gawd.blueprint_gawd.GAWDBlueprint._stdin_is_interactive",
+        GAWDBlueprint,
+        "_stdin_is_interactive",
         staticmethod(lambda: False),
     )
     from django.apps import apps

@@ -30,6 +30,7 @@ as UNKNOWN until you fill in their ports.
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import time
 import urllib.error
@@ -142,6 +143,9 @@ class HarnessFleetBlueprint(BlueprintBase):
         if isinstance(cfg_fleet, dict):
             include_builtins = cfg_fleet.get("builtins", True) is not False
             entries_cfg = cfg_fleet.get("entries") or {}
+        # Hermetic: never TCP/HTTP-probe the baked-in LAN inventory under tests.
+        if os.environ.get("SWARM_TEST_MODE"):
+            include_builtins = False
 
         fleet: dict[str, dict[str, Any]] = (
             {k: dict(v) for k, v in _BUILTIN_FLEET.items()} if include_builtins else {}
