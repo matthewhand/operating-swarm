@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GripVertical, Plus, Tags, Users } from 'lucide-react'
-import { Alert, Badge, Button, Input, Modal, Textarea } from './DaisyUI'
+import { Alert, Badge, Button, Input, Modal, Tabs, Textarea } from './DaisyUI'
 import InstallCatalog from './InstallCatalog'
 import {
   createTeamRoster,
@@ -32,7 +32,6 @@ import {
   FIRST_AGENT_VALUE,
   firstAgentLeadId,
   isCosEligibleMember,
-  KIND_LABEL,
   memberByKey,
   memberKey,
   newRoleSlot,
@@ -72,10 +71,21 @@ export interface TeamComposerProps {
   onClose: () => void
 }
 
-function kindBadgeType(kind: TeamAgent['kind']): 'info' | 'success' | 'warning' {
-  if (kind === 'api') return 'info'
-  if (kind === 'cli') return 'success'
-  return 'warning'
+const AVAILABLE_AGENT_KINDS = ['api', 'cli', 'remote'] as const
+type AvailableAgentKind = (typeof AVAILABLE_AGENT_KINDS)[number]
+
+const AVAILABLE_AGENT_KIND_LABEL: Record<AvailableAgentKind, string> = {
+  api: 'API',
+  cli: 'CLI',
+  remote: 'Remote',
+}
+
+function defaultAvailableAgentKind(
+  byKind: Record<AvailableAgentKind, readonly TeamAgent[]>,
+): AvailableAgentKind {
+  if (byKind.api.length > 0) return 'api'
+  const firstNonEmpty = AVAILABLE_AGENT_KINDS.find((kind) => byKind[kind].length > 0)
+  return firstNonEmpty ?? 'api'
 }
 
 export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
@@ -94,6 +104,8 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const [roleSlots, setRoleSlots] = useState<RoleSlot[]>([])
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const [status, setStatus] = useState<string | null>(null)
+  const [agentKindTab, setAgentKindTab] = useState<AvailableAgentKind>('api')
+  const [agentKindTabTouched, setAgentKindTabTouched] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const cosChoices = useMemo(() => eligibleCosMembers(members), [members])
   const rolesUnlocked = members.length > 0
@@ -128,6 +140,10 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     }
   }, [availableAgents])
 
+  const activeAgentKind = agentKindTabTouched
+    ? agentKindTab
+    : defaultAvailableAgentKind(agentsByKind)
+
   const resetDraft = useCallback(() => {
     const draft = emptyRosterDraft()
     setName(draft.name)
@@ -139,6 +155,8 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     setRoleSlots([])
     setSavedId(null)
     setStatus(null)
+    setAgentKindTab('api')
+    setAgentKindTabTouched(false)
   }, [])
 
   useEffect(() => {
@@ -736,9 +754,6 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                           {index + 1}
                         </span>
                         <span className="font-medium">{agentDisplayName(member)}</span>
-                        <Badge type={kindBadgeType(member.kind)} size="sm">
-                          {KIND_LABEL[member.kind]}
-                        </Badge>
                         <button
                           type="button"
                           className="btn btn-ghost btn-xs ml-auto"
@@ -759,28 +774,38 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             {agentsQuery.isPending && availableAgents.length === 0 ? (
               <p className="text-sm text-base-content/45">Loading agents…</p>
             ) : (
-              <div
-                className="flex max-h-[22rem] flex-col gap-3 overflow-y-auto pr-1"
-                aria-label="Available agents list"
-                data-testid="available-agents-scroller"
-                role="list"
-              >
-                {(['api', 'cli', 'remote'] as const).map((kind) => (
-                  <div key={kind} data-testid={`available-agents-group-${kind}`}>
-                    <h4
-                      className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/45"
-                      data-testid={`available-agents-kind-${kind}`}
-                    >
-                      {KIND_LABEL[kind]}
-                      <span className="ml-1 font-normal normal-case tracking-normal text-base-content/35">
-                        ({agentsByKind[kind].length})
+              <>
+                <Tabs
+                  tabs={AVAILABLE_AGENT_KINDS.map((kind) => ({
+                    key: kind,
+                    label: (
+                      <span data-testid={`available-agents-kind-${kind}`}>
+                        {`${AVAILABLE_AGENT_KIND_LABEL[kind]} (${agentsByKind[kind].length})`}
                       </span>
-                    </h4>
-                    <ul className="flex flex-col gap-1 pr-1">
-                      {agentsByKind[kind].length === 0 ? (
+                    ),
+                  }))}
+                  activeTab={activeAgentKind}
+                  onChange={(key) => {
+                    setAgentKindTabTouched(true)
+                    setAgentKindTab(key as AvailableAgentKind)
+                  }}
+                  size="sm"
+                  className="mb-2"
+                />
+                <div
+                  className="flex max-h-[22rem] flex-col overflow-y-auto pr-1"
+                  data-testid="available-agents-scroller"
+                >
+                  <div data-testid={`available-agents-group-${activeAgentKind}`}>
+                    <ul
+                      className="flex flex-col gap-1 pr-1"
+                      aria-label="Available agents list"
+                      role="list"
+                    >
+                      {agentsByKind[activeAgentKind].length === 0 ? (
                         <li className="px-2 py-1 text-xs text-base-content/40">None</li>
                       ) : (
-                        agentsByKind[kind].map((agent) => {
+                        agentsByKind[activeAgentKind].map((agent) => {
                           const already = rosterHasMember(members, agent)
                           return (
                             <li
@@ -802,9 +827,6 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                                 <span className="min-w-0 flex-1 truncate font-medium">
                                   {agentDisplayName(agent)}
                                 </span>
-                                <Badge type={kindBadgeType(agent.kind)} size="sm">
-                                  {KIND_LABEL[agent.kind]}
-                                </Badge>
                                 {agent.placeholder && (
                                   <Badge type="ghost" size="xs">
                                     placeholder
@@ -825,8 +847,8 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                       )}
                     </ul>
                   </div>
-                ))}
-              </div>
+                </div>
+              </>
             )}
           </section>
         </div>
