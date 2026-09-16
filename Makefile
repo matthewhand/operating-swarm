@@ -8,9 +8,10 @@ BIN ?= $(HOME)/.local/share/swarm/bin
 .PHONY: help dev test frontend list-installed list-available build build-shim build-all-shims build-all-executables launch uninstall build-pyinstaller build-all-pyinstaller demo-deploy demo-build
 
 COMPOSE ?= docker compose
-# Host-coupled CLI mapping (gitignored). Auto-included by `make dev` when present
-# so the agentic CLIs (claude/opencode/qwen/grok) are mapped into the dev container;
-# a no-op on hosts without it. dev.yml stays LAST so its !override ports win.
+# Host-coupled local mappings (gitignored). Auto-included by `make dev` when
+# present, so host-only paths land in the dev container — the agentic CLIs
+# (claude/opencode/qwen/grok) and harness binaries/sockets (herdr); a no-op on
+# hosts without it. dev.yml stays LAST so its !override ports win.
 DEV_OVERRIDE := $(wildcard docker-compose.override.yml)
 
 help:
