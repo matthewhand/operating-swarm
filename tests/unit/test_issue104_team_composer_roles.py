@@ -29,7 +29,6 @@ def test_roles_pane_is_agents_first_with_distinct_drag_mime():
     assert "assignableMembersForSlot" in helpers
     for role in ("support", "gate", "skeptic", "chief_of_staff", "suggestions", "engineer"):
         assert f"'{role}'" in helpers
-    assert "First agent" not in src
     assert "handoff" in src and "as_tool" in src
 
 

@@ -13,16 +13,21 @@ import {
   emptyRosterDraft,
   encodeDragAgent,
   encodeDragRole,
+  FIRST_AGENT_VALUE,
+  firstAgentLeadId,
   isCosEligibleMember,
   memberKey,
   nestRosters,
   parseDragAgent,
   parseDragRole,
+  parseDragRosterIndex,
   parseRosterMember,
   parseTeamRoster,
   parseTeamRosterList,
+  reorderMembers,
   restoreCosId,
   ROLE_DRAG_MIME,
+  ROSTER_DRAG_MIME,
   runtimeBriefForTarget,
   setMemberRole,
   slotsFromMembers,
@@ -229,5 +234,28 @@ describe('teamRoster role slots (issue #104)', () => {
     const cleared = applySlotMemberChange(moved, { ...slot, memberKey: memberKey(jeeves) }, null)
     expect(cleared.every((m) => m.role === 'default')).toBe(true)
     expect(setMemberRole(cleared, jeeves, 'support')[0].role).toBe('support')
+  })
+})
+
+describe('teamRoster First agent lead (issue #105)', () => {
+  it('reorders members and firstAgentLeadId tracks roster index 0', () => {
+    const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves' }
+    const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok' }
+    const remote = { id: 'acp', name: 'ACP', kind: 'remote' as const, source: 'placeholder:remote:acp' }
+    const members = addMember(addMember([], jeeves), grok)
+    expect(firstAgentLeadId(members)).toBe('jeeves')
+    const moved = reorderMembers(members, 1, 0)
+    expect(moved.map((row) => row.id)).toEqual(['grok', 'jeeves'])
+    expect(firstAgentLeadId(moved)).toBe('grok')
+    expect(reorderMembers(members, 0, 0)).toBe(members)
+    expect(reorderMembers(members, -1, 0)).toBe(members)
+    expect(firstAgentLeadId([
+      { id: 'acp', kind: 'remote', role: 'default', source: 'placeholder:remote:acp' },
+    ])).toBeNull()
+    expect(firstAgentLeadId(addMember([remote], jeeves))).toBeNull()
+    expect(parseDragRosterIndex('1')).toBe(1)
+    expect(parseDragRosterIndex('nope')).toBeNull()
+    expect(ROSTER_DRAG_MIME).not.toBe(DRAG_MIME)
+    expect(FIRST_AGENT_VALUE).toBe('__first__')
   })
 })
