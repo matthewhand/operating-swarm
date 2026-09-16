@@ -5,6 +5,7 @@ import {
   dataTransferHasFiles,
   filesFromList,
   formatFileSize,
+  imageFilesFromClipboard,
   isImageFile,
   readyAttachmentIds,
 } from '../chatAttachments'
@@ -22,6 +23,31 @@ describe('chatAttachments helpers', () => {
     expect(filesFromList([file])).toHaveLength(1)
     expect(dataTransferHasFiles(['Files'])).toBe(true)
     expect(dataTransferHasFiles(['text/plain'])).toBe(false)
+  })
+
+  it('pulls image files off a clipboard DataTransfer (REQ-811)', () => {
+    const png = new File([new Uint8Array([1, 2, 3])], 'red.png', { type: 'image/png' })
+    const notes = new File(['hello'], 'notes.txt', { type: 'text/plain' })
+    expect(
+      imageFilesFromClipboard({
+        files: [png, notes],
+        items: [],
+        types: ['Files'],
+      }).map((file) => file.name),
+    ).toEqual(['red.png'])
+    expect(
+      imageFilesFromClipboard({
+        files: [],
+        items: [
+          {
+            kind: 'file',
+            type: 'image/png',
+            getAsFile: () => png,
+          } as DataTransferItem,
+        ],
+      }),
+    ).toEqual([png])
+    expect(imageFilesFromClipboard({ files: [notes], items: [] })).toEqual([])
   })
 
   it('creates a pending chip and collects ready ids', () => {
