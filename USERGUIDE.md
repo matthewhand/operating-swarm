@@ -1,11 +1,12 @@
 # Operating Swarm User Guide: `os-cli`
 
 This guide is the task-oriented reference for the `os-cli` command-line
-tool: managing blueprints and configuration in your Operating Swarm (OS)
-environment. It assumes you have installed from source (`uv sync --all-extras`)
+tool (`os` is the same command): managing blueprints and configuration in
+your Operating Swarm (OS) environment. Bare `os` / `os-cli` (or `os chat` /
+`os tui`) opens the TUI to chat with configured agents. It assumes you have installed from source (`uv sync --all-extras`)
 or, once published, `pip install os-core` (legacy `open-swarm` on PyPI is a
 deprecation alias — see [#296](https://github.com/matthewhand/open-swarm-private/issues/296)).
-Every command documented here is verified against `os-cli --help`.
+Every command documented here is verified against `os-cli --help` (`os --help` is the same).
 
 > **Documentation map:** this file is the `os-cli` reference;
 > [docs/USER_JOURNEY.md](./docs/USER_JOURNEY.md) is the end-to-end story
@@ -172,7 +173,7 @@ os-cli compile jeeves
     without an API key (see
     [docs/USER_JOURNEY.md](./docs/USER_JOURNEY.md#try-a-blueprint-without-an-api-key-swarm_test_mode)).
 
-### Terminal TUI (`os-cli tui`) — interactive front door
+### Terminal TUI (`os` / `os-cli tui` / `os chat`) — interactive front door
 
 Operating Swarm’s own terminal client of the **same HTTP API** as the WebUI
 ([REQ-111](https://github.com/matthewhand/open-swarm/issues/481) /
@@ -195,11 +196,12 @@ composer (their send is the SPA websocket path; TUI v1 has no cookie jar).
 # Textual is an optional [tui] extra (included by `uv sync --all-extras`).
 # Requires a running os-api (greenfield http://127.0.0.1:8000; fleet often :8002 when LiteLLM owns :8000 — not :8001)
 # and, when API auth is on, API_AUTH_TOKEN / SWARM_API_KEY (env values only).
-os-cli tui
+os              # shortcut; same as os-cli / os tui / os chat
+os chat --agent grok
 
-# Non-TTY / CI: the Wave 0 ASCII dump + JSON still work
-os-cli tui --once
-os-cli tui --once --base-url http://127.0.0.1:8000 --json   # or :8002 on fleets where LiteLLM owns :8000
+# Non-TTY / CI: ASCII dump + JSON
+os tui --once
+os tui --once --base-url http://127.0.0.1:8000 --json   # or :8002 on fleets where LiteLLM owns :8000
 ```
 
 `launch` / `install` stay available (dual entry).

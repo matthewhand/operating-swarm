@@ -7,7 +7,7 @@
 
 **Operating Swarm (OS)** is a provider-agnostic agent operating layer and harness. It runs its own native agentic execution (`os-core`), connects to external harnesses (`os-adapter-hermes`, `os-adapter-truforge`), and peers with other Operating Swarm instances (`os-peer`). Sessions persist while switching providers, harnesses, or OS nodes. OS is **not only a UI, wrapper, gateway, adapter, or supervisor.**
 
-Three interfaces sit on that core: **OS WebUI** (`os-webui`), **OS CLI** (`os-cli`), and the OpenAI-compatible **OS API** (`os-api`). Umbrella repository: **`operating-swarm`**. Python import path remains `swarm`.
+Three interfaces sit on that core: **OS WebUI** (`os-webui`), **OS CLI** (`os-cli`, shortcut `os`), and the OpenAI-compatible **OS API** (`os-api`). Umbrella repository: **`operating-swarm`**. Python import path remains `swarm`.
 
 It seats four kinds of agents — **CLI**, **API** (true inference), **Blueprint** (programmatic / openai-agents), and **Remote** — and composes them with **handoff** and **agent-as-tool**. The same blueprint runs from `os-cli` and from `/v1/chat/completions`.
 

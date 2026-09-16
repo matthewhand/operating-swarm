@@ -34,7 +34,24 @@ try:
 except Exception:
     pass
 
-app = typer.Typer(help="Operating Swarm CLI (OS CLI)", add_completion=False)
+app = typer.Typer(
+    help=(
+        "Operating Swarm CLI (OS CLI). `os` is a shortcut for `os-cli`. "
+        "Bare `os` / `os-cli` opens the TUI to chat with configured agents."
+    ),
+    add_completion=False,
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+@app.callback()
+def _cli_root(ctx: typer.Context) -> None:
+    """Operating Swarm CLI. Bare invocation opens the TUI."""
+    if ctx.invoked_subcommand is None:
+        from swarm.tui.cli import tui_cmd
+
+        tui_cmd()
 
 
 def _safe_blueprint_segment(name: str) -> str | None:
