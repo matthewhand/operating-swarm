@@ -70,10 +70,46 @@ def _list_tool(name: str = "") -> str:
     return _render_operate(result)
 
 
-def _send_tool(name: str, prompt: str, target: str = "") -> str:
+def _send_tool(
+    name: str,
+    prompt: str,
+    target: str = "",
+    context: dict[str, Any] | None = None,
+) -> str:
     """Send a job/turn to a remote harness's real API (not a local seat clone)."""
     result = remotes_core.operate(name, "send", prompt=prompt, target=target)
+    _arm_omb_followup(result, name, context)
     return _render_operate(result)
+
+
+def _arm_omb_followup(
+    result: remotes_core.OperateResult,
+    name: str,
+    context: dict[str, Any] | None,
+) -> None:
+    """Keep listening for later OpenMousBot bot texts on this thread (#125)."""
+    ctx = context if isinstance(context, dict) else {}
+    user_key = str(ctx.get("user_key") or "").strip()
+    conversation_id = str(ctx.get("conversation_id") or "").strip()
+    if not user_key or not conversation_id:
+        return
+    try:
+        from swarm.core import omb_session_watch
+
+        spec = None
+        try:
+            spec = remotes_core.load_remote(name or "omb")
+        except Exception:
+            spec = None
+        omb_session_watch.watch_from_operate(
+            result,
+            user_key=user_key,
+            agent_id=str(ctx.get("agent_id") or ctx.get("agent") or "remote_harness"),
+            conversation_id=conversation_id,
+            spec=spec,
+        )
+    except Exception:
+        logger.debug("omb follow-up watch skipped", exc_info=True)
 
 
 def _render_operate(result: remotes_core.OperateResult) -> str:
@@ -166,7 +202,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         @function_tool
         def remote_send(name: str, prompt: str, target: str = "") -> str:
             """Send a job via the remote's real API. name=hermes|omb|rakazo|swarm."""
-            return _send_tool(name, prompt, target)
+            return _send_tool(name, prompt, target, context=getattr(self, "_params", None))
 
         shared = [remote_health, remote_list, remote_send]
 
@@ -356,7 +392,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 if not name:
                     body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge> <prompt>"
                 else:
-                    body = _send_tool(name, prompt, target)
+                    body = _send_tool(name, prompt, target, context=self._params)
             yield support.message_chunk(
                 body,
                 final=True,
