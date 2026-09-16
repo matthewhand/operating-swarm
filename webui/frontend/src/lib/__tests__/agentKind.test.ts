@@ -28,6 +28,8 @@ describe('classifyAgentKind', () => {
     expect(classifyAgentKind('herdr:w3:p1')).toBe('remote')
     expect(classifyAgentKind('pane', 'herdr')).toBe('remote')
     expect(classifyAgentKind('hermes')).toBe('remote')
+    expect(classifyAgentKind('openwebui')).toBe('remote')
+    expect(classifyAgentKind('open-webui')).toBe('remote')
     expect(classifyAgentKind('omb')).toBe('remote')
     expect(classifyAgentKind('trueforge')).toBe('remote')
     expect(classifyAgentKind('swarm')).toBe('api')

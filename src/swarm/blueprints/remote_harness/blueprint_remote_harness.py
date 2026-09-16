@@ -90,6 +90,10 @@ def _send_tool(
         kwargs["timeout"] = remotes_core._ANYTHINGLLM_SEND_TIMEOUT_S
     elif kind == "letta":
         kwargs["timeout"] = remotes_core._LETTA_SEND_TIMEOUT_S
+    elif kind == "openwebui":
+        from swarm.core.openwebui_remote import send_timeout
+
+        kwargs["timeout"] = send_timeout(remotes_core._OPERATE_TIMEOUT_S)
     result = remotes_core.operate(name, "send", **kwargs)
     _arm_omb_followup(result, name, context)
     return _render_operate(result)
@@ -167,7 +171,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -185,6 +189,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "ANYTHINGLLM_API_KEY",
             "LETTA_BASE_URL",
             "LETTA_API_KEY",
+            "OPENWEBUI_BASE_URL",
+            "OPENWEBUI_API_KEY",
         ],
     }
 
@@ -299,6 +305,16 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_letta",
                 "Hand off to the Letta remote operator (health/list/send).",
+            ),
+            "openwebui": (
+                "OpenwebuiRemote",
+                (
+                    "You operate a remote Open WebUI instance via tools. List chats "
+                    "as sessions and send into an existing chat. Never mint a new "
+                    "Open WebUI chat. This is not Operating Swarm's own WebUI."
+                ),
+                "consult_openwebui",
+                "Hand off to the Open WebUI remote operator (health/list/send).",
             ),
             "herdr": (
                 "HerdrRemote",
@@ -422,8 +438,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta> <prompt>"
-                elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta"}:
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta|openwebui> <prompt>"
+                elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta", "openwebui"}:
                     stream_kind = remotes_core.kind_of_instance(name)
                     session_id = str(params.get("session_id") or target or "").strip()
                     assembled = ""
@@ -432,15 +448,20 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                     except remotes_core.RemoteError as exc:
                         yield support.message_chunk(str(exc), final=True)
                         return
-                    iterator = (
-                        remotes_core.iter_letta_chat(
+                    if stream_kind == "letta":
+                        iterator = remotes_core.iter_letta_chat(
                             spec, prompt, session_id=session_id, target=target
                         )
-                        if stream_kind == "letta"
-                        else remotes_core.iter_anythingllm_chat(
+                    elif stream_kind == "openwebui":
+                        from swarm.core.openwebui_remote import iter_openwebui_chat
+
+                        iterator = iter_openwebui_chat(
                             spec, prompt, session_id=session_id, target=target
                         )
-                    )
+                    else:
+                        iterator = remotes_core.iter_anythingllm_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
                     sentinel = object()
                     while True:
                         item = await asyncio.to_thread(next, iterator, sentinel)
@@ -460,6 +481,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                             "Letta returned an empty reply. Pick an agent "
                             "session and try again."
                             if stream_kind == "letta"
+                            else "Open WebUI returned an empty reply. Pick a chat session and try again."
+                            if stream_kind == "openwebui"
                             else "AnythingLLM returned an empty reply. Pick a "
                             "workspace or thread session and try again."
                         )

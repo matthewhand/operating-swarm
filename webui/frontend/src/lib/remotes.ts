@@ -13,6 +13,7 @@ export const FALLBACK_REMOTE_KINDS: RemoteKind[] = [
   { id: 'hermes', label: 'Hermes' },
   { id: 'anythingllm', label: 'AnythingLLM' },
   { id: 'letta', label: 'Letta' },
+  { id: 'openwebui', label: 'Open WebUI' },
   { id: 'omb', label: 'OpenMousBot' },
   { id: 'rakazo', label: 'Rakazo' },
   { id: 'herdr', label: 'Herdr' },

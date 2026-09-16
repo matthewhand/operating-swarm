@@ -246,4 +246,37 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
       expect(screen.queryByTestId('remote-routines-section')).not.toBeInTheDocument()
     })
   })
+
+  it('lists Open WebUI chats as clickable sessions', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'openwebui',
+      op: 'list',
+      ok: true,
+      detail: 'listed 2 Open WebUI chat(s)',
+      data: {
+        sessions: [
+          { id: '550e8400-e29b-41d4-a716-446655440000', title: 'latest hacker news?' },
+          { id: '660f9511-f3ac-52e5-b827-557766551111', title: 'onboarding docs' },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'openwebui',
+      label: 'Open WebUI',
+      base_url: 'http://127.0.0.1:8080',
+      capabilities: { sessions: true, list: true, send: true },
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /^list$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/sessions/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /latest hacker news/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /latest hacker news/i }))
+    expect(screen.getByLabelText(/target/i)).toHaveValue(
+      '550e8400-e29b-41d4-a716-446655440000',
+    )
+  })
 })

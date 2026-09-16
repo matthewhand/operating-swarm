@@ -650,6 +650,7 @@ export type RemoteKindId =
   | 'hermes'
   | 'anythingllm'
   | 'letta'
+  | 'openwebui'
   | 'omb'
   | 'rakazo'
   | 'herdr'

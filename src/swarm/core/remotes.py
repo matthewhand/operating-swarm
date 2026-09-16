@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
-REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "omb", "rakazo", "herdr", "swarm", "trueforge")
-REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 
 def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> str:
@@ -81,6 +81,8 @@ def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> st
         return "anythingllm"
     if raw.startswith("letta"):
         return "letta"
+    if raw.startswith("openwebui") or raw.startswith("open-webui") or raw.startswith("open_webui"):
+        return "openwebui"
     return raw or (remote_id or "")
 
 
@@ -99,11 +101,12 @@ def _instance_slug(remote_id: str, kind: str | None = None) -> str:
     tail = raw[len(k) + 1 :] if (raw.startswith(k) and len(raw) > len(k) and raw[len(k)] in ("-", "_")) else raw
     return re.sub(r"[^a-z0-9]+", "_", tail).strip("_").upper()
 # Kinds that never appear until the user (or env) adds them.
-OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "letta"})
+OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "letta", "openwebui"})
 REMOTE_KIND_LABELS: dict[str, str] = {
     "hermes": "Hermes",
     "anythingllm": "AnythingLLM",
     "letta": "Letta",
+    "openwebui": "Open WebUI",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -123,6 +126,9 @@ _KIND_ALIASES: dict[str, str] = {
     "anything-llm": "anythingllm",
     "anything_llm": "anythingllm",
     "memgpt": "letta",
+    "open-webui": "openwebui",
+    "open_webui": "openwebui",
+    "owui": "openwebui",
 }
 
 # REQ-11 default roster. ``swarm`` is in the catalog but is not auto-placed
@@ -148,6 +154,7 @@ _TOOL_NAMES: dict[str, str] = {
     "hermes": "consult_hermes",
     "anythingllm": "consult_anythingllm",
     "letta": "consult_letta",
+    "openwebui": "consult_openwebui",
     "omb": "consult_omb",
     "rakazo": "consult_rakazo",
     "herdr": "consult_herdr",
@@ -277,6 +284,26 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "never mints a new agent. Opt-in: not placed until + Add."
         ),
     },
+    "openwebui": {
+        "title": "Open WebUI",
+        "host_label": "openwebui",
+        "base_url": "http://127.0.0.1:8080",
+        "ui_url": "",
+        "api_key": "${OPENWEBUI_API_KEY}",
+        "health_path": "/health",
+        "version_path": "/api/models",
+        "notes": (
+            "External Open WebUI instance (:8080 docker default). Not Operating "
+            "Swarm's own WebUI (os-webui) and never a replacement for it. API key "
+            "from Open WebUI → Settings → Account → API keys; point "
+            "OPENWEBUI_BASE_URL at your box. GET /api/v1/chats/ lists chats as "
+            "resumable sessions; GET /api/v1/chats/search?text= filters when many. "
+            "POST /api/chat/completions with chat_id resumes that chat (stream, "
+            "sync fallback); POST /api/chat/completed persists the turn. Send "
+            "requires a chat session id and never mints a new chat. Opt-in: not "
+            "placed until + Add."
+        ),
+    },
     "trueforge": {
         "title": "TrueForge",
         "host_label": "trueforge",
@@ -305,6 +332,7 @@ _ENV_BASE = {
     "trueforge": "TRUEFORGE_BASE_URL",
     "anythingllm": "ANYTHINGLLM_BASE_URL",
     "letta": "LETTA_BASE_URL",
+    "openwebui": "OPENWEBUI_BASE_URL",
 }
 _ENV_KEY = {
     "hermes": "HERMES_API_KEY",
@@ -315,6 +343,7 @@ _ENV_KEY = {
     "trueforge": "TRUEFORGE_API_KEY",
     "anythingllm": "ANYTHINGLLM_API_KEY",
     "letta": "LETTA_API_KEY",
+    "openwebui": "OPENWEBUI_API_KEY",
 }
 _ENV_UI = {"rakazo": "RAKAZO_UI_URL", "hermes": "HERMES_UI_URL"}
 _ENV_COOKIE = {"rakazo": "RAKAZO_SESSION_COOKIE"}
@@ -4092,7 +4121,8 @@ def operate(
     """List or send a job. Never raises; never crash-loops.
 
     ``session_id`` is a stored remote thread (#369-style). REQ-65 on-mode
-    agents drop it so each task starts a new remote job.
+    agents drop it so each task starts a new remote job. ``query`` filters
+    session-capable list results (Open WebUI chats, AnythingLLM threads, Letta agents).
     List stays on the short operate bound; send (poll-for-reply) uses the
     longer send bound so a real remote turn is not aborted as hung (#302).
     """
@@ -4161,6 +4191,13 @@ def operate(
             send_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
             return _letta_send(
                 spec, prompt, send_timeout, session_id=resume_id, target=target
+            )
+        if rkind == "openwebui":
+            from swarm.core.openwebui_remote import openwebui_list, openwebui_send, send_timeout as owui_send_timeout
+            if action == "list":
+                return openwebui_list(spec, timeout, query=query or prompt)
+            return openwebui_send(
+                spec, prompt, owui_send_timeout(timeout), session_id=resume_id, target=target
             )
         if rkind == "omb":
             return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
@@ -4233,6 +4270,30 @@ def _anythingllm_send_bound(
     session_id: str | None = None,
 ) -> OperateResult:
     return _anythingllm_send(spec, prompt, timeout, session_id=session_id, target=target)
+
+
+def _openwebui_list_bound(
+    spec: RemoteSpec, *, timeout: float, config: dict[str, Any] | None = None  # noqa: ARG001
+) -> OperateResult:
+    from swarm.core.openwebui_remote import openwebui_list
+
+    return openwebui_list(spec, timeout)
+
+
+def _openwebui_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    *,
+    target: str = "",
+    timeout: float,
+    session_id: str | None = None,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+) -> OperateResult:
+    from swarm.core.openwebui_remote import openwebui_send, send_timeout
+
+    return openwebui_send(
+        spec, prompt, send_timeout(timeout), session_id=session_id, target=target
+    )
 
 
 def _letta_send_bound(
@@ -4420,6 +4481,16 @@ def _install_remote_harnesses() -> None:
             health_fn=_bind_health("letta"),
             list_fn=_bind_http_list(_letta_list),
             send_fn=_letta_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="openwebui",
+            label="Open WebUI",
+            capabilities=capabilities_for("openwebui"),
+            health_fn=_bind_health("openwebui"),
+            list_fn=_openwebui_list_bound,
+            send_fn=_openwebui_send_bound,
         )
     )
     register_harness(
