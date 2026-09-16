@@ -124,7 +124,7 @@ test('settings / search / plugins overlays keep chat mounted (REQ-72 / #364 / #3
   await expect(settings).toBeHidden()
   await expect(composer).toBeVisible()
 
-  await page.getByRole('searchbox', { name: 'Search' }).click()
+  await page.getByRole('button', { name: 'Search' }).click()
   const search = page.getByRole('dialog', { name: 'Search' })
   await expect(search).toBeVisible()
   await expect(composer).toBeVisible()
@@ -164,7 +164,7 @@ test('Search Bots tab lists agents; Actions stay operator links (REQ-17 / #322)'
 }) => {
   await stubChromeApis(page)
   await page.goto('/chat')
-  await page.getByRole('searchbox', { name: 'Search' }).click()
+  await page.getByRole('button', { name: 'Search' }).click()
   const palette = page.getByRole('dialog', { name: 'Search' })
   await expect(palette).toBeVisible()
 

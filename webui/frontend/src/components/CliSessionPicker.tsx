@@ -7,6 +7,7 @@ import {
   sanitizeCliSessionId,
   type CliProviderSession,
 } from '../lib/cliSessions'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export interface CliSessionPickerProps {
   open: boolean
@@ -149,6 +150,7 @@ export default function CliSessionPicker({
       : emptyReason || (canList ? 'No sessions found' : "This CLI can't list sessions")
 
   return (
+    <OverlayFocusTrap onClose={onClose} initialFocus={() => inputRef.current}>
     <div
       className="os-search-overlay"
       data-testid="os-cli-session-picker"
@@ -260,5 +262,6 @@ export default function CliSessionPicker({
         </div>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }

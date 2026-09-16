@@ -7,6 +7,7 @@ import {
 } from '../lib/scaleOutSessions'
 import type { MemberSession } from '../lib/sessionPicker'
 import { sessionRelativeLabel } from '../lib/agentSessions'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export type SessionPickerSession = (AgentSession | MemberSession) & {
   agentId?: string
@@ -149,6 +150,7 @@ export default function SessionPicker({
   const label = `${displayName} sessions`
 
   return (
+    <OverlayFocusTrap onClose={onClose} initialFocus={() => inputRef.current}>
     <div
       className="os-search-overlay"
       data-testid="os-session-picker"
@@ -255,5 +257,6 @@ export default function SessionPicker({
         )}
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }

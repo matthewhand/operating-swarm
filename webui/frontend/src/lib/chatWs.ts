@@ -76,6 +76,22 @@ export type ChatWsEvent =
     }
   | { kind: 'unknown'; raw: string }
 
+/** Keys-and-size summary for unknown frames — never log the raw payload. */
+export function summarizeUnknownWsFrame(raw: string): string {
+  const bytes = new TextEncoder().encode(raw).length
+  let keys = ''
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const names = Object.keys(parsed as Record<string, unknown>).slice(0, 8)
+      if (names.length) keys = `; keys=${names.join(',')}`
+    }
+  } catch {
+    // HTML / non-JSON
+  }
+  return `kind=unknown; bytes=${bytes}${keys}`
+}
+
 const OOB_CHUNK_PREFIX = 'beforeend:#'
 const ASSISTANT_ID_PREFIX = 'message-response-'
 

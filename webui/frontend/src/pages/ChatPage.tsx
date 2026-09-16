@@ -123,6 +123,7 @@ import {
   buildChatWsUrl,
   buildToolDecisionFrame,
   parseChatWsMessage,
+  summarizeUnknownWsFrame,
   type ChatWsEvent,
 } from '../lib/chatWs'
 import { ToolCallPopup } from '../components/ToolCallPopup'
@@ -381,6 +382,11 @@ interface MessageContextMenuState {
   x: number
   y: number
   message: ChatMessage
+}
+
+function warnStatusPersistFailure(err: unknown): void {
+  const reason = err instanceof Error ? err.message : String(err)
+  console.warn('Could not persist status line', reason)
 }
 
 const ChatPage = () => {
@@ -956,7 +962,7 @@ const ChatPage = () => {
         agent,
         { role: 'status', content: statusText },
         conversationIdRef.current || undefined,
-      ).catch(() => {})
+      ).catch(warnStatusPersistFailure)
     },
     [threadKey, teamFromUrl, remoteFromUrl, selectedBlueprint],
   )
@@ -1012,9 +1018,28 @@ const ChatPage = () => {
                 agent,
                 { role: 'status', content: hop.status },
                 conversationIdRef.current || undefined,
-              ).catch(() => {})
+              ).catch(warnStatusPersistFailure)
             })
-            .catch(() => {})
+            .catch((err: unknown) => {
+              const reason = err instanceof Error ? err.message : 'Request failed'
+              addToast({
+                type: 'error',
+                title: 'Could not hop CLI session',
+                message: reason,
+              })
+              const statusText = `Could not hop CLI session: ${reason}`
+              const statusMsg: ChatMessage = {
+                key: `hop-fail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                role: 'status',
+                text: statusText,
+                streaming: false,
+                ts: new Date().toISOString(),
+              }
+              setThreads((prev) => ({
+                ...prev,
+                [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
+              }))
+            })
         }
         return
       }
@@ -1036,7 +1061,7 @@ const ChatPage = () => {
       }
       recordDropdownChange('model', next.previous.modelBase || next.previous.model, next.modelBase || next.model)
     },
-    [dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
+    [addToast, dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
   )
 
   // #108: API seats route via LLM profiles. A pick lands in the same
@@ -1495,7 +1520,7 @@ const ChatPage = () => {
   const handleWsEvent = useCallback(
     (event: ChatWsEvent) => {
       if (event.kind === 'unknown') {
-        console.warn('Unrecognised chat websocket frame:', event.raw)
+        console.warn('Unrecognised chat websocket frame:', summarizeUnknownWsFrame(event.raw))
         return
       }
       if (event.kind === 'spa_hello') {

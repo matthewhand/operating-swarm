@@ -1,5 +1,4 @@
 import { ReactNode, useEffect, useRef, useId, useState } from 'react';
-import FocusTrap from 'focus-trap-react';
 import { Alert } from './Alert';
 import { LoadingButton } from './Loading';
 
@@ -96,17 +95,9 @@ export const Modal = ({
 
   const placementClass = placement === 'middle' ? '' : `modal-${placement}`;
 
-  // Keep FocusTrap mounted and toggle `active` so DaisyUI open/close
-  // transitions are not interrupted by remounting the dialog tree.
+  // Native <dialog>.showModal() already traps focus on the top layer.
+  // Wrapping it in focus-trap-react races the UA trap (#313).
   return (
-    <FocusTrap
-      active={isOpen}
-      focusTrapOptions={{
-        allowOutsideClick: true,
-        escapeDeactivates: false,
-        fallbackFocus: () => dialogRef.current || document.body,
-      }}
-    >
       <dialog
         ref={dialogRef}
         className={`modal ${placementClass} ${isOpen ? 'modal-open' : ''}`.replace(/\s+/g, ' ').trim()}
@@ -150,7 +141,6 @@ export const Modal = ({
           </button>
         </form>
       </dialog>
-    </FocusTrap>
   );
 };
 
