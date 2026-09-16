@@ -63,6 +63,12 @@ source greps as SPA coverage.
   treat the skip as a pytest waiver. Re-enable only after recapture.
   Vitest is gated by `python-pytest.yml`, not this HOLD.
 
+**Instant-fail / no job logs:** check **Billing → Actions spending limit**
+first, not code (#250). Jobs that die in a few seconds with empty steps and
+no logs are an account-level Actions block (quota/payment), not a workflow
+or pytest regression. Repo settings can already be `enabled: true` with
+`allowed_actions: all`; raising the spending limit is a human billing gate.
+
 ## Linting
 
 ```bash
