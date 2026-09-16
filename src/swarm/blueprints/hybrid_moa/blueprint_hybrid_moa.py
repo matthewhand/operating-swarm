@@ -10,6 +10,7 @@ Flow:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -71,6 +72,17 @@ class HybridMoABlueprint(BlueprintBase):
             yield {
                 "messages": [{"role": "assistant", "content": "No prompt provided."}],
                 "final": True,
+            }
+            return
+
+        if os.environ.get("SWARM_TEST_MODE"):
+            content = f"[hybrid-moa test-mode] {question}"
+            yield {
+                "messages": [{"role": "assistant", "content": content}],
+                "role": "assistant",
+                "content": content,
+                "final": True,
+                "meta": {"hybrid_moa": True, "test_mode": True},
             }
             return
 

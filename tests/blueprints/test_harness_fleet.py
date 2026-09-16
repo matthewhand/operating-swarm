@@ -57,6 +57,21 @@ def http_server():
 
 
 @pytest.mark.asyncio
+async def test_swarm_test_mode_skips_builtin_lan_probes(monkeypatch):
+    monkeypatch.setenv("SWARM_TEST_MODE", "1")
+
+    def _boom(*_a, **_k):
+        raise AssertionError("SWARM_TEST_MODE must not open sockets to the builtin fleet")
+
+    monkeypatch.setattr(socket, "create_connection", _boom)
+    b = HarnessFleetBlueprint(config={"llm": {}})
+    out = await _ask(b, "ping")
+    assert out and out.strip()
+    assert "nemohermes-36" not in out
+    assert "198.51.100." not in out
+
+
+@pytest.mark.asyncio
 async def test_list_shows_inventory_without_probing():
     # list never probes, so built-ins (live LAN hosts) are safe to include.
     b = HarnessFleetBlueprint(config={"llm": {}})
