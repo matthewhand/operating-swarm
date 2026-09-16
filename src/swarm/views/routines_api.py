@@ -1,11 +1,10 @@
-"""Per-agent Routines API (REQ-80 / #432).
+"""Per-agent Routines API (REQ-80 / #432, REQ-884 / #285).
 
 GET/POST ``/v1/agents/<id>/routines/``
 GET/PATCH/DELETE ``/v1/agents/<id>/routines/<routine_id>/``
 POST ``/v1/agents/<id>/routines/<routine_id>/test-run/``
 POST ``/v1/routines/github-merge/`` — inbound fake GitHub PR-merged event.
-
-GitHub-only. No live tokens. Tests inject merge events.
+POST ``/v1/routines/events/github/`` — signed GitHub webhook ingest.
 """
 
 from __future__ import annotations
@@ -23,13 +22,16 @@ from swarm.core.chat_store import normalize_agent_id
 from swarm.core.routines import (
     create_routine,
     delete_routine,
+    deliver_github_event,
     deliver_github_pr_merged,
     get_routine,
+    github_webhook_secret,
     list_all_routines,
     list_routines,
     test_run,
     trigger_summary,
     update_routine,
+    verify_github_webhook_signature,
 )
 from swarm.permissions import HasValidTokenOrSession
 from swarm.settings import ENABLE_API_AUTH
@@ -181,6 +183,58 @@ class GithubRoutineMergeAPIView(APIView):
         return Response(
             {
                 "object": "routine_merge_delivery",
+                "fired": [
+                    {
+                        "agent_id": row["agent_id"],
+                        "routine": _routine_payload(row["agent_id"], row["routine"]),
+                    }
+                    for row in fired
+                ],
+                "count": len(fired),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class GithubRoutineEventsAPIView(APIView):
+    """POST /v1/routines/events/github/ — signed GitHub webhook ingest (REQ-884)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+    http_method_names = ["post"]
+
+    @extend_schema(
+        operation_id="v1_routines_github_events",
+        summary="Ingest a GitHub webhook and fire matching github_event routines (REQ-884)",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, *_args, **_kwargs):
+        secret = github_webhook_secret()
+        if not secret:
+            return _error("GITHUB_WEBHOOK_SECRET is not configured.", status.HTTP_503_SERVICE_UNAVAILABLE)
+        signature = request.headers.get("X-Hub-Signature-256") or request.META.get(
+            "HTTP_X_HUB_SIGNATURE_256",
+            "",
+        )
+        if not verify_github_webhook_signature(request.body or b"", signature, secret=secret):
+            return _error("Invalid GitHub webhook signature.", status.HTTP_401_UNAUTHORIZED)
+        event_header = request.headers.get("X-GitHub-Event") or request.META.get("HTTP_X_GITHUB_EVENT", "")
+        if str(event_header).strip().lower() == "ping":
+            return Response(
+                {"object": "github_event_delivery", "fired": [], "count": 0, "pong": True},
+                status=status.HTTP_200_OK,
+            )
+        payload = request.data if isinstance(request.data, dict) else {}
+        try:
+            fired = deliver_github_event(payload, event_header=str(event_header or ""))
+        except ValueError as exc:
+            return _error(str(exc), status.HTTP_400_BAD_REQUEST)
+        except OSError:
+            logger.exception("Failed to deliver GitHub webhook event")
+            return _error("Could not deliver GitHub event.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(
+            {
+                "object": "github_event_delivery",
                 "fired": [
                     {
                         "agent_id": row["agent_id"],

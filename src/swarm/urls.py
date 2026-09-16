@@ -139,6 +139,7 @@ from swarm.views.routines_api import (
     AgentRoutinesAPIView,
     AgentRoutineTestRunAPIView,
     AllRoutinesAPIView,
+    GithubRoutineEventsAPIView,
     GithubRoutineMergeAPIView,
 )
 from swarm.views.cli_runs_api import CliRunStatusAPIView, CliRunTerminateAPIView
@@ -497,6 +498,16 @@ urlpatterns = [
     path("v1/routines/", AllRoutinesAPIView.as_view(), name="routines-list-all"),
     path("v1/routines/github-merge", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api-no-slash"),
     path("v1/routines/github-merge/", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api"),
+    path(
+        "v1/routines/events/github",
+        csrf_exempt(GithubRoutineEventsAPIView.as_view()),
+        name="routines-github-events-api-no-slash",
+    ),
+    path(
+        "v1/routines/events/github/",
+        csrf_exempt(GithubRoutineEventsAPIView.as_view()),
+        name="routines-github-events-api",
+    ),
     path(
         "v1/agents/<str:agent_id>/avatar/generate",
         AgentAvatarGenerateView.as_view(),

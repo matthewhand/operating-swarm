@@ -141,6 +141,7 @@ if ENABLE_MCP_SERVER:
 # Optional GitHub marketplace discovery (disabled by default)
 ENABLE_GITHUB_MARKETPLACE = is_enable_github_marketplace()
 GITHUB_TOKEN = get_github_token()  # optional, for higher rate limits
+GITHUB_WEBHOOK_SECRET = (os.environ.get("GITHUB_WEBHOOK_SECRET") or "").strip()
 
 def _csv_env(name: str, default: str = '') -> list[str]:
     val = os.getenv(name, default)
