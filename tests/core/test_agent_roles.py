@@ -11,6 +11,7 @@ from swarm.core.agent_roles import (
     ROLE_SUPPORT,
     blueprint_role_fields,
     can_manage_agent_lifecycle,
+    can_manage_topology,
     is_chief_of_staff,
     normalize_agent_role,
     role_badge_label,
@@ -33,6 +34,16 @@ def test_lifecycle_roles_are_support_and_cos_only():
     assert not can_manage_agent_lifecycle("gate")
     assert not can_manage_agent_lifecycle("default")
     assert not can_manage_agent_lifecycle("skeptic")
+
+
+def test_topology_tools_are_cos_only():
+    assert can_manage_topology("chief_of_staff")
+    assert can_manage_topology("cos")
+    assert can_manage_topology("chief")
+    assert not can_manage_topology("support")
+    assert not can_manage_topology("helper")
+    assert not can_manage_topology("engineer")
+    assert not can_manage_topology("default")
 
 
 def test_role_enum_includes_cos_and_existing_seats():

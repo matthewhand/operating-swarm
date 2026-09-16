@@ -1,0 +1,74 @@
+name: Issue #219 CoS topology
+
+on:
+  pull_request:
+    paths:
+      - "src/swarm/core/cos_topology.py"
+      - "src/swarm/core/agent_sections.py"
+      - "src/swarm/core/agent_mailbox.py"
+      - "src/swarm/core/agent_mailbox_acl.py"
+      - "src/swarm/core/agent_roles.py"
+      - "src/swarm/core/roles/adapters.py"
+      - "src/swarm/core/blueprint_base.py"
+      - "src/swarm/consumers.py"
+      - "src/swarm/views/chat_views.py"
+      - "src/swarm/views/mailbox_acl_api.py"
+      - "tests/core/test_cos_topology.py"
+      - "tests/core/test_agent_sections.py"
+      - "tests/core/test_agent_mailbox_acl.py"
+      - "tests/views/test_mailbox_acl_api.py"
+      - "tests/unit/test_issue219_cos_topology.py"
+      - "docs/COS_TOPOLOGY.md"
+      - "docs/PEER_MAILBOX.md"
+      - ".github/workflows/issue219-cos-topology.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/swarm/core/cos_topology.py"
+      - "src/swarm/core/agent_sections.py"
+      - "src/swarm/core/agent_mailbox.py"
+      - "src/swarm/core/agent_mailbox_acl.py"
+      - "src/swarm/core/agent_roles.py"
+      - "src/swarm/core/roles/adapters.py"
+      - "src/swarm/core/blueprint_base.py"
+      - "src/swarm/consumers.py"
+      - "src/swarm/views/chat_views.py"
+      - "src/swarm/views/mailbox_acl_api.py"
+      - "tests/core/test_cos_topology.py"
+      - "tests/core/test_agent_sections.py"
+      - "tests/core/test_agent_mailbox_acl.py"
+      - "tests/views/test_mailbox_acl_api.py"
+      - "tests/unit/test_issue219_cos_topology.py"
+      - "docs/COS_TOPOLOGY.md"
+      - "docs/PEER_MAILBOX.md"
+      - ".github/workflows/issue219-cos-topology.yml"
+
+jobs:
+  own-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install Python deps
+        run: uv sync --all-extras
+
+      - name: Issue #219 pytest (own-diff)
+        run: |
+          uv run pytest \
+            tests/core/test_cos_topology.py \
+            tests/core/test_agent_sections.py \
+            tests/core/test_agent_roles.py \
+            tests/core/test_roles_registry.py \
+            tests/core/test_agent_mailbox.py \
+            tests/core/test_agent_mailbox_acl.py \
+            tests/views/test_mailbox_acl_api.py \
+            tests/unit/test_issue219_cos_topology.py
+        env:
+          DJANGO_ALLOW_ASYNC_UNSAFE: "true"

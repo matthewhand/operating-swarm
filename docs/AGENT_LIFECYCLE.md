@@ -73,6 +73,8 @@ Each create / archive / restore appends a status transcript line on the **caller
 
 `swarm.core.agent_lifecycle`. Wired next to the peer mailbox on Chat WS + completions. Tests: `tests/core/test_agent_lifecycle.py`, `tests/unit/test_req154_lifecycle.py`. Own-diff CI: `.github/workflows/req154-lifecycle.yml`.
 
+CoS section / talk-ACL tools (Issue #219) are documented in [COS_TOPOLOGY.md](./COS_TOPOLOGY.md). Support does **not** get those; lifecycle stays shared.
+
 ---
 
 ## Execution Lifecycle (State Machine)

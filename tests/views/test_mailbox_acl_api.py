@@ -27,7 +27,7 @@ def test_store_documents_entry_kinds(api_client):
     body = response.json()
     assert body["object"] == "mailbox_acl_store"
     kinds = {row["kind"] for row in body["entry_kinds"]}
-    assert kinds == {"agent", "team", "role"}
+    assert kinds == {"agent", "team", "role", "section"}
     assert body["defaults"]["support"]["allow_all"] is True
     assert ":8001" not in str(body)
 

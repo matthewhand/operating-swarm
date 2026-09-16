@@ -6,6 +6,7 @@ Per-agent **or** per-role whitelist XOR blacklist. Entries target:
 * ``team`` — a composition roster id (every member of that team)
 * ``role`` — a canonical role (``support``, ``gate``, ``skeptic``,
   ``chief_of_staff``, ``engineer``, ``suggestions``, ``default``)
+* ``section`` — members of a CoS rail section (Issue #219)
 
 Support (and CoS) default to **whitelist everything** (allow-all). Other
 roles default to an empty **blacklist** (no extra cut on top of the team
@@ -70,6 +71,10 @@ ENTRY_KINDS: tuple[dict[str, str], ...] = (
             "A canonical role: support, gate, skeptic, chief_of_staff, "
             "engineer, suggestions, or default."
         ),
+    },
+    {
+        "kind": "section",
+        "description": "Members of a CoS rail section (Issue #219).",
     },
 )
 
@@ -164,7 +169,7 @@ def normalize_entry(raw: Any) -> AclEntry:
             )
     entry = AclEntry.from_raw(raw)
     if entry is None:
-        raise ValueError("Each ACL entry needs kind (agent, team, or role) and id.")
+        raise ValueError("Each ACL entry needs kind (agent, team, role, or section) and id.")
     if len(entry.id) > 64:
         raise ValueError("ACL entry id too long (max 64).")
     return entry
