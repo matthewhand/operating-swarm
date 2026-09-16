@@ -1884,7 +1884,7 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     window.localStorage.clear()
   })
 
-  it('lists only configured remotes plus Add remote on remote agents', async () => {
+  it('lists only configured remotes plus Manage Remote on remote agents', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo) => {
@@ -1934,7 +1934,7 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
       .getAllByRole('menuitem')
       .map((opt) => opt.textContent)
     expect(options).toContain('OpenMousBot')
-    expect(options).toContain('Add remote')
+    expect(options).toContain('Manage Remote')
     expect(options).not.toContain('Hermes')
     expect(options).not.toContain('Rakazo')
     expect(options).not.toContain('OMB')

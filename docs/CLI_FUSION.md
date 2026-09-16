@@ -33,13 +33,34 @@ swarm-cli cli-agents                  # configured list + PATH suggestions (no a
 swarm-cli cli-agents --smoke          # confirm they answer non-interactively
 ```
 
-**Opt-in catalog (REQ-157 / #565).** `cli_agents` starts **empty**. On startup
-(and `GET /v1/cli-agents/`) Open Swarm **discovers** known CLIs on PATH /
-user-local bins **without an auth check**: `grok`, `agy` (antigravity),
-`claude`, `gemini`, `codex`, `opencode`, `omp`, `pi`. Those appear as **Suggested**
-one-click add in Settings (same shape as remotes). Adding persists; removing
-clears the configured list (the binary may still be rediscovered as a
-candidate). The chat CLI dropdown lists configured names only.
+**Opt-in catalog (REQ-157 / #565) + CLI-first start set (#149 / #151).**
+`cli_agents` starts **empty**. On startup (and `GET /v1/cli-agents/`) Open Swarm
+**discovers** known CLIs on PATH / user-local bins **without an auth check**:
+`grok`, `agy` (antigravity), `claude`, `gemini`, `codex`, `opencode`, `omp`,
+`pi`, `qwen`. Three lists:
+
+| Field | Meaning |
+|---|---|
+| `known` / `clis` | Full built-in catalog (documentation). A name here is **not** a ready seat. |
+| `discovered` / `installed` | PATH seed and the **rail / CLI picker starting set**. Pi absent on a host stays absent. |
+| `configured` | Opt-in names the user added (Settings one-click or `--init --write`). Empty until add. |
+
+`suggestions` is discovered-minus-configured. The chat CLI dropdown lists
+**discovered + configured** — never the static catalog.
+
+**Product modes (#151).** Fresh/default config (`settings.product_modes` /
+`GET /v1/cli-agents/` `modes`) turns **CLI on** and **API / Blueprint / Team /
+Remote off**. Enable each from Settings → Rail (Manage CLI / API / Blueprint /
+Team / Remote). Disabled modes stay out of the default rail/navbar. Per-mode
+limitations are in `mode_limitations` on that payload and in the Rail pane.
+
+| Mode | On | Off |
+|---|---|---|
+| CLI | `cli_agent` rail + Manage CLI; picker is discovered host CLIs | No CLI rail seat or Manage CLI footer |
+| API | `api_agent` rail + Manage API (LiteLLM profiles) | API seats stay off the default rail/navbar |
+| Blueprint | Blueprint rail seats + Manage Blueprint | Blueprint catalog seats stay off the default rail/navbar |
+| Team | Team rail rows + Manage Team | Teams stay off the default rail/navbar |
+| Remote | Remote rail rows + Manage Remote | Remotes stay off the default rail/navbar |
 
 `--init --write` is the explicit "accept all discovered" path: it writes
 `cli_agents` + `cli_fusion` + `cli_orchestrator` + `cli_map`. Then start the

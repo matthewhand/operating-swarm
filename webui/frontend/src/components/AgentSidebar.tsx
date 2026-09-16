@@ -45,6 +45,7 @@ import {
   loadDynamicSubagents,
   type DynamicSubagent,
 } from '../lib/dynamicSubagents'
+import { resolveProductModes } from '../lib/productModes'
 import { useOptionalToast } from './DaisyUI'
 import {
   CLI_PROCESS_STOPPED_TOAST,
@@ -1013,12 +1014,22 @@ export default function AgentSidebar({
   const visibleCount = visibleAgents.length + visibleTeams.length + visibleRemotes.length
   const loadingList = !propBlueprints && blueprintsQuery.isPending && teamsQuery.isPending
   const loadFailed = blueprintsQuery.isError && teamsQuery.isError && visibleCount === 0
-  const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
-  const cliAgents = visibleAgents.filter((agent) => isCliRailAgent(agent))
-  const apiAgents = visibleAgents.filter((agent) => isApiRailAgent(agent))
-  const otherAgents = visibleAgents.filter(
-    (agent) => !isSupportAgent(agent) && !isCliRailAgent(agent) && !isApiRailAgent(agent),
+  const productModes = useMemo(
+    () => resolveProductModes(cliQuery.data),
+    [cliQuery.data],
   )
+  const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
+  const cliAgents = productModes.cli
+    ? visibleAgents.filter((agent) => isCliRailAgent(agent))
+    : []
+  const apiAgents = productModes.api
+    ? visibleAgents.filter((agent) => isApiRailAgent(agent))
+    : []
+  const otherAgents = visibleAgents.filter((agent) => {
+    if (isSupportAgent(agent) || isCliRailAgent(agent) || isApiRailAgent(agent)) return false
+    if (isHerdrAgent(agent)) return productModes.remote
+    return productModes.blueprint
+  })
   const catalogRows = useMemo<RailRow[]>(() => {
     const supportRows: RailRow[] = supportAgents.map((agent) => ({
       kind: 'agent',
@@ -1035,16 +1046,20 @@ export default function AgentSidebar({
       id: agent.id,
       agent,
     }))
-    const teamRows: RailRow[] = visibleRootTeams.map((team) => ({
-      kind: 'team',
-      id: teamHideId(team.id),
-      team,
-    }))
-    const remoteRows: RailRow[] = visibleRemotes.map((remote) => ({
-      kind: 'remote',
-      id: remoteHideId(remote.id),
-      remote,
-    }))
+    const teamRows: RailRow[] = productModes.team
+      ? visibleRootTeams.map((team) => ({
+          kind: 'team',
+          id: teamHideId(team.id),
+          team,
+        }))
+      : []
+    const remoteRows: RailRow[] = productModes.remote
+      ? visibleRemotes.map((remote) => ({
+          kind: 'remote',
+          id: remoteHideId(remote.id),
+          remote,
+        }))
+      : []
     const otherRows: RailRow[] = otherAgents.map((agent) => ({
       kind: 'agent',
       id: agent.id,
@@ -1054,7 +1069,7 @@ export default function AgentSidebar({
       [...supportRows, ...cliRows, ...apiRows, ...teamRows, ...remoteRows, ...otherRows],
       pins,
     )
-  }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins])
+  }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins, productModes])
   const orderedRows = useMemo(
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],

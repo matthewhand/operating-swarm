@@ -1,10 +1,11 @@
 /**
- * Opt-in CLI agents catalog (REQ-157 / #565).
+ * Opt-in CLI agents catalog (REQ-157 / #565) plus CLI-first start set (#149).
  *
- * Settings and the chat CLI dropdown list only configured CLIs. Startup
- * discovery prepopulates ``discovered`` / ``suggestions`` (PATH / known
- * locations, no auth). One-click Add persists like remotes; Remove drops
- * the name from configured (the binary may still reappear as a suggestion).
+ * ``known`` / ``clis`` is the full catalog (documentation). ``discovered`` /
+ * ``installed`` is the PATH seed and the rail/picker starting set. ``configured``
+ * is empty until + Add. Suggestions are discovered-minus-configured. One-click
+ * Add persists like remotes; Remove drops the name from configured (the binary
+ * may still reappear as a suggestion). Pi absent on a host stays absent.
  */
 
 import type { CliAgentsInfo } from './api'

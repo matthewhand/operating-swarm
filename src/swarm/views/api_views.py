@@ -756,8 +756,11 @@ class CliAgentsView(APIView):
     """CLI-agent catalog + opt-in configured list + PATH discovery (REQ-157).
 
     GET /v1/cli-agents/ -> {clis, known, configured, discovered, installed,
-    suggestions, catalog, native_consensus, list_models, list_sessions, rail}.
+    suggestions, catalog, native_consensus, list_models, list_sessions, rail,
+    modes, mode_limitations}.
     Discovery is PATH/stat only — no auth_check, no login, no network.
+    ``modes`` is CLI-first (#151): API/Blueprint/Team/Remote off until enabled.
+    ``discovered`` is the rail/picker start set (#149) — never invents missing CLIs.
     Live model probes are GET /v1/cli-agents/<cli>/models.
     Hop matrix is GET /v1/cli-sessions/hop/.
 

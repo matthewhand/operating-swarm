@@ -32,6 +32,7 @@ const BLUEPRINTS = {
 
 const CLI_AGENTS = {
   clis: ['claude', 'codex', 'gemini', 'grok', 'opencode'],
+  discovered: ['grok'],
   installed: ['grok'],
   configured: ['grok'],
   native_consensus: {},

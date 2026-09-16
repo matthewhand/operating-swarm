@@ -152,6 +152,56 @@ def test_list_rail_agents_merges_and_dedupes():
     assert "team:research" not in {s.id for s in seats}
 
 
+def test_list_rail_agents_cli_first_modes_hide_disabled_surfaces():
+    def getter(url: str, headers: dict[str, str]) -> httpx.Response:
+        if url.endswith("/v1/blueprints/"):
+            return _response(
+                200,
+                {
+                    "object": "list",
+                    "data": [
+                        {"id": "support", "name": "Support", "rail": True, "kind": "api"},
+                        {"id": "poets", "name": "Poets", "rail": True, "kind": "blueprint"},
+                    ],
+                },
+            )
+        if url.endswith("/v1/cli-agents/"):
+            return _response(
+                200,
+                {
+                    "modes": {
+                        "cli": True,
+                        "api": False,
+                        "blueprint": False,
+                        "team": False,
+                        "remote": False,
+                    },
+                    "rail": [
+                        {"id": "cli_agent", "name": "cli_agent", "kind": "cli"},
+                        {"id": "api_agent", "name": "api_agent", "kind": "api"},
+                    ],
+                },
+            )
+        if url.endswith("/v1/remotes/"):
+            return _response(200, {"configured": [{"id": "hermes", "title": "Hermes"}]})
+        if url.endswith("/v1/team-rosters/"):
+            return _response(
+                200,
+                {"object": "list", "data": [{"id": "office", "name": "Office", "members": []}]},
+            )
+        if url.endswith("/v1/herdr-agents/"):
+            return _response(200, {"object": "list", "data": [{"name": "workbox"}]})
+        raise AssertionError(url)
+
+    seats = list_rail_agents(base_url="http://127.0.0.1:8000", getter=getter)
+    assert [s.id for s in seats] == ["support", "cli_agent"]
+    assert "api_agent" not in {s.id for s in seats}
+    assert "poets" not in {s.id for s in seats}
+    assert "hermes" not in {s.id for s in seats}
+    assert "team:office" not in {s.id for s in seats}
+    assert "herdr:workbox" not in {s.id for s in seats}
+
+
 def test_list_rail_agents_connection_error_is_honest():
     def getter(_url: str, _headers: dict[str, str]) -> httpx.Response:
         raise httpx.ConnectError("connection refused")

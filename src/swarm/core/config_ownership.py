@@ -275,6 +275,21 @@ _INVENTORY: tuple[dict[str, Any], ...] = (
         "notes": "Boolean; no env twin.",
     },
     {
+        "key": "settings.product_modes",
+        "partition": "webui",
+        "sot": "swarm_config.json",
+        "write_api": "/v1/config/sections/settings/",
+        "settings_section": "rail",
+        "ui": "pane",
+        "secret_fields": [],
+        "env_twins": {},
+        "notes": (
+            "CLI-first product modes (#151 / #149). Default CLI on; API / Blueprint / "
+            "Team / Remote off until Settings → Rail enables them. Disabled modes stay "
+            "out of the default rail/navbar. Rail/picker start from discovered host CLIs."
+        ),
+    },
+    {
         "key": "settings.task_llm_profiles",
         "partition": "webui",
         "sot": "swarm_config.json",
