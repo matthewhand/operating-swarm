@@ -3722,6 +3722,16 @@ const ChatPage = () => {
               messagesEditable &&
               !message.streaming &&
               (message.role === 'user' || message.role === 'assistant')
+            const canCompressThis =
+              (isApiAgent || agentKind === 'blueprint') &&
+              !message.streaming &&
+              (message.role === 'user' || message.role === 'assistant') &&
+              rawOffsetForMessage(messages, message.key) >= 0
+            const showRowActions =
+              !message.streaming &&
+              editingKey !== message.key &&
+              (message.role === 'user' || message.role === 'assistant') &&
+              (Boolean(message.text.trim()) || retryEnabled || canEditThis || canCompressThis)
             const isStreamingAssistant = message.role === 'assistant' && Boolean(message.streaming)
             const bubbleAvatar =
               message.role === 'assistant' ? (
@@ -3802,22 +3812,10 @@ const ChatPage = () => {
                       prev.includes(message.key) ? prev : [...prev, message.key],
                     )
                   }
-                  canEdit={canEditThis}
-                  canCompress={
-                    (isApiAgent || agentKind === 'blueprint') &&
-                    !message.streaming &&
-                    (message.role === 'user' || message.role === 'assistant') &&
-                    rawOffsetForMessage(messages, message.key) >= 0
-                  }
-                  contextStrategy={contextStrategy}
                   editing={editingKey === message.key}
-                  onStartEdit={() => setEditingKey(message.key)}
                   onCancelEdit={() => setEditingKey(null)}
                   onSaveEdit={(next) => {
                     if (messageIndex >= 0) void saveEditedMessage(messageIndex, next)
-                  }}
-                  onCompressToHere={() => {
-                    handleContextToHere(message)
                   }}
                 >
                   {message.subagentFanOut ? (
@@ -3874,16 +3872,26 @@ const ChatPage = () => {
                     />
                   ) : null}
                 </ChatMessageBubble>
-                {message.role === 'assistant' && !message.streaming && (message.text.trim() || retryEnabled) ? (
-                  <MessageRowActions text={message.text}>
-                    {message.text.trim() ? (
+                {showRowActions ? (
+                  <MessageRowActions
+                    text={message.text}
+                    canEdit={canEditThis}
+                    onStartEdit={() => setEditingKey(message.key)}
+                    canCompress={canCompressThis}
+                    contextStrategy={contextStrategy}
+                    onCompressToHere={() => {
+                      handleContextToHere(message)
+                    }}
+                    className={message.role === 'user' ? 'w-full justify-end' : undefined}
+                  >
+                    {message.role === 'assistant' && message.text.trim() ? (
                       <ReadAloudButton
                         text={message.text}
                         agentId={activeChatAgentId}
                         bind={voiceBind}
                       />
                     ) : null}
-                    {SHOW_MESSAGE_ACTIONS && (
+                    {message.role === 'assistant' && SHOW_MESSAGE_ACTIONS && (
                       <ChatMessageActions
                         text={message.text}
                         onRetry={

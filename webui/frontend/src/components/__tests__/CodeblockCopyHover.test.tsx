@@ -13,9 +13,7 @@ describe('REQ-174: Codeblock copy control (top-right, reveal on hover/focus)', (
         agentName="Codey"
         text={codeSnippet}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -41,9 +39,7 @@ describe('REQ-174: Codeblock copy control (top-right, reveal on hover/focus)', (
         agentName="User"
         text={codeSnippet}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -68,9 +64,7 @@ describe('REQ-174: Codeblock copy control (top-right, reveal on hover/focus)', (
         agentName="Codey"
         text={codeSnippet}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,

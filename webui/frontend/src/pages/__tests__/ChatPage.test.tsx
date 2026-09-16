@@ -3419,6 +3419,13 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
       'true',
     )
 
+    const actionRows = screen.getAllByTestId('os-message-row-actions')
+    expect(actionRows).toHaveLength(2)
+    for (const row of actionRows) {
+      const edit = within(row).getByRole('button', { name: 'Edit message' })
+      const copy = within(row).getByRole('button', { name: 'Copy message' })
+      expect(edit.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
     const editButtons = screen.getAllByRole('button', { name: 'Edit message' })
     expect(editButtons).toHaveLength(2)
 
@@ -3461,7 +3468,7 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
     )
   })
 
-  it('clicking an API bubble enters edit mode', async () => {
+  it('clicking an API bubble does not enter edit; Edit in the action row does (REQ-867 / REQ-869)', async () => {
     vi.stubGlobal(
       'fetch',
       mockChatFetches({
@@ -3482,6 +3489,11 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
     expect(await screen.findByText('assistant bubble')).toBeInTheDocument()
     const bubbles = screen.getAllByTestId('chat-bubble')
     fireEvent.click(bubbles[1])
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument()
+
+    const rows = screen.getAllByTestId('os-message-row-actions')
+    expect(rows).toHaveLength(2)
+    fireEvent.click(within(rows[1]).getByRole('button', { name: 'Edit message' }))
     expect(await screen.findByRole('textbox', { name: 'Edit message' })).toHaveValue(
       'assistant bubble',
     )
