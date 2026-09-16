@@ -489,6 +489,15 @@ def backend_meta(backends: list[str], judge: str | None = None) -> dict[str, Any
     return meta
 
 
+def fatal_config_meta(meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Mark a chunk as a terminal CLI/config failure (#274)."""
+    from swarm.core.cli_session_error import FATAL_CONFIG_ERROR_KEY
+
+    out = dict(meta or {})
+    out[FATAL_CONFIG_ERROR_KEY] = True
+    return out
+
+
 #: Chunk ``type`` for fusion progress side-channel events.
 PROGRESS_TYPE = "fusion_progress"
 #: Honest CLI session line (new vs resumed). Not a chat bubble.

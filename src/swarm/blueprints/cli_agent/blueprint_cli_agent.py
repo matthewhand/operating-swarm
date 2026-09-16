@@ -19,10 +19,12 @@ from typing import Any, ClassVar
 from swarm.blueprints.common import cli_fusion_support as support
 from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapter, CliResult
+from swarm.core.cli_session_error import is_fatal_config_error
 from swarm.core.cli_sessions import (
     clear_cli_session,
     get_cli_session,
     is_resume_failure,
+    is_resume_failure_text,
     put_cli_session,
     resolve_thread,
 )
@@ -431,6 +433,7 @@ class CliAgentBlueprint(CliKindBase):
             yield support.message_chunk(
                 support.UNCONFIGURED_CLI_AGENTS_MESSAGE,
                 final=True,
+                meta=support.fatal_config_meta(),
             )
             return
 
@@ -524,7 +527,13 @@ class CliAgentBlueprint(CliKindBase):
                     return
                 if result is None or not result.ok:
                     err = (result.error if result else None) or "unknown error"
-                    yield support.message_chunk(support.format_cli_error(adapter, err), final=True)
+                    text = support.format_cli_error(adapter, err)
+                    meta = (
+                        support.fatal_config_meta()
+                        if is_fatal_config_error(err) or is_resume_failure_text(err)
+                        else None
+                    )
+                    yield support.message_chunk(text, final=True, meta=meta)
                 elif result.parse_error:
                     logger.warning("CLI %s parse issue: %s", target, result.parse_error)
                 # On success the content was already streamed as deltas.
@@ -571,4 +580,10 @@ class CliAgentBlueprint(CliKindBase):
             yield support.progress_chunk(f"_`{name}` failed: {last[1]} — failing over…_")
 
         detail = f" (last — {last[0]}: {last[1]})" if last else ""
-        yield support.message_chunk(f"All CLI candidates failed{detail}.", final=True)
+        text = f"All CLI candidates failed{detail}."
+        meta = (
+            support.fatal_config_meta()
+            if last is None or is_fatal_config_error(last[1]) or is_resume_failure_text(last[1])
+            else None
+        )
+        yield support.message_chunk(text, final=True, meta=meta)

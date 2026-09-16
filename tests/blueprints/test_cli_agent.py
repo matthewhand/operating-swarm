@@ -296,6 +296,8 @@ async def test_blueprint_no_agents_configured():
         "[Manage CLI](/chat?settings=cli-agents) (Settings → CLI Agents)."
     )
     assert "docs/CLI_FUSION.md" not in text
+    finals = [c for c in chunks if isinstance(c, dict) and c.get("final")]
+    assert finals[-1].get("meta", {}).get("fatal_config_error") is True
 
 
 async def test_blueprint_empty_prompt():

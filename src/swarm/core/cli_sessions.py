@@ -122,12 +122,18 @@ def extract_session_id(stdout: str, paths: list[str] | None = None) -> str | Non
     return found
 
 
+def is_resume_failure_text(text: str) -> bool:
+    """True when error copy looks like a missing/expired CLI session."""
+    blob = (text or "").lower()
+    return any(needle in blob for needle in _RESUME_FAILURE_NEEDLES)
+
+
 def is_resume_failure(result: CliResult) -> bool:
     """True when a resumed CLI run looks like a missing/expired session."""
     if result.ok:
         return False
-    blob = f"{result.error or ''} {result.stderr or ''} {result.text or ''}".lower()
-    return any(needle in blob for needle in _RESUME_FAILURE_NEEDLES)
+    blob = f"{result.error or ''} {result.stderr or ''} {result.text or ''}"
+    return is_resume_failure_text(blob)
 
 
 def resolve_thread(

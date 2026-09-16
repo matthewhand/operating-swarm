@@ -242,6 +242,8 @@ def _normalize_messages(raw: Any) -> list[dict[str, Any]]:
         seq = item.get("seq")
         if isinstance(seq, int) and not isinstance(seq, bool):
             msg["seq"] = seq
+        if item.get("fatal_config_error") is True:
+            msg["fatal_config_error"] = True
         out.append(msg)
     return out
 

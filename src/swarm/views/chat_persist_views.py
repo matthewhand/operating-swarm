@@ -132,6 +132,8 @@ def _sync_django_and_memory(
                 row["ts"] = ts
             if item.get("edited"):
                 row["edited"] = True
+            if item.get("fatal_config_error") is True:
+                row["fatal_config_error"] = True
             mem_rows.append(row)
         IN_MEMORY_CONVERSATIONS[_conversation_cache_key(user, cid)] = mem_rows
         try:
@@ -257,6 +259,37 @@ def chat_thread(request):
 
     if request.method == "POST":
         body = _json_body(request)
+        if str(body.get("action") or "").strip().lower() == "clear":
+            try:
+                chat_store.save(
+                    user_key,
+                    agent,
+                    [],
+                    conversation_id=conversation_id,
+                    session_id=conversation_id if conversation_id != default_cid else "",
+                    ui_events=[],
+                    cli_sessions={},
+                    cli_hop=None,
+                    active_cli="",
+                )
+            except OSError:
+                logger.exception("Failed to clear chat JSON for %s/%s", user_key, agent)
+            _sync_django_and_memory(
+                request.user,
+                [],
+                [conversation_id],
+                agent_id=agent,
+            )
+            try:
+                from swarm.consumers import IN_MEMORY_UI_EVENTS, _conversation_cache_key
+
+                IN_MEMORY_UI_EVENTS[_conversation_cache_key(request.user, conversation_id)] = []
+            except Exception:
+                logger.debug("in-memory ui_events clear skipped", exc_info=True)
+            payload["messages"] = []
+            payload["turns"] = []
+            payload["ui_events"] = []
+            return JsonResponse(payload)
         msg = body.get("message")
         if isinstance(msg, dict) and msg.get("content"):
             from swarm.core.transcript_roles import (

@@ -373,3 +373,41 @@ def test_chat_thread_post_requires_valid_message(client, user):
     )
     assert resp.status_code == 400
 
+
+@pytest.mark.django_db
+def test_chat_thread_passes_through_fatal_config_error(client, user):
+    chat_store.save(
+        chat_store.user_key_for(user),
+        "cli_agent",
+        [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": "No CLI agents are configured.",
+                "fatal_config_error": True,
+            },
+        ],
+        conversation_id=chat_store.conversation_id_for(user, "cli_agent"),
+    )
+    resp = client.get("/chat/thread/?agent=cli_agent")
+    assert resp.status_code == 200
+    assistant = next(row for row in resp.json()["messages"] if row["role"] == "assistant")
+    assert assistant["fatal_config_error"] is True
+
+
+@pytest.mark.django_db
+def test_chat_thread_clear_wipes_poisoned_history(client, user):
+    _seed_thread(user, "cli_agent", "poisoned")
+    resp = client.post(
+        "/chat/thread/?agent=cli_agent",
+        data=json.dumps({"action": "clear"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["messages"] == []
+    loaded = chat_store.load(chat_store.user_key_for(user), "cli_agent")
+    assert loaded is not None
+    assert loaded["messages"] == []
+    assert loaded.get("ui_events") == []
+
