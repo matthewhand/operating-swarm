@@ -546,19 +546,21 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
               <div
                 className="flex max-h-[22rem] flex-col gap-3 overflow-y-auto pr-1"
                 aria-label="Available agents list"
+                data-testid="available-agents-scroller"
                 role="list"
               >
                 {(['api', 'cli', 'remote'] as const).map((kind) => (
-                  <div key={kind} className="min-h-0">
-                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/45">
+                  <div key={kind} data-testid={`available-agents-group-${kind}`}>
+                    <h4
+                      className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/45"
+                      data-testid={`available-agents-kind-${kind}`}
+                    >
                       {KIND_LABEL[kind]}
                       <span className="ml-1 font-normal normal-case tracking-normal text-base-content/35">
                         ({agentsByKind[kind].length})
                       </span>
                     </h4>
-                    <ul
-                      className="flex flex-col gap-1 os-scrollable-picker-list max-h-40 overflow-y-auto pr-1"
-                    >
+                    <ul className="flex flex-col gap-1 pr-1">
                       {agentsByKind[kind].length === 0 ? (
                         <li className="px-2 py-1 text-xs text-base-content/40">None</li>
                       ) : (
