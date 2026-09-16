@@ -222,6 +222,7 @@ import {
   cliTerminatedFromEvent,
   notifyCliRunState,
 } from '../lib/cliRunState'
+import { notifyApprovalWait } from '../lib/agentAttention'
 import { publishExpectedSpaVersion } from '../lib/spaHello'
 import { maybeNotifyAgentTurn } from '../lib/agentNotifications'
 import {
@@ -1768,6 +1769,8 @@ const ChatPage = () => {
 
   const attachToolToThread = useCallback(
     (tool: ToolCallState) => {
+      const waitAgent = tool.agentId || selectedBlueprint || threadKey
+      notifyApprovalWait(waitAgent, tool.id, Boolean(tool.needsApproval))
       setThreads((prev) => {
         const current = prev[threadKey] ?? []
         const targetIndex = [...current]
@@ -1795,7 +1798,7 @@ const ChatPage = () => {
         return { ...prev, [threadKey]: next }
       })
     },
-    [threadKey],
+    [selectedBlueprint, threadKey],
   )
 
   const sendToolDecision = useCallback((id: string, decision: 'allow' | 'always' | 'deny') => {

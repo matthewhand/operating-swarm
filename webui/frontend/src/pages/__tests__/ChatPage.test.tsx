@@ -11,6 +11,7 @@ import { AVATAR_THEME_STORAGE_KEY, saveAvatarTheme } from '../../lib/avatarTheme
 import { OPEN_AGENT_EDITOR_EVENT } from '../../lib/agentSettings'
 import { saveEnabledPluginToolIds } from '../../lib/chatPluginTools'
 import { CLI_RUN_STATE_EVENT, cliRunStateFromEvent } from '../../lib/cliRunState'
+import { peekApprovalWait, resetAgentAttention } from '../../lib/agentAttention'
 
 type WsHandler = ((ev?: Event) => void) | null
 
@@ -3119,6 +3120,7 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
   })
 
   afterEach(() => {
+    resetAgentAttention()
     vi.unstubAllGlobals()
     window.localStorage.clear()
     resetConversationThreads()
@@ -3228,6 +3230,29 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
       id: 'ap2',
       decision: 'always',
     })
+  })
+
+  it('flags the waiting agent on the rail until the decision resolves (#446)', async () => {
+    const ws = await openAndStart()
+    expect(peekApprovalWait('codey')).toBe(false)
+
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'tool_approval',
+            id: 'att1',
+            name: 'write_file',
+            agent_id: 'codey',
+          }),
+        }),
+      )
+    })
+    expect(peekApprovalWait('codey')).toBe(true)
+    expect(peekApprovalWait('stewie')).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+    expect(peekApprovalWait('codey')).toBe(false)
   })
 })
 

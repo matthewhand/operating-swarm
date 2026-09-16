@@ -991,6 +991,24 @@ html:not([data-theme="light"]) .os-composer,
   line-height: 1.2;
   text-align: center;
 }
+.os-fav-tile__attention {
+  position: absolute;
+  left: 0.2rem;
+  right: 0.2rem;
+  top: 0.35rem;
+  z-index: 12;
+  text-align: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-warning);
+  text-shadow: 0 0 0.4rem var(--color-base-100);
+  pointer-events: none;
+}
+.os-rail-attention {
+  color: var(--color-warning);
+  font-weight: 650;
+}
 .os-fav-tile__shortcut {
   position: absolute;
   top: 0.25rem;
