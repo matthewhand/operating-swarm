@@ -55,6 +55,16 @@ def _payload(agent_id: str, settings: dict, request) -> dict:
         "cli_session_id": settings.get("cli_session_id"),
         "remote_session_id": settings.get("remote_session_id"),
         "folder": settings.get("folder"),
+        "speech_mode": settings.get("speech_mode") or "inherit",
+        "tts_voice": settings.get("tts_voice") or "",
+        "tts_voice_instruction": settings.get("tts_voice_instruction") or "",
+        "stt_base_url": settings.get("stt_base_url") or "",
+        "stt_model": settings.get("stt_model") or "",
+        "stt_api_key_env": settings.get("stt_api_key_env") or "",
+        "tts_base_url": settings.get("tts_base_url") or "",
+        "tts_model": settings.get("tts_model") or "",
+        "tts_api_key_env": settings.get("tts_api_key_env") or "",
+        "auto_speak_replies": bool(settings.get("auto_speak_replies")),
         "active_sessions": sessions,
     }
 
@@ -81,6 +91,11 @@ class AgentSettingsAPIView(APIView):
     def patch(self, request, agent_id: str, *_args, **_kwargs):
         agent = normalize_agent_id(agent_id)
         body = request.data if isinstance(request.data, dict) else {}
+        body = {
+            key: value
+            for key, value in body.items()
+            if key not in {"object", "agent_id", "active_sessions"}
+        }
         try:
             settings = update_settings(agent, body)
         except ValueError as exc:

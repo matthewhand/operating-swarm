@@ -168,6 +168,41 @@ export function visiblePluginTools(
   return sortPluginTools(filterPluginTools(tools, query), enabledIds)
 }
 
+/** Enabled-first ids captured when the Plugins popup opens or the catalog loads. */
+export function snapshotPluginToolOrder(
+  tools: readonly PluginTool[],
+  enabledIds: ReadonlySet<string> | readonly string[],
+): string[] {
+  return sortPluginTools(tools, enabledIds).map((tool) => tool.id)
+}
+
+/**
+ * Filter matches while keeping a frozen row order (#278).
+ * Tools not in the snapshot are appended in filtered catalog order.
+ */
+export function visiblePluginToolsFrozen(
+  tools: readonly PluginTool[],
+  query: string,
+  orderIds: readonly string[],
+): PluginTool[] {
+  const filtered = filterPluginTools(tools, query)
+  if (orderIds.length === 0) return filtered
+  const byId = new Map(filtered.map((tool) => [tool.id, tool]))
+  const ordered: PluginTool[] = []
+  const seen = new Set<string>()
+  for (const id of orderIds) {
+    const tool = byId.get(id)
+    if (!tool) continue
+    ordered.push(tool)
+    seen.add(id)
+  }
+  for (const tool of filtered) {
+    if (seen.has(tool.id)) continue
+    ordered.push(tool)
+  }
+  return ordered
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }

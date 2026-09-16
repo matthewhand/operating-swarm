@@ -4,9 +4,10 @@ Each catalog CLI exposes a real list/help/models command (see
 ``cli_catalog.LIST_MODELS``). This module runs that argv with stdin closed and
 a hard timeout, then parses boring model ids out of stdout.
 
-Missing CLI, unknown name, nonzero exit, empty stdout, or timeout →
-``{cli, models: []}`` plus a warning. Never raises to the caller. Never hangs.
-Secrets are stripped from parsed ids and redacted from warnings.
+Missing CLI, unknown name, nonzero exit, empty stdout, or timeout → catalog
+``CLI_MODELS`` presets when known, otherwise ``{cli, models: []}``, plus a
+warning. Never raises to the caller. Never hangs. Secrets are stripped from
+parsed ids and redacted from warnings.
 """
 
 from __future__ import annotations
@@ -89,9 +90,24 @@ def list_models_all(*, timeout: float | None = None) -> list[ListModelsResult]:
 
 
 async def probe_list_models_all(*, timeout: float | None = None) -> list[ListModelsResult]:
-    names = [n for n in cli_catalog.catalog_names() if n in cli_catalog.LIST_MODELS]
+    names = [
+        n
+        for n in cli_catalog.catalog_names()
+        if n in cli_catalog.LIST_MODELS or n in cli_catalog.CLI_MODELS
+    ]
     rows = await asyncio.gather(*(probe_list_models(n, timeout=timeout) for n in names))
     return list(rows)
+
+
+def _catalog_presets(name: str) -> list[str]:
+    raw = cli_catalog.CLI_MODELS.get(name) or []
+    return [str(item).strip() for item in raw if str(item).strip()]
+
+
+def _result_with_optional_presets(name: str, warning: str) -> ListModelsResult:
+    """Empty/failed probe → catalog presets when known, else empty + warning."""
+    logger.warning(warning)
+    return ListModelsResult(cli=name, models=_catalog_presets(name), warning=warning)
 
 
 async def probe_list_models(
@@ -104,51 +120,54 @@ async def probe_list_models(
     """Run ``name``'s catalogued list-models argv. Never raises."""
     argv = cli_catalog.list_models_argv(name)
     if argv is None:
+        presets = _catalog_presets(name)
+        if presets:
+            warning = f"{name}: no list-models probe; using catalog presets"
+            logger.warning(warning)
+            return ListModelsResult(cli=name, models=presets, warning=warning)
         warning = f"unknown CLI {name!r}; no list-models probe in the catalog"
         logger.warning(warning)
         return ListModelsResult(cli=name, models=[], warning=warning)
 
     t = float(cli_catalog.LIST_MODELS_TIMEOUT if timeout is None else timeout)
     if t <= 0:
-        warning = f"{name}: list-models timeout must be positive"
-        logger.warning(warning)
-        return ListModelsResult(cli=name, models=[], warning=warning)
+        return _result_with_optional_presets(name, f"{name}: list-models timeout must be positive")
 
     exe = _resolve_executable(argv[0], which=which)
     if exe is None:
-        warning = f"{name}: CLI not installed (no {argv[0]!r} on PATH)"
-        logger.warning(warning)
-        return ListModelsResult(cli=name, models=[], warning=warning)
+        return _result_with_optional_presets(
+            name, f"{name}: CLI not installed (no {argv[0]!r} on PATH)"
+        )
 
     resolved = [exe, *argv[1:]]
     runner = run_exec or _run_exec
     try:
         code, stdout, stderr = await runner(resolved, t)
     except asyncio.TimeoutError:
-        warning = f"{name}: list-models probe timed out after {t:.1f}s"
-        logger.warning(warning)
-        return ListModelsResult(cli=name, models=[], warning=warning)
+        return _result_with_optional_presets(
+            name, f"{name}: list-models probe timed out after {t:.1f}s"
+        )
     except Exception as exc:  # never crash the caller
-        warning = _safe_warning(f"{name}: list-models probe failed: {exc}")
-        logger.warning(warning)
-        return ListModelsResult(cli=name, models=[], warning=warning)
+        return _result_with_optional_presets(
+            name, _safe_warning(f"{name}: list-models probe failed: {exc}")
+        )
 
     if code is None:
-        warning = f"{name}: list-models probe timed out after {t:.1f}s"
-        logger.warning(warning)
-        return ListModelsResult(cli=name, models=[], warning=warning)
+        return _result_with_optional_presets(
+            name, f"{name}: list-models probe timed out after {t:.1f}s"
+        )
     if code != 0:
         detail = (stderr or stdout or f"exit {code}").strip().splitlines()
         snippet = detail[0] if detail else f"exit {code}"
-        warning = _safe_warning(f"{name}: list-models probe failed: {snippet}")
-        logger.warning(warning)
-        return ListModelsResult(cli=name, models=[], warning=warning)
+        return _result_with_optional_presets(
+            name, _safe_warning(f"{name}: list-models probe failed: {snippet}")
+        )
 
     models = parse_models_stdout(stdout)
     if not models:
-        warning = f"{name}: list-models probe returned no model ids"
-        logger.warning(warning)
-        return ListModelsResult(cli=name, models=[], warning=warning)
+        return _result_with_optional_presets(
+            name, f"{name}: list-models probe returned no model ids"
+        )
     return ListModelsResult(cli=name, models=models)
 
 

@@ -40,5 +40,9 @@ def test_omp_with_model_replaces_pinned_slug():
 def test_omp_in_sidebar_and_models_starting_points():
     assert "omp" in cli_catalog.SIDEBAR_CLIS
     assert "omp" in cli_catalog.CLI_SIDEBAR
-    assert cli_catalog.CLI_MODELS.get("omp") == ["litellm/orchestration"]
+    assert cli_catalog.CLI_MODELS.get("omp") == [
+        "litellm/orchestration",
+        "gemini-2.5-flash",
+        "claude-3-5-sonnet",
+    ]
     assert cli_catalog.MODEL_FLAG.get("omp") == "--model"

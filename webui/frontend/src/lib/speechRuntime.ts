@@ -118,8 +118,12 @@ export function listenSystemStt(opts: {
   }
 }
 
-export async function transcribeCustomBlob(blob: Blob, filename = 'audio.webm'): Promise<string> {
-  const result = await transcribeSpeechAudio(blob, filename)
+export async function transcribeCustomBlob(
+  blob: Blob,
+  filename = 'audio.webm',
+  opts?: { agentId?: string },
+): Promise<string> {
+  const result = await transcribeSpeechAudio(blob, filename, opts)
   return (result.text || '').trim()
 }
 
@@ -207,13 +211,17 @@ export function speakSystem(text: string, win: Window = window): { stop: () => v
 
 export async function speakCustom(
   text: string,
-  opts?: { audioCtor?: typeof Audio; voice?: string },
+  opts?: { audioCtor?: typeof Audio; voice?: string; instruction?: string; agentId?: string },
 ): Promise<{ stop: () => void; path: 'custom' }> {
   const spoken = text.trim()
   if (!spoken) {
     throw new Error('Nothing to read aloud.')
   }
-  const blob = await speakSpeechText(spoken, opts?.voice)
+  const blob = await speakSpeechText(spoken, {
+    voice: opts?.voice,
+    instruction: opts?.instruction,
+    agentId: opts?.agentId,
+  })
   const url = URL.createObjectURL(blob)
   const Ctor = opts?.audioCtor ?? Audio
   const audio = new Ctor(url)

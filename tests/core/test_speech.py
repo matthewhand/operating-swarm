@@ -202,9 +202,17 @@ def test_stub_transcribe_and_speak(isolated_store: Path, http_router):
     )
     text = speech_core.transcribe_audio(b"fake-webm", filename="clip.webm", settings=spec)
     assert text == "hello from stub"
-    audio, ctype = speech_core.synthesize_speech("Read this aloud", settings=spec)
+    audio, ctype = speech_core.synthesize_speech(
+        "Read this aloud",
+        voice="alloy",
+        instruction="Speak like a bee.",
+        settings=spec,
+    )
     assert audio == b"ID3stub-audio"
     assert "audio" in ctype
+    sent = json.loads(router.last_body.decode("utf-8"))
+    assert sent["voice"] == "alloy"
+    assert sent["instruction"] == "Speak like a bee."
     assert ("POST", "/v1/audio/transcriptions") in router.hits
     assert ("POST", "/v1/audio/speech") in router.hits
     dumped = isolated_store.read_text(encoding="utf-8")

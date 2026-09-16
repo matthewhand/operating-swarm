@@ -1247,17 +1247,38 @@ export function patchSpeechSettings(body: SpeechPatchRequest): Promise<SpeechSet
   return apiPatch<SpeechSettings>('/v1/speech/', body)
 }
 
-export function transcribeSpeechAudio(file: Blob, filename = 'audio.webm'): Promise<SpeechTranscription> {
+export function transcribeSpeechAudio(
+  file: Blob,
+  filename = 'audio.webm',
+  opts?: { agentId?: string },
+): Promise<SpeechTranscription> {
   const form = new FormData()
   form.append('file', file, filename)
+  const agentId = (opts?.agentId || '').trim()
+  if (agentId) form.append('agent_id', agentId)
   return apiPostForm<SpeechTranscription>('/v1/speech/transcribe/', form)
 }
 
-export async function speakSpeechText(text: string, voice = ''): Promise<Blob> {
+export type SpeakSpeechOpts = {
+  voice?: string
+  instruction?: string
+  agentId?: string
+}
+
+export async function speakSpeechText(
+  text: string,
+  voiceOrOpts: string | SpeakSpeechOpts = '',
+): Promise<Blob> {
+  const opts: SpeakSpeechOpts =
+    typeof voiceOrOpts === 'string' ? { voice: voiceOrOpts } : voiceOrOpts || {}
+  const body: Record<string, string> = { text }
+  if (opts.voice) body.voice = opts.voice
+  if (opts.instruction) body.instruction = opts.instruction
+  if (opts.agentId) body.agent_id = opts.agentId
   const response = await fetch('/v1/speech/speak/', {
     method: 'POST',
     headers: buildHeaders(true),
-    body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
+    body: JSON.stringify(body),
     credentials: 'include',
   })
   if (!response.ok) {

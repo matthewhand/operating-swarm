@@ -2,7 +2,13 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App.tsx'
+import { installDemoRuntime } from './lib/demo/demoMockInference'
+import { isDemoMode } from './lib/demo/mode'
 import './index.css'
+
+if (isDemoMode()) {
+  installDemoRuntime()
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {

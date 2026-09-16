@@ -48,6 +48,13 @@ import {
   saveAgentSettings,
 } from '../lib/agentSettings'
 import {
+  EMPTY_VOICE_BIND,
+  parseSpeechMode,
+  parseVoiceBind,
+  type AgentVoiceBind,
+  type SpeechMode,
+} from '../lib/agentVoiceBind'
+import {
   agentRole,
   applyBlueprintAssignment,
   assignableBlueprints,
@@ -106,6 +113,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const id = agentId || ''
   const toggleId = useId()
   const suggestionsToggleId = useId()
+  const autoSpeakId = useId()
   const { success, error: toastError } = useToast()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -116,6 +124,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [profileOverride, setProfileOverride] = useState('')
   const [newChatPerTask, setNewChatPerTask] = useState(false)
   const [useSuggestions, setUseSuggestions] = useState(false)
+  const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
   const [savingSettings, setSavingSettings] = useState(false)
   const [boundRemoteId, setBoundRemoteId] = useState('')
   const [inferenceSeats, setInferenceSeats] = useState<InferenceSeat[]>([])
@@ -259,6 +268,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
       if (!cancelled) {
         setNewChatPerTask(settings.new_chat_per_task)
         setUseSuggestions(settings.use_suggestions)
+        setVoiceBind(parseVoiceBind(settings))
         if (!edit.folder && settings.folder) {
           setFolder(settings.folder)
         }
@@ -286,6 +296,17 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     setSavingSettings(true)
     try {
       await saveAgentSettings(id, { use_suggestions: next })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const persistVoicePatch = async (patch: Partial<AgentVoiceBind>) => {
+    setVoiceBind((prev) => ({ ...prev, ...patch }))
+    if (!id) return
+    setSavingSettings(true)
+    try {
+      await saveAgentSettings(id, patch)
     } finally {
       setSavingSettings(false)
     }
@@ -581,6 +602,178 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
               </p>
             </div>
           )}
+        </div>
+
+        <div
+          className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+          data-testid="agent-editor-voice"
+        >
+          <div>
+            <span className="text-sm font-semibold text-base-content/80">Voice</span>
+            <p className="text-xs text-base-content/60 mt-0.5">
+              This robot&apos;s voice chat. Inherit uses Settings → Speech. Empty bind
+              stays on the global path.
+            </p>
+          </div>
+          <Select
+            label="Speech mode"
+            name="agent-speech-mode"
+            size="sm"
+            aria-label="Speech mode"
+            value={voiceBind.speech_mode}
+            disabled={!id || savingSettings}
+            onChange={(event) => {
+              const next = parseSpeechMode(event.target.value)
+              void persistVoicePatch({ speech_mode: next as SpeechMode })
+            }}
+          >
+            <option value="inherit">Inherit global speech</option>
+            <option value="voice">Voice (this agent)</option>
+            <option value="endpoint">This robot&apos;s audio endpoint</option>
+          </Select>
+          {voiceBind.speech_mode !== 'inherit' ? (
+            <>
+              <Input
+                label="TTS voice"
+                name="agent-tts-voice"
+                size="sm"
+                value={voiceBind.tts_voice}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_voice: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_voice: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Textarea
+                label="Voice instruction"
+                name="agent-tts-voice-instruction"
+                value={voiceBind.tts_voice_instruction}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({
+                    ...prev,
+                    tts_voice_instruction: event.target.value,
+                  }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_voice_instruction: event.target.value.trim() })
+                }}
+                rows={3}
+                spellCheck={false}
+              />
+            </>
+          ) : null}
+          {voiceBind.speech_mode === 'endpoint' ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input
+                label="STT base URL"
+                name="agent-stt-base-url"
+                size="sm"
+                value={voiceBind.stt_base_url}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_base_url: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_base_url: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="STT model"
+                name="agent-stt-model"
+                size="sm"
+                value={voiceBind.stt_model}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_model: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_model: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="STT API key env"
+                name="agent-stt-api-key-env"
+                size="sm"
+                value={voiceBind.stt_api_key_env}
+                disabled={!id || savingSettings}
+                placeholder="STT_API_KEY"
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_api_key_env: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_api_key_env: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS base URL"
+                name="agent-tts-base-url"
+                size="sm"
+                value={voiceBind.tts_base_url}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_base_url: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_base_url: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS model"
+                name="agent-tts-model"
+                size="sm"
+                value={voiceBind.tts_model}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_model: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_model: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS API key env"
+                name="agent-tts-api-key-env"
+                size="sm"
+                value={voiceBind.tts_api_key_env}
+                disabled={!id || savingSettings}
+                placeholder="TTS_API_KEY"
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_api_key_env: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_api_key_env: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+            </div>
+          ) : null}
+          <label
+            htmlFor={autoSpeakId}
+            className="label cursor-pointer items-center justify-between gap-4 px-0 py-1"
+          >
+            <span className="label-text text-sm">Auto-speak replies</span>
+            <input
+              id={autoSpeakId}
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              role="switch"
+              aria-label="Auto-speak replies"
+              checked={voiceBind.auto_speak_replies}
+              disabled={!id || savingSettings}
+              onChange={(event) => {
+                void persistVoicePatch({ auto_speak_replies: event.target.checked })
+              }}
+            />
+          </label>
         </div>
 
         {/* LLM Override Picker by Kind (REQ-124) */}

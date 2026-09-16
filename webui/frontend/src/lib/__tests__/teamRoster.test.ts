@@ -1,20 +1,38 @@
 import { describe, expect, it } from 'vitest'
 import {
   addMember,
+  addRoleSlot,
+  applySlotMemberChange,
+  assignableMembersForSlot,
+  canAddRoleSlot,
   childTeamIds,
+  COMPOSABLE_TEAM_ROLES,
   cosBriefForMember,
   DEFAULT_COS_STARTER,
+  DRAG_MIME,
   emptyRosterDraft,
   encodeDragAgent,
+  encodeDragRole,
+  FIRST_AGENT_VALUE,
+  firstAgentLeadId,
   isCosEligibleMember,
+  memberKey,
   nestRosters,
   parseDragAgent,
+  parseDragRole,
+  parseDragRosterIndex,
   parseRosterMember,
   parseTeamRoster,
   parseTeamRosterList,
+  reorderMembers,
   restoreCosId,
+  ROLE_DRAG_MIME,
+  ROSTER_DRAG_MIME,
   runtimeBriefForTarget,
+  setMemberRole,
+  slotsFromMembers,
   stampCosRole,
+  unassignedMembers,
 } from '../teamRoster'
 
 describe('teamRoster (REQ-28)', () => {
@@ -140,5 +158,104 @@ describe('advisor in TEAM_MEMBER_ROLES (#181)', () => {
     const { TEAM_MEMBER_ROLES } = await import('../teamRoster')
     expect(TEAM_MEMBER_ROLES).toContain('advisor')
     expect(TEAM_MEMBER_ROLES).toContain('skeptic')
+  })
+})
+
+describe('teamRoster role slots (issue #104)', () => {
+  const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves', role: 'default' }
+  const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok', role: 'default' }
+  const acp = { id: 'acp', name: 'ACP', kind: 'remote' as const, source: 'placeholder:remote:acp', role: 'default' }
+
+  it('lists canonical composer roles without default', () => {
+    expect(COMPOSABLE_TEAM_ROLES).toEqual([
+      'support',
+      'gate',
+      'skeptic',
+      'chief_of_staff',
+      'suggestions',
+      'engineer',
+    ])
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('default')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('advisor')
+  })
+
+  it('uses a distinct MIME from agent drags', () => {
+    expect(ROLE_DRAG_MIME).toBe('application/x-swarm-team-role')
+    expect(ROLE_DRAG_MIME).not.toBe(DRAG_MIME)
+    expect(parseDragRole(encodeDragRole('skeptic'))).toBe('skeptic')
+    expect(parseDragRole(encodeDragAgent(jeeves))).toBeNull()
+    expect(parseDragAgent(encodeDragRole('gate'))).toBeNull()
+    expect(parseDragRole(encodeDragRole('default' as never))).toBeNull()
+  })
+
+  it('treats default as unassigned and builds slots from assigned members', () => {
+    const members = [jeeves, { ...grok, role: 'skeptic' }]
+    expect(unassignedMembers(members).map((m) => m.id)).toEqual(['jeeves'])
+    const slots = slotsFromMembers(members)
+    expect(slots).toHaveLength(1)
+    expect(slots[0]).toMatchObject({ role: 'skeptic', memberKey: memberKey(grok) })
+  })
+
+  it('dropdown options skip members already in another slot, keeping the current pick', () => {
+    const members = [
+      { ...jeeves, role: 'skeptic' },
+      grok,
+      acp,
+    ]
+    const slot = { id: 's1', role: 'skeptic' as const, memberKey: memberKey(jeeves) }
+    const options = assignableMembersForSlot(members, slot)
+    expect(options.map((m) => m.id)).toEqual(['jeeves', 'grok', 'acp'])
+    const empty = { id: 's2', role: 'gate' as const, memberKey: null }
+    expect(assignableMembersForSlot(members, empty).map((m) => m.id)).toEqual(['grok', 'acp'])
+  })
+
+  it('CoS slot options omit remotes and at most one CoS slot is allowed', () => {
+    const members = [jeeves, grok, acp]
+    const slot = { id: 'cos', role: 'chief_of_staff' as const, memberKey: null }
+    expect(assignableMembersForSlot(members, slot).map((m) => m.id)).toEqual(['jeeves', 'grok'])
+    const withCos = addRoleSlot([], 'chief_of_staff')
+    expect(canAddRoleSlot(withCos, 'chief_of_staff')).toBe(false)
+    expect(addRoleSlot(withCos, 'chief_of_staff')).toHaveLength(1)
+    expect(canAddRoleSlot(withCos, 'skeptic')).toBe(true)
+  })
+
+  it('assigning or clearing a slot returns the previous agent to unassigned', () => {
+    const members = [jeeves, grok]
+    const slot = { id: 's1', role: 'engineer' as const, memberKey: null }
+    const assigned = applySlotMemberChange(members, slot, grok)
+    expect(assigned.find((m) => m.id === 'grok')?.role).toBe('engineer')
+    const moved = applySlotMemberChange(
+      assigned,
+      { ...slot, memberKey: memberKey(grok) },
+      jeeves,
+    )
+    expect(moved.find((m) => m.id === 'grok')?.role).toBe('default')
+    expect(moved.find((m) => m.id === 'jeeves')?.role).toBe('engineer')
+    const cleared = applySlotMemberChange(moved, { ...slot, memberKey: memberKey(jeeves) }, null)
+    expect(cleared.every((m) => m.role === 'default')).toBe(true)
+    expect(setMemberRole(cleared, jeeves, 'support')[0].role).toBe('support')
+  })
+})
+
+describe('teamRoster First agent lead (issue #105)', () => {
+  it('reorders members and firstAgentLeadId tracks roster index 0', () => {
+    const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves' }
+    const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok' }
+    const remote = { id: 'acp', name: 'ACP', kind: 'remote' as const, source: 'placeholder:remote:acp' }
+    const members = addMember(addMember([], jeeves), grok)
+    expect(firstAgentLeadId(members)).toBe('jeeves')
+    const moved = reorderMembers(members, 1, 0)
+    expect(moved.map((row) => row.id)).toEqual(['grok', 'jeeves'])
+    expect(firstAgentLeadId(moved)).toBe('grok')
+    expect(reorderMembers(members, 0, 0)).toBe(members)
+    expect(reorderMembers(members, -1, 0)).toBe(members)
+    expect(firstAgentLeadId([
+      { id: 'acp', kind: 'remote', role: 'default', source: 'placeholder:remote:acp' },
+    ])).toBeNull()
+    expect(firstAgentLeadId(addMember([remote], jeeves))).toBeNull()
+    expect(parseDragRosterIndex('1')).toBe(1)
+    expect(parseDragRosterIndex('nope')).toBeNull()
+    expect(ROSTER_DRAG_MIME).not.toBe(DRAG_MIME)
+    expect(FIRST_AGENT_VALUE).toBe('__first__')
   })
 })

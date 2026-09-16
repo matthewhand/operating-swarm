@@ -6,6 +6,7 @@
  */
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -182,7 +183,13 @@ export function NavbarRoutingPicker({
     [path, selectedModels],
   )
   const joined = useMemo(() => joinRoutingPath(faceParts), [faceParts])
-  const showModel = selectedFamilies.length > 0 || Boolean(modelWarning)
+  const modelsLoading =
+    seatKind === 'cli' &&
+    (previewModelsQuery.isFetching || previewModelsQuery.isLoading)
+  // CLI seats always expose the model pill so a click can show Loading...
+  // while the lazy probe is in flight (REQ-870).
+  const showModel =
+    seatKind === 'cli' || selectedFamilies.length > 0 || Boolean(modelWarning)
   const selectedFamily = selectedFamilies.find((row) => row.base === path.modelBase)
   const showEffort = Boolean(selectedFamily && familyHasEffort(selectedFamily))
   const agentLabel =
@@ -191,7 +198,7 @@ export function NavbarRoutingPicker({
     placeholder ||
     (seatKind === 'remote' ? 'Remote' : 'Agent')
   const modelLabel = showModel
-    ? path.modelBase || selectedModel || (modelWarning ? '—' : '')
+    ? path.modelBase || selectedModel || '—'
     : ''
   const effortLabel = showEffort ? path.effort || '' : ''
   const groupLabel = ariaLabel || (seatKind === 'cli' ? 'CLI' : seatKind === 'remote' ? 'Remote' : 'Routing')
@@ -421,11 +428,12 @@ export function NavbarRoutingPicker({
     }
     return agentItems.map((row) => ({
       ...row,
-      hasChildren: seatKind === 'cli',
+      hasChildren: seatKind === 'cli' && row.id !== footerAction?.id,
     }))
   }, [
     agentItems,
     families,
+    footerAction?.id,
     open,
     previewAgent,
     previewModel,
@@ -477,7 +485,7 @@ export function NavbarRoutingPicker({
       event.preventDefault()
       const item = items[activeIndex]
       if (!item) return
-      if (item.kind === 'agent') {
+      if (item.kind === 'agent' && item.hasChildren) {
         setPreviewAgent(item.id)
         openSheetAt('model')
       } else if (item.kind === 'model') {
@@ -571,51 +579,71 @@ export function NavbarRoutingPicker({
             Back
           </button>
         ) : null}
-        {isModel && previewModelsQuery.isFetching && families.length === 0 ? (
-          <div className="os-routing-menu__empty">Loading models…</div>
+        {isModel && modelsLoading && families.length === 0 ? (
+          <div
+            className="os-routing-menu__loading"
+            data-testid="routing-model-loading"
+            role="status"
+            aria-live="polite"
+            aria-label="Loading..."
+          >
+            <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+            <span>Loading...</span>
+          </div>
         ) : null}
-        {isModel && modelWarning && families.length === 0 ? (
+        {isModel && modelWarning && families.length === 0 && !modelsLoading ? (
           <div className="os-routing-menu__warning" data-testid="routing-model-warning" role="status">
             {modelWarning}
           </div>
         ) : null}
         {items.length === 0 &&
-        !(isModel && previewModelsQuery.isFetching) &&
+        !(isModel && modelsLoading) &&
         !(isModel && modelWarning) ? (
           <div className="os-routing-menu__empty">No options</div>
         ) : null}
-        {items.map((item, index) => (
-          <button
-            key={item.id}
-            type="button"
-            role="menuitem"
-            ref={(el) => {
-              if (!nested) itemRefs.current[index] = el
-            }}
-            data-testid={`routing-option-${dim}-${item.id}`}
-            className={`os-routing-option ${item.current ? 'os-routing-option--current' : ''}`}
-            aria-haspopup={item.hasChildren ? 'menu' : undefined}
-            data-active={index === activeIndex && !nested ? 'true' : 'false'}
-            onMouseEnter={() => {
-              setActiveIndex(index)
-              if (!narrow && item.hasChildren && isAgent) {
-                setPreviewAgent(item.id)
-              }
-              if (!narrow && item.hasChildren && isModel) {
-                const family = families.find((row) => row.base === item.id)
-                if (family) setPreviewModel(family.ids[0])
-              }
-            }}
-            onClick={() => activateItem(item.id, item.kind, !narrow)}
-          >
-            <span>{item.label}</span>
-            {item.hasChildren ? (
-              <span className="os-routing-option__more" aria-hidden="true">
-                ›
-              </span>
-            ) : null}
-          </button>
-        ))}
+        {items.map((item, index) => {
+          const isFooter = Boolean(isAgent && footerAction && item.id === footerAction.id)
+          return (
+            <Fragment key={item.id}>
+              {isFooter ? (
+                <div
+                  role="separator"
+                  className="my-1 border-t border-base-300"
+                  data-testid="manage-surface-divider"
+                />
+              ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                ref={(el) => {
+                  if (!nested) itemRefs.current[index] = el
+                }}
+                data-testid={`routing-option-${dim}-${item.id}`}
+                className={`os-routing-option ${item.current ? 'os-routing-option--current' : ''}`}
+                aria-haspopup={item.hasChildren ? 'menu' : undefined}
+                data-active={index === activeIndex && !nested ? 'true' : 'false'}
+                onMouseEnter={() => {
+                  setActiveIndex(index)
+                  if (!narrow && item.hasChildren && isAgent) {
+                    setPreviewAgent(item.id)
+                  }
+                  if (!narrow && item.hasChildren && isModel) {
+                    const family = families.find((row) => row.base === item.id)
+                    if (family) setPreviewModel(family.ids[0])
+                  }
+                }}
+                onClick={() => activateItem(item.id, item.kind, !narrow)}
+              >
+                <span>{item.label}</span>
+                {item.hasChildren ? (
+                  <span className="os-routing-option__more" aria-hidden="true">
+                    ›
+                  </span>
+                ) : null}
+              </button>
+            </Fragment>
+          )
+        })}
       </div>
     )
   }

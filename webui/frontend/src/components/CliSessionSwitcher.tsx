@@ -16,6 +16,7 @@ import { hopCliSession, hopContinueTargets } from '../lib/cliSessionHop'
 import { persistAgentDropdownChoice } from '../lib/userPrefs'
 import { sessionHref } from '../lib/scaleOutSessions'
 import { FALLBACK_CLIS } from '../lib/chatStatus'
+import { openSettingsSheet } from './SettingsSheet'
 
 export interface CliSessionSwitcherProps {
   agentId: string
@@ -211,6 +212,7 @@ export default function CliSessionSwitcher({
         onContinueOn={(session, targetCli) => {
           void continueOn(session, targetCli)
         }}
+        onManageSession={() => openSettingsSheet({ section: 'cli-agents' })}
       />
     </>
   )

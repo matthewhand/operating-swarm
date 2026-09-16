@@ -1662,6 +1662,7 @@ button.os-agent-row {
 }
 .os-routing-menu__back,
 .os-routing-menu__empty,
+.os-routing-menu__loading,
 .os-routing-option {
   display: flex;
   width: 100%;
@@ -1686,6 +1687,10 @@ button.os-agent-row {
 }
 .os-routing-menu__empty {
   opacity: 0.6;
+}
+.os-routing-menu__loading {
+  justify-content: flex-start;
+  opacity: 0.85;
 }
 .os-routing-menu__warning {
   padding: 0.35rem 0.5rem;
@@ -3118,4 +3123,102 @@ html:not([data-theme="light"]) .os-composer__send,
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+/* REQ-858 / #213: Add tools / Add skills catalog (TrueForge-style). */
+.os-search-palette--catalog {
+  width: min(56rem, calc(100vw - 2rem));
+  max-width: 56rem;
+}
+.os-install-catalog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.os-install-catalog__search {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.35rem 1.1rem 0.55rem;
+}
+.os-install-kind-filters {
+  padding: 0 1rem 0.55rem;
+  flex-wrap: wrap;
+}
+.os-install-catalog__body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 0.75rem;
+  padding: 0 1rem 0.75rem;
+}
+.os-install-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  overflow-y: auto;
+  flex: 1 1 55%;
+  min-width: 0;
+}
+.os-install-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+}
+.os-install-card--active {
+  outline: 1px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+.os-install-card__icon {
+  flex: 0 0 auto;
+  opacity: 0.7;
+  margin-top: 0.1rem;
+}
+.os-install-card__name {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.os-install-card__summary {
+  display: block;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, currentColor 58%, transparent);
+}
+.os-install-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+.os-install-drawer {
+  flex: 1 1 45%;
+  min-width: 12rem;
+  max-width: 20rem;
+  overflow-y: auto;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: var(--color-base-100);
+  padding: 0.75rem;
+}
+.os-health-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 35%, transparent);
+}
+.os-health-dot--up {
+  background: var(--color-success);
+}
+.os-health-dot--down {
+  background: var(--color-error);
+}
+.os-health-dot--unknown {
+  background: color-mix(in srgb, currentColor 35%, transparent);
 }

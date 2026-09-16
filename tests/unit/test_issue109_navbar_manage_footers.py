@@ -1,0 +1,39 @@
+"""Issue #109: navbar pickers end with a divider then title-case Manage <kind>."""
+
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+CHAT_PAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+PICKER = REPO / "webui" / "frontend" / "src" / "components" / "NavbarRoutingPicker.tsx"
+SESSION_PICKER = REPO / "webui" / "frontend" / "src" / "components" / "CliSessionPicker.tsx"
+SESSION_SWITCHER = REPO / "webui" / "frontend" / "src" / "components" / "CliSessionSwitcher.tsx"
+
+
+def test_routing_picker_renders_manage_divider_and_skips_footer_flyout():
+    src = PICKER.read_text(encoding="utf-8")
+    assert 'data-testid="manage-surface-divider"' in src
+    assert 'role="separator"' in src
+    assert "row.id !== footerAction?.id" in src
+    assert "item.kind === 'agent' && item.hasChildren" in src
+
+
+def test_chat_page_manage_labels_are_title_case():
+    src = CHAT_PAGE.read_text(encoding="utf-8")
+    assert "label: 'Manage CLI'" in src
+    assert "label: 'Manage API'" in src
+    assert ">Manage Team<" in src
+    assert "Manage Cli" not in src
+    assert "openSettingsSheet({ section: 'cli-agents' })" in src
+    assert "openSettingsSheet({ section: 'llm-profiles' })" in src
+    assert "<option disabled" in src
+    assert "──────────" in src
+
+
+def test_session_switcher_has_divider_and_manage_session():
+    picker = SESSION_PICKER.read_text(encoding="utf-8")
+    switcher = SESSION_SWITCHER.read_text(encoding="utf-8")
+    assert 'data-testid="manage-surface-divider"' in picker
+    assert 'role="separator"' in picker
+    assert "Manage Session" in picker
+    assert "onManageSession" in switcher
+    assert "openSettingsSheet({ section: 'cli-agents' })" in switcher
