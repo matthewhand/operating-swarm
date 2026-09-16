@@ -108,6 +108,14 @@ under `tests/blueprints/`.
 - **Be honest in docs**: this project is mid-cleanup; do not document
   features as working unless they are (see `FEATURE_STATUS.md` for the
   live evidence board).
+- **Rebase-or-close window** (#247): branches age out fast. A PR that
+  stays **CONFLICTING** with `main` for **>48h** gets a nudge comment.
+  After **>72h** still conflicting, close it as superseded and cite the
+  landed equivalent on `main`. Before reviewing a stale branch, grep
+  `main` for the fix (check-if-fixed first). Before closing, salvage
+  unique regression tests or file a successor issue with a port
+  inventory. Stacked PRs must name their **base PR** in the body.
+  Triage notes: [docs/qa/ISSUE-247-stale-pr-hygiene.md](docs/qa/ISSUE-247-stale-pr-hygiene.md).
 
 ## Where help is wanted
 
