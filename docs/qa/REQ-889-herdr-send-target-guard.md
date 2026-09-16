@@ -148,7 +148,7 @@ target, and its message stays as the last line of defence.
 **Status: shipped** in the same PR. Verified in a real browser, not by reading code.
 
 The closing ask was to confirm the guard "in the browser on the LAN app". Playwright
-(headless Chromium) against `http://10.0.0.36:8002/` did confirm the guard — Send is
+(headless Chromium) against `http://127.0.0.1:8002/` did confirm the guard — Send is
 disabled with a blank target, enables once a target exists, and a re-list does not
 clobber a target the operator picked — but the pane it guarded was not the pane it
 claimed to be.

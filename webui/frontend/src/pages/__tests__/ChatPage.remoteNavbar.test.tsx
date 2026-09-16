@@ -38,7 +38,7 @@ function remotesCatalog() {
         kind: 'anythingllm',
         title: 'AnythingLLM',
         source: 'config',
-        base_url: 'http://10.0.0.30:3001',
+        base_url: 'http://127.0.0.1:3001',
       },
     ],
   }
