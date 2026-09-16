@@ -56,7 +56,7 @@
         + (s.execution_ms?'<span class="se-meta">'+esc(s.execution_ms)+' ms</span>':'')
         + deleg + '</div>'
         + (s.output_preview?'<div class="se-preview">'+esc(s.output_preview)+'</div>':'') + '</div>';
-    }).join('') : '<div class="se-empty os-empty" role="status"><div class="os-empty-icon" aria-hidden="true">🧭</div><div>No sessions for your account yet.</div><div class="os-meta mt-1">Create one with <code>POST /v1/responses</code> (include API credentials when auth is enabled). This list shows only sessions you own.</div></div>';
+    }).join('') : '<div class="se-empty os-empty" role="status"><div class="os-empty-icon" aria-hidden="true">🧭</div><div>No sessions for your account yet.</div><div class="os-meta mt-2 mb-3">Create one with <code>POST /v1/responses</code> (include API credentials when auth is enabled). This list shows only sessions you own.</div><a href="/teams/launch/" class="btn btn-primary os-launch-btn">Launch a team</a></div>';
   }
   // --- status filtering (click a status chip) ---
   var currentFilter = "";
