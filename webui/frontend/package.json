@@ -23,6 +23,7 @@
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
+    "build:demo": "vite build --mode demo",
     "serve": "vite preview",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",

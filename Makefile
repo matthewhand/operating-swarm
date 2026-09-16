@@ -5,7 +5,7 @@ PY ?= uv run
 CLI ?= swarm-cli
 BIN ?= $(HOME)/.local/share/swarm/bin
 
-.PHONY: help dev test frontend list-installed list-available build build-shim build-all-shims build-all-executables launch uninstall build-pyinstaller build-all-pyinstaller
+.PHONY: help dev test frontend list-installed list-available build build-shim build-all-shims build-all-executables launch uninstall build-pyinstaller build-all-pyinstaller demo-deploy demo-build
 
 COMPOSE ?= docker compose
 # Host-coupled CLI mapping (gitignored). Auto-included by `make dev` when present
@@ -20,6 +20,8 @@ help:
 	@echo "  make dev                                # Containerized API with live code-reload (host :8002)"
 	@echo "  make test                               # Run the full test suite"
 	@echo "  make frontend                           # Build ADR-001 SPA (webui/frontend/dist)"
+	@echo "  make demo-build                         # Static SPA with VITE_DEMO_MODE mocked inference"
+	@echo "  make demo-deploy                        # Operator-gated Fly/Pages publish (skips if unauthed)"
 	@echo "  make list-installed                     # List installed blueprint executables"
 	@echo "  make list-available                     # List available blueprints (bundled/user)"
 	@echo "  make launch NAME=codey MESSAGE=\"Hi\" # Launch installed executable with a message"
@@ -50,6 +52,13 @@ test:
 # Gitignored SPA assets for local `/` + `/chat` (Docker bakes these in-image).
 frontend:
 	./scripts/build_frontend.sh
+
+# REQ-882 / #279: static demo SPA (mocked inference). Deploy is operator-gated.
+demo-build:
+	cd webui/frontend && npm run build:demo
+
+demo-deploy:
+	$(PY) python scripts/deploy_demo_site.py
 
 list-installed:
 	$(PY) $(CLI) list --installed
