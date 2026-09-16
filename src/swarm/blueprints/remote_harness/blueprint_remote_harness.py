@@ -77,10 +77,18 @@ def _send_tool(name: str, prompt: str, target: str = "") -> str:
 
 
 def _render_operate(result: remotes_core.OperateResult) -> str:
+    if result.ok and result.op == "send" and isinstance(result.data, dict):
+        text = str(result.data.get("text") or result.data.get("response") or "").strip()
+        if text:
+            return text
     if not result.ok and remotes_core.NOT_ADDED_MARKER in result.detail:
         # Never-added catalog seat: the detail is already a complete, actionable
         # sentence — do not wrap it in "{remote} {op}: FAIL —" (issue #129).
         return result.detail
+    if not result.ok and result.remote in {"omb", "hermes", "herdr"}:
+        # Named error only — never dump a UUID/run ACK as the chat bubble.
+        gap = f"\nGAP: {result.gap}" if result.gap else ""
+        return f"{result.remote} {result.op}: FAIL — {result.detail}{gap}"
     gap = f"\nGAP: {result.gap}" if result.gap else ""
     data = ""
     if result.data is not None:
@@ -218,6 +226,25 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_trueforge",
                 "Hand off to the TrueForge remote operator (health/list/send).",
+            ),
+            "anythingllm": (
+                "AnythingllmRemote",
+                (
+                    "You operate the remote AnythingLLM workspace via tools. "
+                    "Never pretend to be AnythingLLM locally. Send requires a "
+                    "workspace:thread id from list."
+                ),
+                "consult_anythingllm",
+                "Hand off to the AnythingLLM remote operator (health/list/send).",
+            ),
+            "herdr": (
+                "HerdrRemote",
+                (
+                    "You operate remote Herdr via tools (local or SSH hop). "
+                    "Never clone a Herdr pane locally."
+                ),
+                "consult_herdr",
+                "Hand off to the Herdr remote operator (health/list/send/interrogate).",
             ),
         }
 

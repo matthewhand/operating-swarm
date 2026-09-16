@@ -175,6 +175,10 @@ def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
     def runner(argv, timeout=None):
         del timeout
         calls.append(list(argv))
+        if "get" in argv:
+            return subprocess.CompletedProcess(argv, 0, '{"result":{"state":"idle"}}', "")
+        if "read" in argv:
+            return subprocess.CompletedProcess(argv, 0, "HERDR_PONG", "")
         return subprocess.CompletedProcess(argv, 0, '{"type":"agent_prompted"}', "")
 
     real = HerdrClient.from_remote_config
@@ -194,11 +198,28 @@ def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
             prompt="HERDR_PING_OK",
             target="w3:p1",
             config=cfg,
+            timeout=1.0,
         )
     assert sent.ok is True
+    assert sent.data["text"] == "HERDR_PONG"
     assert from_remote_calls == [cfg]
-    assert calls == [["herdr", "agent", "prompt", "w3:p1", "HERDR_PING_OK"]]
-    assert "--remote" not in calls[0]
+    assert calls == [
+        ["herdr", "agent", "get", "w3:p1"],
+        [
+            "herdr",
+            "agent",
+            "prompt",
+            "w3:p1",
+            "HERDR_PING_OK",
+            "--wait",
+            "--until",
+            "idle",
+            "--timeout",
+            "1000",
+        ],
+        ["herdr", "agent", "read", "w3:p1", "--source", "recent", "--format", "text"],
+    ]
+    assert "--remote" not in calls[1]
     assert "gap" not in (sent.detail or "").lower()
     assert getattr(sent, "gap", None) in (None, "")
 

@@ -537,7 +537,15 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 params.setdefault("op", "send")
             elif blueprint_id and (
                 str(blueprint_id).startswith("remote:")
-                or str(blueprint_id).lower() in ("hermes", "omb", "rakazo", "herdr", "swarm", "trueforge")
+                or str(blueprint_id).lower() in (
+                    "hermes",
+                    "omb",
+                    "rakazo",
+                    "herdr",
+                    "swarm",
+                    "trueforge",
+                    "anythingllm",
+                )
             ):
                 remote_name = str(blueprint_id).replace("remote:", "")
                 blueprint_id = "remote_harness"

@@ -757,16 +757,29 @@ export interface OperateRemoteOptions {
   timeoutMs?: number
 }
 
+/** Catalog list abort. Slim OMB `?messages=0` must finish well under this. */
+export const OPERATE_LIST_TIMEOUT_MS = 12_000
+/** Send / poll-for-reply abort. Must survive a real remote turn (#302). */
+export const OPERATE_SEND_TIMEOUT_MS = 180_000
+
 /**
- * REQ-131: Operate remote (list/send) with bounded timeout (<=10-15s).
- * Prevents endless spinner if remote hangs or is unresponsive.
+ * REQ-131 / #302: Operate remote (list/send) with an op-aware abort.
+ * List stays short; send waits for the remote turn and names a timeout
+ * instead of calling the server slow or hung.
  */
 export async function operateRemote(
   remoteId: string,
-  body: { op: 'list' | 'send' | 'interrogate' | 'routines'; prompt?: string; target?: string },
+  body: {
+    op: 'list' | 'send' | 'interrogate' | 'routines'
+    prompt?: string
+    target?: string
+    session_id?: string
+  },
   options?: OperateRemoteOptions,
 ): Promise<RemoteOperateResult> {
-  const timeoutMs = options?.timeoutMs ?? 12000
+  const isSend = body.op === 'send'
+  const timeoutMs =
+    options?.timeoutMs ?? (isSend ? OPERATE_SEND_TIMEOUT_MS : OPERATE_LIST_TIMEOUT_MS)
   const controller = new AbortController()
   const timer = setTimeout(() => {
     controller.abort()
@@ -787,8 +800,12 @@ export async function operateRemote(
     return (await response.json()) as RemoteOperateResult
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') {
+      const seconds = Math.round(timeoutMs / 1000)
+      if (isSend) {
+        throw new Error(`Remote operate send timed out after ${seconds}s.`)
+      }
       throw new Error(
-        `Remote operate operation timed out after ${Math.round(timeoutMs / 1000)}s. Remote server is slow or hung.`,
+        `Remote operate operation timed out after ${seconds}s. Remote server is slow or hung.`,
       )
     }
     throw err

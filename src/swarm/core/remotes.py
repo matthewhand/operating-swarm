@@ -306,6 +306,15 @@ _FORBIDDEN_BASE_HINTS = ("fly.dev", "open-litellm", "openlitellm")
 
 _DEFAULT_TIMEOUT_S = 3.0
 _OPERATE_TIMEOUT_S = 8.0
+_OPERATE_LIST_TIMEOUT_S = _OPERATE_TIMEOUT_S
+_OPERATE_SEND_TIMEOUT_S = 180.0
+_OMB_LIST_PATH = "/api/bots?messages=0"  # omit transcripts (issue #300)
+_OMB_REPLY_TIMEOUT_S = 180.0
+_OMB_POLL_INTERVAL_S = 0.4
+_OMB_POLL_HTTP_TIMEOUT_S = 8.0
+_OMB_NON_BOT_TARGETS = frozenset({"omb", "openmousbot", "openmausbot", "openmous"})
+_HERMES_POLL_INTERVAL_S = 0.4
+_HERMES_POLL_HTTP_TIMEOUT_S = 8.0
 
 
 class RemoteError(Exception):
@@ -1630,6 +1639,122 @@ def _hermes_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     )
 
 
+def _hermes_run_id(payload: Any) -> str:
+    if isinstance(payload, dict):
+        for key in ("run_id", "job_id", "id", "jobId", "runId"):
+            val = payload.get(key)
+            if isinstance(val, (str, int)) and str(val).strip():
+                return str(val).strip()
+        data = payload.get("data")
+        if data is not payload:
+            found = _hermes_run_id(data)
+            if found:
+                return found
+    return ""
+
+
+def _hermes_jobs_from(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in ("jobs", "data", "items", "sessions", "runs"):
+        val = payload.get(key)
+        if isinstance(val, list):
+            return [item for item in val if isinstance(item, dict)]
+    if _hermes_run_id(payload) or payload.get("status") or payload.get("state"):
+        return [payload]
+    return []
+
+
+def _hermes_find_job(payload: Any, run_id: str) -> dict[str, Any] | None:
+    needle = (run_id or "").strip()
+    if not needle:
+        return None
+    for job in _hermes_jobs_from(payload):
+        if _hermes_run_id(job) == needle:
+            return job
+    return None
+
+
+def _hermes_job_text(job: Any) -> str:
+    if isinstance(job, str) and job.strip():
+        return job.strip()
+    if not isinstance(job, dict):
+        return ""
+    for key in ("output", "result", "text", "response", "content", "message"):
+        val = job.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        nested = _hermes_job_text(val)
+        if nested:
+            return nested
+    choices = job.get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            nested = _hermes_job_text(choice)
+            if nested:
+                return nested
+    return ""
+
+
+def _hermes_job_status(job: Any) -> str:
+    if not isinstance(job, dict):
+        return ""
+    return str(job.get("status") or job.get("state") or "").strip().lower()
+
+
+def _hermes_poll_run(
+    spec: RemoteSpec,
+    *,
+    run_id: str,
+    timeout: float,
+    seed: Any = None,
+) -> tuple[str, str, dict[str, Any] | None]:
+    """Poll Hermes jobs/runs until output or timeout. Returns (text, error, job)."""
+    headers = _auth_headers(spec)
+    base_url = (spec.base_url or "").rstrip("/")
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    http_timeout = min(_HERMES_POLL_HTTP_TIMEOUT_S, max(float(timeout), 0.5))
+    job = seed if isinstance(seed, dict) else None
+    while True:
+        if job is None or not _hermes_job_text(job):
+            for path in (
+                f"{base_url}/api/jobs/{run_id}",
+                f"{base_url}/v1/runs/{run_id}",
+                f"{base_url}/api/jobs",
+                f"{base_url}/api/sessions",
+            ):
+                polled = http_json("GET", path, headers=headers, timeout=http_timeout)
+                if polled.status not in _UP:
+                    continue
+                found = _hermes_find_job(polled.body, run_id)
+                if found is None and isinstance(polled.body, dict):
+                    wrapper = any(k in polled.body for k in ("jobs", "sessions", "items", "runs"))
+                    body_id = _hermes_run_id(polled.body)
+                    if not wrapper and body_id in ("", run_id) and (
+                        _hermes_job_text(polled.body) or _hermes_job_status(polled.body)
+                    ):
+                        found = polled.body
+                if found:
+                    job = found
+                    if _hermes_job_text(job):
+                        break
+        text = _hermes_job_text(job)
+        status = _hermes_job_status(job)
+        if text and status in ("", "completed", "complete", "succeeded", "success", "done", "finished"):
+            return text, "", job
+        if status in ("failed", "error", "cancelled", "canceled"):
+            err = ""
+            if isinstance(job, dict):
+                err = str(job.get("error") or job.get("message") or "").strip()
+            return "", err or f"Hermes run {run_id} ended with status {status}", job
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "", "Hermes run timed out", job
+        time.sleep(min(max(_HERMES_POLL_INTERVAL_S, 0.0), remaining))
+
+
 def _hermes_send(
     spec: RemoteSpec,
     prompt: str,
@@ -1643,22 +1768,15 @@ def _hermes_send(
     body: dict[str, Any] = {"input": prompt}
     if session_id:
         body["session_id"] = session_id
+    timeout_s = float(timeout or _OPERATE_SEND_TIMEOUT_S)
+    start_timeout = min(timeout_s, 10.0)
     result = http_json(
         "POST",
         f"{spec.base_url}/v1/runs",
         headers=headers,
         body=body,
-        timeout=timeout,
+        timeout=start_timeout,
     )
-    if result.status in _UP or result.status == 202:
-        return OperateResult(
-            remote="hermes",
-            op="send",
-            ok=True,
-            detail="started Hermes run via POST /v1/runs",
-            http_status=result.status,
-            data=result.body or result.text,
-        )
     if result.status in _AUTH:
         return OperateResult(
             remote="hermes",
@@ -1668,32 +1786,248 @@ def _hermes_send(
             http_status=result.status,
             data=result.body,
         )
+    if result.status not in _UP:
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=False,
+            detail=result.error or f"Hermes send failed (http {result.status})",
+            http_status=result.status,
+            data=result.body or result.text,
+        )
+    payload = result.body if isinstance(result.body, dict) else {}
+    run_id = _hermes_run_id(payload)
+    immediate = _hermes_job_text(payload)
+    status = _hermes_job_status(payload)
+    if immediate and status in ("", "completed", "complete", "succeeded", "success", "done", "finished"):
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=True,
+            detail="Hermes reply",
+            http_status=result.status,
+            data={"run_id": run_id, "text": immediate, "response": immediate},
+        )
+    if not run_id:
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=False,
+            detail="Hermes POST /v1/runs did not return a run id",
+            http_status=result.status,
+            data=payload or result.text,
+            gap="hermes_run_id_missing",
+        )
+    poll_budget = max(timeout_s - start_timeout, timeout_s)
+    text, err, job = _hermes_poll_run(spec, run_id=run_id, timeout=poll_budget, seed=payload)
+    if text:
+        data: dict[str, Any] = {"run_id": run_id, "text": text, "response": text}
+        if isinstance(job, dict):
+            data["job"] = job
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=True,
+            detail="Hermes reply",
+            http_status=result.status,
+            data=data,
+        )
     return OperateResult(
         remote="hermes",
         op="send",
         ok=False,
-        detail=result.error or f"Hermes send failed (http {result.status})",
+        detail=err or "Hermes run timed out",
         http_status=result.status,
-        data=result.body or result.text,
+        data={"run_id": run_id, "job": job},
+        gap="hermes_reply_timeout" if "timed out" in (err or "") else "hermes_reply_failed",
     )
+
+
+def _omb_bot_target(target: str) -> str:
+    """Treat remote-kind ids as no bot so send does not POST /api/bots/omb."""
+    raw = (target or "").strip()
+    if not raw or raw.lower() in _OMB_NON_BOT_TARGETS:
+        return ""
+    return raw
+
+
+def _omb_message_text(msg: Any) -> str:
+    if not isinstance(msg, dict):
+        return ""
+    for key in ("text", "content"):
+        val = msg.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _omb_is_bot_text(msg: Any) -> bool:
+    if not isinstance(msg, dict):
+        return False
+    role = str(msg.get("role") or "").lower()
+    if role not in ("bot", "assistant", "model"):
+        return False
+    kind = str(msg.get("kind") or "text").lower()
+    if kind in ("activity", "tool", "card", "screen", "image"):
+        return False
+    return bool(_omb_message_text(msg))
+
+
+def _omb_messages_from(payload: Any) -> list[Any]:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    for key in ("messages", "thread"):
+        val = payload.get(key)
+        if isinstance(val, list):
+            return val
+    return []
+
+
+def _omb_bots_from(payload: Any) -> list[Any]:
+    if isinstance(payload, dict):
+        bots = payload.get("bots") or payload.get("agents") or payload.get("data") or []
+    else:
+        bots = payload
+    return bots if isinstance(bots, list) else []
+
+
+def _omb_find_bot(payload: Any, bot_id: str) -> dict[str, Any] | None:
+    needle = (bot_id or "").strip()
+    if not needle:
+        return None
+    by_name = None
+    for item in _omb_bots_from(payload):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id") or "") == needle:
+            return item
+        if str(item.get("name") or "") == needle and by_name is None:
+            by_name = item
+    return by_name
+
+
+def _omb_receipt_ids(body: Any) -> tuple[str, str]:
+    """threadId and user message id from POST /messages 202 receipt."""
+    if not isinstance(body, dict):
+        return "", ""
+    thread_id = str(body.get("threadId") or "").strip()
+    msg = body.get("message")
+    user_id = ""
+    if isinstance(msg, dict):
+        user_id = str(msg.get("id") or "").strip()
+        if not thread_id:
+            thread_id = str(msg.get("threadId") or "").strip()
+    return thread_id, user_id
+
+
+def _omb_assistant_after(
+    messages: list[Any], *, after_id: str = "", prompt: str = ""
+) -> tuple[str, str]:
+    """First bot text after the user turn. Returns (text, message_id)."""
+    msgs = [m for m in messages if isinstance(m, dict)]
+    start = 0
+    if after_id:
+        for i, msg in enumerate(msgs):
+            if str(msg.get("id") or "") == after_id:
+                start = i + 1
+                break
+    elif prompt.strip():
+        want = prompt.strip()
+        for i, msg in enumerate(msgs):
+            if str(msg.get("role") or "").lower() == "user" and _omb_message_text(msg) == want:
+                start = i + 1
+    for msg in msgs[start:]:
+        if _omb_is_bot_text(msg):
+            return _omb_message_text(msg), str(msg.get("id") or "").strip()
+    return "", ""
+
+
+def _omb_poll_assistant(
+    spec: RemoteSpec,
+    *,
+    bot_id: str,
+    prompt: str,
+    thread_id: str,
+    after_id: str,
+    timeout: float,
+) -> tuple[str, str, str, str]:
+    """Poll OMB until a bot text exists after the user turn.
+
+    Returns ``(text, thread_id, error, message_id)``. Follow-up bot texts on
+    the same thread are out of scope here (issue #125 / #301).
+    """
+    headers = _auth_headers(spec)
+    base_url = (spec.base_url or "").rstrip("/")
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    http_timeout = min(_OMB_POLL_HTTP_TIMEOUT_S, max(float(timeout), 0.5))
+    last_activity = ""
+    saw_bot = False
+    busy = True
+    while True:
+        listed = http_json(
+            "GET",
+            f"{base_url}/api/bots?messages=20",
+            headers=headers,
+            timeout=http_timeout,
+        )
+        bot = _omb_find_bot(listed.body, bot_id) if listed.status in _UP else None
+        messages: list[Any] = []
+        if isinstance(bot, dict):
+            saw_bot = True
+            thread_id = thread_id or str(bot.get("threadId") or "").strip()
+            last_activity = str(bot.get("activity") or "")
+            busy = bool(bot.get("busy"))
+            messages = _omb_messages_from(bot)
+        if thread_id:
+            page = http_json(
+                "GET",
+                f"{base_url}/api/threads/{thread_id}/messages?limit=40",
+                headers=headers,
+                timeout=http_timeout,
+            )
+            if page.status in _UP:
+                thread_msgs = _omb_messages_from(page.body)
+                if thread_msgs:
+                    messages = thread_msgs
+        reply, reply_id = _omb_assistant_after(messages, after_id=after_id, prompt=prompt)
+        if last_activity in ("dead", "no-signal"):
+            return "", thread_id, f"OpenMousBot turn {last_activity.replace('-', ' ')}", ""
+        settled = last_activity == "waiting-on-you" or (saw_bot and not busy)
+        if reply:
+            terminal = False
+            for msg in reversed(messages):
+                if isinstance(msg, dict) and _omb_is_bot_text(msg) and _omb_message_text(msg) == reply:
+                    terminal = bool(msg.get("turnTerminal"))
+                    break
+            if terminal or settled:
+                return reply, thread_id, "", reply_id
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if last_activity == "waiting-on-you" and not reply:
+                return "", thread_id, "OpenMousBot is waiting for operator input", ""
+            return "", thread_id, "OpenMousBot reply timed out", ""
+        time.sleep(min(max(_OMB_POLL_INTERVAL_S, 0.0), remaining))
 
 
 def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
-    result = http_json("GET", f"{base_url}/api/bots", headers=_auth_headers(spec), timeout=timeout_s)
+    result = http_json(
+        "GET",
+        f"{base_url}{_OMB_LIST_PATH}",
+        headers=_auth_headers(spec),
+        timeout=timeout_s,
+    )
     if result.status in _UP:
-        bots = None
-        if isinstance(result.body, dict):
-            bots = result.body.get("bots") or result.body.get("agents") or result.body.get("data")
-        elif isinstance(result.body, list):
-            bots = result.body
+        bots = _omb_bots_from(result.body)
         count = len(bots) if isinstance(bots, list) else (1 if bots else 0)
         return OperateResult(
             remote="omb",
             op="list",
             ok=True,
-            detail=f"OpenMousBot listed {count} bot(s) via GET /api/bots",
+            detail=f"OpenMousBot listed {count} bot(s) via GET {_OMB_LIST_PATH}",
             http_status=result.status,
             data=result.body,
         )
@@ -1719,18 +2053,22 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
 def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> OperateResult:
     if not prompt.strip():
         return OperateResult(remote="omb", op="send", ok=False, detail="prompt is required")
-    bot_id = (target or "").strip()
+    bot_id = _omb_bot_target(target)
     headers = _auth_headers(spec)
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
-    if not bot_id:
+    listed: OperateResult | None = None
+    if bot_id:
         listed = _omb_list(spec, timeout_s)
-        bots = []
-        if listed.ok and isinstance(listed.data, dict):
-            bots = listed.data.get("bots") or listed.data.get("agents") or []
-        elif listed.ok and isinstance(listed.data, list):
-            bots = listed.data
-        if isinstance(bots, list) and bots:
+        if listed.ok:
+            found = _omb_find_bot(listed.data, bot_id)
+            if found:
+                bot_id = str(found.get("id") or bot_id)
+        # Target already names a bot (id or name). Never mint a second one.
+    else:
+        listed = _omb_list(spec, timeout_s)
+        bots = _omb_bots_from(listed.data) if listed.ok else []
+        if bots:
             first = bots[0] if isinstance(bots[0], dict) else {}
             bot_id = str(first.get("id") or "")
         if not bot_id:
@@ -1754,22 +2092,47 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
         body={"text": prompt},
         timeout=timeout_s,
     )
-    if result.status in _UP or result.status == 202:
+    if result.status not in _UP:
+        return OperateResult(
+            remote="omb",
+            op="send",
+            ok=False,
+            detail=result.error or f"OpenMousBot send failed (http {result.status})",
+            http_status=result.status,
+            data=result.body or result.text,
+        )
+    thread_id, after_id = _omb_receipt_ids(result.body)
+    poll_timeout = min(float(timeout or _OMB_REPLY_TIMEOUT_S), _OMB_REPLY_TIMEOUT_S)
+    text, thread_id, err, message_id = _omb_poll_assistant(
+        spec,
+        bot_id=bot_id,
+        prompt=prompt,
+        thread_id=thread_id,
+        after_id=after_id,
+        timeout=poll_timeout,
+    )
+    if text:
         return OperateResult(
             remote="omb",
             op="send",
             ok=True,
-            detail=f"started OpenMousBot turn via POST /api/bots/{bot_id}/messages",
+            detail="OpenMousBot reply",
             http_status=result.status,
-            data={"bot_id": bot_id, "response": result.body or result.text},
+            data={
+                "bot_id": bot_id,
+                "text": text,
+                "thread_id": thread_id,
+                "message_id": message_id,
+            },
         )
     return OperateResult(
         remote="omb",
         op="send",
         ok=False,
-        detail=result.error or f"OpenMousBot send failed (http {result.status})",
+        detail=err or "OpenMousBot reply timed out",
         http_status=result.status,
-        data=result.body or result.text,
+        data={"bot_id": bot_id, "thread_id": thread_id},
+        gap="omb_reply_timeout" if "timed out" in (err or "") else "omb_reply_failed",
     )
 
 
@@ -2421,8 +2784,34 @@ def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None 
     )
 
 
-def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:  # noqa: ARG001
-    from swarm.herdr.client import HerdrBlockedError, HerdrClient, extract_prompt_type
+def _herdr_pane_text(payload: Any) -> str:
+    """Pane text from ``agent_read`` / prompt result — never the agent_prompted ACK."""
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        text = payload.strip()
+        if text.lower() in {"agent_prompted", '{"type":"agent_prompted"}'}:
+            return ""
+        return text
+    if isinstance(payload, dict):
+        ptype = str(payload.get("type") or "").strip().lower()
+        if ptype == "agent_prompted":
+            nested = payload.get("text") or payload.get("output") or payload.get("content")
+            if nested is not None and nested is not payload:
+                return _herdr_pane_text(nested)
+            return ""
+        for key in ("text", "output", "content", "message", "result"):
+            val = payload.get(key)
+            if val is payload:
+                continue
+            found = _herdr_pane_text(val)
+            if found:
+                return found
+    return ""
+
+
+def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:
+    from swarm.herdr.client import HerdrBlockedError, HerdrCLIError, HerdrClient
     from swarm.herdr.remote import resolve_herdr_mode
     from swarm.herdr.ssh import SSHNotConfiguredError
 
@@ -2436,22 +2825,55 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
             detail="target is required (Herdr pane / CLI id, e.g. w3:p1 or grok)",
         )
     mode = resolve_herdr_mode(spec)
+    timeout_s = float(timeout or _OPERATE_SEND_TIMEOUT_S)
+    timeout_ms = max(1, int(timeout_s * 1000))
+    pane = target.strip()
     try:
         client = HerdrClient.from_remote_config(config)
-        payload = client.agent_prompt(target.strip(), prompt)
+        payload = client.agent_prompt(
+            pane,
+            prompt,
+            wait=True,
+            until="idle",
+            timeout_ms=timeout_ms,
+            check_blocked=True,
+        )
+        read = client.agent_read(pane, source="recent", fmt="text")
     except SSHNotConfiguredError as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=str(exc))
     except HerdrBlockedError as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=str(exc), data={"target": target})
+    except HerdrCLIError as exc:
+        msg = str(exc)
+        if "timed out" in msg.lower():
+            return OperateResult(
+                remote="herdr",
+                op="send",
+                ok=False,
+                detail=f"Herdr send timed out after {timeout_s:.0f}s",
+                data={"target": target},
+                gap="herdr_reply_timeout",
+            )
+        return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
     except Exception as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
+    text = _herdr_pane_text(read) or _herdr_pane_text(payload)
     hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
+    if not text:
+        return OperateResult(
+            remote="herdr",
+            op="send",
+            ok=False,
+            detail=f"Herdr wait finished for {target} via {hop} but returned no pane text",
+            data={"target": target, "response": payload, "transport": mode},
+            gap="herdr_reply_empty",
+        )
     return OperateResult(
         remote="herdr",
         op="send",
         ok=True,
-        detail=f"Herdr prompted {target} via {hop} (type={extract_prompt_type(payload) or 'ok'})",
-        data={"target": target, "response": payload, "transport": mode},
+        detail=f"Herdr reply from {target} via {hop}",
+        data={"target": target, "text": text, "response": text, "transport": mode},
     )
 
 
@@ -2666,13 +3088,15 @@ def operate(
     prompt: str = "",
     target: str = "",
     config: dict[str, Any] | None = None,
-    timeout: float = _OPERATE_TIMEOUT_S,
+    timeout: float | None = None,
     session_id: str | None = None,
 ) -> OperateResult:
     """List or send a job. Never raises; never crash-loops.
 
     ``session_id`` is a stored remote thread (#369-style). REQ-65 on-mode
     agents drop it so each task starts a new remote job.
+    List stays on the short operate bound; send (poll-for-reply) uses the
+    longer send bound so a real remote turn is not aborted as hung (#302).
     """
     try:
         from swarm.core.session_policy import resume_remote_session_id
@@ -2684,6 +3108,8 @@ def operate(
         action = (op or "list").strip().lower()
         if action in ("start", "job", "run"):
             action = "send"
+        if timeout is None:
+            timeout = _OPERATE_SEND_TIMEOUT_S if action == "send" else _OPERATE_LIST_TIMEOUT_S
         if action == "interrogate" and rkind != "herdr":
             return OperateResult(
                 remote=rid,
@@ -2726,7 +3152,7 @@ def operate(
             )
         if rkind == "anythingllm":
             return _anythingllm_list(spec, timeout) if action == "list" else _anythingllm_send(
-                spec, prompt, timeout, session_id=resume_id
+                spec, prompt, timeout, session_id=resume_id, target=target
             )
         if rkind == "omb":
             return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
