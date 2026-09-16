@@ -172,6 +172,7 @@ def test_issues_opened_fires_and_records_history():
     assert history["source"] == "github_webhook"
     assert history["event"] == "issues.opened #17"
     assert history["conversation_id"] == "conv-github-issue-17"
+    assert history["duration_ms"] >= 0
     assert "Triage" in history["summary"]
     prompt = store.fired_prompts()[0]
     assert prompt["source"] == "github_webhook"
