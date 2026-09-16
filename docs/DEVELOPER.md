@@ -43,7 +43,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  User[User task] --> OS[Open Swarm]
+  User[User task] --> OS[Operating Swarm]
   OS --> CLI[CLI]
   OS --> API[API inference]
   OS --> BP[Blueprint]
