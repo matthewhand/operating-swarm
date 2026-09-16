@@ -1943,6 +1943,8 @@ describe('AgentSidebar favourite kind hrefs (REQ-171B #608)', () => {
     expect(codeyTile).toHaveAttribute('href', '/chat?blueprint=codey')
     expect(teamTile).toHaveAttribute('href', '/chat?team=demo')
     expect(teamTile.getAttribute('href')).not.toMatch(/blueprint=/)
+    // Issue #432 fix: 1-member team falls back to the single member's face rather than blank
+    expect(teamTile.querySelector('[data-agent-id="codey"]')).toBeInTheDocument()
     expect(remoteTile).toHaveAttribute('href', '/chat?remote=omb')
     expect(remoteTile.getAttribute('href')).not.toMatch(/blueprint=/)
     expect(herdrTile).toHaveAttribute('href', '/teams/#herdr-members')

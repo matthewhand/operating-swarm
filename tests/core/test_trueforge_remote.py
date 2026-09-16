@@ -844,3 +844,26 @@ def test_trueforge_send_refused_names_url(monkeypatch):
     out = _render_operate(sent)
     assert "trueforge send: FAIL" in out
     assert out.rstrip().endswith('""') is False
+
+
+def test_normalize_base_url_ipv6_brackets(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    spec = remotes_core.load_remote(
+        "trueforge",
+        config={"remotes": {"trueforge": {"base_url": "http://[2001:db8::1]:8791"}}},
+    )
+    assert spec.base_url == "http://[2001:db8::1]:8791"
+
+
+def test_hermes_send_refused_names_url(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    sent = remotes_core.operate(
+        "hermes",
+        "send",
+        prompt="hi",
+        config={"remotes": {"hermes": {"base_url": "http://127.0.0.1:9"}}},
+    )
+    assert sent.ok is False
+    assert "127.0.0.1:9" in sent.detail
+    assert "refused" in sent.detail.lower()
+

@@ -24,20 +24,22 @@ export default function SupportCreatedBlueprintCard({
 }: SupportCreatedBlueprintCardProps) {
   const [revealed, setRevealed] = useState(false)
   const [persisted, setPersisted] = useState(card.persisted)
+  const [createdId, setCreatedId] = useState<string | null>(null)
   const [busy, setBusy] = useState<'add' | 'save' | null>(null)
   const [error, setError] = useState('')
   const queryClient = useContext(QueryClientContext)
   const navigate = useNavigate()
 
   const openSeat = (id: string) => {
-    const href = card.chatHref || `/chat?blueprint=${encodeURIComponent(id)}`
+    const href = id === card.id && card.chatHref ? card.chatHref : `/chat?blueprint=${encodeURIComponent(id)}`
     navigate(href)
     focusAgentChat(id)
   }
 
   const persist = async (asAgent: boolean) => {
-    if (persisted) {
-      if (asAgent) openSeat(card.id)
+    const activeId = createdId || card.id
+    if (persisted || card.persisted) {
+      if (asAgent) openSeat(activeId)
       return
     }
     setBusy(asAgent ? 'add' : 'save')
@@ -54,12 +56,13 @@ export default function SupportCreatedBlueprintCard({
         rail: true,
         source: card.source || 'support-nl',
       })
+      const targetId = created.id || card.id
+      setCreatedId(targetId)
       setPersisted(true)
       await queryClient?.invalidateQueries({ queryKey: ['blueprints'] })
       await queryClient?.invalidateQueries({ queryKey: ['custom-blueprints'] })
       if (asAgent) {
-        const id = created.id || card.id
-        openSeat(id)
+        openSeat(targetId)
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save')
