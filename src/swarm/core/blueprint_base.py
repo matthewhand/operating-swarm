@@ -841,7 +841,9 @@ class BlueprintBase(ABC):
             tools = tools + extra
 
         # Optional sandbox harness integration: attach sandbox execution tools
-        # if requested (REQ-860: Settings provider drives the backend).
+        # if requested (REQ-860 / REQ-863: Settings provider drives the backend.
+        # Selecting bare_metal or daytona attaches tools; the legacy toggle is
+        # not a second gate).
         sandbox_opt = kwargs.pop("sandbox", None)
         if sandbox_opt is None:
             settings_cfg = self.config.get("settings", {}) or {}
@@ -855,14 +857,15 @@ class BlueprintBase(ABC):
                 sandbox_opt = settings_cfg.get("enable_sandbox_tools", False)
         if sandbox_opt:
             try:
-                from swarm.core.sandbox import SandboxManager, get_default_sandbox_manager
+                from swarm.core.sandbox import SandboxManager
                 if isinstance(sandbox_opt, dict):
                     sb_mgr = SandboxManager.from_config(sandbox_opt)
                 elif isinstance(sandbox_opt, SandboxManager):
                     sb_mgr = sandbox_opt
                 else:
-                    sb_mgr = get_default_sandbox_manager()
-                if type(sb_mgr.backend).__name__ != "DisabledSandbox":
+                    # Legacy boolean: jailed local backend, not unrestricted host.
+                    sb_mgr = SandboxManager.from_config({"backend_type": "local"})
+                if sb_mgr.tools_enabled():
                     tools = tools + sb_mgr.as_function_tools()
             except Exception as e:
                 logger.warning("Failed to attach sandbox tools to agent '%s': %s", name, e)

@@ -81,6 +81,14 @@ tui = [
     # plain core install stays thin; `os-cli tui` explains how to add it.
     "textual>=0.80.0,<1.0",
 ]
+sandbox = [
+    # REQ-863 / #253: Daytona SaaS microVMs. Lazy-imported so a core install
+    # stays thin. `pip install 'daytona>=0.5.0'` (or this extra) pulls the SDK.
+    # Marker keeps `uv lock --check` green: daytona requires httpx>=0.28, which
+    # conflicts with the project's httpx>=0.25.2,<0.26.0 pin (same class of
+    # problem as django-mcp-server — see the note below).
+    "daytona>=0.5.0 ; python_version < '3'",
+]
 memory = [
     # The mem0 integration imports `from mem0 import Memory`; that module is
     # provided by the `mem0ai` distribution on PyPI (there is no `mem0` dist).

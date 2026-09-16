@@ -91,6 +91,8 @@ describe('Sandboxes settings pane', () => {
     fireEvent.click(bareMetal)
 
     const save = screen.getByTestId('sandbox-save')
+    expect(save).toBeDisabled()
+    fireEvent.click(screen.getByTestId('sandbox-confirm-dangerous'))
     await waitFor(() => expect(save).not.toBeDisabled())
     fireEvent.click(save)
 
@@ -102,6 +104,8 @@ describe('Sandboxes settings pane', () => {
     const body = JSON.parse(String(putCall?.[1]?.body))
     expect(body.provider).toBe('bare_metal')
     expect(body.confirm_dangerous).toBe(true)
+    expect(body.enable_sandbox_tools).toBe(true)
+    expect(body.inherit_env).toBe(true)
 
     fireEvent.click(screen.getByTestId('sandbox-test'))
     const result = await screen.findByTestId('sandbox-probe-result')

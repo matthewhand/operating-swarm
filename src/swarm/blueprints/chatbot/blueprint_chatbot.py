@@ -235,6 +235,12 @@ Use them responsibly when the user asks for file or system operations.
             ),
             mcp_servers=mcp_servers # Pass along, though likely unused
         )
+        try:
+            from swarm.core.sandbox import attach_sandbox_tools_to_agent
+
+            attach_sandbox_tools_to_agent(chatbot_agent, config=self.config)
+        except Exception:
+            logger.debug("Sandbox tool attachment skipped for chatbot", exc_info=True)
 
         logger.debug("Chatbot agent created.")
         return chatbot_agent

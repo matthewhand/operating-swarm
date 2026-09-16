@@ -65,6 +65,12 @@ class SandboxConfig:
     docker_image: str = "python:3.12-slim"
     e2b_api_key: str | None = None
     extra_options: dict[str, Any] = field(default_factory=dict)
+    # REQ-863 / #253: confirmed bare-metal host execution (no path jail, full env).
+    unrestricted_host: bool = False
+    # Daytona microVM idle auto-stop, in minutes (0 disables). Default 15.
+    auto_stop_interval: int = 15
+    # Upload local work_dir into a Daytona sandbox after create.
+    sync_workspace: bool = False
 
 
 class SandboxBackend(ABC):
