@@ -14,10 +14,10 @@ It seats four kinds of agents — **CLI**, **API** (true inference), **Blueprint
 **WebUI is first-class:** left rail + the selected agent’s chat. Other clients (SDK, curl, Open WebUI, and `os-cli tui` — the interactive terminal client of that same API, [REQ-111](https://github.com/matthewhand/open-swarm/issues/481)) hit the same seats at `/v1/chat/completions` and `/v1/responses`.
 
 <div align="center">
-<img src="assets/readme/cli-agents.svg" alt="CLI agents — Grok / OpenCode / agy poster" width="320"/>
-<img src="assets/readme/api-agents.svg" alt="API agents — OpenAI-compatible owned thread poster" width="320"/>
-<img src="assets/readme/remote-agents.svg" alt="Remote agents — OpenMousBot poster" width="320"/>
-<img src="assets/readme/combined-team.svg" alt="Combined team — CLI plus API plus OpenMousBot poster" width="320"/>
+<img src="assets/readme/cli-agents.gif" alt="CLI agents — Grok-like rail, native CLI seats" width="320"/>
+<img src="assets/readme/api-agents.gif" alt="API agents — OpenAI-compatible owned thread" width="320"/>
+<img src="assets/readme/remote-agents.gif" alt="Remote agents — OpenMousBot / Hermes in the same rail" width="320"/>
+<img src="assets/readme/combined-team.gif" alt="Combined team — CLI plus API plus remote in one pane" width="320"/>
 </div>
 
 Brand marks live under [`assets/brand/`](assets/brand/): **minimal** for the tab favicon and PWA icons, **geometric** for in-app WebUI chrome, and **cyber-swarm** for marketing / website fanfare ([#768](https://github.com/matthewhand/open-swarm/issues/768)).

@@ -113,10 +113,14 @@ No secrets, no house stills, no live LAN IPs. Label **OpenMousBot**, never OMB.
 
 | File | What it shows | Used in | Captured | Status |
 | --- | --- | --- | --- | --- |
-| `assets/readme/cli-agents.svg` | Poster: Grok-like rail + **Grok CLI** chat (opencode / agy rows) | README.md | 2026-09-06 | poster (GIF pending) |
-| `assets/readme/api-agents.svg` | Poster: **LiteLLM API** owned thread / OpenAI-compat door | README.md | 2026-09-06 | poster (GIF pending) |
-| `assets/readme/remote-agents.svg` | Poster: **OpenMousBot** remote (Hermes / Rakazo rows) | README.md | 2026-09-06 | poster (GIF pending) |
-| `assets/readme/combined-team.svg` | Poster: **Demo Bridge** — CLI + API + remote handoff | README.md | 2026-09-06 | poster (GIF pending) |
+| `assets/readme/cli-agents.gif` | Live SPA recapture (1280×800, `SWARM_TEST_MODE`): Grok-like rail + CLI seats | README.md | 2026-09-16 | current |
+| `assets/readme/api-agents.gif` | Live SPA recapture: API / Support thread | README.md | 2026-09-16 | current |
+| `assets/readme/remote-agents.gif` | Live SPA recapture: Hermes / OpenMousBot rows in the rail | README.md | 2026-09-16 | current |
+| `assets/readme/combined-team.gif` | Live SPA recapture: Demo Bridge / combined roster | README.md | 2026-09-16 | current |
+| `assets/readme/cli-agents.svg` | Poster fallback | README.md | 2026-09-06 | poster |
+| `assets/readme/api-agents.svg` | Poster fallback | README.md | 2026-09-06 | poster |
+| `assets/readme/remote-agents.svg` | Poster fallback | README.md | 2026-09-06 | poster |
+| `assets/readme/combined-team.svg` | Poster fallback | README.md | 2026-09-06 | poster |
 
 Reserved live-GIF names `cli.gif` / `api.gif` / `remotes.gif` / `combined.gif`
 are still the #456 contract for filmed loops and are not checked in yet.
