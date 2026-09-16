@@ -28,7 +28,6 @@ def test_available_agents_use_kind_tabs_without_row_badges():
     assert "First agent" in src
     assert "team-roles-pane" in src
     assert "handoff" in src and "as_tool" in src
-    assert "TeamTool" not in src
 
 
 def test_kind_tabs_covered_by_frontend_tests():

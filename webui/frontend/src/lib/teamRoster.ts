@@ -12,12 +12,26 @@ export interface TeamRosterMember {
   team_id?: string
 }
 
+export type TeamTool =
+  | { type: 'handoff'; to: string; from?: string }
+  | { type: 'as_tool'; agent: string }
+  | { type: 'mcp'; server: string; agents: string[] }
+
+export type TeamToolDraft = TeamTool
+export type BuiltinTeamToolType = 'handoff' | 'as_tool'
+export type AddableTeamTool =
+  | { type: 'handoff' }
+  | { type: 'as_tool' }
+  | { type: 'mcp'; server: string }
+
 export interface TeamRoster {
   id: string
   object?: 'team_roster'
   name: string
   members: TeamRosterMember[]
   wires?: { handoff: boolean; as_tool: boolean }
+  /** Composer Tools pane slots (issue #107). Wires are derived from these. */
+  tools?: TeamTool[]
   /** Optional team-scoped CoS (REQ-107). Composer defaults to First agent (#105). */
   chief_of_staff_id?: string | null
   chief_of_staff_instructions?: string
@@ -69,11 +83,32 @@ export const KIND_LABEL: Record<MemberKind, string> = {
 export const DRAG_MIME = 'application/x-swarm-team-agent'
 export const ROLE_DRAG_MIME = 'application/x-swarm-team-role'
 export const ROSTER_DRAG_MIME = 'application/x-swarm-team-roster-index'
+export const TOOL_DRAG_MIME = 'application/x-swarm-team-tool'
+
+export const BUILTIN_TEAM_TOOLS: readonly BuiltinTeamToolType[] = ['handoff', 'as_tool']
+
+/** MCP row keys that must never land on a roster tool slot (secrets stay in Settings). */
+export const SECRET_MCP_TOOL_KEYS = [
+  'env',
+  'headers',
+  'token',
+  'api_key',
+  'secret',
+  'authorization',
+  'password',
+  'credentials',
+  'key',
+] as const
 
 export interface RoleSlot {
   id: string
   role: ComposableTeamRole
   memberKey: string | null
+}
+
+export interface ToolSlot {
+  id: string
+  tool: TeamToolDraft
 }
 
 export const COS_ELIGIBLE_KINDS: readonly MemberKind[] = ['api', 'cli']
@@ -160,15 +195,20 @@ export function parseTeamRoster(raw: unknown): TeamRoster | null {
     rawCos === null || rawCos === undefined || rawCos === ''
       ? null
       : String(rawCos).trim() || null
+  const tools = Array.isArray(row.tools) ? parseTeamTools(row.tools) : []
+  const hasToolsField = Array.isArray(row.tools)
   return {
     id,
     object: 'team_roster',
     name: String(row.name || id),
     members,
-    wires: {
-      handoff: row.wires && typeof row.wires === 'object' ? Boolean((row.wires as { handoff?: unknown }).handoff ?? true) : true,
-      as_tool: row.wires && typeof row.wires === 'object' ? Boolean((row.wires as { as_tool?: unknown }).as_tool ?? true) : true,
-    },
+    tools,
+    wires: hasToolsField
+      ? deriveWiresFromTools(tools)
+      : {
+          handoff: row.wires && typeof row.wires === 'object' ? Boolean((row.wires as { handoff?: unknown }).handoff ?? true) : true,
+          as_tool: row.wires && typeof row.wires === 'object' ? Boolean((row.wires as { as_tool?: unknown }).as_tool ?? true) : true,
+        },
     chief_of_staff_id: cosId,
     chief_of_staff_instructions: String(row.chief_of_staff_instructions || ''),
   }
@@ -207,13 +247,15 @@ export function emptyRosterDraft(): {
   name: string
   members: TeamRosterMember[]
   wires: { handoff: boolean; as_tool: boolean }
+  tools: TeamTool[]
   chiefOfStaffId: string | null
   chiefOfStaffInstructions: string
 } {
   return {
     name: '',
     members: [],
-    wires: { ...DEFAULT_TEAM_WIRES },
+    tools: [],
+    wires: deriveWiresFromTools([]),
     chiefOfStaffId: null,
     chiefOfStaffInstructions: DEFAULT_COS_STARTER,
   }
@@ -392,6 +434,137 @@ export function parseDragAgent(raw: string): TeamAgent | null {
       source: String(row.source || ''),
       placeholder: row.placeholder === true,
     }
+  } catch {
+    return null
+  }
+}
+
+export function newToolSlot(tool: TeamToolDraft, id?: string): ToolSlot {
+  return {
+    id: id ?? `tool-slot-${tool.type}-${Math.random().toString(36).slice(2, 10)}`,
+    tool,
+  }
+}
+
+export function slotsFromTools(tools: TeamTool[] | undefined | null): ToolSlot[] {
+  if (!tools || tools.length === 0) return []
+  return tools.map((tool) => newToolSlot(tool))
+}
+
+export function addToolSlot(slots: ToolSlot[], addable: AddableTeamTool): ToolSlot[] {
+  if (addable.type === 'handoff') {
+    return [...slots, newToolSlot({ type: 'handoff', to: '' })]
+  }
+  if (addable.type === 'as_tool') {
+    return [...slots, newToolSlot({ type: 'as_tool', agent: '' })]
+  }
+  const server = addable.server.trim()
+  if (!server) return slots
+  return [...slots, newToolSlot({ type: 'mcp', server, agents: [] })]
+}
+
+export function removeToolSlot(slots: ToolSlot[], slotId: string): ToolSlot[] {
+  return slots.filter((slot) => slot.id !== slotId)
+}
+
+export function updateToolSlot(
+  slots: ToolSlot[],
+  slotId: string,
+  tool: TeamToolDraft,
+): ToolSlot[] {
+  return slots.map((slot) => (slot.id === slotId ? { ...slot, tool } : slot))
+}
+
+export function hasSecretMcpToolFields(row: Record<string, unknown>): boolean {
+  return SECRET_MCP_TOOL_KEYS.some((key) => key in row)
+}
+
+export function parseTeamTool(raw: unknown): TeamTool | null {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as Record<string, unknown>
+  const type = String(row.type || '').trim()
+  if (type === 'handoff') {
+    const to = String(row.to || '').trim()
+    if (!to) return null
+    const from = String(row.from || '').trim()
+    return from ? { type: 'handoff', to, from } : { type: 'handoff', to }
+  }
+  if (type === 'as_tool') {
+    const agent = String(row.agent || '').trim()
+    if (!agent) return null
+    return { type: 'as_tool', agent }
+  }
+  if (type === 'mcp') {
+    if (hasSecretMcpToolFields(row)) return null
+    const server = String(row.server || '').trim()
+    if (!server) return null
+    const agents = Array.isArray(row.agents)
+      ? row.agents.map((item) => String(item || '').trim()).filter(Boolean)
+      : []
+    return { type: 'mcp', server, agents }
+  }
+  return null
+}
+
+export function parseTeamTools(raw: unknown): TeamTool[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(parseTeamTool).filter((row): row is TeamTool => row !== null)
+}
+
+export function deriveWiresFromTools(tools: readonly TeamTool[]): { handoff: boolean; as_tool: boolean } {
+  return {
+    handoff: tools.some((tool) => tool.type === 'handoff'),
+    as_tool: tools.some((tool) => tool.type === 'as_tool'),
+  }
+}
+
+export function isCompleteTeamTool(tool: TeamToolDraft): boolean {
+  if (tool.type === 'handoff') return Boolean(tool.to.trim())
+  if (tool.type === 'as_tool') return Boolean(tool.agent.trim())
+  return Boolean(tool.server.trim())
+}
+
+export function serializeToolSlots(slots: ToolSlot[]): TeamTool[] {
+  return slots.map((slot) => slot.tool).filter(isCompleteTeamTool)
+}
+
+export function pruneToolSlots(slots: ToolSlot[], members: TeamRosterMember[]): ToolSlot[] {
+  const ids = new Set(members.map((row) => row.id))
+  return slots.map((slot) => {
+    const tool = slot.tool
+    if (tool.type === 'handoff') {
+      const next: TeamToolDraft = { type: 'handoff', to: tool.to && ids.has(tool.to) ? tool.to : '' }
+      if (tool.from && ids.has(tool.from)) next.from = tool.from
+      return { ...slot, tool: next }
+    }
+    if (tool.type === 'as_tool') {
+      return {
+        ...slot,
+        tool: { type: 'as_tool', agent: tool.agent && ids.has(tool.agent) ? tool.agent : '' },
+      }
+    }
+    return {
+      ...slot,
+      tool: { type: 'mcp', server: tool.server, agents: tool.agents.filter((id) => ids.has(id)) },
+    }
+  })
+}
+
+export function encodeDragTool(addable: AddableTeamTool): string {
+  return JSON.stringify(addable)
+}
+
+export function parseDragTool(raw: string): AddableTeamTool | null {
+  if (!raw || !raw.trim()) return null
+  try {
+    const row = JSON.parse(raw) as Record<string, unknown>
+    const type = String(row.type || '').trim()
+    if (type === 'handoff' || type === 'as_tool') return { type }
+    if (type === 'mcp') {
+      const server = String(row.server || '').trim()
+      return server ? { type: 'mcp', server } : null
+    }
+    return null
   } catch {
     return null
   }

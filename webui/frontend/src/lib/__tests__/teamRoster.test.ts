@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addMember,
   addRoleSlot,
+  addToolSlot,
   applySlotMemberChange,
   assignableMembersForSlot,
   canAddRoleSlot,
@@ -9,10 +10,12 @@ import {
   COMPOSABLE_TEAM_ROLES,
   cosBriefForMember,
   DEFAULT_COS_STARTER,
+  deriveWiresFromTools,
   DRAG_MIME,
   emptyRosterDraft,
   encodeDragAgent,
   encodeDragRole,
+  encodeDragTool,
   FIRST_AGENT_VALUE,
   firstAgentLeadId,
   isCosEligibleMember,
@@ -21,17 +24,22 @@ import {
   parseDragAgent,
   parseDragRole,
   parseDragRosterIndex,
+  parseDragTool,
   parseRosterMember,
   parseTeamRoster,
   parseTeamRosterList,
+  parseTeamTool,
+  pruneToolSlots,
   reorderMembers,
   restoreCosId,
   ROLE_DRAG_MIME,
   ROSTER_DRAG_MIME,
   runtimeBriefForTarget,
+  serializeToolSlots,
   setMemberRole,
   slotsFromMembers,
   stampCosRole,
+  TOOL_DRAG_MIME,
   unassignedMembers,
 } from '../teamRoster'
 
@@ -257,5 +265,61 @@ describe('teamRoster First agent lead (issue #105)', () => {
     expect(parseDragRosterIndex('nope')).toBeNull()
     expect(ROSTER_DRAG_MIME).not.toBe(DRAG_MIME)
     expect(FIRST_AGENT_VALUE).toBe('__first__')
+  })
+})
+
+describe('teamRoster Tools pane (issue #107)', () => {
+  const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves', role: 'default' }
+  const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok', role: 'default' }
+
+  it('parses tools and derives wires, rejecting unknown types and secret MCP fields', () => {
+    const roster = parseTeamRoster({
+      id: 'lab',
+      object: 'team_roster',
+      name: 'Lab',
+      members: [jeeves, grok],
+      tools: [
+        { type: 'handoff', to: 'grok' },
+        { type: 'as_tool', agent: 'jeeves' },
+        { type: 'mcp', server: 'github', agents: [] },
+      ],
+    })
+    expect(roster?.tools).toEqual([
+      { type: 'handoff', to: 'grok' },
+      { type: 'as_tool', agent: 'jeeves' },
+      { type: 'mcp', server: 'github', agents: [] },
+    ])
+    expect(roster?.wires).toEqual({ handoff: true, as_tool: true })
+    expect(parseTeamTool({ type: 'nope', to: 'x' })).toBeNull()
+    expect(parseTeamTool({ type: 'mcp', server: 'github', agents: [], env: { API_KEY: 'sk-live' } })).toBeNull()
+    expect(parseTeamTool({ type: 'mcp', server: 'github', agents: ['jeeves'] })).toEqual({
+      type: 'mcp',
+      server: 'github',
+      agents: ['jeeves'],
+    })
+    expect(deriveWiresFromTools([])).toEqual({ handoff: false, as_tool: false })
+    expect(emptyRosterDraft().tools).toEqual([])
+    expect(emptyRosterDraft().wires).toEqual({ handoff: false, as_tool: false })
+  })
+
+  it('keeps incomplete slots in the UI and serializes only complete tools', () => {
+    expect(TOOL_DRAG_MIME).toBe('application/x-swarm-team-tool')
+    expect(TOOL_DRAG_MIME).not.toBe(DRAG_MIME)
+    expect(parseDragTool(encodeDragTool({ type: 'handoff' }))).toEqual({ type: 'handoff' })
+    expect(parseDragTool(encodeDragTool({ type: 'mcp', server: 'github' }))).toEqual({
+      type: 'mcp',
+      server: 'github',
+    })
+    expect(parseDragTool(encodeDragRole('skeptic'))).toBeNull()
+    let slots = addToolSlot([], { type: 'handoff' })
+    slots = addToolSlot(slots, { type: 'mcp', server: 'github' })
+    expect(serializeToolSlots(slots)).toEqual([{ type: 'mcp', server: 'github', agents: [] }])
+    slots = [
+      { id: 'h', tool: { type: 'handoff', to: 'grok', from: 'jeeves' } },
+      { id: 'm', tool: { type: 'mcp', server: 'github', agents: ['grok', 'missing'] } },
+    ]
+    const pruned = pruneToolSlots(slots, [jeeves])
+    expect(pruned[0].tool).toEqual({ type: 'handoff', to: '', from: 'jeeves' })
+    expect(pruned[1].tool).toEqual({ type: 'mcp', server: 'github', agents: [] })
   })
 })

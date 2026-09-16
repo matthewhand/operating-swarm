@@ -6,10 +6,12 @@ import {
   DRAG_MIME,
   encodeDragAgent,
   encodeDragRole,
+  encodeDragTool,
   FIRST_AGENT_VALUE,
   memberKey,
   ROLE_DRAG_MIME,
   ROSTER_DRAG_MIME,
+  TOOL_DRAG_MIME,
 } from '../../lib/teamRoster'
 import type { TeamAgent } from '../../lib/api'
 
@@ -120,6 +122,32 @@ describe('TeamComposer first-launch overlay', () => {
             }),
           } as Response
         }
+        if (url.includes('/v1/mcp-plugins')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'mcp_plugins',
+              scope: 'user',
+              servers: [
+                {
+                  name: 'github',
+                  label: 'GitHub',
+                  kind: 'local',
+                  enabled: true,
+                  command: 'uvx',
+                  args: [],
+                  url: '',
+                  env: {},
+                  headers: {},
+                  provides: [],
+                  note: '',
+                  tools: [],
+                },
+              ],
+            }),
+          } as Response
+        }
         return { ok: false, status: 404, json: async () => ({}) } as Response
       }),
     )
@@ -200,13 +228,20 @@ describe('TeamComposer first-launch overlay', () => {
     expect(within(available).queryByText('Jeeves')).not.toBeInTheDocument()
   })
 
-  it('defaults handoff and as_tool on, and states gate is unwired', async () => {
+  it('locks the Tools pane until the roster has a member', async () => {
     renderComposer()
-    const handoff = await screen.findByRole('checkbox', { name: /handoff/i })
-    const asTool = screen.getByRole('checkbox', { name: /as_tool/i })
-    expect(handoff).toBeChecked()
-    expect(asTool).toBeChecked()
-    expect(screen.getByText(/gate is unwired/i)).toBeInTheDocument()
+    const pane = await screen.findByTestId('team-tools-pane')
+    expect(pane).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByTestId('team-tools-locked-hint')).toHaveTextContent(/add agents first/i)
+    expect(screen.queryByRole('list', { name: /available tools list/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /handoff/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/gate is unwired/i)).not.toBeInTheDocument()
+
+    await addAvailableAgent('API')
+    expect(screen.getByTestId('team-tools-pane')).toHaveAttribute('aria-disabled', 'false')
+    expect(screen.queryByTestId('team-tools-locked-hint')).not.toBeInTheDocument()
+    expect(screen.getByRole('list', { name: /available tools list/i })).toBeInTheDocument()
+    expect(screen.getByText(/drop tools here/i)).toBeInTheDocument()
   })
 
   it('adds a member via native HTML5 drop', async () => {
@@ -269,7 +304,8 @@ describe('TeamComposer first-launch overlay', () => {
           source: 'cli:grok',
         })
         expect(body.chief_of_staff_id).toBe('grok')
-        expect(body.wires).toEqual({ handoff: true, as_tool: true })
+        expect(body.tools).toEqual([])
+        expect(body.wires).toEqual({ handoff: false, as_tool: false })
         return {
           ok: true,
           status: 201,
@@ -668,5 +704,118 @@ describe('TeamComposer first-launch overlay', () => {
     fireEvent.change(screen.getByTestId('team-role-assign-chief_of_staff'), { target: { value: '' } })
     expect(screen.getByTestId('team-cos-select')).toHaveValue('')
     expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
+  })
+
+  it('adds a handoff tool whose target dropdown lists roster members', async () => {
+    renderComposer()
+    const toolZone = await screen.findByTestId('team-tools-drop-zone')
+    fireEvent.drop(toolZone, {
+      dataTransfer: mockDataTransfer({ [TOOL_DRAG_MIME]: encodeDragTool({ type: 'handoff' }) }),
+    })
+    expect(screen.queryByTestId('team-tool-slot')).not.toBeInTheDocument()
+
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
+    fireEvent.click(screen.getByRole('button', { name: /add handoff tool/i }))
+
+    const target = screen.getByTestId('team-tool-handoff-to')
+    expect(within(target).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
+    expect(within(target).getByRole('option', { name: 'grok' })).toBeInTheDocument()
+    expect(screen.getByTestId('team-tool-handoff-from')).toHaveDisplayValue('First agent')
+  })
+
+  it('saves MCP tools with empty or locked agents and derived wires', async () => {
+    const fetchMock = vi.mocked(fetch)
+    renderComposer()
+    await addAvailableAgent('API')
+    fireEvent.click(screen.getByRole('button', { name: /add handoff tool/i }))
+    fireEvent.change(screen.getByTestId('team-tool-handoff-to'), { target: { value: 'jeeves' } })
+    fireEvent.click(screen.getByRole('button', { name: /add github mcp tool/i }))
+    expect(screen.getByTestId('team-tool-mcp-agents')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/team name/i), { target: { value: 'Research Squad' } })
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init?.body))
+        expect(body.tools).toEqual([
+          { type: 'handoff', to: 'jeeves' },
+          { type: 'mcp', server: 'github', agents: [] },
+        ])
+        expect(body.wires).toEqual({ handoff: true, as_tool: false })
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: 'research-squad',
+            object: 'team_roster',
+            name: 'Research Squad',
+            members: body.members,
+            tools: body.tools,
+            wires: body.wires,
+          }),
+        } as Response
+      }
+      if (url.includes('/v1/team-agents')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: AGENTS }),
+        } as Response
+      }
+      if (url.includes('/v1/mcp-plugins')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'mcp_plugins', scope: 'user', servers: [] }),
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ object: 'list', data: [] }),
+      } as Response
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /lock github to jeeves/i }))
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'PUT' || init?.method === 'POST') {
+        const body = JSON.parse(String(init?.body))
+        expect(body.tools).toEqual([
+          { type: 'handoff', to: 'jeeves' },
+          { type: 'mcp', server: 'github', agents: ['jeeves'] },
+        ])
+        expect(body.wires).toEqual({ handoff: true, as_tool: false })
+        return {
+          ok: true,
+          status: init?.method === 'PUT' ? 200 : 201,
+          json: async () => ({
+            id: 'research-squad',
+            object: 'team_roster',
+            name: 'Research Squad',
+            members: body.members,
+            tools: body.tools,
+            wires: body.wires,
+          }),
+        } as Response
+      }
+      if (url.includes('/v1/team-agents')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: AGENTS }),
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ object: 'list', data: [] }),
+      } as Response
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
   })
 })

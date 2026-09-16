@@ -539,6 +539,11 @@ export interface TeamRosterRecord {
     team_id?: string
   }>
   wires: { handoff: boolean; as_tool: boolean }
+  tools?: Array<
+    | { type: 'handoff'; to: string; from?: string }
+    | { type: 'as_tool'; agent: string }
+    | { type: 'mcp'; server: string; agents: string[] }
+  >
   blueprint_id?: string
   persona_count?: number
   personas?: Array<{ name: string }>
@@ -568,6 +573,7 @@ export interface CreateTeamRosterRequest {
   name: string
   members?: TeamRosterRecord['members']
   wires?: TeamRosterRecord['wires']
+  tools?: TeamRosterRecord['tools']
   blueprint_id?: string
   chief_of_staff_id?: string | null
   chief_of_staff_instructions?: string
