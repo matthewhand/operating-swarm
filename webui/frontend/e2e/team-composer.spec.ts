@@ -126,9 +126,9 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
 
   const available = page.getByRole('list', { name: /available agents list/i })
   await expect(available.getByText('Jeeves')).toBeVisible()
-  await expect(available.getByText('API').first()).toBeVisible()
-  await expect(available.getByText('CLI').first()).toBeVisible()
-  await expect(available.getByText('remote').first()).toBeVisible()
+  await expect(page.getByTestId('available-agents-kind-api')).toHaveText(/API\s*\(1\)/)
+  await expect(page.getByTestId('available-agents-kind-cli')).toHaveText(/CLI\s*\(1\)/)
+  await expect(page.getByTestId('available-agents-kind-remote')).toHaveText(/Remote\s*\(1\)/)
 
   await expect(page.getByRole('checkbox', { name: /handoff/i })).toBeChecked()
   await expect(page.getByRole('checkbox', { name: /as_tool/i })).toBeChecked()
@@ -143,7 +143,6 @@ test(' + opens two-pane team composer; add/remove and save roster', async ({ pag
   const roster = page.getByRole('list', { name: /roster members/i })
   // Each roster row carries the id and the display name, so scope to the first.
   await expect(roster.getByText('jeeves').first()).toBeVisible()
-  await expect(roster.getByText('API').first()).toBeVisible()
   await expect(cos).toBeEnabled()
   await expect(cos).toHaveValue('')
 
@@ -218,7 +217,7 @@ for (const viewport of VIEWPORTS) {
     await expect(scroller).toBeVisible()
     await expect(page.getByTestId('available-agents-kind-api')).toHaveText(/API\s*\(16\)/)
     await expect(page.getByTestId('available-agents-kind-cli')).toHaveText(/CLI\s*\(2\)/)
-    await expect(page.getByTestId('available-agents-kind-remote')).toHaveText(/remote\s*\(1\)/)
+    await expect(page.getByTestId('available-agents-kind-remote')).toHaveText(/Remote\s*\(1\)/)
 
     const overflow = await scroller.evaluate((el) => {
       const style = getComputedStyle(el)
@@ -228,7 +227,7 @@ for (const viewport of VIEWPORTS) {
       return { pane: style.overflowY, lists }
     })
     expect(overflow.pane).toBe('auto')
-    expect(overflow.lists).toHaveLength(3)
+    expect(overflow.lists).toHaveLength(1)
     for (const value of overflow.lists) {
       expect(value === 'visible' || value === 'clip').toBeTruthy()
     }
@@ -239,11 +238,17 @@ for (const viewport of VIEWPORTS) {
     })
 
     const kinds = ['api', 'cli', 'remote'] as const
+    const kindBox = async (kind: (typeof kinds)[number]): Promise<Box | null> => {
+      const box = await page.getByTestId(`available-agents-kind-${kind}`).boundingBox()
+      if (!box) return null
+      return { top: box.y, bottom: box.y + box.height, left: box.x, right: box.x + box.width }
+    }
     const topBoxes = []
     for (const kind of kinds) {
-      topBoxes.push(await visibleInScroller(page, `available-agents-kind-${kind}`))
+      topBoxes.push(await kindBox(kind))
     }
     const visibleTop = topBoxes.filter((box): box is Box => box !== null)
+    expect(visibleTop).toHaveLength(3)
     for (let i = 0; i < visibleTop.length; i += 1) {
       for (let j = i + 1; j < visibleTop.length; j += 1) {
         expect(
@@ -273,10 +278,10 @@ for (const viewport of VIEWPORTS) {
       el.scrollTop = el.scrollHeight
     })
     await expect(page.getByTestId('available-agents-kind-remote')).toBeVisible()
-    await expect(scroller.getByText('ACP harness')).toBeVisible()
+    await expect(scroller.getByText('API Agent 15')).toBeVisible()
     const bottomBoxes = []
     for (const kind of kinds) {
-      bottomBoxes.push(await visibleInScroller(page, `available-agents-kind-${kind}`))
+      bottomBoxes.push(await kindBox(kind))
     }
     const visibleBottom = bottomBoxes.filter((box): box is Box => box !== null)
     for (let i = 0; i < visibleBottom.length; i += 1) {
@@ -296,6 +301,8 @@ for (const viewport of VIEWPORTS) {
       contentType: 'image/png',
     })
 
+    await page.getByRole('tab', { name: /^Remote\b/i }).click()
+    await expect(scroller.getByText('ACP harness')).toBeVisible()
     await scroller.getByRole('button', { name: 'Add' }).last().click()
     const roster = page.getByRole('list', { name: /roster members/i })
     await expect(roster.getByText('ACP harness')).toBeVisible()
