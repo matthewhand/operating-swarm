@@ -95,6 +95,7 @@ import {
   fetchLlmProfiles,
   fetchRemotes,
   fetchSpeechSettings,
+  operateRemote,
 } from '../lib/api'
 import {
   appendTranscript,
@@ -203,6 +204,15 @@ import {
   teamThreadId,
 } from '../lib/teamRosters'
 import { defaultSessionForTeam } from '../lib/sessionPicker'
+import {
+  OMB_BOT_REQUIRED_GAP,
+  OMB_NO_AGENTS_WARNING,
+  OMB_SELECT_AGENT_WARNING,
+  ombBotsFromOperate,
+  ombNavbarOptions,
+  ombSendTarget,
+} from '../lib/ombBots'
+import { isOpenMousBotKind } from '../lib/remoteKinds'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId } from '../lib/remotesCatalog'
 import {
   ADD_REMOTE_VALUE,
@@ -604,6 +614,19 @@ const ChatPage = () => {
     [summariesByThread, threadKey],
   )
 
+  const handleSaveSummary = useCallback(
+    (summaryId: number, nextText: string) => {
+      if (!messagesEditable) return
+      setSummariesByThread((prev) => ({
+        ...prev,
+        [threadKey]: (prev[threadKey] ?? []).map((row) =>
+          row.id === summaryId ? { ...row, body: nextText } : row,
+        ),
+      }))
+    },
+    [messagesEditable, threadKey],
+  )
+
   const wsRef = useRef<WebSocket | null>(null)
   const emptyRemoteOpenedForRef = useRef('')
   const conversationIdRef = useRef(conversationId)
@@ -896,6 +919,34 @@ const ChatPage = () => {
   const remotesCatalogReady = !remotesListQuery.isPending && !remotesQuery.isPending
   const showEmptyRemoteChrome =
     showRemotesControl && remotesCatalogReady && configuredRemoteRows.length === 0
+  const ombRemoteId = isOpenMousBotKind(selectedRemoteId)
+    ? selectedRemoteId
+    : isOpenMousBotKind(remoteFromUrl)
+      ? remoteFromUrl
+      : ''
+  const ombListQuery = useQuery({
+    queryKey: ['omb-operate-list', ombRemoteId],
+    queryFn: () => operateRemote(ombRemoteId, { op: 'list' }, { timeoutMs: 12000 }),
+    enabled: showRemotesControl && Boolean(ombRemoteId),
+    retry: 1,
+  })
+  const ombBots = useMemo(
+    () => (ombRemoteId ? ombBotsFromOperate(ombListQuery.data?.data) : []),
+    [ombRemoteId, ombListQuery.data],
+  )
+  const ombNavbarAgents = useMemo(() => ombNavbarOptions(ombBots), [ombBots])
+  const ombModelWarning = !ombRemoteId
+    ? null
+    : ombListQuery.isError
+      ? ombListQuery.error instanceof Error
+        ? ombListQuery.error.message
+        : 'OpenMousBot agent list failed'
+      : ombListQuery.isSuccess && ombListQuery.data?.ok === false
+        ? ombListQuery.data.detail || OMB_NO_AGENTS_WARNING
+        : ombListQuery.isSuccess && ombBots.length === 0
+          ? OMB_NO_AGENTS_WARNING
+          : null
+  const ombSelectedBotId = ombSendTarget(sessionFromUrl, ombRemoteId || remoteFromUrl)
 
   const isCliAgent = Boolean(
     !teamFromUrl &&
@@ -2162,11 +2213,23 @@ const ChatPage = () => {
         return true
       }
       if (remoteFromUrl) {
+        const target = isOpenMousBotKind(remoteFromUrl)
+          ? ombSendTarget(sessionFromUrl, remoteFromUrl)
+          : (sessionFromUrl || '').trim()
+        if (isOpenMousBotKind(remoteFromUrl) && !target) {
+          addToast({
+            type: 'warning',
+            title: 'Select an OpenMousBot agent',
+            message: `${OMB_SELECT_AGENT_WARNING} gap=${OMB_BOT_REQUIRED_GAP}`,
+          })
+          return false
+        }
         ws.send(
           buildChatWsFrame(trimmed, 'remote_harness', {
             remote: remoteFromUrl,
             name: remoteFromUrl,
             op: 'send',
+            ...(target ? { target } : {}),
             ...pluginParams,
             ...sectionParams,
           }),
@@ -2276,6 +2339,9 @@ const ChatPage = () => {
       memberTarget,
       newChatPerTask,
       messages.length,
+      remoteFromUrl,
+      sessionFromUrl,
+      addToast,
     ],
   )
 
@@ -3187,8 +3253,10 @@ const ChatPage = () => {
                 label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
               }))}
               selectedAgent={selectedRemoteId}
-              models={[]}
-              selectedModel=""
+              models={ombNavbarAgents.map((row) => row.id)}
+              modelOptions={ombNavbarAgents}
+              selectedModel={ombSelectedBotId}
+              modelWarning={ombModelWarning}
               footerAction={{
                 id: ADD_REMOTE_VALUE,
                 label: 'Manage Remote',
@@ -3208,14 +3276,16 @@ const ChatPage = () => {
                   saveAgentRemoteBinding(bindingAgentId, null)
                   persistAgentDropdownChoice(bindingAgentId, { remote: '' })
                 }
-                if (remoteFromUrl && nextId && nextId !== remoteFromUrl) {
-                  setSearchParams((prev) => {
-                    const params = new URLSearchParams(prev)
-                    params.set('remote', nextId)
+                setSearchParams((prev) => {
+                  const params = new URLSearchParams(prev)
+                  if (nextId) params.set('remote', nextId)
+                  if (next.changed === 'model' && next.model) {
+                    params.set('session', next.model)
+                  } else if (next.changed === 'agent') {
                     params.delete('session')
-                    return params
-                  })
-                }
+                  }
+                  return params
+                })
               }}
             />
           ) : null}
@@ -3452,6 +3522,8 @@ const ChatPage = () => {
                     setHiddenSummaryIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
                   }
                   onToggleContext={handleToggleSummaryContext}
+                  canEdit={messagesEditable}
+                  onSaveEdit={handleSaveSummary}
                 />
               )
             }
@@ -4171,6 +4243,8 @@ function SummaryBlock({
   hiddenIds = [],
   onHide,
   onToggleContext,
+  canEdit = false,
+  onSaveEdit,
 }: {
   summary: ConversationSummary
   byId: Record<number, ConversationSummary>
@@ -4179,6 +4253,8 @@ function SummaryBlock({
   onHide?: (id: number) => void
   /** #214: persist the include-in-context tick for this summary. */
   onToggleContext?: (id: number, include: boolean) => void
+  canEdit?: boolean
+  onSaveEdit?: (id: number, text: string) => void
 }) {
   const parent =
     summary.parent_summary_id != null ? byId[summary.parent_summary_id] : undefined
@@ -4193,6 +4269,8 @@ function SummaryBlock({
       onRemove={() => onHide?.(summary.id)}
       inContext={summary.include_in_context !== false}
       onToggleContext={(include) => onToggleContext?.(summary.id, include)}
+      canEdit={canEdit}
+      onSaveEdit={(text) => onSaveEdit?.(summary.id, text)}
       nested={
         parent && !hiddenIds.includes(parent.id) ? (
           <SummaryBlock
@@ -4202,6 +4280,8 @@ function SummaryBlock({
             hiddenIds={hiddenIds}
             onHide={onHide}
             onToggleContext={onToggleContext}
+            canEdit={canEdit}
+            onSaveEdit={onSaveEdit}
           />
         ) : null
       }

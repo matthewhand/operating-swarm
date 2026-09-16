@@ -75,6 +75,16 @@ function renderComposer() {
   )
 }
 
+function selectAgentKindTab(kind: 'API' | 'CLI' | 'Remote') {
+  fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${kind}\\b`, 'i') }))
+}
+
+async function addAvailableAgent(kind: 'API' | 'CLI' | 'Remote') {
+  const available = await screen.findByRole('list', { name: /available agents list/i })
+  selectAgentKindTab(kind)
+  fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
+}
+
 describe('TeamComposer first-launch overlay', () => {
   beforeEach(() => {
     agentsFixture = AGENTS
@@ -128,10 +138,66 @@ describe('TeamComposer first-launch overlay', () => {
 
     const available = await screen.findByRole('list', { name: /available agents list/i })
     expect(within(available).getByText('Jeeves')).toBeInTheDocument()
-    expect(within(available).getAllByText('API').length).toBeGreaterThan(0)
-    expect(within(available).getAllByText('CLI').length).toBeGreaterThan(0)
-    expect(within(available).getAllByText('remote').length).toBeGreaterThan(0)
+    expect(within(available).queryByText('grok')).not.toBeInTheDocument()
+    expect(within(available).queryByText('API')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /^API\b/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: /^CLI\b/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /^Remote\b/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /new team/i })).toBeInTheDocument()
+  })
+
+  it('tabs available agents by kind without per-row KIND_LABEL badges', async () => {
+    renderComposer()
+    const available = await screen.findByRole('list', { name: /available agents list/i })
+    expect(screen.getByRole('tab', { name: /^API\b/i })).toHaveAttribute('aria-selected', 'true')
+    expect(within(available).getByText('Jeeves')).toBeInTheDocument()
+    expect(within(available).queryByText('grok')).not.toBeInTheDocument()
+    expect(within(available).queryByText('ACP harness')).not.toBeInTheDocument()
+    expect(within(available).queryByText('API')).not.toBeInTheDocument()
+
+    selectAgentKindTab('CLI')
+    expect(screen.getByRole('tab', { name: /^CLI\b/i })).toHaveAttribute('aria-selected', 'true')
+    expect(within(available).queryByText('Jeeves')).not.toBeInTheDocument()
+    expect(within(available).getByText('grok')).toBeInTheDocument()
+    expect(within(available).queryByText('CLI')).not.toBeInTheDocument()
+
+    selectAgentKindTab('Remote')
+    expect(screen.getByRole('tab', { name: /^Remote\b/i })).toHaveAttribute('aria-selected', 'true')
+    expect(within(available).getByText('ACP harness')).toBeInTheDocument()
+    expect(within(available).queryByText('remote')).not.toBeInTheDocument()
+    expect(within(available).queryByText('Remote')).not.toBeInTheDocument()
+  })
+
+  it('defaults to the first non-empty kind tab when API is empty', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/v1/team-agents')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: AGENTS.filter((agent) => agent.kind !== 'api'),
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/team-rosters')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        return { ok: false, status: 404, json: async () => ({}) } as Response
+      }),
+    )
+    renderComposer()
+    const available = await screen.findByRole('list', { name: /available agents list/i })
+    expect(screen.getByRole('tab', { name: /^CLI\b/i })).toHaveAttribute('aria-selected', 'true')
+    expect(within(available).getByText('grok')).toBeInTheDocument()
+    expect(within(available).queryByText('Jeeves')).not.toBeInTheDocument()
   })
 
   it('defaults handoff and as_tool on, and states gate is unwired', async () => {
@@ -152,7 +218,7 @@ describe('TeamComposer first-launch overlay', () => {
 
     const roster = await screen.findByRole('list', { name: /roster members/i })
     expect(within(roster).getByText('Jeeves')).toBeInTheDocument()
-    expect(within(roster).getByText('API')).toBeInTheDocument()
+    expect(within(roster).queryByText('API')).not.toBeInTheDocument()
     expect(within(roster).getByTestId('roster-index')).toHaveTextContent('1')
     expect(within(roster).queryByDisplayValue('default')).not.toBeInTheDocument()
     expect(within(roster).queryByRole('radio')).not.toBeInTheDocument()
@@ -161,13 +227,15 @@ describe('TeamComposer first-launch overlay', () => {
   it('adds and removes via context menu for a11y', async () => {
     renderComposer()
     const available = await screen.findByRole('list', { name: /available agents list/i })
+    selectAgentKindTab('CLI')
     const grokRow = within(available).getByText('grok').closest('li')
     expect(grokRow).toBeTruthy()
     fireEvent.contextMenu(grokRow as HTMLElement)
     fireEvent.click(screen.getByRole('menuitem', { name: /^add$/i }))
 
     const roster = await screen.findByRole('list', { name: /roster members/i })
-    expect(within(roster).getByText('CLI')).toBeInTheDocument()
+    expect(within(roster).getByText('grok')).toBeInTheDocument()
+    expect(within(roster).queryByText('CLI')).not.toBeInTheDocument()
 
     const chip = within(roster).getByText('grok').closest('article') as HTMLElement
     fireEvent.contextMenu(chip)
@@ -241,8 +309,7 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)
     expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
 
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
+    await addAvailableAgent('API')
     const enabled = screen.getByTestId('team-cos-select')
     expect(enabled).not.toBeDisabled()
     expect(enabled).toHaveDisplayValue('First agent')
@@ -253,10 +320,9 @@ describe('TeamComposer first-launch overlay', () => {
   it('selects a CoS, saves team-scoped instructions, and can clear CoS', async () => {
     const fetchMock = vi.mocked(fetch)
     renderComposer()
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[1])
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[2])
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
+    await addAvailableAgent('Remote')
 
     fireEvent.change(screen.getByLabelText(/team name/i), {
       target: { value: 'Research Squad' },
@@ -324,8 +390,7 @@ describe('TeamComposer first-launch overlay', () => {
 
   it('omits remotes from the CoS picker', async () => {
     renderComposer()
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[2])
+    await addAvailableAgent('Remote')
     const select = screen.getByTestId('team-cos-select')
     expect(select).toHaveDisplayValue('First agent')
     expect(within(select).queryByRole('option', { name: /acp/i })).not.toBeInTheDocument()
@@ -336,9 +401,8 @@ describe('TeamComposer first-launch overlay', () => {
   it('numbers roster members and reordering member 2 to first updates First agent', async () => {
     const fetchMock = vi.mocked(fetch)
     renderComposer()
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[1])
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
 
     const roster = await screen.findByRole('list', { name: /roster members/i })
     const rows = within(roster).getAllByTestId('roster-member')
@@ -403,9 +467,8 @@ describe('TeamComposer first-launch overlay', () => {
 
   it('keeps an explicit named lead when the roster is reordered', async () => {
     renderComposer()
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[1])
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
     fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: 'jeeves' } })
     expect(screen.getByTestId('team-cos-select')).toHaveValue('jeeves')
 
@@ -433,21 +496,19 @@ describe('TeamComposer first-launch overlay', () => {
     expect(scroller).toHaveClass('max-h-[22rem]')
     expect(scroller).not.toHaveClass('os-scrollable-picker-list')
 
-    for (const kind of ['api', 'cli', 'remote'] as const) {
-      const group = screen.getByTestId(`available-agents-group-${kind}`)
-      const list = group.querySelector('ul')
-      expect(list).toBeTruthy()
-      expect(list).not.toHaveClass('os-scrollable-picker-list')
-      expect(list).not.toHaveClass('overflow-y-auto')
-      expect(list).not.toHaveClass('max-h-40')
-    }
+    const group = screen.getByTestId('available-agents-group-api')
+    const list = group.querySelector('ul')
+    expect(list).toBeTruthy()
+    expect(list).not.toHaveClass('os-scrollable-picker-list')
+    expect(list).not.toHaveClass('overflow-y-auto')
+    expect(list).not.toHaveClass('max-h-40')
 
     const headers = ['api', 'cli', 'remote'].map((kind) =>
       screen.getByTestId(`available-agents-kind-${kind}`),
     )
     expect(headers[0]).toHaveTextContent(/^API\s*\(1\)/)
     expect(headers[1]).toHaveTextContent(/^CLI\s*\(1\)/)
-    expect(headers[2]).toHaveTextContent(/^remote\s*\(1\)/)
+    expect(headers[2]).toHaveTextContent(/^Remote\s*\(1\)/)
     expect(
       headers[0].compareDocumentPosition(headers[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
@@ -464,12 +525,13 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.getByTestId('available-agents-kind-cli')).toHaveTextContent('(2)')
     expect(screen.getByTestId('available-agents-kind-remote')).toHaveTextContent('(1)')
     expect(within(available).getByText('API Agent 0')).toBeInTheDocument()
-    expect(within(available).getByText('grok')).toBeInTheDocument()
-    expect(within(available).getByText('ACP harness')).toBeInTheDocument()
+    expect(within(available).queryByText('grok')).not.toBeInTheDocument()
+    expect(within(available).queryByText('ACP harness')).not.toBeInTheDocument()
 
     fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
     const roster = await screen.findByRole('list', { name: /roster members/i })
     expect(within(roster).getByText('API Agent 0')).toBeInTheDocument()
+    selectAgentKindTab('CLI')
     const grokRow = within(available).getByText('grok').closest('li') as HTMLElement
     fireEvent.click(within(grokRow).getByRole('button', { name: 'Add' }))
     expect(within(roster).getByText('grok')).toBeInTheDocument()
@@ -482,8 +544,7 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.getByTestId('team-roles-locked-hint')).toHaveTextContent(/add agents first/i)
     expect(screen.queryByRole('list', { name: /available roles list/i })).not.toBeInTheDocument()
 
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
+    await addAvailableAgent('API')
     expect(screen.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'false')
     expect(screen.queryByTestId('team-roles-locked-hint')).not.toBeInTheDocument()
     expect(screen.getByRole('list', { name: /available roles list/i })).toBeInTheDocument()
@@ -524,9 +585,8 @@ describe('TeamComposer first-launch overlay', () => {
 
   it('assigns unroled agents from a slot dropdown and frees them when cleared or removed', async () => {
     renderComposer()
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[1])
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
     fireEvent.click(screen.getByRole('button', { name: /add skeptic role/i }))
     fireEvent.click(screen.getByRole('button', { name: /add gate role/i }))
 
@@ -551,10 +611,9 @@ describe('TeamComposer first-launch overlay', () => {
   it('assigns CoS from a role-slot dropdown with eligibility, and keeps No CoS valid', async () => {
     const fetchMock = vi.mocked(fetch)
     renderComposer()
-    const available = await screen.findByRole('list', { name: /available agents list/i })
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[1])
-    fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[2])
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
+    await addAvailableAgent('Remote')
     fireEvent.click(screen.getByRole('button', { name: /add chief_of_staff role/i }))
 
     const slot = screen.getByTestId('team-role-assign-chief_of_staff')

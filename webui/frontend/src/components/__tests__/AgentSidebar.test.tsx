@@ -2153,7 +2153,7 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     localStorage.clear()
   })
 
-  it('shows every team face at 4 or fewer members, 2 + N above that', async () => {
+  it('shows 2 team faces + N for a 5-member roster', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })

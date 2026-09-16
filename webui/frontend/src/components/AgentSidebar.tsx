@@ -2406,7 +2406,11 @@ export default function AgentSidebar({
           onDragEnd={finishDrag}
           onDragOver={(event) => allowRowDrop(event, agent.id)}
           onDrop={(event) => dropReorder(event, agent.id)}
-          onClick={pickOrClose}
+          onClick={(event) => {
+            pickOrClose?.()
+            event.currentTarget.blur()
+          }}
+          onMouseLeave={(event) => event.currentTarget.blur()}
           {...rowMenuHandlers(agent.id, name, hidden, isHerdrAgent(agent) ? 'remote' : 'api')}
         >
           {body}
@@ -2419,6 +2423,9 @@ export default function AgentSidebar({
       onDragEnd: finishDrag,
       onDragOver: (event: ReactDragEvent) => allowRowDrop(event, agent.id),
       onDrop: (event: ReactDragEvent) => dropReorder(event, agent.id),
+      onMouseLeave: (event: ReactMouseEvent<HTMLElement>) => {
+        event.currentTarget.blur()
+      },
       ...rowMenuHandlers(
         agent.id,
         name,
@@ -2445,8 +2452,9 @@ export default function AgentSidebar({
             aria-current={active ? 'page' : undefined}
             aria-label={`${name}, ${sessions.length} sessions`}
             {...dragHandlers}
-            onClick={() => {
+            onClick={(event) => {
               setSessionPicker({ agentId: agent.id, agentName: name, sessions })
+              event.currentTarget.blur()
             }}
           >
             {body}
@@ -2468,7 +2476,10 @@ export default function AgentSidebar({
           data-hotkey={spillSlot}
           aria-current={active ? 'page' : undefined}
           {...dragHandlers}
-          onClick={pickOrClose}
+          onClick={(event) => {
+            pickOrClose?.()
+            event.currentTarget.blur()
+          }}
         >
           {body}
         </Link>
@@ -3055,11 +3066,15 @@ export default function AgentSidebar({
               onClick: (event: ReactMouseEvent<HTMLElement>) => {
                 if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
                   pickOrClose?.()
+                  event.currentTarget.blur()
                   return
                 }
                 event.preventDefault()
                 navigate(agentChatHref(pin.id))
                 pickOrClose?.()
+                event.currentTarget.blur()
+              },
+              onMouseLeave: (event: ReactMouseEvent<HTMLElement>) => {
                 event.currentTarget.blur()
               },
               ...rowMenuHandlers(

@@ -473,6 +473,126 @@ def test_openmousbot_list_and_send_to_bot_id(http_router, monkeypatch):
     assert sent.data["text"] == "alpha"
     assert sent.http_status == 202
     assert "accepted the turn" not in sent.detail
+    assert sent.data.get("minted") is False
+
+
+def test_omb_list_summarizes_bots_and_strips_messages(http_router):
+    host, port, router = http_router
+    fat_messages = [{"role": "assistant", "content": "x" * 8000} for _ in range(50)]
+    router.routes = {
+        ("GET", "/api/bots"): (
+            200,
+            {
+                "bots": [
+                    {
+                        "id": "desk-1",
+                        "name": "Desk",
+                        "title": "ignored-when-name-present",
+                        "messages": fat_messages,
+                    },
+                    {"id": "spec-9", "title": "Specialist", "messages": fat_messages},
+                ]
+            },
+        ),
+    }
+    listed = remotes_core.operate("omb", "list", config=_cfg(host, port))
+    assert listed.ok is True
+    assert listed.data == {
+        "bots": [
+            {"id": "desk-1", "name": "Desk"},
+            {"id": "spec-9", "name": "Specialist"},
+        ]
+    }
+    blob = json.dumps(listed.data)
+    assert "messages" not in blob
+    assert len(blob) < 500
+
+
+def test_omb_send_without_target_mints_dedicated_bot_not_bots0(http_router, monkeypatch):
+    host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hi"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "dedicated-hello",
+        "turnTerminal": True,
+    }
+    router.routes = {
+        ("GET", "/api/bots"): (
+            200,
+            {
+                "bots": [
+                    {
+                        "id": "dedicated-1",
+                        "name": "open-swarm",
+                        "threadId": "th-d",
+                        "busy": False,
+                        "activity": "waiting-on-you",
+                        "messages": [user, reply],
+                    },
+                    {"id": "spec-1", "name": "Specialist"},
+                ]
+            },
+        ),
+        ("POST", "/api/bots"): (201, {"bot": {"id": "dedicated-1", "name": "open-swarm"}}),
+        ("POST", "/api/bots/dedicated-1/messages"): (
+            202,
+            {"ok": True, "threadId": "th-d", "message": {"id": "u1"}},
+        ),
+        ("GET", "/api/threads/th-d/messages"): (200, {"messages": [user, reply]}),
+    }
+    sent = remotes_core.operate("omb", "send", prompt="hi", config=_cfg(host, port))
+    assert sent.ok is True
+    assert sent.data["bot_id"] == "dedicated-1"
+    assert sent.data["minted"] is True
+    assert sent.data["text"] == "dedicated-hello"
+
+
+def test_omb_send_kind_id_target_does_not_post_to_omb_bot(http_router, monkeypatch):
+    host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hi"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "minted-hello",
+        "turnTerminal": True,
+    }
+    router.routes = {
+        ("GET", "/api/bots"): (
+            200,
+            {
+                "bots": [
+                    {
+                        "id": "dedicated-2",
+                        "threadId": "th-2",
+                        "busy": False,
+                        "activity": "waiting-on-you",
+                        "messages": [user, reply],
+                    }
+                ]
+            },
+        ),
+        ("POST", "/api/bots"): (201, {"bot": {"id": "dedicated-2"}}),
+        ("POST", "/api/bots/dedicated-2/messages"): (
+            202,
+            {"ok": True, "threadId": "th-2", "message": {"id": "u1"}},
+        ),
+        ("POST", "/api/bots/omb/messages"): (202, {"ok": True, "wrong": True}),
+        ("GET", "/api/threads/th-2/messages"): (200, {"messages": [user, reply]}),
+    }
+    sent = remotes_core.operate(
+        "omb", "send", prompt="hi", target="omb", config=_cfg(host, port)
+    )
+    assert sent.ok is True
+    assert sent.data["bot_id"] == "dedicated-2"
+    assert sent.data["minted"] is True
+    assert sent.data["text"] == "minted-hello"
 
 
 def test_openmousbot_health_down_is_report_not_crash():

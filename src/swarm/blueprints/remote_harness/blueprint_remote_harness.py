@@ -306,7 +306,9 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         params = dict(self._params)
         name = str(params.get("name") or params.get("remote") or "").strip()
         op = str(params.get("op") or "").strip().lower()
-        target = str(params.get("target") or params.get("bot_id") or "").strip()
+        target = str(
+            params.get("target") or params.get("bot_id") or params.get("session") or ""
+        ).strip()
         last_text = self._last_user_text(messages)
         prompt = str(params.get("prompt") or last_text or "").strip()
 

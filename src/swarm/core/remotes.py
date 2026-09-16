@@ -313,6 +313,8 @@ _OMB_REPLY_TIMEOUT_S = 180.0
 _OMB_POLL_INTERVAL_S = 0.4
 _OMB_POLL_HTTP_TIMEOUT_S = 8.0
 _OMB_NON_BOT_TARGETS = frozenset({"omb", "openmousbot", "openmausbot", "openmous"})
+OMB_BOT_REQUIRED_GAP = "omb_bot_required"
+OMB_DEDICATED_BOT_NAME = "open-swarm"
 _HERMES_POLL_INTERVAL_S = 0.4
 _HERMES_POLL_HTTP_TIMEOUT_S = 8.0
 
@@ -2011,6 +2013,54 @@ def _omb_poll_assistant(
         time.sleep(min(max(_OMB_POLL_INTERVAL_S, 0.0), remaining))
 
 
+def summarize_omb_bots(payload: Any) -> list[dict[str, str]]:
+    """Map GET /api/bots (or operate list data) to ``{id, name}`` rows.
+
+    Nested ``messages`` payloads are dropped — a live OMB dump can be hundreds
+    of KB per bot and is not a navbar option.
+    """
+    raw: Any = payload
+    if isinstance(payload, dict):
+        raw = (
+            payload.get("bots")
+            or payload.get("agents")
+            or payload.get("members")
+            or payload.get("data")
+            or []
+        )
+        if isinstance(raw, dict):
+            raw = raw.get("bots") or raw.get("agents") or raw.get("data") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if isinstance(item, str):
+            bot_id = item.strip()
+            name = bot_id
+        elif isinstance(item, dict):
+            bot_id = str(item.get("id") or item.get("bot_id") or "").strip()
+            name = str(item.get("name") or item.get("title") or bot_id).strip() or bot_id
+        else:
+            continue
+        if not bot_id or bot_id in seen:
+            continue
+        seen.add(bot_id)
+        out.append({"id": bot_id, "name": name})
+    return out
+
+
+def _omb_mint_dedicated_bot(spec: RemoteSpec, headers: dict[str, str], timeout_s: float) -> HttpResult:
+    base_url = (spec.base_url or "").rstrip("/")
+    return http_json(
+        "POST",
+        f"{base_url}/api/bots",
+        headers=headers,
+        body={"name": OMB_DEDICATED_BOT_NAME},
+        timeout=timeout_s,
+    )
+
+
 def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
@@ -2021,15 +2071,14 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
         timeout=timeout_s,
     )
     if result.status in _UP:
-        bots = _omb_bots_from(result.body)
-        count = len(bots) if isinstance(bots, list) else (1 if bots else 0)
+        bots = summarize_omb_bots(result.body)
         return OperateResult(
             remote="omb",
             op="list",
             ok=True,
-            detail=f"OpenMousBot listed {count} bot(s) via GET {_OMB_LIST_PATH}",
+            detail=f"OpenMousBot listed {len(bots)} bot(s) via GET {_OMB_LIST_PATH}",
             http_status=result.status,
-            data=result.body,
+            data={"bots": bots},
         )
     if result.status in _AUTH:
         return OperateResult(
@@ -2039,6 +2088,7 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
             detail="OpenMousBot /api/bots requires auth. Set remotes.omb.api_key or OMB_API_KEY.",
             http_status=result.status,
             data=result.body,
+            gap=OMB_BOT_REQUIRED_GAP,
         )
     return OperateResult(
         remote="omb",
@@ -2047,6 +2097,7 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
         detail=result.error or f"OpenMousBot list failed (http {result.status})",
         http_status=result.status,
         data=result.body or result.text,
+        gap=OMB_BOT_REQUIRED_GAP,
     )
 
 
@@ -2057,7 +2108,7 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
     headers = _auth_headers(spec)
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
-    listed: OperateResult | None = None
+    minted = False
     if bot_id:
         listed = _omb_list(spec, timeout_s)
         if listed.ok:
@@ -2066,25 +2117,28 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
                 bot_id = str(found.get("id") or bot_id)
         # Target already names a bot (id or name). Never mint a second one.
     else:
-        listed = _omb_list(spec, timeout_s)
-        bots = _omb_bots_from(listed.data) if listed.ok else []
-        if bots:
-            first = bots[0] if isinstance(bots[0], dict) else {}
-            bot_id = str(first.get("id") or "")
+        # Never default to bots[0] (specialists). Mint a dedicated bot only
+        # when the operator did not pick an agent.
+        created = _omb_mint_dedicated_bot(spec, headers, timeout_s)
+        if created.status in _UP and isinstance(created.body, dict):
+            bot = created.body.get("bot") or created.body
+            if isinstance(bot, dict):
+                bot_id = str(bot.get("id") or "").strip()
+            minted = True
         if not bot_id:
-            created = http_json("POST", f"{base_url}/api/bots", headers=headers, body={}, timeout=timeout_s)
-            if created.status in _UP and isinstance(created.body, dict):
-                bot = created.body.get("bot") or {}
-                bot_id = str(bot.get("id") or "")
-            if not bot_id:
-                return OperateResult(
-                    remote="omb",
-                    op="send",
-                    ok=False,
-                    detail="No OpenMousBot bot id given and none could be listed/created",
-                    http_status=created.status if "created" in locals() else listed.http_status,
-                    data={"list": listed.data},
-                )
+            return OperateResult(
+                remote="omb",
+                op="send",
+                ok=False,
+                detail=(
+                    "No OpenMousBot agent selected. Pick a listed bot id "
+                    "(navbar / operate target); send will not guess bots[0] "
+                    "and could not mint a dedicated open-swarm bot."
+                ),
+                http_status=created.status,
+                data=created.body or created.text,
+                gap=OMB_BOT_REQUIRED_GAP,
+            )
     result = http_json(
         "POST",
         f"{base_url}/api/bots/{bot_id}/messages",
@@ -2123,6 +2177,7 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
                 "text": text,
                 "thread_id": thread_id,
                 "message_id": message_id,
+                "minted": minted,
             },
         )
     return OperateResult(
@@ -3234,9 +3289,9 @@ def _omb_send_bound(
     *,
     timeout: float,
     config: dict[str, Any] | None = None,  # noqa: ARG001
-    session_id: str | None = None,  # noqa: ARG001
+    session_id: str | None = None,
 ) -> OperateResult:
-    return _omb_send(spec, prompt, target, timeout)
+    return _omb_send(spec, prompt, target or (session_id or ""), timeout)
 
 
 def _rakazo_send_bound(

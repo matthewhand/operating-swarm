@@ -129,6 +129,20 @@ describe('AgentMessageBubble', () => {
     expect(onRegen).toHaveBeenCalledWith('keep API names')
   })
 
+  it('lets the operator edit a summary like a regular chat message (#57)', () => {
+    const onSaveEdit = vi.fn()
+    renderBubble(
+      <AgentMessageBubble message={summaryMsg} onSaveEdit={onSaveEdit} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    expect(editor).toHaveValue('We agreed to ship a demo.')
+    fireEvent.change(editor, { target: { value: 'We shipped a demo.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSaveEdit).toHaveBeenCalledWith('We shipped a demo.')
+    expect(screen.getByText('We shipped a demo.')).toBeInTheDocument()
+  })
+
   it('renders Python fenced blocks with pretty-print tokens', () => {
     const msg: ChatMessage = {
       key: 'py1',

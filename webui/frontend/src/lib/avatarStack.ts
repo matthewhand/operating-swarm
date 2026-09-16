@@ -16,15 +16,14 @@ export const STACK_FACE_LIMIT = 3
 /** Team rail stacks show this many faces; extras become a +N remainder. */
 export const TEAM_STACK_FACE_LIMIT = 2
 
-/** Team stacks show every member up to this count — no +N chip. */
-export const TEAM_STACK_ALL_MAX = 4
+/** Team stacks show every member up to this count — no +N chip (#57). */
+export const TEAM_STACK_ALL_MAX = 3
 
 /**
- * Team sidepane stack plan (Matthew's rule): a roster of 4 or fewer shows
- * every member with no remainder; a crowded roster (>4) collapses to the
- * first 2 members plus a +N chip. Roster order is preserved — unlike
- * {@link selectStackedFaces} this does not re-sort by recency, because a
- * team roster is a stable list, not an activity feed.
+ * Team sidepane stack (#57): 1–3 members show every face with no remainder;
+ * 4+ members collapse to the first 2 faces plus +{n-2}. Roster order is
+ * preserved — unlike {@link selectStackedFaces} this does not re-sort by
+ * recency, because a team roster is a stable list, not an activity feed.
  */
 export function teamSidepaneStack<T extends StackFace>(
   faces: readonly T[],
