@@ -23,8 +23,16 @@ Covered:
   blueprint's run() (SWARM_TEST_MODE canned answers); unknown blueprints
   produce an error partial without killing the socket
 - plain HTTP still works through the same application
+- the CLI seat (#424): the frame ChatPage sends — a `cli_agent` blueprint
+  default plus `params: {mode, cli, model}` — reaches the cli seat, emits the
+  REQ-92 "Started a new <cli> session." status frame, and answers; the socket
+  then serves a differently-shaped turn
+- the remote seat (#424): `params: {remote, target}` alone routes to the
+  remote_harness blueprint, and a remote that was never configured is answered
+  with a sentence rather than a JSON dump (issue #129 / REQ-890)
 """
 
+import html
 import json
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -397,3 +405,204 @@ class TestWebsocketBlueprintSelection:
             assert "legacy path" in frames[-1]
             client.chat.completions.create.assert_awaited_once()
             await communicator.disconnect()
+
+
+# =============================================================================
+# The CLI and Remote kinds over the websocket (#424)
+# =============================================================================
+#
+# This suite proved the blueprint kind and nothing else, so the two seats the
+# SPA spends most of its time in were unproven: /v1/chat/completions is the
+# curl / os-cli door, and a green PONG there exercises neither the session
+# cookie, the Origin validator, nor the consumer's per-kind dispatch. These
+# tests drive the frames ChatPage actually sends.
+
+# ChatPage sends the CLI seat's binary/model in `params`, with the seat itself
+# as the connection's blueprint default (?blueprint=cli_agent).
+CLI_SEAT = "cli_agent"
+CLI_FRAME_PARAMS = {
+    "mode": "cli",
+    "cli": "agy",
+    "model": "gemini-3.8-flash-medium",
+}
+
+# A remote seat is selected by `params.remote` alone — no `blueprint` field.
+REMOTE_SEAT = "remote_harness"
+
+
+def _canned_for(blueprint_id: str, instruction: str) -> str:
+    """The reply respond_with_blueprint returns in SWARM_TEST_MODE."""
+    return f"[TEST-MODE] {blueprint_id} at your service. You said: '{instruction}'"
+
+
+def _enable_canned_blueprints(monkeypatch) -> None:
+    """Same environment as the `swarm_test_mode` fixture, applied explicitly.
+
+    The fixture is requested by the blueprint tests for its side effect alone;
+    naming the variables here keeps the dependency visible and adds no new
+    unused-argument findings.
+    """
+    monkeypatch.setenv("SWARM_TEST_MODE", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy-test-mode")
+
+
+async def _drain_turn(communicator, prompt):
+    """Drive one turn and return every class of frame it puts on the wire.
+
+    ``_drain_reply`` assumes the reply is the only thing a turn sends. The CLI
+    and remote seats are not that simple, and the SPA has to render all of it:
+
+    * ``notices`` — status frames before the assistant placeholder. A CLI turn
+      adds the REQ-92 ``Started a new <cli> session.`` line here, which is also
+      the proof that ``params.cli`` was read.
+    * ``frames`` — the placeholder, the stream, and the final partial that
+      replaces the container.
+    * ``trailing`` — frames emitted after the reply, e.g. the ``context_usage``
+      telemetry JSON. Explicitly drained: leaving them queued shifts every
+      later turn on the same socket by one frame.
+    """
+    await communicator.send_to(text_data=json.dumps(prompt))
+    user_html = await communicator.receive_from(timeout=BP_TIMEOUT)
+
+    notices: list[str] = []
+    placeholder_html = await communicator.receive_from(timeout=BP_TIMEOUT)
+    while 'id="message-response-' not in placeholder_html:
+        notices.append(placeholder_html)
+        placeholder_html = await communicator.receive_from(timeout=BP_TIMEOUT)
+    match = re.search(r'id="(message-response-[0-9a-f]+)"', placeholder_html)
+    assert match, f"no contents div in placeholder: {placeholder_html!r}"
+    contents_div_id = match.group(1)
+
+    frames = [placeholder_html]
+    while True:
+        frame = await communicator.receive_from(timeout=BP_TIMEOUT)
+        frames.append(frame)
+        if f'id="{contents_div_id}"' in frame and 'hx-swap-oob="true"' in frame:
+            break
+
+    trailing: list[str] = []
+    while not await communicator.receive_nothing(timeout=0.5):
+        trailing.append(await communicator.receive_from(timeout=BP_TIMEOUT))
+    return user_html, notices, frames, trailing
+
+
+class TestWebsocketCliKind:
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_params_cli_reaches_the_cli_seat_and_replies(self, monkeypatch):
+        """The CLI frame shape answers, and the socket stays usable.
+
+        #424's success criterion for this kind: a frame carrying ``params.cli``
+        returns a reply, or a *named* error — never a socket abort. The caller
+        learns which seat answered from the reply, so a dispatch regression
+        (silently falling through to the default model) fails here.
+        """
+        _enable_canned_blueprints(monkeypatch)
+        _, headers = await make_authenticated_headers("asgi-ws-cli-kind")
+        communicator = WebsocketCommunicator(
+            application, _unique_ws_path(f"blueprint={CLI_SEAT}"), headers=headers
+        )
+        connected, _ = await communicator.connect()
+        assert connected
+        await expect_spa_hello(communicator)
+
+        instruction = "run the tests"
+        user_html, notices, frames, trailing = await _drain_turn(
+            communicator, {"message": instruction, "params": dict(CLI_FRAME_PARAMS)}
+        )
+        assert instruction in user_html
+        # `params.cli` was read: the status line names the binary the session
+        # was started for. This frame is unique to a CLI turn, so it is asserted
+        # rather than tolerated.
+        assert any("Started a new agy session." in notice for notice in notices), notices
+        # The cli seat answered — not the default model, and not no one.
+        assert _canned_for(CLI_SEAT, instruction) in html.unescape(frames[-1])
+        # Anything after the reply is telemetry JSON, never more markup.
+        assert all(frame.startswith("{") for frame in trailing), trailing
+
+        # No abort: the same socket serves a second, differently-shaped turn.
+        _, _, frames, _ = await _drain_turn(
+            communicator, {"message": "still there?", "blueprint": "jeeves"}
+        )
+        assert JEEVES_CANNED_MARKER in frames[-1]
+
+        await communicator.disconnect()
+
+
+class TestWebsocketRemoteKind:
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_params_remote_selects_the_remote_harness(self, monkeypatch):
+        """`params: {remote, target}` is enough — no blueprint field needed.
+
+        The SPA's remote seats send exactly this. The consumer has to translate
+        it to the remote_harness blueprint itself, so falling back to the
+        default model here would be invisible to the operator.
+        """
+        _enable_canned_blueprints(monkeypatch)
+        _, headers = await make_authenticated_headers("asgi-ws-remote-kind")
+        communicator = WebsocketCommunicator(
+            application, _unique_ws_path(), headers=headers
+        )
+        connected, _ = await communicator.connect()
+        assert connected
+        await expect_spa_hello(communicator)
+
+        instruction = "status?"
+        user_html, notices, frames, _ = await _drain_turn(
+            communicator,
+            {"message": instruction, "params": {"remote": "slack", "target": "w1:p1"}},
+        )
+        assert instruction in user_html
+        # Replies are HTML; the canned text carries the prompt in &#x27; quotes.
+        assert _canned_for(REMOTE_SEAT, instruction) in html.unescape(frames[-1])
+        assert notices == [], f"a remote turn adds no status notice: {notices}"
+
+        await communicator.disconnect()
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_a_remote_that_was_never_added_fails_as_a_sentence(self, monkeypatch):
+        """Without test mode the real harness runs: an unconfigured remote must
+        come back as a sentence, not a JSON dump and not a dropped socket.
+
+        This is the state a fresh install is in when the SPA offers every
+        catalog seat (issue #129 / REQ-890), so the seat has to explain itself
+        rather than answer with an internal identifier.
+        """
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        from swarm.core import remotes as remotes_core
+
+        def _not_configured(*_args, **_kwargs):
+            raise remotes_core.RemoteError("Remote 'slack' is not configured")
+
+        # Deterministic: do not depend on the developer's own remotes config.
+        monkeypatch.setattr(remotes_core, "load_remote", _not_configured)
+
+        _, headers = await make_authenticated_headers("asgi-ws-remote-unadded")
+        communicator = WebsocketCommunicator(
+            application, _unique_ws_path(), headers=headers
+        )
+        connected, _ = await communicator.connect()
+        assert connected
+        await expect_spa_hello(communicator)
+
+        _, _, frames, _ = await _drain_turn(
+            communicator,
+            {"message": "hello", "params": {"remote": "slack", "target": "w1:p1"}},
+        )
+        reply = html.unescape(frames[-1])
+        # A sentence that names the remote and what is wrong with it.
+        assert "slack" in reply
+        assert "not configured" in reply
+        # Not a dump: no upstream JSON body and no raw gap identifier.
+        assert "{" not in reply
+        assert '"json"' not in reply
+
+        # The socket survived: a second turn still gets an answer.
+        _, _, frames, _ = await _drain_turn(
+            communicator, {"message": "and now?", "params": {"remote": "slack"}}
+        )
+        assert "slack" in html.unescape(frames[-1])
+
+        await communicator.disconnect()
