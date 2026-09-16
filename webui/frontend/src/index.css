@@ -2168,6 +2168,33 @@ html:not([data-theme="light"]) .os-composer__send,
   font-weight: 400;
 }
 
+/* #217: timestamp placement is a theme override (below / inline / above). */
+.os-chat-transcript[data-timestamp-placement="below"] .chat-footer .os-bubble-time,
+.os-chat-transcript [data-timestamp-placement="below"] .os-bubble-time {
+  display: inline;
+  color: color-mix(in srgb, var(--color-base-content) 48%, transparent);
+  opacity: 1;
+  font-weight: 400;
+  font-size: 0.75rem;
+}
+.os-chat-transcript[data-timestamp-placement="below"] .chat-footer {
+  display: flex;
+  margin-top: 0.1rem;
+  opacity: 0.85;
+}
+.os-chat-transcript[data-timestamp-placement="inline"] .os-bubble-time-inline {
+  order: -1;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.os-chat-transcript[data-timestamp-placement="inline"] .os-bubble-time,
+.os-chat-transcript [data-timestamp-placement="inline"] .os-bubble-time {
+  display: inline;
+  color: color-mix(in srgb, var(--color-base-content) 48%, transparent);
+  font-weight: 400;
+}
+
 .os-chat-transcript[data-bubble-theme="simple"] .chat-bubble {
   background-image: none !important;
   box-shadow: none !important;

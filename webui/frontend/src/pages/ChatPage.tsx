@@ -65,6 +65,7 @@ import { ChatMessageBubble } from '../components/ChatMessageBubble'
 import {
   BUBBLE_THEME_LABELS,
   BUBBLE_THEMES,
+  getBubbleTheme,
   loadBubbleTheme,
   saveBubbleTheme,
   type BubbleTheme,
@@ -3327,6 +3328,8 @@ const ChatPage = () => {
         data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
         data-composer-inset={composerInsetPx}
         data-bubble-theme={bubbleTheme}
+        data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
+        data-timestamp-placement={getBubbleTheme(bubbleTheme).timestampPlacement}
         tabIndex={0}
         onScroll={handleTranscriptScroll}
       >
@@ -3559,6 +3562,7 @@ const ChatPage = () => {
                   </div>
                 ) : null}
                 <ChatMessageBubble
+                  theme={bubbleTheme}
                   role={message.role}
                   agentName={selectedAgentName}
                   text={message.text}
