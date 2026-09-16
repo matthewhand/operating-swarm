@@ -583,3 +583,61 @@ describe('#217: per-theme timestamp placement and message layout', () => {
     expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
   })
 })
+
+describe('REQ-867: bubble click selects text; Edit button starts edit', () => {
+  const defaultProps = {
+    role: 'user' as const,
+    agentName: 'You',
+    text: 'Hello world to select',
+    streaming: false,
+    canEdit: true,
+    editing: false,
+    onStartEdit: () => {},
+    onCancelEdit: () => {},
+    onSaveEdit: () => {},
+  }
+
+  it('does not start edit when the bubble is clicked or double-clicked', () => {
+    const onStartEdit = vi.fn()
+    render(<ChatMessageBubble {...defaultProps} onStartEdit={onStartEdit} />)
+
+    const bubble = screen.getByTestId('chat-bubble')
+    expect(bubble).toHaveClass('select-text')
+    fireEvent.click(bubble)
+    fireEvent.doubleClick(bubble)
+
+    expect(onStartEdit).not.toHaveBeenCalled()
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument()
+  })
+
+  it('starts edit from the hover Edit button', () => {
+    const onStartEdit = vi.fn()
+    render(<ChatMessageBubble {...defaultProps} onStartEdit={onStartEdit} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    expect(onStartEdit).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels on Escape and saves on Cmd+Enter while editing', () => {
+    const onCancelEdit = vi.fn()
+    const onSaveEdit = vi.fn()
+    render(
+      <ChatMessageBubble
+        {...defaultProps}
+        editing={true}
+        onCancelEdit={onCancelEdit}
+        onSaveEdit={onSaveEdit}
+      />,
+    )
+
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' })
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    expect(onCancelEdit).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(textarea, { target: { value: 'revised copy' } })
+    fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    expect(onSaveEdit).toHaveBeenCalledWith('revised copy')
+  })
+})
+
+
