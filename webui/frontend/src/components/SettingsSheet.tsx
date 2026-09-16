@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, FileCode2, HardDrive, Plus, Server } from 'lucide-react'
 import { Alert, Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
 import DefinitionPane from './DefinitionPane'
+import LlmProfileAddForm from './LlmProfileAddForm'
 import AvatarThemePicker from './AvatarThemePicker'
 import EnvOverrideBadge from './EnvOverrideBadge'
 import McpServersPane from './McpServersPane'
@@ -24,7 +25,6 @@ import {
   fetchLlmProfiles,
   fetchLocalStore,
   fetchRemotes,
-  patchConfigSection,
   patchLlmProfiles,
   updateBlueprintSource,
   type Blueprint,
@@ -44,9 +44,7 @@ import {
   unusedRemoteKinds,
 } from '../lib/remotes'
 import {
-  LLM_PROFILE_PROVIDERS,
   TASK_CLASS_LABELS,
-  buildLlmProfileEntry,
   missingProfileWarning,
   uiStatusWarnings,
 } from '../lib/llmProfiles'
@@ -1762,28 +1760,10 @@ function LlmProfilesPane({
   const [overrideOn, setOverrideOn] = useState(false)
   const [taskMap, setTaskMap] = useState<Partial<Record<LlmTaskClass, string>>>({})
   const [saving, setSaving] = useState(false)
-  const [profileName, setProfileName] = useState('')
-  const [profileProvider, setProfileProvider] = useState('openai')
-  const [profileModel, setProfileModel] = useState('')
-  const [profileBaseUrl, setProfileBaseUrl] = useState('')
-  const [profileKeyEnv, setProfileKeyEnv] = useState('OPENAI_API_KEY')
-  const [profileTemperature, setProfileTemperature] = useState('')
-  const [profileMaxTokens, setProfileMaxTokens] = useState('')
-  const [profileTimeout, setProfileTimeout] = useState('')
   const [addingProfile, setAddingProfile] = useState(false)
-  const [addAdvancedOpen, setAddAdvancedOpen] = useState(false)
 
   const resetAddForm = () => {
     setAddingProfile(false)
-    setAddAdvancedOpen(false)
-    setProfileName('')
-    setProfileProvider('openai')
-    setProfileModel('')
-    setProfileBaseUrl('')
-    setProfileKeyEnv('OPENAI_API_KEY')
-    setProfileTemperature('')
-    setProfileMaxTokens('')
-    setProfileTimeout('')
   }
   const hydrated = useRef(false)
   const defaultBadge = remote?.provenance?.default_llm_profile
@@ -1967,140 +1947,15 @@ function LlmProfilesPane({
       <EnvOverrideBadge badge={defaultBadge} />
 
       {addingProfile ? (
-        <div
-          data-testid="llm-profile-add-overlay"
+        <LlmProfileAddForm
           className={`max-h-[min(70vh,36rem)] space-y-3 overflow-y-auto rounded-box p-4 ${OVERLAY_CHROME_CLASSES}`}
-        >
-          <p className="text-sm font-medium">Add LLM profile</p>
-          <Input
-            label="Name"
-            name="llm-profile-id"
-            value={profileName}
-            onChange={(event) => setProfileName(event.target.value)}
-            placeholder="local"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Select
-            label="Provider"
-            name="llm-profile-provider"
-            value={profileProvider}
-            onChange={(event) => setProfileProvider(event.target.value)}
-            size="sm"
-          >
-            {LLM_PROFILE_PROVIDERS.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </Select>
-          <Input
-            label="Model"
-            name="llm-profile-model"
-            value={profileModel}
-            onChange={(event) => setProfileModel(event.target.value)}
-            placeholder="gpt-4o-mini"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Input
-            label="API key env"
-            name="llm-profile-key-env"
-            value={profileKeyEnv}
-            onChange={(event) => setProfileKeyEnv(event.target.value)}
-            placeholder="OPENAI_API_KEY"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Input
-            label="Base URL"
-            name="llm-profile-base"
-            value={profileBaseUrl}
-            onChange={(event) => setProfileBaseUrl(event.target.value)}
-            placeholder="https://api.openai.com/v1"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            className="text-sm font-medium underline-offset-2 hover:underline"
-            aria-expanded={addAdvancedOpen}
-            aria-controls="llm-profile-add-advanced"
-            onClick={() => setAddAdvancedOpen((open) => !open)}
-          >
-            Advanced
-          </button>
-          {addAdvancedOpen ? (
-            <div id="llm-profile-add-advanced" data-testid="llm-profile-add-advanced" className="space-y-3">
-              <Input
-                label="Temperature"
-                name="llm-profile-temperature"
-                value={profileTemperature}
-                onChange={(event) => setProfileTemperature(event.target.value)}
-                placeholder="0.2"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Input
-                label="Max tokens"
-                name="llm-profile-max-tokens"
-                value={profileMaxTokens}
-                onChange={(event) => setProfileMaxTokens(event.target.value)}
-                placeholder="4096"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Input
-                label="Timeout (sec)"
-                name="llm-profile-timeout"
-                value={profileTimeout}
-                onChange={(event) => setProfileTimeout(event.target.value)}
-                placeholder="60"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!profileName.trim() || !profileModel.trim()}
-              onClick={async () => {
-                try {
-                  await patchConfigSection('llm', {
-                    upsert: {
-                      [profileName.trim()]: buildLlmProfileEntry({
-                        provider: profileProvider,
-                        model: profileModel,
-                        apiKeyEnv: profileKeyEnv,
-                        baseUrl: profileBaseUrl,
-                        temperature: profileTemperature,
-                        maxTokens: profileMaxTokens,
-                        timeoutSec: profileTimeout,
-                      }),
-                    },
-                  })
-                  resetAddForm()
-                  success('LLM profile saved', 'Named profile stored in swarm_config.json llm.')
-                  hydrated.current = false
-                  await profilesQuery.refetch()
-                } catch (err) {
-                  toastError(
-                    'Could not save LLM profile',
-                    err instanceof Error ? err.message : 'Request failed.',
-                  )
-                }
-              }}
-            >
-              Save profile
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={resetAddForm}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+          onCancel={resetAddForm}
+          onSaved={async () => {
+            resetAddForm()
+            hydrated.current = false
+            await profilesQuery.refetch()
+          }}
+        />
       ) : (
         <Button type="button" variant="outline" size="sm" onClick={() => setAddingProfile(true)}>
           Add LLM profile

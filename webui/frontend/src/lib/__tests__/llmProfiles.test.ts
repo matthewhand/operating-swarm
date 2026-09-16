@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { LlmProfilesSettings } from '../api'
 import {
+  LLM_PROBE_HINTS,
   buildLlmProfileEntry,
   effectiveTaskProfile,
   isKnownProfile,
   missingProfileWarning,
+  probeHint,
+  probeStateFromResult,
   sanitizeUiWarning,
   uiStatusWarnings,
 } from '../llmProfiles'
@@ -92,6 +95,28 @@ describe('llmProfiles helpers', () => {
         timeoutSec: '60',
       }),
     ).toMatchObject({ temperature: 0.2, max_tokens: 4096, timeout: 60 })
+  })
+
+  it('maps probe error classes to TrueForge-style hints', () => {
+    expect(probeHint('auth')).toBe('check key')
+    expect(probeHint('timeout')).toBe('is the host up?')
+    expect(probeHint('dns')).toBe('could not resolve host')
+    expect(probeHint('bad_model')).toBe('model not found')
+    expect(probeHint('model_missing')).toMatch(/not on the provider/)
+    expect(probeHint('ssrf')).toMatch(/not allowed/)
+    expect(probeHint(null)).toBe('')
+    expect(LLM_PROBE_HINTS.auth).toBe('check key')
+    expect(JSON.stringify(LLM_PROBE_HINTS)).not.toMatch(/REQ-\d+|#\d+/)
+  })
+
+  it('derives form states from probe results', () => {
+    expect(probeStateFromResult(undefined)).toBe('idle')
+    expect(probeStateFromResult({ ok: true, error_class: null })).toBe('ok')
+    expect(probeStateFromResult({ ok: true, error_class: 'model_missing', state: 'warn' })).toBe(
+      'warn',
+    )
+    expect(probeStateFromResult({ ok: false, error_class: 'auth' })).toBe('error')
+    expect(probeStateFromResult({ ok: false, error_class: 'unreachable' })).toBe('error')
   })
 
   it('strips REQ and Issue numbers from UI status copy', () => {

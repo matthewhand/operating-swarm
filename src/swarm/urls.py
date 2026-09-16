@@ -84,7 +84,7 @@ from swarm.views.mcp_plugins_api import (
     McpPluginDiscoverView,
     McpPluginsView,
 )
-from swarm.views.llm_profiles_api import LlmProfilesView
+from swarm.views.llm_profiles_api import LlmProfilesTestView, LlmProfilesView
 from swarm.views.sandbox_settings_api import SandboxSettingsTestView, SandboxSettingsView
 from swarm.views.rate_limits_api import RateLimitsView
 from swarm.views.preferences_api import UserPreferencesView
@@ -265,6 +265,8 @@ urlpatterns = [
     path("v1/cli-sessions/select/", CliSessionSelectAPIView.as_view(), name="cli-sessions-select"),
     path("v1/cli-sessions/hop", CliSessionHopAPIView.as_view(), name="cli-sessions-hop-no-slash"),
     path("v1/cli-sessions/hop/", CliSessionHopAPIView.as_view(), name="cli-sessions-hop"),
+    path("v1/llm-profiles/test", LlmProfilesTestView.as_view(), name="llm-profiles-test-no-slash"),
+    path("v1/llm-profiles/test/", LlmProfilesTestView.as_view(), name="llm-profiles-test"),
     path("v1/llm-profiles", LlmProfilesView.as_view(), name="llm-profiles-api-no-slash"),
     path("v1/llm-profiles/", LlmProfilesView.as_view(), name="llm-profiles-api"),
     path("v1/settings/sandbox", SandboxSettingsView.as_view(), name="sandbox-settings-no-slash"),
