@@ -28,9 +28,12 @@ def _is_valid_message(msg: Any) -> bool:
     content = msg.get("content")
     tool_calls = msg.get("tool_calls")
     tool_call_id = msg.get("tool_call_id")
-    # Validate based on role: content must be a string for system/user/tool; assistant may have tool calls
+    # User content may be OpenAI multimodal parts (text + image_url).
+    content_ok = isinstance(content, str) or (
+        isinstance(content, list) and bool(content) and all(isinstance(part, dict) for part in content)
+    )
     if role == "system" or role == "user":
-        is_valid = isinstance(content, str)
+        is_valid = content_ok if role == "user" else isinstance(content, str)
     elif role == "assistant":
         # Assistant valid if it has string content or at least one tool call
         is_valid = isinstance(content, str) or (isinstance(tool_calls, list) and len(tool_calls) > 0)

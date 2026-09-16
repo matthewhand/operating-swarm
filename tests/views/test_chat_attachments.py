@@ -68,3 +68,30 @@ def test_upload_rejects_oversize(client, tmp_path, monkeypatch):
     resp = client.post("/v1/chat/attachments/", {"file": huge})
     assert resp.status_code == 413
     assert ChatAttachment.objects.count() == 0
+
+
+TINY_RED_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf"
+    b"\xc0\x00\x00\x00\x03\x00\x01\x00\x05\xfe\xd4\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.django_db
+def test_expand_image_attachment_becomes_image_url(client, user, tmp_path, monkeypatch):
+    monkeypatch.setenv("SWARM_ATTACHMENTS_DIR", str(tmp_path))
+    payload = SimpleUploadedFile("red.png", TINY_RED_PNG, content_type="image/png")
+    resp = client.post("/v1/chat/attachments/", {"file": payload})
+    assert resp.status_code == 201
+    aid = resp.json()["id"]
+    expanded = chat_attachments.expand_messages_for_model(
+        user,
+        [{"role": "user", "content": "what is this", "attachments": [aid]}],
+    )
+    content = expanded[0]["content"]
+    assert isinstance(content, list)
+    image = next(part for part in content if part["type"] == "image_url")
+    assert image["image_url"]["url"].startswith("data:image/png;base64,")
+    text = next(part for part in content if part["type"] == "text")
+    assert text["text"] == "what is this"
+    assert "attachments" not in expanded[0]

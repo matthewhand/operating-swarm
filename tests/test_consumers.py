@@ -16,6 +16,7 @@ Covers:
 import asyncio
 import json
 import re
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -471,6 +472,100 @@ class TestReceive:
         await consumer.receive(text_data)
 
         assert len(consumer.messages) == 0
+
+    @pytest.mark.asyncio
+    async def test_receive_empty_message_with_attachments_runs(self, consumer):
+        """REQ-811: image-only paste still starts a turn."""
+        consumer.messages = []
+        aid = str(uuid.uuid4())
+        text_data = json.dumps({"message": "  ", "attachments": [aid]})
+
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "respond_with_default_model", new_callable=AsyncMock
+                ) as mock_default:
+                    await consumer.receive(text_data)
+
+        mock_default.assert_awaited_once()
+        assert consumer.messages[0]["role"] == "user"
+        assert consumer.messages[0]["attachments"] == [aid]
+        assert consumer.messages[0]["content"] == "Attached file"
+
+    @pytest.mark.asyncio
+    async def test_default_model_messages_include_image_url_parts(self, consumer):
+        """REQ-811: consumer expands image attachments to image_url parts."""
+        consumer.messages = []
+        aid = str(uuid.uuid4())
+
+        def fake_expand(_user, messages, **_kwargs):
+            out = []
+            for msg in messages:
+                row = dict(msg)
+                if row.get("role") == "user":
+                    row["content"] = [
+                        {"type": "text", "text": row.get("content") or ""},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abc"},
+                        },
+                    ]
+                    row.pop("attachments", None)
+                out.append(row)
+            return out
+
+        async def mock_stream():
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta.content = "a red square"
+            yield mock_chunk
+            mock_chunk2 = MagicMock()
+            mock_chunk2.choices = [MagicMock()]
+            mock_chunk2.choices[0].delta.content = None
+            yield mock_chunk2
+
+        with patch(
+            "swarm.consumers._expand_model_messages",
+            new_callable=AsyncMock,
+            side_effect=lambda _consumer, messages: fake_expand(None, messages),
+        ):
+            with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+                with patch("swarm.consumers.AsyncOpenAI") as mock_openai:
+                    mock_client = MagicMock()
+                    mock_client.base_url = "http://198.51.100.30:8000/v1"
+                    mock_client.chat.completions.create = AsyncMock(
+                        return_value=mock_stream()
+                    )
+                    mock_client.close = AsyncMock()
+                    mock_openai.return_value = mock_client
+                    import swarm.consumers as consumers_module
+
+                    original_os = consumers_module.os
+                    mock_os = MagicMock()
+                    mock_os.getenv = MagicMock(return_value="test-key")
+                    mock_os.environ = {
+                        "OPENAI_API_KEY": "test-key",
+                        "OPENAI_MODEL": "auxiliary",
+                    }
+                    consumers_module.os = mock_os
+                    try:
+                        with patch.object(consumer, "send", new_callable=AsyncMock):
+                            await consumer.receive(
+                                json.dumps(
+                                    {
+                                        "message": "what is this",
+                                        "attachments": [aid],
+                                    }
+                                )
+                            )
+                    finally:
+                        consumers_module.os = original_os
+
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        user_content = kwargs["messages"][0]["content"]
+        assert isinstance(user_content, list)
+        assert any(part.get("type") == "image_url" for part in user_content)
+        assert "Attached" not in json.dumps(user_content)
 
     @pytest.mark.asyncio
     async def test_receive_missing_message_key_is_ignored(self, consumer):

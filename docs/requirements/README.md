@@ -63,6 +63,7 @@ Oracle from anything in this tree.
 | [REQ-171A](./REQ-171A.md) | [Hydrate chat threads honestly — do not fail-open empty; hydrate remotes](https://github.com/matthewhand/open-swarm/issues/604) |
 | [REQ-171B](./REQ-171B.md) | [Add-agent CLI/API must create a rail-visible seat](https://github.com/matthewhand/open-swarm/issues/607) |
 | [REQ-171C](./REQ-171C.md) | [Wire Chat CLI/API model dropdowns to a real pin contract](https://github.com/matthewhand/open-swarm/issues/612) |
+| [REQ-811](./REQ-811.md) | [Prove auxiliary vision: paste image in chat pane](https://github.com/matthewhand/open-swarm-private/issues/94) |
 
 ## Archived transcripts
 

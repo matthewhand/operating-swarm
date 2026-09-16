@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type ChangeEvent,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
@@ -77,6 +78,16 @@ import CliSessionSwitcher from '../components/CliSessionSwitcher'
 import { SystemPreloadPill } from '../components/SystemPreloadPill'
 import { CompactSummaryCard } from '../components/CompactSummaryCard'
 import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
+import ComposerAttachChips from '../components/ComposerAttachChips'
+import {
+  attachmentCaption,
+  createPendingAttachment,
+  imageFilesFromClipboard,
+  readyAttachmentIds,
+  revokePreviewUrl,
+  uploadChatAttachment,
+  type PendingAttachment,
+} from '../lib/chatAttachments'
 import {
   type SlashItem,
   buildSlashCatalog,
@@ -518,6 +529,7 @@ const ChatPage = () => {
     startOffset: number
   } | null>(null)
   const [input, setInput] = useState('')
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sttListening, setSttListening] = useState(false)
   const [sttPathUsed, setSttPathUsed] = useState<SpeechPath | null>(null)
   const sttStopRef = useRef<(() => void) | null>(null)
@@ -2274,17 +2286,70 @@ const ChatPage = () => {
     })
   }, [status, authRejected, signInHref, addToast, dismissByKind, reconnect])
 
-  const hasSendableDraft = input.trim().length > 0
+  const readyAttachIds = readyAttachmentIds(pendingAttachments)
+  const hasSendableDraft =
+    !pendingAttachments.some((item) => item.status === 'uploading') &&
+    (input.trim().length > 0 || readyAttachIds.length > 0)
+
+  const enqueueComposerFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return
+    const room = Math.max(0, 8 - pendingAttachments.length)
+    const incoming = files.slice(0, room).map(createPendingAttachment)
+    if (incoming.length === 0) return
+    setPendingAttachments((prev) => [...prev, ...incoming])
+    incoming.forEach((item) => {
+      void uploadChatAttachment(item.file)
+        .then((record) => {
+          setPendingAttachments((prev) =>
+            prev.map((row) =>
+              row.localId === item.localId
+                ? { ...row, uploadId: record.id, status: 'ready' }
+                : row,
+            ),
+          )
+        })
+        .catch(() => {
+          setPendingAttachments((prev) =>
+            prev.map((row) =>
+              row.localId === item.localId ? { ...row, status: 'error' } : row,
+            ),
+          )
+        })
+    })
+  }, [pendingAttachments.length])
+
+  const handleComposerPaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = imageFilesFromClipboard(event.clipboardData)
+      if (files.length === 0) return
+      event.preventDefault()
+      enqueueComposerFiles(files)
+    },
+    [enqueueComposerFiles],
+  )
+
+  const clearPendingAttachments = useCallback(() => {
+    setPendingAttachments((prev) => {
+      prev.forEach((item) => revokePreviewUrl(item.previewUrl))
+      return []
+    })
+  }, [])
 
   const sendText = useCallback(
     (text: string): boolean => {
       const ws = wsRef.current
-      const trimmed = text.trim()
+      const attachIds = readyAttachmentIds(pendingAttachments)
+      const trimmed =
+        text.trim() ||
+        (attachIds.length > 0
+          ? attachmentCaption(pendingAttachments.map((item) => item.name))
+          : '')
       if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return false
       lastUserTextRef.current = trimmed
       // Team compose adds params { team, target: "all" | memberId }.
       const pluginParams = enabledToolsParam(conversationIdRef.current)
       const sectionParams = railSectionsParam()
+      const attachArg = attachIds.length > 0 ? attachIds : undefined
       if (teamFromUrl) {
         ws.send(
           buildChatWsFrame(trimmed, undefined, {
@@ -2292,8 +2357,9 @@ const ChatPage = () => {
             target: memberTarget || ALL_MEMBERS_TARGET,
             ...pluginParams,
             ...sectionParams,
-          }),
+          }, attachArg),
         )
+        clearPendingAttachments()
         return true
       }
       if (remoteFromUrl) {
@@ -2316,8 +2382,9 @@ const ChatPage = () => {
             ...(target ? { target } : {}),
             ...pluginParams,
             ...sectionParams,
-          }),
+          }, attachArg),
         )
+        clearPendingAttachments()
         return true
       }
       const supportParams = isSupportAgent({
@@ -2409,8 +2476,10 @@ const ChatPage = () => {
                   ...elicitParams,
                 }
             : undefined,
+          attachArg,
         ),
       )
+      clearPendingAttachments()
       return true
     },
     [
@@ -2432,13 +2501,15 @@ const ChatPage = () => {
       remoteFromUrl,
       sessionFromUrl,
       addToast,
+      pendingAttachments,
+      clearPendingAttachments,
     ],
   )
 
   const submitUserText = useCallback(
     (text: string) => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      if (!trimmed && readyAttachmentIds(pendingAttachments).length === 0) return
       // REQ-845 / #167: never drop a typed message on a closed/connecting socket. Keep
       // it in the per-conversation queue; the drain effect sends it on reopen.
       if (status !== 'open') {
@@ -2460,7 +2531,7 @@ const ChatPage = () => {
       setAwaitingAssistant(true)
       if (!sendText(trimmed)) setAwaitingAssistant(false)
     },
-    [addToast, awaitingAssistant, messages, queued, sendText, status],
+    [addToast, awaitingAssistant, messages, pendingAttachments, queued, sendText, status],
   )
 
   const startFreshCliSession = useCallback(() => {
@@ -3112,7 +3183,7 @@ const ChatPage = () => {
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      if (input.trim().length > 0) {
+      if (input.trim().length > 0 || readyAttachmentIds(pendingAttachments).length > 0) {
         const quotePrefix = replyTarget ? (replyTarget.speaker ? `> **${replyTarget.speaker}**: ` : `> `) : ''
         const textToSend = replyTarget
           ? `${quotePrefix}${replyTarget.text.replace(/\r\n/g, '\n').split('\n').join('\n> ')}\n\n${input}`
@@ -4063,7 +4134,7 @@ const ChatPage = () => {
                 onSelectItem={handleSelectSlashItem}
                 recentIds={recentSlashIds}
               />
-              <div className={`os-composer ${replyTarget ? 'os-composer--reply flex-col items-stretch !rounded-2xl !p-2' : ''}`}>
+              <div className={`os-composer ${replyTarget || pendingAttachments.length > 0 ? 'flex-col items-stretch !rounded-2xl !p-2' : ''} ${replyTarget ? 'os-composer--reply' : ''}`}>
                 {replyTarget && (
                   <div
                     className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs text-base-content/70 border-b border-base-content/10 mb-1 w-full"
@@ -4093,6 +4164,16 @@ const ChatPage = () => {
                     </button>
                   </div>
                 )}
+                <ComposerAttachChips
+                  attachments={pendingAttachments}
+                  onRemove={(localId) => {
+                    setPendingAttachments((prev) => {
+                      const gone = prev.find((row) => row.localId === localId)
+                      revokePreviewUrl(gone?.previewUrl)
+                      return prev.filter((row) => row.localId !== localId)
+                    })
+                  }}
+                />
                 <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget ? 'w-full' : 'flex-1'}`}>
                   <div className="relative" ref={plusRef}>
                     <button
@@ -4149,6 +4230,7 @@ const ChatPage = () => {
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleComposerKeyDown}
+                    onPaste={handleComposerPaste}
                     aria-label="Chat message"
                     aria-haspopup="listbox"
                     aria-expanded={isSlashOpen}

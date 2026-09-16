@@ -42,6 +42,19 @@ TURN_CANCELLED_TYPE = "turn_cancelled"
 SPA_HELLO_TYPE = "spa_hello"
 
 
+async def _expand_model_messages(consumer, messages):
+    """Inline image attachment bytes as OpenAI ``image_url`` parts (REQ-811)."""
+    if not any(
+        isinstance(msg, dict) and msg.get("attachments") for msg in (messages or [])
+    ):
+        return messages
+    from swarm.core import chat_attachments
+
+    return await database_sync_to_async(chat_attachments.expand_messages_for_model)(
+        getattr(consumer, "user", None), messages
+    )
+
+
 def _message_ts() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -578,7 +591,12 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             logger.warning("Ignoring malformed chat frame (%s): %.200r", exc, text_data)
             return
 
-        if not message_text.strip():
+        from swarm.core import chat_attachments
+
+        attachment_ids = chat_attachments.parse_attachment_ids(
+            text_data_json.get("attachments")
+        )
+        if not message_text.strip() and not attachment_ids:
             return
 
         await self._run_serialised_chat_turn(text_data_json, message_text)
@@ -653,11 +671,25 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 self.messages = []
                 self.ui_events = []
 
-            _record_turn(self, "user", message_text, ts=_message_ts())
+            from swarm.core import chat_attachments
+
+            attachment_ids = chat_attachments.parse_attachment_ids(
+                text_data_json.get("attachments")
+            )
+            display_text = message_text.strip()
+            if not display_text and attachment_ids:
+                display_text = chat_attachments.caption([])
+            _record_turn(
+                self,
+                "user",
+                display_text,
+                ts=_message_ts(),
+                attachments=attachment_ids or None,
+            )
 
             user_message_html = render_to_string(
                 "websocket_partials/user_message.html",
-                {"message_text": message_text},
+                {"message_text": display_text},
             )
             await self.send(text_data=user_message_html)
 
@@ -1112,6 +1144,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     getattr(self, "conversation_id", ""),
                     self.messages,
                 )
+            model_messages = await _expand_model_messages(self, model_messages)
             from swarm.core.skill_attach import (
                 apply_skills_to_messages,
                 blueprint_applies_own_skills,
@@ -1898,6 +1931,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     getattr(self, "conversation_id", ""),
                     self.messages,
                 )
+            model_messages = await _expand_model_messages(self, model_messages)
             sandbox_reply = await self._maybe_run_default_sandbox_agent(
                 client, model, model_messages, contents_div_id
             )

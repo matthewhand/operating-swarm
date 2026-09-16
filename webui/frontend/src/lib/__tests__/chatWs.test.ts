@@ -35,6 +35,18 @@ describe('buildChatWsFrame', () => {
     expect(buildChatWsFrame('hi', 'bp-2')).toBe('{"message":"hi","blueprint":"bp-2"}')
   })
 
+  it('includes attachment ids on send (REQ-811)', () => {
+    expect(
+      JSON.parse(buildChatWsFrame('what is this', 'api_agent', { model: 'auxiliary' }, ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'])),
+    ).toEqual({
+      message: 'what is this',
+      blueprint: 'api_agent',
+      params: { model: 'auxiliary' },
+      attachments: ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'],
+    })
+    expect(JSON.parse(buildChatWsFrame('hi', 'api_agent', undefined, [])).attachments).toBeUndefined()
+  })
+
   it('omits blueprint when empty/undefined', () => {
     expect(buildChatWsFrame('hi', '')).toBe('{"message":"hi"}')
     expect(buildChatWsFrame('hi', undefined)).toBe('{"message":"hi"}')
