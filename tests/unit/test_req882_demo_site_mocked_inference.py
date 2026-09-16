@@ -19,6 +19,8 @@ TS_SCENARIOS = REPO / "webui" / "frontend" / "src" / "lib" / "demo" / "scenarios
 MAIN_TSX = REPO / "webui" / "frontend" / "src" / "main.tsx"
 PACKAGE = REPO / "webui" / "frontend" / "package.json"
 DEPLOY = REPO / "scripts" / "deploy_demo_site.py"
+SERVE = REPO / "scripts" / "serve_demo_site.py"
+HOSTING = REPO / "docs" / "DEMO_HOSTING.md"
 FLY_DEMO = REPO / "fly.demo.toml"
 CHAT_PAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 
@@ -64,6 +66,7 @@ def test_req882_frontend_installs_mock_when_vite_demo_mode():
     vite = _text(REPO / "webui" / "frontend" / "vite.config.ts")
     assert "VITE_DEMO_MODE" in vite
     assert "mode === 'demo'" in vite
+    assert "noindex,nofollow" in vite
 
 
 def test_req882_chat_page_has_demo_steerage():
@@ -85,6 +88,11 @@ def test_req882_operator_gated_deploy_script():
     text = _text(DEPLOY)
     assert "FLY_API_TOKEN" in text
     assert "SKIP:" in text
+    assert "demo-serve" in text
+    assert SERVE.is_file()
+    assert "demo_file_for" in _text(SERVE)
+    assert HOSTING.is_file()
+    assert "make demo-serve" in _text(HOSTING)
     assert FLY_DEMO.is_file()
     fly = _text(FLY_DEMO)
     assert "SWARM_DEMO_MODE" in fly

@@ -39,6 +39,7 @@ def test_auto_skips_without_credentials(deploy_mod, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert out.startswith("SKIP:")
     assert "in-repo" in out
+    assert "demo-serve" in out
 
 
 def test_fly_target_skips_without_token(deploy_mod, monkeypatch, capsys):
