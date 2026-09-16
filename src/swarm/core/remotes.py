@@ -451,6 +451,59 @@ _OMB_POLL_HTTP_TIMEOUT_S = 8.0
 _OMB_NON_BOT_TARGETS = frozenset({"omb", "openmousbot", "openmausbot", "openmous"})
 OMB_BOT_REQUIRED_GAP = "omb_bot_required"
 OMB_DEDICATED_BOT_NAME = "open-swarm"
+
+# #471: a failed OMB turn ends with an error activity row instead of bot text.
+OMB_TURN_ERROR_PREFIX = "OpenMousBot turn failed on the remote: "
+
+
+def _omb_turn_start_index(msgs: list[Any], *, after_id: str = "", prompt: str = "") -> int:
+    """Index of the first message row that belongs to the turn just submitted.
+
+    Anything before it is history — a previous turn's failure must never be
+    attributed to the new one (#471).
+    """
+    if after_id:
+        for i, msg in enumerate(msgs):
+            if str(msg.get("id") or "") == after_id:
+                return i + 1
+        return 0
+    if prompt.strip():
+        want = prompt.strip()
+        for i, msg in enumerate(msgs):
+            if str(msg.get("role") or "").lower() == "user" and _omb_message_text(msg) == want:
+                return i + 1
+    return 0
+
+
+def _omb_turn_error(
+    messages: list[Any], *, after_id: str = "", prompt: str = ""
+) -> str:
+    """Cause of a terminal remote-side turn failure, or ``""`` when there is none.
+
+    A failed OMB turn ends with a non-text activity row rather than bot text::
+
+        {"role": "bot", "kind": "activity",
+         "tool": {"name": "error: Internal error", "ok": false}}
+
+    ``_omb_is_bot_text`` deliberately skips activity rows, so without this the
+    poller could only run out its deadline and report a misleading timeout while
+    the cause sat on the thread (#471). Only rows after the submitted turn count;
+    the newest failure wins.
+    """
+    msgs = [m for m in messages if isinstance(m, dict)]
+    start = _omb_turn_start_index(msgs, after_id=after_id, prompt=prompt)
+    detail = ""
+    for msg in msgs[start:]:
+        if str(msg.get("role") or "").lower() not in ("bot", "assistant", "model"):
+            continue
+        tool = msg.get("tool")
+        if not isinstance(tool, dict) or tool.get("ok") is not False:
+            continue
+        name = str(tool.get("name") or "").strip() or "unknown error"
+        if name.lower().startswith("error:"):
+            name = name.split(":", 1)[1].strip() or "unknown error"
+        detail = name
+    return detail
 _HERMES_POLL_INTERVAL_S = 0.4
 _HERMES_POLL_HTTP_TIMEOUT_S = 8.0
 _ANYTHINGLLM_SEND_TIMEOUT_S = 90.0
@@ -2276,6 +2329,12 @@ def _omb_poll_assistant(
         if last_activity in ("dead", "no-signal"):
             return "", thread_id, f"OpenMousBot turn {last_activity.replace('-', ' ')}", ""
         settled = last_activity == "waiting-on-you" or (saw_bot and not busy)
+        # #471: a failed turn ends with an error activity row, not bot text, so
+        # the loop used to burn its whole budget and say "timed out" while the
+        # cause was on the thread all along. A reply (if one arrives) wins.
+        turn_error = "" if reply else _omb_turn_error(messages, after_id=after_id, prompt=prompt)
+        if turn_error:
+            return "", thread_id, f"{OMB_TURN_ERROR_PREFIX}{turn_error}", ""
         if reply:
             terminal = False
             for msg in reversed(messages):
@@ -2482,6 +2541,12 @@ def _omb_poll_assistant(
         if last_activity in ("dead", "no-signal"):
             return "", thread_id, f"OpenMousBot turn {last_activity.replace('-', ' ')}", ""
         settled = last_activity == "waiting-on-you" or (saw_bot and not busy)
+        # #471: a failed turn ends with an error activity row, not bot text, so
+        # the loop used to burn its whole budget and say "timed out" while the
+        # cause was on the thread all along. A reply (if one arrives) wins.
+        turn_error = "" if reply else _omb_turn_error(messages, after_id=after_id, prompt=prompt)
+        if turn_error:
+            return "", thread_id, f"{OMB_TURN_ERROR_PREFIX}{turn_error}", ""
         if reply:
             terminal = False
             for msg in reversed(messages):
@@ -2624,7 +2689,14 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
         detail=err or "OpenMousBot reply timed out",
         http_status=result.status,
         data={"bot_id": bot_id, "thread_id": thread_id},
-        gap="omb_reply_timeout" if "timed out" in (err or "") else "omb_reply_failed",
+        # #471: the remote named a cause — keep it distinct from a real timeout.
+        gap=(
+            "omb_turn_error"
+            if (err or "").startswith(OMB_TURN_ERROR_PREFIX)
+            else "omb_reply_timeout"
+            if "timed out" in (err or "")
+            else "omb_reply_failed"
+        ),
     )
 
 
