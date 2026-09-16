@@ -203,9 +203,10 @@ export default function SettingsSheet({
   initialProviderId = null,
   focusRateLimits = false,
 }: SettingsSheetProps) {
-  const { success } = useToast()
+  const { success, error: toastError } = useToast()
   const [section, setSection] = useState<SettingsSection>('retention')
   const [hostname, setHostname] = useState(() => loadHostnameOverride())
+  const hostnameDirtyRef = useRef(false)
   const [autoCompressPct, setAutoCompressPct] = useState(80)
   const [contextStrategy, setContextStrategy] = useState<'compress' | 'cull'>('compress')
   const [cullTriggerPct, setCullTriggerPct] = useState(90)
@@ -218,17 +219,24 @@ export default function SettingsSheet({
 
   useEffect(() => {
     if (!isOpen) return
+    let cancelled = false
+    hostnameDirtyRef.current = false
     void fetchUserPrefs().then((server) => {
+      if (cancelled) return
       if (server && !server.empty) {
-        applyHostnameOverride(server.hostname_override)
-        setHostname(server.hostname_override)
+        if (!hostnameDirtyRef.current) {
+          applyHostnameOverride(server.hostname_override)
+          setHostname(server.hostname_override)
+        }
         setAutoCompressPct(parseAutoCompressPct(server.context_auto_compress_pct))
         setContextStrategy(parseContextStrategy(server.context_strategy))
         setCullTriggerPct(parseCullTriggerPct(server.context_cull_trigger_pct))
         setCullFractionPct(parseCullFractionPct(server.context_cull_fraction_pct))
         return
       }
-      setHostname(loadHostnameOverride())
+      if (!hostnameDirtyRef.current) {
+        setHostname(loadHostnameOverride())
+      }
       setAutoCompressPct(
         server ? parseAutoCompressPct(server.context_auto_compress_pct) : DEFAULT_AUTO_COMPRESS_PCT,
       )
@@ -262,6 +270,9 @@ export default function SettingsSheet({
         current === 'blueprint' || current === 'definition' ? 'retention' : current,
       )
     }
+    return () => {
+      cancelled = true
+    }
   }, [isOpen, blueprintId, initialSection, initialProviderId])
 
   useEffect(() => {
@@ -278,13 +289,18 @@ export default function SettingsSheet({
     return () => window.removeEventListener(HOSTNAME_CHANGED_EVENT, onHostnameChanged)
   }, [])
 
-  const handleSaveHostname = (event: FormEvent) => {
+  const handleSaveHostname = async (event: FormEvent) => {
     event.preventDefault()
     const next = applyHostnameOverride(hostname)
+    hostnameDirtyRef.current = false
     setHostname(next)
     dispatchHostnameChanged(next)
-    void saveUserPrefs({ hostname_override: next })
-    success('Hostname saved', 'Override stored for this account.')
+    const saved = await saveUserPrefs({ hostname_override: next })
+    if (saved) {
+      success('Hostname saved', 'Override stored for this account.')
+    } else {
+      toastError('Hostname not saved', 'Could not store the override for this account.')
+    }
   }
 
   return (
@@ -524,7 +540,10 @@ export default function SettingsSheet({
           {section === 'hostname' && (
             <HostnamePane
               value={hostname}
-              onChange={setHostname}
+              onChange={(next) => {
+                hostnameDirtyRef.current = true
+                setHostname(next)
+              }}
               onSave={handleSaveHostname}
             />
           )}
