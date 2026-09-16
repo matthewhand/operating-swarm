@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Rakazo Better Auth session (Issue #160):** `operate rakazo --op list` sends `Cookie` / `Authorization` from `RAKAZO_SESSION_COOKIE` and/or `RAKAZO_API_KEY` (env is the secret-store; names / `CHANGE_ME` only in config). Values never logged. respx-mocked; no live LAN in CI. Closes #160.
 - **Slack remote (Issue #97):** Opt-in Slack bot lists threads as sessions and sends into a selected channel/thread.
 - **Paste-image vision on auxiliary (REQ-811 / Issue #94):** Ctrl/Cmd+V of an image in the chat composer uploads via `POST /v1/chat/attachments/` and the next send includes the UUIDs. The consumer expands `image/*` to OpenAI-style `image_url` data URLs so `api_agent` / LiteLLM slug `auxiliary` (`gemma4:12b`) sees pixels, not a filename line. Text attachments stay excerpts. `/v1/chat/completions` accepts multimodal user content. Live prove is operator-gated (`SWARM_PROVE_AUXILIARY_VISION=1`) when that GPU seat is up. No Operating Swarm branding change. Fixes #94.
 - **Optional streaming, theme-gated markdown-safe partials (Issue #220):** Streaming display stays opt-in. Bubble themes declare `supportsStreaming` / `renderStreamingAffordance`; a user toggle plus per-seat override sit on top of that gate. `renderMarkdownSafe` holds unclosed bold/italic/inline code/fences/links until they balance or the stream ends (never drops text). TUI SSE reuse applies the same helper mid-stream. Fixes #220.
