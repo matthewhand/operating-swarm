@@ -148,6 +148,12 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     expect(screen.getByTestId('routing-sheet')).toBeInTheDocument()
   })
 
+  const emptyModelsNoFamilies = {
+    models: [] as string[],
+    selectedModel: '',
+    modelWarning: 'grok: no models advertised',
+  }
+
   it('narrow sheet keeps an explicit Model request when no families are known yet (#275)', () => {
     const mq = {
       matches: true,
@@ -162,13 +168,41 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     window.matchMedia = vi.fn().mockImplementation(() => mq) as unknown as typeof window.matchMedia
     // The model pill is rendered because a probe warning exists, yet there are no
     // families — the old level fallback swapped in the agent list here.
-    renderPicker({
-      models: [],
-      selectedModel: '',
-      modelWarning: 'grok: no models advertised',
-    })
+    renderPicker(emptyModelsNoFamilies)
     fireEvent.click(screen.getByTestId('routing-pill-model'))
     expect(screen.getByTestId('routing-sheet')).toBeInTheDocument()
+    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
+    expect(screen.getByTestId('routing-model-warning')).toHaveTextContent(
+      'grok: no models advertised',
+    )
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+  })
+
+  it('wide flyout keeps an explicit Model request when no families are known yet (#275)', () => {
+    renderPicker(emptyModelsNoFamilies)
+    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    expect(screen.queryByTestId('routing-sheet')).not.toBeInTheDocument()
+    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
+    expect(screen.getByTestId('routing-model-warning')).toHaveTextContent(
+      'grok: no models advertised',
+    )
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+  })
+
+  it('desktop hover on the model pill opens the model menu, not the agent list (#275)', () => {
+    renderPicker(emptyModelsNoFamilies)
+    fireEvent.mouseEnter(screen.getByTestId('routing-pill-agent'))
+    expect(screen.getByTestId('routing-menu-agent')).toBeInTheDocument()
+    fireEvent.mouseEnter(screen.getByTestId('routing-pill-model'))
+    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+  })
+
+  it('model pill click is not stolen by the routing-face agent fallback (#275)', () => {
+    renderPicker(emptyModelsNoFamilies)
+    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    // Face onClick must not replace the model menu with the CLI provider list.
+    fireEvent.click(screen.getByTestId('routing-face'))
     expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
   })
