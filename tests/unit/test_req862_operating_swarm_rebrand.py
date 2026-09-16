@@ -24,6 +24,13 @@ HERO_SVG = REPO / "assets" / "brand" / "operating-swarm-hero-diagram.svg"
 INDEX_CSS = REPO / "webui" / "frontend" / "src" / "index.css"
 SPEC = REPO / "docs" / "qa" / "REQ-862-rebrand-swarm-bot.md"
 UV_LOCK = REPO / "uv.lock"
+SETTINGS_DASHBOARD = REPO / "src" / "swarm" / "templates" / "settings_dashboard.html"
+SETTINGS_SHEET = REPO / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
+UPDATE_CHROME = REPO / "webui" / "frontend" / "src" / "components" / "UpdateChrome.tsx"
+AGENT_ROUTER = REPO / "webui" / "frontend" / "src" / "pages" / "AgentRouterPage.tsx"
+CLI_AGENTS_PANE = (
+    REPO / "webui" / "frontend" / "src" / "components" / "CliAgentsSettingsPane.tsx"
+)
 
 LOCKED_COMPONENTS = (
     "os-core",
@@ -128,3 +135,19 @@ def test_req862_spec_doc_is_shipped():
     assert "REQ-862" in text
     assert "os-core" in text
     assert "test_req862_operating_swarm_rebrand.py" in text
+
+
+def test_req862_operator_chrome_no_longer_says_open_swarm():
+    dashboard = _text(SETTINGS_DASHBOARD)
+    assert "{% block title %}Settings - Operating Swarm{% endblock %}" in dashboard
+    assert "Configuration management for Operating Swarm (OS)" in dashboard
+    assert "Open Swarm" not in dashboard
+
+    sheet = _text(SETTINGS_SHEET)
+    assert ">Operating Swarm</span>" in sheet
+    assert "Open Swarm" not in sheet
+
+    for path in (UPDATE_CHROME, AGENT_ROUTER, CLI_AGENTS_PANE):
+        blob = _text(path)
+        assert "Open Swarm" not in blob, f"{path.relative_to(REPO)} still says Open Swarm"
+        assert "Operating Swarm" in blob

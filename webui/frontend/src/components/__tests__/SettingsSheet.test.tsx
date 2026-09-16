@@ -94,6 +94,8 @@ describe('SettingsSheet', () => {
     expect(screen.getByRole('button', { name: 'Speech' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Plugins' })).toBeInTheDocument()
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
+    expect(screen.queryByText('Open Swarm')).not.toBeInTheDocument()
   })
 
   it('defaults the rail bump toggle on and persists off', () => {
