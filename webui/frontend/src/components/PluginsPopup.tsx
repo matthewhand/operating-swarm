@@ -9,7 +9,8 @@ import {
   loadEnabledPluginToolIds,
   loadPluginCatalog,
   setPluginToolEnabled,
-  visiblePluginTools,
+  snapshotPluginToolOrder,
+  visiblePluginToolsFrozen,
   type PluginCatalogSource,
   type PluginTool,
 } from '../lib/chatPluginTools'
@@ -100,9 +101,20 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
   }, [chatId, refreshScope, searchParams])
 
   const enabledSet = useMemo(() => new Set(enabledIds), [enabledIds])
+  // Re-sort only when the popup opens, the chat changes, or the catalog loads.
+  // Live On/Off toggles must not move rows (#278 / REQ-881).
+  const orderKey = open ? `${chatId}\0${tools.map((tool) => tool.id).join('\0')}` : ''
+  const freezeRef = useRef<{ key: string; ids: string[] }>({ key: '', ids: [] })
+  if (freezeRef.current.key !== orderKey) {
+    freezeRef.current = {
+      key: orderKey,
+      ids: orderKey ? snapshotPluginToolOrder(tools, enabledSet) : [],
+    }
+  }
+  const orderIds = freezeRef.current.ids
   const visible = useMemo(
-    () => visiblePluginTools(tools, query, enabledSet),
-    [enabledSet, query, tools],
+    () => visiblePluginToolsFrozen(tools, query, orderIds),
+    [orderIds, query, tools],
   )
 
   useEffect(() => {
