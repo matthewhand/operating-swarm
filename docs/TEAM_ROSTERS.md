@@ -57,6 +57,10 @@ control (DaisyUI `modal-end` Settings sheet is not in this tree).
 
 Remotes and missing CLIs are **placeholders**. They are not Blueprint classes.
 
+Marketplace install (REQ-887) uses this same JSON as an **OS team pack**
+(`team-pack.json` / `team_rosters.json` on GitHub topic `swarm-team-pack`).
+There is no industry team-pack standard — see [MARKETPLACE.md](./MARKETPLACE.md).
+
 ## API
 
 - `GET/POST /v1/team-rosters/` — list / create

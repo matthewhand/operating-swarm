@@ -162,9 +162,9 @@ describe('PluginsPopup marketplace entry (#179)', () => {
             ok: true,
             status: 200,
             json: async () => ({
-              object: 'marketplace_scan',
-              kind: 'plugins',
-              topics: [],
+              object: 'marketplace_catalog',
+              kind: url.includes('skills') ? 'skills' : 'plugins',
+              sources: ['mcp_registry', 'github'],
               external: true,
               items: [],
               warnings: ['No community packages found for these tags yet.'],
@@ -195,7 +195,7 @@ describe('PluginsPopup marketplace entry (#179)', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Add skills' }))
     const empty = await screen.findByTestId('os-install-empty')
     expect(empty).toHaveTextContent(/No skill packs to install yet/)
-    expect(empty).toHaveTextContent(/empty on purpose/i)
+    expect(empty).toHaveTextContent(/honest/i)
     expect(screen.queryByTestId('os-install-card')).toBeNull()
   })
 })

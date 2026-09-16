@@ -163,7 +163,12 @@ from swarm.views.team_rosters_api import (
 )
 from swarm.views.roles_api import RolesAPIView
 from swarm.views.teams_api import TeamDetailAPIView, TeamsAPIView
-from swarm.views.marketplace_api import MarketplaceScanView
+from swarm.views.marketplace_api import (
+    MarketplaceCatalogView,
+    MarketplaceInstallView,
+    MarketplacePreviewView,
+    MarketplaceScanView,
+)
 from swarm.views.web_views import (
     asgi_file_response,
     brand_root_file,
@@ -284,6 +289,36 @@ urlpatterns = [
     path("v1/settings/sandbox/test/", SandboxSettingsTestView.as_view(), name="sandbox-settings-test"),
     path("v1/marketplace", MarketplaceScanView.as_view(), name="marketplace-api-no-slash"),
     path("v1/marketplace/", MarketplaceScanView.as_view(), name="marketplace-api"),
+    path(
+        "v1/marketplace/catalog",
+        MarketplaceCatalogView.as_view(),
+        name="marketplace-catalog-no-slash",
+    ),
+    path(
+        "v1/marketplace/catalog/",
+        MarketplaceCatalogView.as_view(),
+        name="marketplace-catalog",
+    ),
+    path(
+        "v1/marketplace/preview",
+        MarketplacePreviewView.as_view(),
+        name="marketplace-preview-no-slash",
+    ),
+    path(
+        "v1/marketplace/preview/",
+        MarketplacePreviewView.as_view(),
+        name="marketplace-preview",
+    ),
+    path(
+        "v1/marketplace/install",
+        MarketplaceInstallView.as_view(),
+        name="marketplace-install-no-slash",
+    ),
+    path(
+        "v1/marketplace/install/",
+        MarketplaceInstallView.as_view(),
+        name="marketplace-install",
+    ),
     path("v1/rate-limits", RateLimitsView.as_view(), name="rate-limits-api-no-slash"),
     path("v1/rate-limits/", RateLimitsView.as_view(), name="rate-limits-api"),
     path("v1/config-ownership", ConfigOwnershipView.as_view(), name="config-ownership-api-no-slash"),

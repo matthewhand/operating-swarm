@@ -154,6 +154,51 @@ describe('InstallCatalog', () => {
     expect(empty).toHaveTextContent(SKILLS_CATALOG_EMPTY_TITLE)
     expect(empty).toHaveTextContent(SKILLS_CATALOG_EMPTY_BODY)
     expect(screen.queryByTestId('os-install-card')).toBeNull()
-    expect(screen.queryByRole('searchbox', { name: 'Search catalog' })).toBeNull()
+    expect(screen.getByRole('searchbox', { name: 'Search catalog' })).toBeInTheDocument()
+  })
+
+  it('shows rate-limit warnings and no fake cards', () => {
+    render(
+      <InstallCatalog
+        surface="tools"
+        autoLoad={false}
+        items={[]}
+        warnings={['Official MCP Registry rate limit reached — using cache if available.']}
+      />,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(/rate limit/i)
+    expect(screen.queryByTestId('os-install-card')).toBeNull()
+  })
+
+  it('teams drawer previews members, wires, and needs configuration', () => {
+    const pack: InstallCatalogItem = {
+      id: 'team:alice/ops-pack',
+      name: 'ops-pack',
+      summary: 'OS team pack',
+      sourceLabel: 'GitHub swarm-team-pack',
+      sourceKind: 'github',
+      kind: 'team',
+      requiredEnv: [],
+      toolsProvided: [],
+      dangerNotes: [COMMUNITY_DANGER],
+      external: true,
+      installable: true,
+      installed: false,
+      catalogKind: 'teams',
+      members: [
+        { id: 'jeeves', name: 'Jeeves', kind: 'api', role: 'chief_of_staff' },
+        { id: 'grok', name: 'Grok CLI', kind: 'cli', role: 'skeptic' },
+      ],
+      wires: { handoff: true, as_tool: true },
+      chiefOfStaffId: 'jeeves',
+      needsConfiguration: [{ id: 'grok', reason: 'CLI not installed — needs configuration.' }],
+    }
+    render(<InstallCatalog surface="teams" autoLoad={false} items={[pack]} />)
+    fireEvent.click(screen.getByTestId('os-install-card'))
+    const preview = screen.getByTestId('os-install-team-preview')
+    expect(preview).toHaveTextContent('Jeeves')
+    expect(preview).toHaveTextContent('Chief of Staff: jeeves')
+    expect(preview).toHaveTextContent(/needs configuration/i)
+    expect(preview).not.toHaveTextContent(/sk-/)
   })
 })

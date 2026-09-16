@@ -111,14 +111,14 @@ def skills_root() -> Path:
     return Path(get_project_root_dir()) / "skills"
 
 
-def discover_skills(root: str | Path | None = None) -> dict[str, Skill]:
-    """Discover every skill under ``root`` (default: ``skills_root()``).
+def user_skills_root() -> Path:
+    """User-installed skills (``get_user_data_dir_for_swarm()/skills``)."""
+    from swarm.core.paths import get_user_data_dir_for_swarm
 
-    A skill is any directory holding a ``SKILL.md``. Returns ``{name: Skill}``;
-    malformed skills are skipped (never raises). Names are de-duplicated by
-    first-wins on a sorted directory walk for determinism.
-    """
-    base = Path(root) if root is not None else skills_root()
+    return get_user_data_dir_for_swarm() / "skills"
+
+
+def _discover_one(base: Path) -> dict[str, Skill]:
     found: dict[str, Skill] = {}
     if not base.is_dir():
         return found
@@ -129,6 +129,45 @@ def discover_skills(root: str | Path | None = None) -> dict[str, Skill]:
             continue
         found.setdefault(skill.name, skill)
     return found
+
+
+def discover_skills(root: str | Path | None = None) -> dict[str, Skill]:
+    """Discover every skill under ``root`` (default: project + user dirs).
+
+    A skill is any directory holding a ``SKILL.md``. Returns ``{name: Skill}``;
+    malformed skills are skipped (never raises). Names are de-duplicated by
+    first-wins on a sorted directory walk for determinism. When ``root`` is
+    omitted, bundled ``skills/`` is loaded first and the user data dir
+    overlays it (installed packs win).
+    """
+    if root is not None:
+        return _discover_one(Path(root))
+    found = _discover_one(skills_root())
+    found.update(_discover_one(user_skills_root()))
+    return found
+
+
+def install_skill_files(
+    files: dict[str, str],
+    *,
+    dest_root: Path | None = None,
+) -> Skill:
+    """Copy a SKILL.md folder onto disk. Does not execute anything.
+
+    ``files`` maps filenames (no directories) to text. Requires ``SKILL.md``.
+    """
+    if not isinstance(files, dict) or SKILL_FILE not in files:
+        raise ValueError("skill pack must include SKILL.md")
+    parsed = parse_skill_md(files[SKILL_FILE])
+    root = Path(dest_root) if dest_root is not None else user_skills_root()
+    dest = root / parsed.name
+    dest.mkdir(parents=True, exist_ok=True)
+    for name, content in files.items():
+        filename = Path(str(name or "")).name
+        if not filename or filename.startswith("."):
+            continue
+        (dest / filename).write_text(content, encoding="utf-8")
+    return load_skill(dest)
 
 
 def skill_relpath(skill: Skill) -> str:

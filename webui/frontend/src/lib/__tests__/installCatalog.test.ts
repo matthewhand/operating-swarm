@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MCP_SERVER_TEMPLATES } from '../mcpServers'
 import {
   COMMUNITY_INSTALL_HINT,
+  backendToCatalogItem,
   catalogText,
   envNamesOnly,
   filterCatalogItems,
@@ -9,8 +10,10 @@ import {
   itemToServerEntry,
   marketplaceToCatalogItem,
   mergeCatalog,
+  outcomeFromInstall,
   safeGithubUrl,
   templateToCatalogItem,
+  usesBackendInstall,
   type InstallCatalogItem,
 } from '../installCatalog'
 
@@ -221,5 +224,64 @@ describe('installAndProbe', () => {
     const entry = itemToServerEntry(FETCH_ITEM)
     expect(entry?.env).toEqual({ MCP_TOKEN: '${MCP_TOKEN}' })
     expect(JSON.stringify(entry)).not.toMatch(/sk-live/)
+  })
+})
+
+describe('REQ-887 backend catalog mapping', () => {
+  it('maps Official MCP Registry rows with env names only', () => {
+    const item = backendToCatalogItem({
+      id: 'mcp:io.example/fetch',
+      kind: 'plugins',
+      name: 'Fetch',
+      summary: 'HTTP fetch',
+      source: 'mcp_registry',
+      source_label: 'Official MCP Registry',
+      external: true,
+      installable: true,
+      installed: false,
+      required_env: ['FETCH_TOKEN'],
+      plugin: {
+        name: 'fetch',
+        kind: 'local',
+        command: 'npx',
+        args: ['-y', '@ex/fetch'],
+        env: { FETCH_TOKEN: '${FETCH_TOKEN}' },
+      },
+    })
+    expect(item.sourceKind).toBe('mcp_registry')
+    expect(item.installable).toBe(true)
+    expect(item.requiredEnv).toEqual(['FETCH_TOKEN'])
+    expect(usesBackendInstall(item)).toBe(true)
+    expect(JSON.stringify(item)).not.toMatch(/sk-/)
+  })
+
+  it('treats already-installed backend rows as not installable', () => {
+    const item = backendToCatalogItem({
+      id: 'skill:haiku',
+      kind: 'skills',
+      name: 'haiku',
+      summary: 'Write a haiku.',
+      source: 'local',
+      source_label: 'Installed',
+      external: false,
+      installable: false,
+      installed: true,
+    })
+    expect(item.installed).toBe(true)
+    expect(item.installable).toBe(false)
+    expect(item.kind).toBe('skill')
+  })
+
+  it('maps install API already-installed to ok', () => {
+    expect(
+      outcomeFromInstall({
+        object: 'marketplace_install',
+        kind: 'plugins',
+        id: 'mcp:io.example/fetch',
+        installed: true,
+        already_installed: true,
+        message: 'Already installed.',
+      }),
+    ).toMatchObject({ status: 'ok', message: 'Already installed.' })
   })
 })
