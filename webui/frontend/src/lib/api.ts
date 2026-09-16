@@ -651,6 +651,7 @@ export type RemoteKindId =
   | 'anythingllm'
   | 'letta'
   | 'openwebui'
+  | 'flowise'
   | 'omb'
   | 'rakazo'
   | 'herdr'
