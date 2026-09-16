@@ -119,7 +119,7 @@ Mermaid, kind bases, and the `:8001` seed live on [docs/DEVELOPER.md](docs/DEVEL
 | Source | Fact |
 |---|---|
 | **`main` (this repo)** | Current product: WebUI chrome, remotes, Team rosters, four-kind lock. Prefer clone. |
-| **PyPI `open-swarm`** | Latest **0.5.4** (2026-06-19). Same as GitHub Release **v0.5.4**. |
+| **PyPI `open-swarm`** | Latest **0.5.4** (2026-06-19). Same as GitHub Release **v0.5.4**. In-tree stub at [`packaging/open-swarm-alias/`](packaging/open-swarm-alias/) ([#296](https://github.com/matthewhand/open-swarm-private/issues/296)) will be the next PyPI `open-swarm` (deprecation alias → `os-core`); that upload waits until `os-core` is on PyPI. |
 | **PyPI / `pyproject.toml` summary** | Still “Orchestrating AI Agent Swarms with Django.” Classifier is **Alpha**. That published wheel does **not** include Grok chrome, remotes catalog, or combined-team work landed after June. |
 | **GitHub Release title** | `v0.5.4 — django_chat resolves its LLM profile` — historical; not the 2026-09 pitch. |
 
