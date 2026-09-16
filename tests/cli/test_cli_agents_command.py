@@ -60,6 +60,29 @@ def test_json_empty_config_emits_empty_agents(tmp_path, monkeypatch):
     assert payload["native_consensus"] == {}  # no configured agents -> none
 
 
+def test_json_discovered_excludes_fake_clis(tmp_path, monkeypatch):
+    """Issue #147: os-cli cli-agents --json start set is discovered, no fake CLIs."""
+    from swarm.core import cli_catalog
+
+    monkeypatch.setattr(cli_catalog, "discover_host_clis", lambda: ["grok"])
+    monkeypatch.setattr(
+        cli_catalog,
+        "suggested_cli_agents",
+        lambda _cfg=None: {"grok": cli_catalog.catalog_entry("grok")},
+    )
+    cfg = _write_config(tmp_path, {})
+    result = runner.invoke(app, ["cli-agents", "--json", "--config", cfg])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["discovered"] == ["grok"]
+    assert payload["configured"] == []
+    assert payload["agents"] == []
+    for fake in ("echo", "fake", "dummy", "mock", "testcli"):
+        assert fake not in payload["discovered"]
+        assert fake not in (payload.get("suggestions") or {})
+        assert fake not in [a.get("name") for a in payload.get("agents") or []]
+
+
 def test_json_lists_configured_agents(tmp_path):
     cfg = _write_config(
         tmp_path,
