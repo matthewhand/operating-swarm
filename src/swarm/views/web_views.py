@@ -230,7 +230,7 @@ def custom_login(request):
         if user is not None:
             # User authenticated successfully
             login(request, user)
-            raw_next = request.GET.get("next", _DEFAULT_POST_LOGIN_REDIRECT)
+            raw_next = request.POST.get("next") or request.GET.get("next") or _DEFAULT_POST_LOGIN_REDIRECT
             next_url = _safe_post_login_redirect(request, raw_next)
             if next_url != (raw_next or "").strip():
                 logger.warning(f"Invalid 'next' URL detected: '{raw_next}'. Falling back to default.")
@@ -256,7 +256,7 @@ def custom_login(request):
                         test_user.save()
                         logger.info("Created dev-only 'testuser' account.")
                     login(request, test_user, backend='django.contrib.auth.backends.ModelBackend')
-                    raw_next = request.GET.get("next", _DEFAULT_POST_LOGIN_REDIRECT)
+                    raw_next = request.POST.get("next") or request.GET.get("next") or _DEFAULT_POST_LOGIN_REDIRECT
                     next_url = _safe_post_login_redirect(request, raw_next)
                     if next_url != (raw_next or "").strip():
                         logger.warning(

@@ -86,6 +86,27 @@ class TestLoginURLRouting:
         assert response.url == "/teams/"
 
     @pytest.mark.django_db
+    def test_post_preserves_nested_query_in_next(
+        self, client, login_user, no_autologin
+    ):
+        get = client.get("/login/?next=/sessions/%3Flimit%3D10")
+        assert get.status_code == 200
+        html = get.content.decode()
+        assert 'name="next"' in html
+        assert 'value="/sessions/?limit=10"' in html
+        assert "?next=" not in html.split("<form", 1)[1].split(">", 1)[0]
+        response = client.post(
+            "/login/",
+            {
+                "username": "routeuser",
+                "password": "route-pass-123",
+                "next": "/sessions/?limit=10",
+            },
+        )
+        assert response.status_code == 302
+        assert response.url == "/sessions/?limit=10"
+
+    @pytest.mark.django_db
     @pytest.mark.parametrize(
         "malicious_next",
         [

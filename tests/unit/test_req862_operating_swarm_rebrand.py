@@ -25,6 +25,7 @@ INDEX_CSS = REPO / "webui" / "frontend" / "src" / "index.css"
 SPEC = REPO / "docs" / "qa" / "REQ-862-rebrand-swarm-bot.md"
 UV_LOCK = REPO / "uv.lock"
 SETTINGS_DASHBOARD = REPO / "src" / "swarm" / "templates" / "settings_dashboard.html"
+SETTINGS_DASHBOARD_JS = REPO / "src" / "swarm" / "static" / "js" / "settings_dashboard.js"
 LOGIN_HTML = REPO / "src" / "swarm" / "templates" / "account" / "login.html"
 DJANGO_TEMPLATES = REPO / "src" / "swarm" / "templates"
 SETTINGS_SHEET = REPO / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
@@ -149,6 +150,10 @@ def test_req862_operator_chrome_no_longer_says_open_swarm():
     assert "{% block title %}Settings - Operating Swarm{% endblock %}" in dashboard
     assert "Configuration management for Operating Swarm (OS)" in dashboard
     assert "Open Swarm" not in dashboard
+
+    dashboard_js = _text(SETTINGS_DASHBOARD_JS)
+    assert "open-swarm-settings" not in dashboard_js
+    assert "operating-swarm-settings" in dashboard_js
 
     leftover = [
         str(path.relative_to(REPO))
