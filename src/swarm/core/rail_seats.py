@@ -287,6 +287,20 @@ def extract_cli_command(item: Mapping[str, Any] | None) -> str:
     return ""
 
 
+def _stamp_cli_remote(raw: Any, *, command: str = "") -> dict[str, Any] | None:
+    """Issue #180: persist a serve-mode endpoint only for remote-capable CLIs."""
+    from swarm.core.cli_remote import (
+        can_remote,
+        cli_name_from_command,
+        public_remote_endpoint,
+    )
+
+    cli_name = cli_name_from_command(command)
+    if not can_remote(cli_name):
+        return None
+    return public_remote_endpoint(raw)
+
+
 def custom_item_is_rail_seat(item: Mapping[str, Any] | None) -> bool:
     """True for Add-agent CLI/API/Blueprint customs that belong on the AGENTS rail.
 
@@ -328,6 +342,11 @@ def build_custom_rail_item(body: Mapping[str, Any], *, existing: Mapping[str, An
         if kind == "cli":
             merged["command"] = command
             merged["cli"] = command
+            remote = _stamp_cli_remote(merged.get("remote"), command=command)
+            if remote:
+                merged["remote"] = remote
+            else:
+                merged.pop("remote", None)
         elif "command" in merged and not str(merged.get("command") or "").strip():
             merged.pop("command", None)
     elif merged.get("rail") is True:
@@ -374,6 +393,7 @@ def custom_library_to_blueprint_rows(
                 "kind": kind if kind in ADD_AGENT_SEAT_KINDS else None,
                 "command": command,
                 "cli": command if kind == "cli" else "",
+                "remote": raw.get("remote") if kind == "cli" else None,
                 "source": raw.get("source") or ADD_AGENT_SOURCE,
                 "user_created": True,
                 "role": "default",

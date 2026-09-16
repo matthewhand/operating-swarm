@@ -43,6 +43,12 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
       native_consensus: {},
       catalog: {},
       rail: [],
+      remote: {
+        opencode: { capability: 'serve', how: 'serve', default_port: 4096 },
+        kilocode: { capability: 'serve', how: 'serve', default_port: 4096 },
+        grok: { capability: 'none', how: 'none' },
+      },
+      remote_boxes: [{ id: 'gpu-box', host: 'dev-gpu.lan', port: 4096 }],
     })
     vi.spyOn(api, 'fetchRemotes').mockResolvedValue({
       object: 'list',
@@ -171,6 +177,64 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
         expect.objectContaining({
           folder: '/home/dev/tool',
           githubRepo: 'acme/app',
+        }),
+      )
+    })
+  })
+
+  it('gates remote connection fields on catalog capability', async () => {
+    renderWizard()
+    fireEvent.click(screen.getByTestId('kind-option-cli'))
+    fireEvent.click(screen.getByTestId('empty-add-btn'))
+
+    fireEvent.change(screen.getByTestId('input-cli-command'), {
+      target: { value: 'grok -p' },
+    })
+    expect(screen.queryByTestId('cli-remote-connection')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('input-cli-command'), {
+      target: { value: 'opencode' },
+    })
+    expect(await screen.findByTestId('cli-remote-connection')).toBeInTheDocument()
+    expect(screen.getByTestId('input-cli-remote-host')).toBeInTheDocument()
+    expect(await screen.findByTestId('select-cli-remote-box')).toBeInTheDocument()
+  })
+
+  it('persists remote endpoint when adding a capable CLI', async () => {
+    const createSpy = vi.spyOn(api, 'createCustomBlueprint').mockResolvedValue({
+      id: 'remote_opencode',
+      name: 'GPU OpenCode',
+      description: 'CLI: opencode',
+      category: 'cli',
+      tags: ['cli'],
+      requirements: '',
+      code: '# CLI agent: GPU OpenCode\n# Command: opencode\n',
+      required_mcp_servers: [],
+      env_vars: [],
+    })
+
+    renderWizard()
+    fireEvent.click(screen.getByTestId('kind-option-cli'))
+    fireEvent.click(screen.getByTestId('empty-add-btn'))
+    fireEvent.change(screen.getByTestId('input-cli-name'), {
+      target: { value: 'GPU OpenCode' },
+    })
+    fireEvent.change(screen.getByTestId('input-cli-command'), {
+      target: { value: 'opencode' },
+    })
+    fireEvent.change(await screen.findByTestId('input-cli-remote-host'), {
+      target: { value: 'dev-gpu.lan' },
+    })
+    fireEvent.change(screen.getByTestId('input-cli-remote-port'), {
+      target: { value: '4096' },
+    })
+    fireEvent.click(screen.getByTestId('submit-create-agent'))
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'opencode',
+          remote: expect.objectContaining({ host: 'dev-gpu.lan', port: 4096 }),
         }),
       )
     })

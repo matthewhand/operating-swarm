@@ -27,7 +27,18 @@ def test_known_clis_are_documented():
     names = set(cli_catalog.catalog_names())
     # omp (#193) and qwen joined the shipped catalog after REQ-157 froze the
     # original seven; keep the tuple-order contract for all of them.
-    assert names == {"agy", "claude", "codex", "gemini", "grok", "omp", "opencode", "pi", "qwen"}
+    assert names == {
+        "agy",
+        "claude",
+        "codex",
+        "gemini",
+        "grok",
+        "kilocode",
+        "omp",
+        "opencode",
+        "pi",
+        "qwen",
+    }
     assert tuple(cli_catalog.KNOWN_CLIS) == tuple(cli_catalog.catalog_names())
     assert cli_catalog.executable_for("agy") == "agy"
 

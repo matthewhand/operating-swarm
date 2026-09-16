@@ -226,8 +226,12 @@ def clear_cli_session(
     )
 
 
-def session_notice_text(cli_name: str, *, resumed: bool) -> str:
-    """Honest user-facing line. Never claims restore unless we actually resumed."""
+def session_notice_text(cli_name: str, *, resumed: bool, host: str | None = None) -> str:
+    """Honest user-facing line. Never claims restore unless we actually resumed.
+
+    Remote/headless runs (Issue #180) append ``on host:port`` when ``host`` is set.
+    """
+    suffix = f" on {host}" if str(host or "").strip() else ""
     if resumed:
-        return f"Resumed {cli_name} session."
-    return f"Started a new {cli_name} session."
+        return f"Resumed {cli_name} session{suffix}."
+    return f"Started a new {cli_name} session{suffix}."

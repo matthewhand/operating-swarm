@@ -711,17 +711,22 @@ def list_llm_profiles(request):
 def list_cli_catalog(request):
     """Catalog CLIs the designer can attach to a simple (non-openai-agents) agent."""
     from swarm.core.cli_catalog import CLI_MODELS, CATALOG, MODEL_FLAG, catalog_names, installed_catalog_clis
+    from swarm.core.cli_remote import remote_capability, remote_spec
 
     installed = set(installed_catalog_clis())
     clis = []
     for name in catalog_names():
         exe = CATALOG[name]["cmd"][0]
+        spec = remote_spec(name) or {}
         clis.append({
             "name": name,
             "executable": exe,
             "installed": name in installed,
             "model_flag": MODEL_FLAG.get(name) or "",
             "models": list(CLI_MODELS.get(name) or []),
+            "remote_capability": remote_capability(name),
+            "remote_how": str(spec.get("how") or remote_capability(name)),
+            "remote_default_port": spec.get("default_port"),
         })
     return JsonResponse({"status": "success", "clis": clis})
 

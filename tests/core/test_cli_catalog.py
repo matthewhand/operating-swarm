@@ -9,7 +9,7 @@ from swarm.core.cli_adapter import CliAdapter
 def test_catalog_names_are_sorted_and_known():
     names = cli_catalog.catalog_names()
     assert names == sorted(names)
-    assert {"claude", "gemini", "codex", "opencode", "omp", "grok", "agy", "pi"} <= set(names)
+    assert {"claude", "gemini", "codex", "opencode", "kilocode", "omp", "grok", "agy", "pi"} <= set(names)
 
 
 def test_every_catalog_cli_documents_session_resume():
