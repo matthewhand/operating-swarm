@@ -173,6 +173,35 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
   })
 
+  it('lists pi provider/model ids as pin-able model options (#103)', () => {
+    const { onChange } = renderPicker({
+      agents: [
+        { id: 'pi', label: 'pi' },
+        { id: 'grok', label: 'grok' },
+      ],
+      selectedAgent: 'pi',
+      models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-6'],
+      selectedModel: 'openai/gpt-4o',
+      preferredEffort: undefined,
+    })
+    expect(screen.getByTestId('routing-pill-model')).toHaveTextContent('openai/gpt-4o')
+    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    expect(screen.getByRole('menuitem', { name: 'openai/gpt-4o' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'anthropic/claude-sonnet-4-6' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'openai' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'default' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'anthropic/claude-sonnet-4-6' }))
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changed: 'model',
+        agent: 'pi',
+        model: 'anthropic/claude-sonnet-4-6',
+        modelBase: 'anthropic/claude-sonnet-4-6',
+        effort: null,
+      }),
+    )
+  })
+
   it('shows a probe warning instead of option default when models are empty', () => {
     renderPicker({
       models: [],

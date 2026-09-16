@@ -196,6 +196,9 @@ CATALOG: dict[str, dict[str, Any]] = {
         # --mode text; --approve trusts project-local files for that run.
         # --no-session is smoke/verify only (see SMOKE_FLAGS) so production
         # runs can resume with --session.
+        # No catalog ``--model``: pi's implicit default was a discontinued
+        # Aliyun/DashScope coding-plan slug (401). Pin via apply_model from
+        # the live ``pi --list-models`` table (provider/id before ``--``).
         "cmd": ["pi", "-p", "--mode", "text", "--approve", "--", "{prompt}"],
         "parse": "text",
         "mode": "write",
@@ -674,6 +677,10 @@ def with_native_consensus(name: str, n: int = 2) -> dict[str, Any] | None:
 #   agy       ``agy models``            (tab-separated id<TAB>label lines; a
 #                                       spinner banner goes to stderr, stdout
 #                                       parses as plain lines)
+#   pi        ``pi --list-models``      (provider/model table; pin as
+#                                       ``provider/id``. Empty catalog is a
+#                                       warning — never invent ``default`` or a
+#                                       discontinued Aliyun coding-plan model)
 # qwen: deliberately absent — its current build rejects ``--list-models``
 # ("Unknown arguments") and has no models subcommand, so there is nothing
 # honest to probe; dropdown falls back to the empty + warning path.
@@ -684,6 +691,7 @@ LIST_MODELS: dict[str, list[str]] = {
     "codex": ["codex", "debug", "models"],
     "opencode": ["opencode", "models"],
     "agy": ["agy", "models"],
+    "pi": ["pi", "--list-models"],
 }
 
 # List-models probes must stay cheap and never hang a Settings / #358 caller.
@@ -712,11 +720,15 @@ MODEL_FLAG: dict[str, str] = {
     "agy": "--model",      # agy --model <name>
     "grok": "-m",          # grok -m/--model <id> (verified: grok-4.6, grok-4.5)
     "qwen": "-m",          # qwen -m/--model <id> (verified live: gateway slug auxiliary)
+    "pi": "--model",       # pi --model <provider/id> (docs + --help; no --provider needed)
 }
 
 # Suggested model ids for the Agent Router CLI-model dropdown. The UI always
 # offers a custom string on top of these; they are starting points, not a
 # live catalog from the host CLI.
+# pi is omitted: Chat / Router must use the live ``pi --list-models`` probe
+# (provider/model ids). Do not invent ``default`` or a discontinued Aliyun
+# DashScope coding-plan slug — an empty probe stays empty + warning.
 CLI_MODELS: dict[str, list[str]] = {
     "grok": ["grok-4.6", "grok-4.5"],
     "agy": [

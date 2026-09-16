@@ -156,7 +156,10 @@ def parse_models_stdout(stdout: str) -> list[str]:
     """Extract boring model ids from a CLI's list-models stdout.
 
     JSON (array / object / ``models`` wrapper) is preferred; otherwise each
-    non-header line's first token is considered. Secrets and junk are dropped.
+    non-header line's first token is considered. A ``provider`` / ``model``
+    table (``pi --list-models``) is joined as ``provider/model`` so the
+    dropdown lists pin-able ids, not bare provider names. Secrets and junk
+    are dropped.
     """
     text = _strip_ansi(stdout or "").strip()
     if not text:
@@ -197,17 +200,47 @@ def _ids_from_json(data: Any) -> list[str]:
 
 
 def _ids_from_lines(text: str) -> list[str]:
+    table = _is_provider_model_table(text)
     ids: list[str] = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        token = line.split()[0].strip("•-*|:,")
-        if token.lower() in _HEADER_WORDS:
+        parts = [p.strip("•-*|:,") for p in line.split() if p.strip("•-*|:,")]
+        if not parts:
             continue
-        if _is_model_id(token):
+        if parts[0].lower() in _HEADER_WORDS:
+            continue
+        token = _line_model_id(parts, table=table)
+        if token:
             ids.append(token)
     return _dedupe(ids)
+
+
+def _is_provider_model_table(text: str) -> bool:
+    """True when stdout is a ``provider  model  …`` table (pi --list-models)."""
+    for raw in text.splitlines():
+        parts = [p.lower() for p in raw.strip().split()]
+        if len(parts) >= 2 and parts[0] == "provider" and parts[1] == "model":
+            return True
+    return False
+
+
+def _line_model_id(parts: list[str], *, table: bool) -> str | None:
+    """One pin-able id from a split line. Table rows join provider/model."""
+    first = parts[0]
+    if table:
+        if len(parts) < 2:
+            return None  # bare provider name is not a pin-able model
+        provider, model = first, parts[1]
+        if not _is_model_id(provider) or not _is_model_id(model):
+            return None
+        if "/" in provider or ":" in provider:
+            composed = provider.replace(":", "/", 1)
+        else:
+            composed = f"{provider}/{model}"
+        return composed if _is_model_id(composed) else None
+    return first if _is_model_id(first) else None
 
 
 def _is_model_id(token: str) -> bool:

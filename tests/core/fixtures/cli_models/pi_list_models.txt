@@ -1,0 +1,5 @@
+provider             model                   context  max-out  thinking  images
+anthropic            claude-sonnet-4-6       200K     8K       yes       yes
+openai               gpt-4o                  128K     16K      no        yes
+bailian-coding-plan  glm-4.7                 202.8K   16.4K    no        no
+github-models        openai/gpt-4.1          1M       16K      no        yes
