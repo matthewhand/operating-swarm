@@ -34,6 +34,7 @@ def test_user_facing_kind_is_always_remote():
     assert set(REMOTE_IMPL_IDS) == {
         "hermes",
         "anythingllm",
+        "letta",
         "omb",
         "rakazo",
         "herdr",
@@ -66,13 +67,16 @@ def test_capabilities_computer_only_on_omb_and_rakazo():
     assert capabilities_for("rakazo").operate is True
     assert capabilities_for("hermes").operate is False
     assert capabilities_for("anythingllm").operate is False
+    assert capabilities_for("letta").operate is False
     assert capabilities_for("herdr").operate is False
     assert capabilities_for("herdr").interrogate is True
     assert capabilities_for("herdr").transport == "cli"
     assert capabilities_for("hermes").transport == "http"
     assert capabilities_for("anythingllm").transport == "http"
+    assert capabilities_for("letta").transport == "http"
     assert capabilities_for("hermes").sessions is True
     assert capabilities_for("anythingllm").sessions is True
+    assert capabilities_for("letta").sessions is True
     assert capabilities_for("omb").sessions is False
 
 
@@ -129,6 +133,7 @@ def test_herdr_is_remote_impl_not_fifth_kind():
     assert classify_agent_kind("herdr:w3:p1") == "remote"
     assert classify_agent_kind("hermes") == "remote"
     assert classify_agent_kind("anythingllm") == "remote"
+    assert classify_agent_kind("letta") == "remote"
     assert classify_agent_kind("omb") == "remote"
     assert classify_agent_kind("rakazo") == "remote"
     assert classify_agent_kind("trueforge") == "remote"

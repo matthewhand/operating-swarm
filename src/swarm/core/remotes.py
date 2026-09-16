@@ -38,15 +38,14 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-import re
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
-REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
-REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 
 def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> str:
@@ -80,6 +79,8 @@ def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> st
         return "trueforge"
     if raw.startswith("anythingllm"):
         return "anythingllm"
+    if raw.startswith("letta"):
+        return "letta"
     return raw or (remote_id or "")
 
 
@@ -98,10 +99,11 @@ def _instance_slug(remote_id: str, kind: str | None = None) -> str:
     tail = raw[len(k) + 1 :] if (raw.startswith(k) and len(raw) > len(k) and raw[len(k)] in ("-", "_")) else raw
     return re.sub(r"[^a-z0-9]+", "_", tail).strip("_").upper()
 # Kinds that never appear until the user (or env) adds them.
-OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm"})
+OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "letta"})
 REMOTE_KIND_LABELS: dict[str, str] = {
     "hermes": "Hermes",
     "anythingllm": "AnythingLLM",
+    "letta": "Letta",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -120,6 +122,7 @@ _KIND_ALIASES: dict[str, str] = {
     "true-forge": "trueforge",
     "anything-llm": "anythingllm",
     "anything_llm": "anythingllm",
+    "memgpt": "letta",
 }
 
 # REQ-11 default roster. ``swarm`` is in the catalog but is not auto-placed
@@ -144,6 +147,7 @@ TEAM_VOCABULARY: dict[str, str] = {
 _TOOL_NAMES: dict[str, str] = {
     "hermes": "consult_hermes",
     "anythingllm": "consult_anythingllm",
+    "letta": "consult_letta",
     "omb": "consult_omb",
     "rakazo": "consult_rakazo",
     "herdr": "consult_herdr",
@@ -255,6 +259,24 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "a new thread. Opt-in: not placed until + Add."
         ),
     },
+    "letta": {
+        "title": "Letta",
+        "host_label": "letta",
+        "base_url": "http://127.0.0.1:8283",
+        "ui_url": "",
+        "api_key": "${LETTA_API_KEY}",
+        "health_path": "/v1/health",
+        "version_path": "/v1/health",
+        "notes": (
+            "Letta memory-agent backend (:8283, self-hosted). Point "
+            "LETTA_BASE_URL at your box; LETTA_API_KEY when the server "
+            "requires a password. GET /v1/agents/ lists agents as resumable "
+            "sessions (search via query_text / title filter). "
+            "POST /v1/agents/<id>/messages (or /messages/stream) chats into "
+            "that agent; send requires an existing agent session id and "
+            "never mints a new agent. Opt-in: not placed until + Add."
+        ),
+    },
     "trueforge": {
         "title": "TrueForge",
         "host_label": "trueforge",
@@ -282,6 +304,7 @@ _ENV_BASE = {
     "swarm": "SWARM_REMOTE_BASE_URL",
     "trueforge": "TRUEFORGE_BASE_URL",
     "anythingllm": "ANYTHINGLLM_BASE_URL",
+    "letta": "LETTA_BASE_URL",
 }
 _ENV_KEY = {
     "hermes": "HERMES_API_KEY",
@@ -291,6 +314,7 @@ _ENV_KEY = {
     "swarm": "SWARM_REMOTE_API_KEY",
     "trueforge": "TRUEFORGE_API_KEY",
     "anythingllm": "ANYTHINGLLM_API_KEY",
+    "letta": "LETTA_API_KEY",
 }
 _ENV_UI = {"rakazo": "RAKAZO_UI_URL", "hermes": "HERMES_UI_URL"}
 _ENV_COOKIE = {"rakazo": "RAKAZO_SESSION_COOKIE"}
@@ -318,6 +342,7 @@ OMB_DEDICATED_BOT_NAME = "open-swarm"
 _HERMES_POLL_INTERVAL_S = 0.4
 _HERMES_POLL_HTTP_TIMEOUT_S = 8.0
 _ANYTHINGLLM_SEND_TIMEOUT_S = 90.0
+_LETTA_SEND_TIMEOUT_S = 90.0
 
 
 class RemoteError(Exception):
@@ -3610,6 +3635,449 @@ def _anythingllm_send(
     )
 
 
+def filter_letta_sessions(rows: list[dict[str, Any]], query: str = "") -> list[dict[str, Any]]:
+    """Search Letta agent-session rows by id/title/snippet/channel."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return list(rows)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("id", "title", "snippet", "channel", "thread_ts")
+        ).lower()
+        if needle in blob:
+            out.append(row)
+    return out
+
+
+def _letta_agents_payload(body: Any) -> list[Any]:
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        nested = body.get("agents") or body.get("data") or body.get("items") or []
+        return nested if isinstance(nested, list) else []
+    return []
+
+
+def _letta_text_from_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str) and item.strip():
+                parts.append(item.strip())
+            elif isinstance(item, dict):
+                text = str(item.get("text") or item.get("content") or "").strip()
+                if text:
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    if isinstance(content, dict):
+        return str(content.get("text") or content.get("content") or "").strip()
+    return ""
+
+
+def _letta_assistant_text(payload: Any) -> str:
+    """Pull visible assistant text out of a Letta messages response."""
+    messages: list[Any]
+    if isinstance(payload, dict):
+        messages = payload.get("messages") or payload.get("data") or []
+        if not isinstance(messages, list):
+            messages = []
+        if not messages and (payload.get("message_type") or payload.get("content")):
+            messages = [payload]
+    elif isinstance(payload, list):
+        messages = payload
+    else:
+        messages = []
+    parts: list[str] = []
+    reasoning_parts: list[str] = []
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("message_type") or item.get("role") or "").strip().lower()
+        if kind in ("user_message", "user", "system_message", "system"):
+            continue
+        if kind in ("assistant_message", "assistant", "") or "assistant" in kind:
+            text = _letta_text_from_content(item.get("content") or item.get("text"))
+            if text:
+                parts.append(text)
+                continue
+        if kind == "reasoning_message":
+            reasoning = str(item.get("reasoning") or "").strip()
+            if reasoning:
+                reasoning_parts.append(reasoning)
+    if parts:
+        return "\n".join(parts).strip()
+    return "\n".join(reasoning_parts).strip()
+
+
+def _letta_session_row(agent: dict[str, Any]) -> dict[str, Any] | None:
+    from swarm.core.remote_harness import remote_session_from_dict
+
+    agent_id = str(agent.get("id") or agent.get("agent_id") or "").strip()
+    if not agent_id:
+        return None
+    name = str(agent.get("name") or agent.get("title") or agent_id).strip()
+    snippet = str(agent.get("description") or agent.get("snippet") or "").strip()
+    agent_type = str(agent.get("agent_type") or agent.get("type") or "").strip()
+    session = remote_session_from_dict(
+        {
+            "id": agent_id,
+            "title": name,
+            "snippet": snippet[:240],
+            "source": "letta",
+            "updated_at": str(
+                agent.get("updated_at") or agent.get("last_run_completion") or agent.get("created_at") or ""
+            ).strip(),
+            "channel": (agent_type or "agent")[:128],
+            "thread_ts": agent_id[:64],
+        }
+    )
+    return None if session is None else session.as_dict()
+
+
+def _letta_list(spec: RemoteSpec, timeout: float, query: str = "") -> OperateResult:
+    """List Letta agents as searchable, resumable sessions.
+
+    GET /v1/agents/ returns memory agents (and workflow agents). Each agent is
+    a resume key — send never mints a new one. ``query`` is passed as
+    ``query_text`` and also applied client-side on title/id/snippet.
+    """
+    needle = (query or "").strip()
+    path = f"{spec.base_url}/v1/agents/?limit=200"
+    if needle:
+        path += f"&query_text={quote(needle)}"
+    result = http_json("GET", path, headers=_auth_headers(spec), timeout=timeout)
+    agents = _letta_agents_payload(result.body)
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for agent in agents:
+        if not isinstance(agent, dict):
+            continue
+        row = _letta_session_row(agent)
+        if row is None or row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        normalized.append(row)
+    normalized = filter_letta_sessions(normalized, needle)
+    data: dict[str, Any] = {"sessions": normalized, "source": "letta"}
+    if result.status in _UP:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="list",
+            ok=True,
+            detail=f"listed {len(normalized)} Letta agent session(s)",
+            http_status=result.status,
+            data=data,
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="list",
+            ok=False,
+            detail=(
+                "Letta /v1/agents/ requires a valid API key. "
+                "Set remotes.letta.api_key or LETTA_API_KEY "
+                "(self-hosted password, or Letta Cloud token)."
+            ),
+            http_status=result.status,
+            data=data,
+        )
+    return OperateResult(
+        remote=spec.id or "letta",
+        op="list",
+        ok=False,
+        detail=result.error or f"Letta list failed (http {result.status})",
+        http_status=result.status,
+        data=data,
+    )
+
+
+def _parse_sse_json_line(line: str) -> dict[str, Any] | None:
+    text = (line or "").strip()
+    if not text or text == "[DONE]":
+        return None
+    if text.startswith("data:"):
+        text = text[5:].strip()
+        if not text or text == "[DONE]":
+            return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _letta_post_events(
+    spec: RemoteSpec,
+    url: str,
+    body: dict[str, Any],
+    timeout: float,
+    *,
+    accept_sse: bool,
+) -> Any:
+    """Yield ``(event_dict|None, http_status, error)`` from stream or JSON."""
+    req_headers = dict(_auth_headers(spec))
+    req_headers.setdefault("Content-Type", "application/json")
+    if accept_sse:
+        req_headers["Accept"] = "text/event-stream, application/json"
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=timeout) as resp:
+            status = getattr(resp, "status", None) or resp.getcode()
+            ctype = str(resp.headers.get("Content-Type") or "").lower()
+            if status not in _UP:
+                raw = resp.read()
+                text = raw.decode("utf-8", errors="replace") if raw else ""
+                parsed: Any = None
+                if text.strip():
+                    try:
+                        parsed = json.loads(text)
+                    except json.JSONDecodeError:
+                        parsed = None
+                err = ""
+                if isinstance(parsed, dict):
+                    err = str(parsed.get("error") or parsed.get("detail") or parsed.get("message") or "").strip()
+                yield (parsed if isinstance(parsed, dict) else None, status, err or f"http {status}")
+                return
+            if "event-stream" in ctype:
+                buf = b""
+                while True:
+                    chunk = resp.read(256)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        event = _parse_sse_json_line(line.decode("utf-8", errors="replace"))
+                        if event is not None:
+                            yield (event, status, "")
+                return
+            raw = resp.read()
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+            if text.lstrip().startswith("data:"):
+                for line in text.splitlines():
+                    event = _parse_sse_json_line(line)
+                    if event is not None:
+                        yield (event, status, "")
+                return
+            parsed = None
+            if text.strip():
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+            if parsed is not None:
+                yield (parsed if isinstance(parsed, dict) else {"messages": parsed}, status, "")
+            elif text.strip():
+                yield ({"content": text.strip(), "message_type": "assistant_message"}, status, "")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read() if hasattr(exc, "read") else b""
+        text = raw.decode("utf-8", errors="replace") if raw else ""
+        parsed = None
+        if text.strip():
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+        err = ""
+        if isinstance(parsed, dict):
+            err = str(parsed.get("error") or parsed.get("detail") or parsed.get("message") or "").strip()
+        yield (parsed if isinstance(parsed, dict) else None, exc.code, err or f"http {exc.code}")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        yield (None, None, f"{type(exc).__name__}: {exc}")
+
+
+def _letta_delta(payload: dict[str, Any], assembled: str) -> str:
+    kind = str(payload.get("message_type") or payload.get("role") or "").strip().lower()
+    if kind in ("reasoning_message", "tool_call_message", "tool_return_message", "ping"):
+        return ""
+    text = _letta_assistant_text(payload)
+    if not text:
+        text = _letta_text_from_content(payload.get("content") or payload.get("text"))
+    if not text:
+        return ""
+    if assembled and text.startswith(assembled):
+        return text[len(assembled) :]
+    if assembled and assembled.endswith(text):
+        return ""
+    return text
+
+
+def iter_letta_chat(
+    spec: RemoteSpec,
+    prompt: str,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+    timeout: float = _LETTA_SEND_TIMEOUT_S,
+) -> Any:
+    """Yield ``(delta, done, error)`` from Letta stream, with sync fallback.
+
+    Resume key is an existing Letta agent id. Never mints a new agent.
+    """
+    sid = (session_id or target or "").strip()
+    if not sid:
+        yield (
+            "",
+            True,
+            (
+                "Pick a Letta agent. Open Swarm does not mint new agents. "
+                "Pass session_id as the agent id (list the remote to see "
+                "available sessions)."
+            ),
+        )
+        return
+    if not prompt.strip():
+        yield ("", True, "prompt is required")
+        return
+    chat_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
+    encoded = quote(sid, safe="")
+    stream_url = f"{spec.base_url}/v1/agents/{encoded}/messages/stream"
+    sync_url = f"{spec.base_url}/v1/agents/{encoded}/messages"
+    body = {"messages": [{"role": "user", "content": prompt}]}
+    assembled = ""
+    error = None
+    stream_ok = False
+    for event, http_status, fail in _letta_post_events(
+        spec, stream_url, {**body, "stream_tokens": True}, chat_timeout, accept_sse=True
+    ):
+        if fail:
+            error = fail
+            break
+        if http_status in _AUTH:
+            yield ("", True, "Letta chat requires a valid API key (LETTA_API_KEY).")
+            return
+        if http_status in _UP:
+            stream_ok = True
+        if event is None:
+            continue
+        gateway_error = str(event.get("error") or event.get("detail") or "").strip()
+        if gateway_error and gateway_error.lower() not in ("false", "0"):
+            yield ("", True, f"Letta upstream error: {gateway_error}")
+            return
+        delta = _letta_delta(event, assembled)
+        if delta:
+            assembled += delta
+            yield (delta, False, None)
+    if assembled and not error:
+        yield ("", True, None)
+        return
+    if stream_ok:
+        yield ("", True, "Letta returned an empty reply.")
+        return
+    result = http_json(
+        "POST",
+        sync_url,
+        headers=_auth_headers(spec),
+        body=body,
+        timeout=chat_timeout,
+    )
+    text_response = _letta_assistant_text(result.body)
+    gateway_error = ""
+    if isinstance(result.body, dict):
+        gateway_error = str(result.body.get("error") or result.body.get("detail") or "").strip()
+    if result.status in _UP and text_response:
+        delta = text_response[len(assembled) :] if text_response.startswith(assembled) else text_response
+        if delta:
+            yield (delta, True, None)
+        else:
+            yield ("", True, None)
+        return
+    if result.status in _AUTH:
+        yield ("", True, "Letta chat requires a valid API key (LETTA_API_KEY).")
+        return
+    if result.status == 404:
+        yield (
+            "",
+            True,
+            f"Letta agent '{sid}' was not found. List sessions and pick an existing agent.",
+        )
+        return
+    if gateway_error:
+        yield ("", True, f"Letta upstream error: {gateway_error}")
+        return
+    yield (
+        "",
+        True,
+        error or result.error or f"Letta send failed (http {result.status})",
+    )
+
+
+def _letta_send(
+    spec: RemoteSpec,
+    prompt: str,
+    timeout: float,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+) -> OperateResult:
+    """Send into an existing Letta agent (never mints a new one)."""
+    sid = (session_id or target or "").strip()
+    if not sid:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=False,
+            detail=(
+                "Pick a Letta agent. Open Swarm does not mint new agents. "
+                "Pass session_id as the agent id (list the remote to see "
+                "available sessions)."
+            ),
+            gap="letta_agent_required",
+        )
+    if not prompt.strip():
+        return OperateResult(remote=spec.id or "letta", op="send", ok=False, detail="prompt is required")
+    assembled = ""
+    error = None
+    http_status: int | None = None
+    for delta, done, err in iter_letta_chat(spec, prompt, session_id=sid, timeout=timeout):
+        if err:
+            error = err
+            break
+        if delta:
+            assembled += delta
+        if done:
+            break
+    if assembled and not error:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=True,
+            detail=f"Letta replied in agent {sid}",
+            http_status=http_status or 200,
+            data={"response": assembled, "agent": sid, "thread": sid},
+        )
+    if error and "API key" in error:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=False,
+            detail=error,
+            http_status=401,
+        )
+    if error and "not found" in error.lower():
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=False,
+            detail=error,
+            http_status=404,
+            gap="letta_agent_required",
+        )
+    return OperateResult(
+        remote=spec.id or "letta",
+        op="send",
+        ok=False,
+        detail=error or "Letta send failed",
+        http_status=http_status,
+    )
+
+
 def operate(
     remote_id: str,
     op: str,
@@ -3687,6 +4155,13 @@ def operate(
             return _anythingllm_send(
                 spec, prompt, send_timeout, session_id=resume_id, target=target
             )
+        if rkind == "letta":
+            if action == "list":
+                return _letta_list(spec, timeout, query=query or prompt)
+            send_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
+            return _letta_send(
+                spec, prompt, send_timeout, session_id=resume_id, target=target
+            )
         if rkind == "omb":
             return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
         if rkind == "rakazo":
@@ -3758,6 +4233,19 @@ def _anythingllm_send_bound(
     session_id: str | None = None,
 ) -> OperateResult:
     return _anythingllm_send(spec, prompt, timeout, session_id=session_id, target=target)
+
+
+def _letta_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    send_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
+    return _letta_send(spec, prompt, send_timeout, session_id=session_id, target=target)
 
 
 def _omb_send_bound(
@@ -3922,6 +4410,16 @@ def _install_remote_harnesses() -> None:
             health_fn=_bind_health("anythingllm"),
             list_fn=_bind_http_list(_anythingllm_list),
             send_fn=_anythingllm_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="letta",
+            label="Letta",
+            capabilities=capabilities_for("letta"),
+            health_fn=_bind_health("letta"),
+            list_fn=_bind_http_list(_letta_list),
+            send_fn=_letta_send_bound,
         )
     )
     register_harness(

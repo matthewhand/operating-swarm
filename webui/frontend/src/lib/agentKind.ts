@@ -13,6 +13,8 @@ const REMOTE_IMPL_IDS = new Set([
   'herdr',
   'hermes',
   'anythingllm',
+  'letta',
+  'memgpt',
   'omb',
   'rakazo',
   'openmausbot',

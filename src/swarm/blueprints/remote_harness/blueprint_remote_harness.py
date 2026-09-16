@@ -88,6 +88,8 @@ def _send_tool(
         kwargs["session_id"] = session_id
     if kind == "anythingllm":
         kwargs["timeout"] = remotes_core._ANYTHINGLLM_SEND_TIMEOUT_S
+    elif kind == "letta":
+        kwargs["timeout"] = remotes_core._LETTA_SEND_TIMEOUT_S
     result = remotes_core.operate(name, "send", **kwargs)
     _arm_omb_followup(result, name, context)
     return _render_operate(result)
@@ -165,7 +167,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -181,6 +183,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "TRUEFORGE_API_KEY",
             "ANYTHINGLLM_BASE_URL",
             "ANYTHINGLLM_API_KEY",
+            "LETTA_BASE_URL",
+            "LETTA_API_KEY",
         ],
     }
 
@@ -285,6 +289,16 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_anythingllm",
                 "Hand off to the AnythingLLM remote operator (health/list/send).",
+            ),
+            "letta": (
+                "LettaRemote",
+                (
+                    "You operate remote Letta via tools. List memory agents as "
+                    "sessions and send into an existing agent. Never mint a "
+                    "new Letta agent."
+                ),
+                "consult_letta",
+                "Hand off to the Letta remote operator (health/list/send).",
             ),
             "herdr": (
                 "HerdrRemote",
@@ -408,20 +422,24 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm> <prompt>"
-                elif remotes_core.kind_of_instance(name) == "anythingllm":
-                    session_id = str(
-                        params.get("session_id") or target or ""
-                    ).strip()
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta> <prompt>"
+                elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta"}:
+                    stream_kind = remotes_core.kind_of_instance(name)
+                    session_id = str(params.get("session_id") or target or "").strip()
                     assembled = ""
                     try:
                         spec = remotes_core.load_remote(name)
                     except remotes_core.RemoteError as exc:
                         yield support.message_chunk(str(exc), final=True)
                         return
-
-                    iterator = remotes_core.iter_anythingllm_chat(
-                        spec, prompt, session_id=session_id, target=target
+                    iterator = (
+                        remotes_core.iter_letta_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
+                        if stream_kind == "letta"
+                        else remotes_core.iter_anythingllm_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
                     )
                     sentinel = object()
                     while True:
@@ -438,16 +456,19 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                         if done:
                             break
                     if not assembled:
-                        yield support.message_chunk(
-                            "AnythingLLM returned an empty reply. Pick a "
-                            "workspace or thread session and try again.",
-                            final=True,
+                        empty = (
+                            "Letta returned an empty reply. Pick an agent "
+                            "session and try again."
+                            if stream_kind == "letta"
+                            else "AnythingLLM returned an empty reply. Pick a "
+                            "workspace or thread session and try again."
                         )
+                        yield support.message_chunk(empty, final=True)
                         return
                     yield support.message_chunk(
                         assembled,
                         final=True,
-                        meta=support.backend_meta(["remote_harness", "anythingllm", name]),
+                        meta=support.backend_meta(["remote_harness", stream_kind, name]),
                     )
                     return
                 else:

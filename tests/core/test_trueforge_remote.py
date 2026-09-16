@@ -590,9 +590,10 @@ def test_other_remotes_routines_unsupported():
             "rakazo": {"base_url": "http://127.0.0.1:9"},
             "swarm": {"base_url": "http://127.0.0.1:9"},
             "herdr": {"base_url": "http://127.0.0.1:9"},
+            "letta": {"base_url": "http://127.0.0.1:9"},
         }
     }
-    for rid in ("hermes", "omb", "rakazo", "swarm", "herdr"):
+    for rid in ("hermes", "omb", "rakazo", "swarm", "herdr", "letta"):
         res = remotes_core.operate(rid, "routines", config=cfg)
         assert res.ok is False
         assert "does not support routines" in res.detail

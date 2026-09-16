@@ -75,3 +75,73 @@ describe('remoteSessions (issue #88 AnythingLLM)', () => {
     expect(sessions[1].memberId).toBe('docs:abc')
   })
 })
+
+describe('remoteSessions (issue #89 Letta)', () => {
+  it('treats Letta as a session-list remote', () => {
+    expect(remoteListsSessions({ id: 'letta', kind: 'letta' })).toBe(true)
+    expect(
+      remoteListsSessions({ id: 'box', kind: 'letta', capabilities: { sessions: true } }),
+    ).toBe(true)
+  })
+
+  it('puts the Letta resume key on chat send params', () => {
+    expect(remoteChatTurnParams('letta')).toEqual({
+      remote: 'letta',
+      name: 'letta',
+      op: 'send',
+    })
+    expect(remoteChatTurnParams('letta', 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')).toEqual({
+      remote: 'letta',
+      name: 'letta',
+      op: 'send',
+      session_id: 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      target: 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    })
+  })
+
+  it('reads Letta operate list sessions and is searchable', () => {
+    const result = {
+      remote: 'letta',
+      op: 'list',
+      ok: true,
+      detail: 'listed',
+      data: {
+        sessions: [
+          {
+            id: 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            title: 'Memory clerk',
+            snippet: 'long-term memory agent',
+            channel: 'memgpt_agent',
+          },
+          {
+            id: 'agent-bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+            title: 'Onboarding flow',
+            snippet: 'workflow for new hires',
+            channel: 'workflow_agent',
+          },
+        ],
+      },
+    }
+    const rows = sessionsFromOperateResult(result)
+    expect(rows.map((row) => row.id)).toEqual([
+      'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      'agent-bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+    ])
+    expect(filterRemoteSessionRows(rows, 'onboarding').map((row) => row.id)).toEqual([
+      'agent-bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+    ])
+    expect(filterRemoteSessionRows(rows, 'memory').map((row) => row.id)).toEqual([
+      'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    ])
+
+    const sessions = memberSessionsFromRemoteOperate(
+      { id: 'letta', kind: 'letta', title: 'Letta' },
+      result,
+    )
+    expect(sessions).toHaveLength(2)
+    expect(sessions[0].href).toBe(
+      '/chat?remote=letta&session=agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    )
+    expect(sessions[0].memberId).toBe('agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
+  })
+})
