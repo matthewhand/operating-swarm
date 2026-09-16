@@ -30,7 +30,7 @@
             <span class="os-action-card__icon" aria-hidden="true"><i class="fas fa-bookmark"></i></span>
             <span>
                 <span class="os-action-card__title">My Library</span>
-                <span class="os-action-card__desc">Installed and custom blueprints ({{ installed_count }}).</span>
+                <span class="os-action-card__desc">Installed {{ installed_count }} · custom {{ custom_count }}.</span>
             </span>
         </a>
         <a href="{% url 'blueprint_creator' %}" class="os-action-card">

@@ -46,10 +46,16 @@ function generateAgentCode() {
             validationResult = result.validation;
             displayCode(result.code);
             displayValidation(result.validation);
-            document.getElementById('validateBtn').disabled = false;
+            const validateBtn = document.getElementById('validateBtn');
+            validateBtn.disabled = false;
+            validateBtn.classList.remove('d-none', 'btn-outline-secondary');
+            validateBtn.classList.add('btn-outline-primary');
 
             if (result.validation.valid) {
-                document.getElementById('saveBtn').disabled = false;
+                const saveBtn = document.getElementById('saveBtn');
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('d-none', 'btn-outline-secondary');
+                saveBtn.classList.add('btn-success');
                 showMessage('Agent code generated and validated successfully!', 'success');
             } else {
                 showMessage('Agent code generated but has validation issues. Check the validation results.', 'warning');
@@ -134,7 +140,10 @@ function validateCode() {
             displayValidation(result.validation);
 
             if (result.validation.valid) {
-                document.getElementById('saveBtn').disabled = false;
+                const saveBtn = document.getElementById('saveBtn');
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('d-none', 'btn-outline-secondary');
+                saveBtn.classList.add('btn-success');
                 showMessage('Code validation passed!', 'success');
             } else {
                 showMessage('Code validation found issues. Check the results below.', 'warning');
@@ -195,8 +204,14 @@ function clearForm() {
         </div>
     `;
     document.getElementById('validationResults').classList.add('os-hide');
-    document.getElementById('validateBtn').disabled = true;
-    document.getElementById('saveBtn').disabled = true;
+    const validateBtn = document.getElementById('validateBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    validateBtn.disabled = true;
+    saveBtn.disabled = true;
+    validateBtn.classList.add('d-none', 'btn-outline-secondary');
+    validateBtn.classList.remove('btn-outline-primary');
+    saveBtn.classList.add('d-none', 'btn-outline-secondary');
+    saveBtn.classList.remove('btn-success');
     generatedCode = '';
     validationResult = null;
     clearMessages();

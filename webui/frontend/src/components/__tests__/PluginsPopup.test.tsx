@@ -34,6 +34,15 @@ describe('PluginsPopup', () => {
     localStorage.removeItem(MCP_SERVERS_KEY)
   })
 
+  it('#402 list padding clears the sticky footer so the last row is not clipped', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+    const block = src.split('.os-search-palette__list')[1]?.split('}')[0] ?? ''
+    expect(block).toMatch(/3\.25rem/)
+    expect(block).toMatch(/scroll-padding-bottom/)
+  })
+
   it('lists fixture tools with visible Off toggles and fixture degrade copy', async () => {
     renderPopup()
     const dialog = screen.getByRole('dialog', { name: 'Plugins' })
