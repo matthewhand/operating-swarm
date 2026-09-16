@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { ChatMessageBubble } from '../ChatMessageBubble'
 import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
 import * as clipboard from '../../lib/clipboard'
@@ -520,4 +520,66 @@ describe('REQ-868: settings markdown links open the in-app sheet', () => {
   })
 })
 
+describe('#217: per-theme timestamp placement and message layout', () => {
+  const ts = '2026-09-03T06:54:00Z'
 
+  function renderThemed(
+    theme: 'speech' | 'simple' | 'irc' | 'feed',
+  ) {
+    return render(
+      <ChatMessageBubble
+        theme={theme}
+        role="assistant"
+        agentName="Codey"
+        text="hello"
+        streaming={false}
+        canEdit={false}
+        editing={false}
+        onStartEdit={() => {}}
+        onCancelEdit={() => {}}
+        onSaveEdit={() => {}}
+        ts={ts}
+      />,
+    )
+  }
+
+  it('speech keeps the clock above in a bubble row', () => {
+    renderThemed('speech')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'bubble')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'above')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('chat-header')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+
+  it('simple puts the datetimestamp below a bubble', () => {
+    renderThemed('simple')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'bubble')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'below')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('chat-footer')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+
+  it('irc sits the clock inline on a full-width line', () => {
+    renderThemed('irc')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'line')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'inline')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('os-bubble-time-inline')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+
+  it('feed keeps the clock above on a full-width line', () => {
+    renderThemed('feed')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'line')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'above')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('chat-header')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+})

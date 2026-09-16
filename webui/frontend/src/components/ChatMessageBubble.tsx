@@ -17,7 +17,7 @@ import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
 import SupportCreatedBlueprintCard from './SupportCreatedBlueprintCard'
 import { splitSkillRefs, type SkillInfo } from '../lib/skills'
-import { formatBubbleTime } from '../lib/bubbleTheme'
+import { getBubbleTheme, type BubbleTheme } from '../lib/bubbleTheme'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -39,8 +39,10 @@ export interface ChatMessageBubbleProps {
   onOpenSkill?: (name: string) => void
   /** REQ-213: view-only hide for compacted system pills. */
   onRemoveCard?: () => void
-  /** ISO timestamp for feed-theme meta; omitted when unknown. */
+  /** ISO timestamp for theme-owned chrome; omitted when unknown. */
   ts?: string
+  /** Active bubble theme; defaults to speech so isolated renders stay pixel-parity. */
+  theme?: BubbleTheme
   avatar?: ReactNode
 }
 
@@ -172,6 +174,7 @@ export function ChatMessageBubble({
   onRemoveCard,
   ts,
   avatar,
+  theme,
 }: ChatMessageBubbleProps) {
   const startFromHere = contextStrategy === 'cull'
   const contextActionLabel = startFromHere ? 'Start context from here' : 'Compress to here'
@@ -217,7 +220,14 @@ export function ChatMessageBubble({
   }
 
   const speaker = role === 'user' ? 'You' : agentName
-  const timeLabel = formatBubbleTime(ts)
+  const themeDef = getBubbleTheme(theme)
+  const timeLabel = themeDef.formatTimestamp(ts)
+  const timeEl = timeLabel ? (
+    <time className="os-bubble-time" dateTime={ts} data-testid="bubble-time">
+      {timeLabel}
+    </time>
+  ) : null
+  const placement = themeDef.timestampPlacement
 
   return (
     <div
@@ -225,6 +235,8 @@ export function ChatMessageBubble({
       data-message-role={role}
       data-speaker={speaker}
       data-ts={ts || undefined}
+      data-message-layout={themeDef.messageLayout}
+      data-timestamp-placement={placement}
       aria-label={`${speaker} message`}
     >
       {avatar ? (
@@ -232,12 +244,17 @@ export function ChatMessageBubble({
           {avatar}
         </div>
       ) : null}
-      <div className="chat-header os-bubble-meta text-xs opacity-60" data-speaker={speaker}>
-        {timeLabel ? (
-          <time className="os-bubble-time" dateTime={ts} data-testid="bubble-time">
-            {timeLabel}
-          </time>
-        ) : null}
+      {placement === 'inline' && timeEl ? (
+        <span className="os-bubble-time-inline" data-testid="bubble-time-slot">
+          {timeEl}
+        </span>
+      ) : null}
+      <div
+        className="chat-header os-bubble-meta text-xs opacity-60"
+        data-speaker={speaker}
+        data-testid={placement === 'above' ? 'bubble-time-slot' : undefined}
+      >
+        {placement === 'above' ? timeEl : null}
         {edited ? (
           <span className="font-normal opacity-70" data-testid="edited-hint">
             edited
@@ -285,6 +302,11 @@ export function ChatMessageBubble({
           {children}
         </div>
       )}
+      {placement === 'below' && timeEl ? (
+        <div className="chat-footer os-bubble-time-below" data-testid="bubble-time-slot">
+          {timeEl}
+        </div>
+      ) : null}
       {(!streaming && !editing && (canEdit || (canCompress && onCompressToHere))) ? (
         <div className="mt-0.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
           {canEdit ? (

@@ -1559,24 +1559,74 @@ button.os-agent-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: 0.375rem;
   min-height: 3rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
 }
+@media (min-width: 640px) {
+  .os-chat-header {
+    gap: 0.75rem;
+  }
+}
 .os-chat-header__identity {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: max-content;
   align-items: center;
   gap: 0.65rem;
+}
+.os-chat-header__controls {
+  display: flex;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 .os-chat-header__avatar {
   pointer-events: none;
 }
 
+/* REQ-865: agent name absorbs width; fade to the right instead of ellipsis. */
+.os-navbar-identity-label {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent 100%);
+}
+.os-navbar-identity-card .os-navbar-identity-label {
+  flex: 1 1 auto;
+}
+.os-navbar-identity-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
+}
+.os-navbar-identity-subtitle {
+  margin: 0;
+  max-width: 100%;
+  font-size: 0.6875rem;
+  line-height: 1.15;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--color-base-content) 58%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* REQ-200: one cascading navbar routing control (agent → model → effort). */
 .os-routing-picker {
   position: relative;
+  flex-shrink: 0;
   max-width: min(28rem, 46vw);
   min-width: 0;
 }
@@ -2165,6 +2215,33 @@ html:not([data-theme="light"]) .os-composer__send,
   display: inline;
   color: color-mix(in srgb, var(--color-base-content) 48%, transparent);
   opacity: 1;
+  font-weight: 400;
+}
+
+/* #217: timestamp placement is a theme override (below / inline / above). */
+.os-chat-transcript[data-timestamp-placement="below"] .chat-footer .os-bubble-time,
+.os-chat-transcript [data-timestamp-placement="below"] .os-bubble-time {
+  display: inline;
+  color: color-mix(in srgb, var(--color-base-content) 48%, transparent);
+  opacity: 1;
+  font-weight: 400;
+  font-size: 0.75rem;
+}
+.os-chat-transcript[data-timestamp-placement="below"] .chat-footer {
+  display: flex;
+  margin-top: 0.1rem;
+  opacity: 0.85;
+}
+.os-chat-transcript[data-timestamp-placement="inline"] .os-bubble-time-inline {
+  order: -1;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.os-chat-transcript[data-timestamp-placement="inline"] .os-bubble-time,
+.os-chat-transcript [data-timestamp-placement="inline"] .os-bubble-time {
+  display: inline;
+  color: color-mix(in srgb, var(--color-base-content) 48%, transparent);
   font-weight: 400;
 }
 
