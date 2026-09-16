@@ -92,6 +92,8 @@ def _send_tool(
         kwargs["timeout"] = remotes_core._LETTA_SEND_TIMEOUT_S
     elif kind == "flowise":
         kwargs["timeout"] = remotes_core._FLOWISE_SEND_TIMEOUT_S
+    elif kind == "n8n":
+        kwargs["timeout"] = remotes_core._N8N_SEND_TIMEOUT_S
     elif kind == "openwebui":
         from swarm.core.openwebui_remote import send_timeout
 
@@ -173,7 +175,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "n8n", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -195,6 +197,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "OPENWEBUI_API_KEY",
             "FLOWISE_BASE_URL",
             "FLOWISE_API_KEY",
+            "N8N_BASE_URL",
+            "N8N_API_KEY",
         ],
     }
 
@@ -309,6 +313,16 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_letta",
                 "Hand off to the Letta remote operator (health/list/send).",
+            ),
+            "n8n": (
+                "N8nRemote",
+                (
+                    "You operate remote n8n via tools. List chat/webhook workflows "
+                    "as sessions and send into an existing webhook. Never mint a "
+                    "new n8n workflow."
+                ),
+                "consult_n8n",
+                "Hand off to the n8n remote operator (health/list/send).",
             ),
             "openwebui": (
                 "OpenwebuiRemote",
@@ -442,7 +456,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta|openwebui|flowise> <prompt>"
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta|openwebui|flowise|n8n> <prompt>"
                 elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta", "openwebui", "flowise"}:
                     stream_kind = remotes_core.kind_of_instance(name)
                     session_id = str(params.get("session_id") or target or "").strip()
