@@ -133,13 +133,21 @@ describe('PluginsPopup marketplace entry (#179)', () => {
     localStorage.removeItem(CURRENT_CHAT_SCOPE_KEY)
   })
 
-  it('exposes "Get more from GitHub" that scans when expanded', async () => {
+  it('Add tools catalog scans GitHub and labels community content', async () => {
     renderPopup()
     await screen.findByRole('switch', { name: /Write File Off/i })
-    const toggle = screen.getByTestId('marketplace-toggle')
-    expect(toggle).toHaveTextContent('Get more from GitHub')
-    fireEvent.click(toggle)
-    expect(await screen.findByTestId('marketplace-results')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent(/No community packages/i)
+    fireEvent.click(screen.getByRole('tab', { name: 'Add tools' }))
+    const catalog = await screen.findByTestId('os-install-catalog')
+    expect(catalog).toHaveAttribute('data-surface', 'tools')
+    expect(await screen.findByText(/No community packages/i)).toBeInTheDocument()
+  })
+
+  it('Add skills is an honest empty catalog', async () => {
+    renderPopup()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Add skills' }))
+    const empty = await screen.findByTestId('os-install-empty')
+    expect(empty).toHaveTextContent(/No skill packs to install yet/)
+    expect(empty).toHaveTextContent(/empty on purpose/i)
+    expect(screen.queryByTestId('os-install-card')).toBeNull()
   })
 })
