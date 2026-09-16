@@ -48,6 +48,8 @@ export interface AgentEdit {
   workflow?: BlueprintWorkflow
   llmOverride?: string
   folder?: string
+  /** Last known git branch for the bound Folder (navbar subtitle, #65). */
+  gitBranch?: string
   /** REQ-166 Phase 0 — GitHub repo bind (chrome + local persist; no checkout). */
   githubRepo?: string
   /** REQ-166 Phase 0 — worktree scale-out toggle (chrome only; stays off until Phase 3). */
@@ -147,8 +149,15 @@ export function saveAgentEdit(agentId: string, patch: AgentEdit): AgentEdit {
   }
   if (patch.folder !== undefined) {
     const folder = patch.folder.trim()
+    const prev = (current.folder || '').trim()
     if (folder) next.folder = folder
     else delete next.folder
+    if (folder !== prev && patch.gitBranch === undefined) delete next.gitBranch
+  }
+  if (patch.gitBranch !== undefined) {
+    const gitBranch = patch.gitBranch.trim()
+    if (gitBranch) next.gitBranch = gitBranch
+    else delete next.gitBranch
   }
   if (patch.githubRepo !== undefined) {
     const githubRepo = patch.githubRepo.trim()

@@ -1603,6 +1603,25 @@ button.os-agent-row {
 .os-navbar-identity-card .os-navbar-identity-label {
   flex: 1 1 auto;
 }
+.os-navbar-identity-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
+}
+.os-navbar-identity-subtitle {
+  margin: 0;
+  max-width: 100%;
+  font-size: 0.6875rem;
+  line-height: 1.15;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--color-base-content) 58%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* REQ-200: one cascading navbar routing control (agent → model → effort). */
 .os-routing-picker {
