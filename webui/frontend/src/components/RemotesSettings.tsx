@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { filterRemoteSessionRows, sessionsFromOperateResult } from '../lib/remoteSessions'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, Plus, Server } from 'lucide-react'
 import { Alert, Button, Input, Select, Textarea, useToast } from './DaisyUI'
@@ -253,6 +254,10 @@ export function AddRemoteForm({
 
 export function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: string; name?: string }> {
   if (!result?.data) return []
+  const sessions = sessionsFromOperateResult(result)
+  if (sessions.length > 0) {
+    return sessions.map((row) => ({ id: row.id, name: row.title }))
+  }
   const raw = result.data
   let list: unknown = raw
   if (raw && typeof raw === 'object') {
@@ -342,6 +347,7 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   const [interrogated, setInterrogated] = useState<RemoteOperateResult | null>(null)
   const [botId, setBotId] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [sessionQuery, setSessionQuery] = useState('')
 
   const routinesQuery = useQuery({
     queryKey: ['remote-routines', remote.id],
@@ -402,7 +408,7 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
           op: 'send',
           prompt: prompt.trim(),
           target: botId.trim(),
-          session_id: botId.trim(),
+          session_id: botId.trim() || undefined,
         },
         { timeoutMs: OPERATE_SEND_TIMEOUT_MS },
       ),
@@ -419,6 +425,15 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   })
 
   const bots = useMemo(() => botsFromOperate(listed ?? undefined), [listed])
+  const visibleBots = useMemo(
+    () =>
+      filterRemoteSessionRows(
+        bots.map((bot) => ({ id: bot.id, title: bot.name || bot.id })),
+        sessionQuery,
+      ).map((row) => ({ id: row.id, name: row.title !== row.id ? row.title : undefined })),
+    [bots, sessionQuery],
+  )
+  const isSessionsRemote = Boolean(remote.capabilities?.sessions) || remote.id === 'anythingllm'
   const healthTone =
     health?.state === 'UP' ? 'success' : health?.state === 'DOWN' ? 'warning' : health ? 'info' : undefined
 
@@ -489,16 +504,43 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
 
       {listed && (
         <div className="space-y-2">
-          <p className="text-sm font-medium">{isOmb ? 'Bots' : isHerdr ? 'CLIs / panes' : 'List'}</p>
-          {listed.ok && bots.length > 0 ? (
+          <p className="text-sm font-medium">
+            {isOmb ? 'Bots' : isHerdr ? 'CLIs / panes' : isSessionsRemote ? 'Sessions' : 'List'}
+          </p>
+          {listed.ok && bots.length > 5 ? (
+            <Input
+              label="Search sessions"
+              name="remote-session-search"
+              value={sessionQuery}
+              onChange={(event) => setSessionQuery(event.target.value)}
+              placeholder="Filter by name or id"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          ) : null}
+          {listed.ok && visibleBots.length > 0 ? (
             <ul className="space-y-1 text-sm os-scrollable-picker-list pr-1">
-              {bots.map((bot) => (
-                <li key={bot.id} className="rounded-lg border border-base-300 bg-base-200/60 px-3 py-2 font-mono">
-                  {bot.id}
-                  {bot.name ? ` · ${bot.name}` : ''}
+              {visibleBots.map((bot) => (
+                <li key={bot.id}>
+                  <button
+                    type="button"
+                    className={`w-full rounded-lg border px-3 py-2 font-mono text-left ${
+                      botId === bot.id
+                        ? 'border-primary bg-primary/10'
+                        : 'border-base-300 bg-base-200/60'
+                    }`}
+                    onClick={() => setBotId(bot.id)}
+                  >
+                    {bot.id}
+                    {bot.name ? ` · ${bot.name}` : ''}
+                  </button>
                 </li>
               ))}
             </ul>
+          ) : listed.ok && bots.length > 0 && visibleBots.length === 0 ? (
+            <Alert type="info" icon={<AlertCircle className="h-5 w-5" />}>
+              <span className="text-sm">No sessions match “{sessionQuery}”.</span>
+            </Alert>
           ) : (
             <Alert type={listed.ok ? 'info' : 'warning'} icon={<AlertCircle className="h-5 w-5" />}>
               <span className="text-sm">{listed.detail}</span>

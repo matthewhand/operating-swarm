@@ -33,6 +33,7 @@ export interface RemoteEntry {
   title: string
   configured: boolean
   agents: RemoteAgent[]
+  capabilities?: { sessions?: boolean; list?: boolean; send?: boolean }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -120,7 +121,15 @@ export function parseRemote(raw: unknown): RemoteEntry | null {
   const agents = agentList(rec)
     .map((row, index) => parseAgent(row, index))
     .filter((row): row is RemoteAgent => row !== null)
-  return { id, kind, title, configured, agents }
+  const capsRec = asRecord(rec.capabilities)
+  const capabilities = capsRec
+    ? {
+        sessions: capsRec.sessions === true,
+        list: capsRec.list === true,
+        send: capsRec.send === true,
+      }
+    : undefined
+  return { id, kind, title, configured, agents, capabilities }
 }
 
 /** Always listed on the conversation rail (Hermes + OpenMousBot). */

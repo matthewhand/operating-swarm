@@ -24,6 +24,7 @@ agent may call the same tools via ``as_tool()`` specialists.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any, ClassVar
@@ -75,9 +76,19 @@ def _send_tool(
     prompt: str,
     target: str = "",
     context: dict[str, Any] | None = None,
+    session_id: str = "",
 ) -> str:
     """Send a job/turn to a remote harness's real API (not a local seat clone)."""
-    result = remotes_core.operate(name, "send", prompt=prompt, target=target)
+    kind = remotes_core.kind_of_instance(name)
+    kwargs: dict[str, Any] = {
+        "prompt": prompt,
+        "target": target,
+    }
+    if session_id:
+        kwargs["session_id"] = session_id
+    if kind == "anythingllm":
+        kwargs["timeout"] = remotes_core._ANYTHINGLLM_SEND_TIMEOUT_S
+    result = remotes_core.operate(name, "send", **kwargs)
     _arm_omb_followup(result, name, context)
     return _render_operate(result)
 
@@ -168,6 +179,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "SWARM_REMOTE_API_KEY",
             "TRUEFORGE_BASE_URL",
             "TRUEFORGE_API_KEY",
+            "ANYTHINGLLM_BASE_URL",
+            "ANYTHINGLLM_API_KEY",
         ],
     }
 
@@ -266,9 +279,9 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "anythingllm": (
                 "AnythingllmRemote",
                 (
-                    "You operate the remote AnythingLLM workspace via tools. "
-                    "Never pretend to be AnythingLLM locally. Send requires a "
-                    "workspace:thread id from list."
+                    "You operate remote AnythingLLM via tools. List workspaces/"
+                    "threads as sessions and send into an existing thread. "
+                    "Never mint a new AnythingLLM thread."
                 ),
                 "consult_anythingllm",
                 "Hand off to the AnythingLLM remote operator (health/list/send).",
@@ -343,7 +356,11 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         name = str(params.get("name") or params.get("remote") or "").strip()
         op = str(params.get("op") or "").strip().lower()
         target = str(
-            params.get("target") or params.get("bot_id") or params.get("session") or ""
+            params.get("target")
+            or params.get("bot_id")
+            or params.get("session")
+            or params.get("session_id")
+            or ""
         ).strip()
         last_text = self._last_user_text(messages)
         prompt = str(params.get("prompt") or last_text or "").strip()
@@ -372,6 +389,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         # Always build the as_tool graph so discovery/tools endpoints see it.
         agents = self._build_agents()
         op, name, prompt, target = self._parse(messages)
+        params = dict(self._params)
         text = self._last_user_text(messages)
         test_mode = os.environ.get("SWARM_TEST_MODE", "").lower() in ("1", "true", "yes")
         deterministic = op in ("health", "list", "send") and (
@@ -390,9 +408,53 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge> <prompt>"
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm> <prompt>"
+                elif remotes_core.kind_of_instance(name) == "anythingllm":
+                    session_id = str(
+                        params.get("session_id") or target or ""
+                    ).strip()
+                    assembled = ""
+                    try:
+                        spec = remotes_core.load_remote(name)
+                    except remotes_core.RemoteError as exc:
+                        yield support.message_chunk(str(exc), final=True)
+                        return
+
+                    iterator = remotes_core.iter_anythingllm_chat(
+                        spec, prompt, session_id=session_id, target=target
+                    )
+                    sentinel = object()
+                    while True:
+                        item = await asyncio.to_thread(next, iterator, sentinel)
+                        if item is sentinel:
+                            break
+                        delta, done, err = item
+                        if err:
+                            yield support.message_chunk(err, final=True)
+                            return
+                        if delta:
+                            assembled += delta
+                            yield support.message_chunk(delta)
+                        if done:
+                            break
+                    if not assembled:
+                        yield support.message_chunk(
+                            "AnythingLLM returned an empty reply. Pick a "
+                            "workspace or thread session and try again.",
+                            final=True,
+                        )
+                        return
+                    yield support.message_chunk(
+                        assembled,
+                        final=True,
+                        meta=support.backend_meta(["remote_harness", "anythingllm", name]),
+                    )
+                    return
                 else:
-                    body = _send_tool(name, prompt, target, context=self._params)
+                    session_id = str(params.get("session_id") or "").strip()
+                    body = _send_tool(
+                        name, prompt, target, context=self._params, session_id=session_id
+                    )
             yield support.message_chunk(
                 body,
                 final=True,

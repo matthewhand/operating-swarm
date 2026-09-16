@@ -132,6 +132,7 @@ import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId, type TeamRoster } from '../lib/teamRosters'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId, type RemoteEntry } from '../lib/remotesCatalog'
+import { fetchRemoteThreadSessions, remoteListsSessions } from '../lib/remoteSessions'
 import { configuredRemotes } from '../lib/remotes'
 import RemoteSessionsPopup from './RemoteSessionsPopup'
 import UpdateChrome from './UpdateChrome'
@@ -1313,6 +1314,21 @@ export default function AgentSidebar({
     setPicker({ title, sessions })
   }, [])
 
+  const openRemoteThreadPicker = useCallback(
+    async (remote: RemoteEntry) => {
+      try {
+        const sessions = await fetchRemoteThreadSessions(remote)
+        openGroupPicker(remote.title, sessions)
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message ? err.message : 'Could not list remote sessions'
+        toast?.error('Could not list remote sessions', message)
+        openGroupPicker(remote.title, [])
+      }
+    },
+    [openGroupPicker, toast],
+  )
+
   const closePicker = useCallback(() => setPicker(null), [])
 
   const openCliSessionPicker = useCallback(
@@ -2148,6 +2164,27 @@ export default function AgentSidebar({
 
   const handleMenuSelect = (id: RailMenuItemId) => {
     if (!menu) return
+    if (id === 'select-agent' && menu.kind === 'remote') {
+      const remote =
+        remotesQuery.data?.find((row) => row.id === menu.entityId) ||
+        configuredRemotesList.find((row) => row.id === menu.entityId)
+      closeMenu()
+      if (remote && remoteListsSessions(remote)) {
+        void openRemoteThreadPicker({
+          id: remote.id,
+          kind: remote.kind || remote.id,
+          title: remoteDisplayName(remote),
+          configured: true,
+          agents: [],
+          capabilities: remote.capabilities,
+        })
+        return
+      }
+      if (menu.sessions && menu.sessions.length > 0) {
+        openGroupPicker(menu.agentName, menu.sessions)
+      }
+      return
+    }
     if (id === 'select-agent' && menu.sessions && menu.sessions.length > 0) {
       const title = menu.agentName
       const sessions = menu.sessions
@@ -2718,6 +2755,10 @@ export default function AgentSidebar({
         onDrop={dropOnSelf}
         onClick={(event) => {
           event.preventDefault()
+          if (remoteListsSessions(remote)) {
+            void openRemoteThreadPicker(remote)
+            return
+          }
           const def = defaultSessionForRemote(remote)
           if (def) {
             navigate(def.href)
