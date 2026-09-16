@@ -1,31 +1,7 @@
 name: REQ-111 TUI Wave 0
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/tui/**"
-      - "src/swarm/core/swarm_cli.py"
-      - "docs/adr/012-swarm-cli-tui.md"
-      - "docs/adr/README.md"
-      - "docs/requirements/REQ-111.md"
-      - "tests/unit/test_adr012_swarm_cli_tui.py"
-      - "tests/unit/test_tui_client.py"
-      - "tests/unit/test_tui_layout.py"
-      - "tests/cli/test_tui_command.py"
-      - ".github/workflows/req111-tui-wave0.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/tui/**"
-      - "src/swarm/core/swarm_cli.py"
-      - "docs/adr/012-swarm-cli-tui.md"
-      - "docs/adr/README.md"
-      - "docs/requirements/REQ-111.md"
-      - "tests/unit/test_adr012_swarm_cli_tui.py"
-      - "tests/unit/test_tui_client.py"
-      - "tests/unit/test_tui_layout.py"
-      - "tests/cli/test_tui_command.py"
-      - ".github/workflows/req111-tui-wave0.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

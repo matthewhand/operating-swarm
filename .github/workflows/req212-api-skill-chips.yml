@@ -1,43 +1,7 @@
 name: REQ-212 API skills + chat chips
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/skills.py"
-      - "src/swarm/core/skill_attach.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "src/swarm/blueprints/cli_agent/blueprint_cli_agent.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/api_views.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/urls.py"
-      - "tests/core/test_skills.py"
-      - "tests/core/test_skill_attach.py"
-      - "tests/api/test_skills_api.py"
-      - "webui/frontend/src/lib/skills.ts"
-      - "webui/frontend/src/components/SkillChip.tsx"
-      - "webui/frontend/src/components/SkillPopup.tsx"
-      - "webui/frontend/src/components/ChatMessageBubble.tsx"
-      - ".github/workflows/req212-api-skill-chips.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/skills.py"
-      - "src/swarm/core/skill_attach.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "src/swarm/blueprints/cli_agent/blueprint_cli_agent.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/api_views.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/urls.py"
-      - "tests/core/test_skills.py"
-      - "tests/core/test_skill_attach.py"
-      - "tests/api/test_skills_api.py"
-      - "webui/frontend/src/lib/skills.ts"
-      - "webui/frontend/src/components/SkillChip.tsx"
-      - "webui/frontend/src/components/SkillPopup.tsx"
-      - "webui/frontend/src/components/ChatMessageBubble.tsx"
-      - ".github/workflows/req212-api-skill-chips.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

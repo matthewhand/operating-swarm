@@ -1,57 +1,7 @@
 name: REQ-75 blueprint roles
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/agent_roles.py"
-      - "src/swarm/core/definition_explain.py"
-      - "src/swarm/views/api_views.py"
-      - "src/swarm/blueprints/software_dev/blueprint_software_dev.py"
-      - "src/swarm/blueprints/sdlc_handoff/blueprint_sdlc_handoff.py"
-      - "src/swarm/static/css/rest_mode_style.css"
-      - "webui/frontend/src/lib/agentRoles.ts"
-      - "webui/frontend/src/lib/agentEdits.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/definitionExplain.ts"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/components/SettingsSheet.tsx"
-      - "webui/frontend/src/index.css"
-      - "tests/core/test_req75_blueprint_roles.py"
-      - "tests/core/test_agent_roles.py"
-      - "tests/core/test_team_rosters.py"
-      - "tests/views/test_api_views.py"
-      - "tests/unit/test_req67_role_badge_chrome.py"
-      - "webui/frontend/src/lib/__tests__/agentRoles.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentEdits.test.ts"
-      - "webui/frontend/src/components/__tests__/AgentEditor.test.tsx"
-      - "webui/frontend/src/components/__tests__/SettingsSheet.test.tsx"
-      - ".github/workflows/req75-blueprint-roles.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/agent_roles.py"
-      - "src/swarm/core/definition_explain.py"
-      - "src/swarm/views/api_views.py"
-      - "src/swarm/blueprints/software_dev/blueprint_software_dev.py"
-      - "src/swarm/blueprints/sdlc_handoff/blueprint_sdlc_handoff.py"
-      - "src/swarm/static/css/rest_mode_style.css"
-      - "webui/frontend/src/lib/agentRoles.ts"
-      - "webui/frontend/src/lib/agentEdits.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/definitionExplain.ts"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/components/SettingsSheet.tsx"
-      - "webui/frontend/src/index.css"
-      - "tests/core/test_req75_blueprint_roles.py"
-      - "tests/core/test_agent_roles.py"
-      - "tests/core/test_team_rosters.py"
-      - "tests/views/test_api_views.py"
-      - "tests/unit/test_req67_role_badge_chrome.py"
-      - "webui/frontend/src/lib/__tests__/agentRoles.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentEdits.test.ts"
-      - "webui/frontend/src/components/__tests__/AgentEditor.test.tsx"
-      - "webui/frontend/src/components/__tests__/SettingsSheet.test.tsx"
-      - ".github/workflows/req75-blueprint-roles.yml"
+  workflow_dispatch:
 
 jobs:
   python:

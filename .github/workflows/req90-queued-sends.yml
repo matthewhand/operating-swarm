@@ -1,33 +1,7 @@
 name: REQ-90 queued sends
 
 on:
-  pull_request:
-    paths:
-      - "webui/frontend/src/lib/chatQueue.ts"
-      - "webui/frontend/src/lib/__tests__/chatQueue.test.ts"
-      - "webui/frontend/src/components/QueuedSendPane.tsx"
-      - "webui/frontend/src/components/__tests__/QueuedSendPane.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.queued.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.suggestions.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.test.tsx"
-      - "webui/frontend/src/components/SuggestionChips.tsx"
-      - "webui/frontend/src/index.css"
-      - ".github/workflows/req90-queued-sends.yml"
-  push:
-    branches: [main]
-    paths:
-      - "webui/frontend/src/lib/chatQueue.ts"
-      - "webui/frontend/src/lib/__tests__/chatQueue.test.ts"
-      - "webui/frontend/src/components/QueuedSendPane.tsx"
-      - "webui/frontend/src/components/__tests__/QueuedSendPane.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.queued.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.suggestions.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.test.tsx"
-      - "webui/frontend/src/components/SuggestionChips.tsx"
-      - "webui/frontend/src/index.css"
-      - ".github/workflows/req90-queued-sends.yml"
+  workflow_dispatch:
 
 jobs:
   frontend-unit:

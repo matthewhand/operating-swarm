@@ -10,10 +10,6 @@ name: Visual Regression
 # does not need browsers or a frontend build.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:

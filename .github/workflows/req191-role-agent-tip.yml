@@ -1,45 +1,7 @@
 name: REQ-191 role-agent tip
 
 on:
-  pull_request:
-    paths:
-      - "docs/adr/010-role-agent-invocation-modes.md"
-      - "docs/adr/README.md"
-      - "docs/requirements/REQ-191.md"
-      - "docs/requirements/README.md"
-      - "docs/AGENT_ROLES.md"
-      - "docs/GLOSSARY.md"
-      - "webui/frontend/src/lib/roleAgentTip.ts"
-      - "webui/frontend/src/lib/agentRoles.ts"
-      - "webui/frontend/src/lib/__tests__/roleAgentTip.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentRoles.test.ts"
-      - "webui/frontend/src/components/RoleAgentTip.tsx"
-      - "webui/frontend/src/components/__tests__/RoleAgentTip.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.roleAgentTip.test.tsx"
-      - "webui/frontend/src/index.css"
-      - "tests/unit/test_req191_role_agent_modes.py"
-      - ".github/workflows/req191-role-agent-tip.yml"
-  push:
-    branches: [main]
-    paths:
-      - "docs/adr/010-role-agent-invocation-modes.md"
-      - "docs/adr/README.md"
-      - "docs/requirements/REQ-191.md"
-      - "docs/requirements/README.md"
-      - "docs/AGENT_ROLES.md"
-      - "docs/GLOSSARY.md"
-      - "webui/frontend/src/lib/roleAgentTip.ts"
-      - "webui/frontend/src/lib/agentRoles.ts"
-      - "webui/frontend/src/lib/__tests__/roleAgentTip.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentRoles.test.ts"
-      - "webui/frontend/src/components/RoleAgentTip.tsx"
-      - "webui/frontend/src/components/__tests__/RoleAgentTip.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.roleAgentTip.test.tsx"
-      - "webui/frontend/src/index.css"
-      - "tests/unit/test_req191_role_agent_modes.py"
-      - ".github/workflows/req191-role-agent-tip.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

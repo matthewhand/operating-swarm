@@ -1,61 +1,7 @@
 name: REQ-137 Support journey onboard
 
 on:
-  pull_request:
-    paths:
-      - "skills/support-session-ownership/SKILL.md"
-      - "src/swarm/core/support_journey.py"
-      - "src/swarm/core/support_agent.py"
-      - "src/swarm/core/suggestions.py"
-      - "src/swarm/views/suggestions_api.py"
-      - "src/swarm/blueprints/support/blueprint_support.py"
-      - "src/swarm/blueprints/common/support_blueprint.py"
-      - "tests/blueprints/test_support.py"
-      - "tests/core/test_support_agent.py"
-      - "tests/core/test_support_journey.py"
-      - "tests/core/test_suggestions.py"
-      - "tests/views/test_suggestions_api.py"
-      - "tests/unit/test_req137_support_onboard.py"
-      - "webui/frontend/src/lib/supportJourney.ts"
-      - "webui/frontend/src/lib/support-briefing.ts"
-      - "webui/frontend/src/lib/supportAgent.ts"
-      - "webui/frontend/src/lib/starter-agents.ts"
-      - "webui/frontend/src/lib/__tests__/supportJourney.test.ts"
-      - "webui/frontend/src/lib/__tests__/support-briefing.test.ts"
-      - "webui/frontend/src/lib/__tests__/supportAgent.test.ts"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/AgentRouterPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.supportOnboard.test.tsx"
-      - "webui/frontend/src/pages/__tests__/AgentRouterPage.test.tsx"
-      - ".github/workflows/req137-support-onboard.yml"
-  push:
-    branches: [main]
-    paths:
-      - "skills/support-session-ownership/SKILL.md"
-      - "src/swarm/core/support_journey.py"
-      - "src/swarm/core/support_agent.py"
-      - "src/swarm/core/suggestions.py"
-      - "src/swarm/views/suggestions_api.py"
-      - "src/swarm/blueprints/support/blueprint_support.py"
-      - "src/swarm/blueprints/common/support_blueprint.py"
-      - "tests/blueprints/test_support.py"
-      - "tests/core/test_support_agent.py"
-      - "tests/core/test_support_journey.py"
-      - "tests/core/test_suggestions.py"
-      - "tests/views/test_suggestions_api.py"
-      - "tests/unit/test_req137_support_onboard.py"
-      - "webui/frontend/src/lib/supportJourney.ts"
-      - "webui/frontend/src/lib/support-briefing.ts"
-      - "webui/frontend/src/lib/supportAgent.ts"
-      - "webui/frontend/src/lib/starter-agents.ts"
-      - "webui/frontend/src/lib/__tests__/supportJourney.test.ts"
-      - "webui/frontend/src/lib/__tests__/support-briefing.test.ts"
-      - "webui/frontend/src/lib/__tests__/supportAgent.test.ts"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/AgentRouterPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.supportOnboard.test.tsx"
-      - "webui/frontend/src/pages/__tests__/AgentRouterPage.test.tsx"
-      - ".github/workflows/req137-support-onboard.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

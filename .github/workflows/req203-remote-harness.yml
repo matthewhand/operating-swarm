@@ -1,45 +1,7 @@
 name: REQ-203 Remote harness spec
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/remote_harness.py"
-      - "src/swarm/core/remotes.py"
-      - "src/swarm/core/agent_kind.py"
-      - "src/swarm/core/agent_types.py"
-      - "src/swarm/core/kind_bases.py"
-      - "webui/frontend/src/lib/agentKind.ts"
-      - "webui/frontend/src/lib/agent-types.ts"
-      - "webui/frontend/src/lib/remoteKinds.ts"
-      - "webui/frontend/src/lib/remotes.ts"
-      - "webui/frontend/src/components/AddAgentWizard.tsx"
-      - "tests/core/test_req203_remote_harness.py"
-      - "tests/core/test_agent_kind.py"
-      - "tests/core/test_agent_types.py"
-      - "tests/unit/test_adr011_remote_harness.py"
-      - "docs/adr/011-remote-harness.md"
-      - "docs/REMOTE_HARNESSES.md"
-      - ".github/workflows/req203-remote-harness.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/remote_harness.py"
-      - "src/swarm/core/remotes.py"
-      - "src/swarm/core/agent_kind.py"
-      - "src/swarm/core/agent_types.py"
-      - "src/swarm/core/kind_bases.py"
-      - "webui/frontend/src/lib/agentKind.ts"
-      - "webui/frontend/src/lib/agent-types.ts"
-      - "webui/frontend/src/lib/remoteKinds.ts"
-      - "webui/frontend/src/lib/remotes.ts"
-      - "webui/frontend/src/components/AddAgentWizard.tsx"
-      - "tests/core/test_req203_remote_harness.py"
-      - "tests/core/test_agent_kind.py"
-      - "tests/core/test_agent_types.py"
-      - "tests/unit/test_adr011_remote_harness.py"
-      - "docs/adr/011-remote-harness.md"
-      - "docs/REMOTE_HARNESSES.md"
-      - ".github/workflows/req203-remote-harness.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

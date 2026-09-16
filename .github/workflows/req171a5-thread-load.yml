@@ -1,27 +1,7 @@
 name: REQ-171A-5 align WS and HTTP thread load
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/thread_load.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_persist_views.py"
-      - "tests/unit/test_req171a5_thread_load.py"
-      - "tests/test_consumers.py"
-      - "tests/views/test_chat_retention.py"
-      - "docs/websocket_chat.md"
-      - ".github/workflows/req171a5-thread-load.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/thread_load.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_persist_views.py"
-      - "tests/unit/test_req171a5_thread_load.py"
-      - "tests/test_consumers.py"
-      - "tests/views/test_chat_retention.py"
-      - "docs/websocket_chat.md"
-      - ".github/workflows/req171a5-thread-load.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

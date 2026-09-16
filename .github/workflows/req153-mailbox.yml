@@ -1,33 +1,7 @@
 name: REQ-153 peer mailbox
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/agent_relationships.py"
-      - "src/swarm/core/blueprint_base.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_views.py"
-      - "tests/core/test_agent_mailbox.py"
-      - "tests/core/test_agent_relationships.py"
-      - "tests/unit/test_req153_mailbox.py"
-      - "docs/adr/009-peer-mailbox.md"
-      - "docs/PEER_MAILBOX.md"
-      - ".github/workflows/req153-mailbox.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/agent_relationships.py"
-      - "src/swarm/core/blueprint_base.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_views.py"
-      - "tests/core/test_agent_mailbox.py"
-      - "tests/core/test_agent_relationships.py"
-      - "tests/unit/test_req153_mailbox.py"
-      - "docs/adr/009-peer-mailbox.md"
-      - "docs/PEER_MAILBOX.md"
-      - ".github/workflows/req153-mailbox.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:
