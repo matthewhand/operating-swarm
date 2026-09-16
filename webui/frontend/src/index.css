@@ -2621,7 +2621,8 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-search-palette__list {
   max-height: min(32rem, 60vh);
   overflow-y: auto;
-  padding: 0.25rem 0.5rem 0.7rem;
+  scroll-padding-bottom: 3.25rem;
+  padding: 0.25rem 0.5rem 3.25rem;
 }
 .os-search-row {
   display: flex;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   HOSTNAME_STORAGE_KEY,
   defaultHostname,
+  displayHostname,
   loadHostname,
   saveHostname,
   HOSTNAME_CHANGED_EVENT,
@@ -14,6 +15,15 @@ import {
 } from '../settingsPrefs'
 
 describe('hostname override', () => {
+  it('#400 masks loopback IPs as localhost for rail chrome', () => {
+    expect(displayHostname('127.0.0.1')).toBe('localhost')
+    expect(displayHostname('::1')).toBe('localhost')
+    expect(displayHostname('[::1]')).toBe('localhost')
+    expect(displayHostname('0.0.0.0')).toBe('localhost')
+    expect(displayHostname('lab.example')).toBe('lab.example')
+    expect(defaultHostname()).not.toBe('127.0.0.1')
+  })
+
   afterEach(() => {
     localStorage.removeItem(HOSTNAME_STORAGE_KEY)
     localStorage.removeItem(HOSTNAME_OVERRIDE_KEY)

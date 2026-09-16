@@ -2379,8 +2379,8 @@ export default function AgentSidebar({
           {mark}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2645,8 +2645,8 @@ export default function AgentSidebar({
           )}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2794,8 +2794,8 @@ export default function AgentSidebar({
           )}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -3163,7 +3163,8 @@ export default function AgentSidebar({
           <nav
             ref={navScrollRef}
             onScroll={updateCanScroll}
-            className="min-h-0 flex-1 overflow-y-auto px-2 pb-3"
+            className="min-h-0 flex-1 overflow-y-auto px-2 pb-16"
+            data-testid="rail-agent-scroller"
             aria-label="Agent list"
             onContextMenu={(event) => {
               const target = event.target as HTMLElement

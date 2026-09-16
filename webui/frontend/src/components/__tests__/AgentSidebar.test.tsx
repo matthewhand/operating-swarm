@@ -766,6 +766,29 @@ describe('AgentSidebar Grok rail', () => {
     expect(screen.queryAllByTestId('rail-update-chrome')).toHaveLength(1)
   })
 
+  it('#400 rail hostname is never a loopback IP', async () => {
+    renderSidebar()
+    await screen.findByRole('navigation', { name: 'Agent list' })
+    const hostname = screen.getByLabelText('Hostname') as HTMLInputElement
+    expect(hostname.value).not.toBe('127.0.0.1')
+    expect(hostname.value).not.toBe('::1')
+  })
+
+  it('#401 rail names keep a title with the full label', async () => {
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const support = await within(list).findByRole('link', { name: /Support/ })
+    const nameEl = within(support).getByTestId('rail-agent-name')
+    expect(nameEl).toHaveTextContent('Support')
+    expect(nameEl).toHaveAttribute('title', 'Support')
+  })
+
+  it('#404 agent list scroller has footer clearance padding', async () => {
+    renderSidebar()
+    await screen.findByRole('navigation', { name: 'Agent list' })
+    expect(screen.getByTestId('rail-agent-scroller').className).toMatch(/pb-16/)
+  })
+
   it('paints a red dot on rail-server-icon when local WS is disconnected (REQ-195)', async () => {
     resetChatConnection()
     renderSidebar()

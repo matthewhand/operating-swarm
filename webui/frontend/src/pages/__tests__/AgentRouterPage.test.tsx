@@ -439,6 +439,15 @@ describe('AgentRouterPage integration', () => {
     expect(within(screen.getByRole('main')).queryByText('Thinking & routing…')).not.toBeInTheDocument()
   })
 
+  it('#403 header wraps backends so the agent name stays readable', async () => {
+    renderPage()
+    const header = await screen.findByTestId('agents-chat-header')
+    expect(header.className).toMatch(/flex-wrap/)
+    expect(screen.getByTestId('agents-header-backends')).toBeInTheDocument()
+    const nameBtn = within(header).getByRole('button', { name: /click to edit name/i })
+    expect(nameBtn.className).not.toMatch(/max-w-\[12rem\]/)
+  })
+
   it('edits the bot name and purpose from the chat header', async () => {
     renderPage()
     const header = screen.getByRole('banner')

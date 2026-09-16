@@ -757,8 +757,8 @@ export default function AgentRouterPage() {
       {/* 2. Middle Panel: Dynamic Chat & Execution View */}
       <main className="flex-1 flex flex-col h-full min-w-0 bg-base-100 relative">
         {/* Chat Header Bar */}
-        <header className="min-h-14 border-b border-base-300/80 px-3 sm:px-4 flex items-center justify-between gap-2 flex-shrink-0 bg-base-100/90 backdrop-blur-md z-20 overflow-x-auto">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="min-h-14 border-b border-base-300/80 px-3 sm:px-4 flex flex-wrap items-start justify-between gap-2 flex-shrink-0 bg-base-100/90 backdrop-blur-md z-20" data-testid="agents-chat-header">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             {/* If sidebar is closed, show expand button */}
             {!sidebarOpen && (
               <button
@@ -781,7 +781,7 @@ export default function AgentRouterPage() {
                       label="name"
                       value={selectedAgent.customName || selectedAgent.name}
                       onSave={(next) => renameAgent(selectedAgent.agent_id, next)}
-                      className="font-bold text-sm max-w-[12rem] sm:max-w-[16rem]"
+                      className="font-bold text-sm min-w-0"
                     />
                     <AgentStatusBadge status={agentStatus[selectedAgent.agent_id] || 'idle'} showText={false} />
                   </div>
@@ -789,9 +789,10 @@ export default function AgentRouterPage() {
                     label="purpose"
                     value={selectedAgent.customPurpose || selectedAgent.specialty}
                     onSave={(next) => setAgentPurpose(selectedAgent.agent_id, next)}
-                    className="text-xs text-base-content/60 max-w-[14rem] sm:max-w-[20rem]"
+                    className="text-xs text-base-content/60 min-w-0"
                   />
                 </div>
+                <div className="flex flex-wrap items-center gap-1 shrink-0" data-testid="agents-header-backends">
                 <BackendSelect
                   agent={selectedAgent}
                   value={backendValue}
@@ -813,6 +814,7 @@ export default function AgentRouterPage() {
                   remoteFramework={selectedAgent.framework || frameworkByAgent[selectedAgent.agent_id] || ''}
                   onRemoteFrameworkChange={(next) => setAgentFramework(selectedAgent.agent_id, next)}
                 />
+                </div>
                 {selectedAgent.framework === 'dsh' && (
                   <button
                     type="button"

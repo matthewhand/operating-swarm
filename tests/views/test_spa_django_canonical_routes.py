@@ -332,6 +332,45 @@ class TestUxShellTemplateContracts:
         assert "Blueprint interface spec" in html
         assert "class MyTeamBlueprint" in html
 
+    def test_issue406_library_my_library_counts_custom(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxlib", password="ux-lib-pass")
+        client.force_login(user)
+        html = client.get("/blueprint-library/").content.decode()
+        assert "Installed and custom blueprints (" not in html
+        assert "Installed " in html and " · custom " in html
+
+    def test_issue405_library_card_title_uses_id_not_truncate_class(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxcard", password="ux-card-pass")
+        client.force_login(user)
+        html = client.get("/blueprint-library/").content.decode()
+        assert "remote_harness" in html
+        assert "card-title mb-0 text-truncate" not in html
+
+    def test_issue407_herdr_location_option_fully_visible(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxherd", password="ux-herd-pass")
+        client.force_login(user)
+        html = client.get("/settings/").content.decode()
+        assert ">Local (no SSH)</option>" in html
+        assert 'placeholder="http://127.0.0.1"' in html
+        assert "only if you chose localhost" not in html
+
+    def test_issue409_save_hidden_until_code_exists(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxsave", password="ux-save-pass")
+        client.force_login(user)
+        html = client.get("/agent-creator/").content.decode()
+        save_bit = html.split('id="saveBtn"', 1)[1][:200]
+        pre = html.split('id="saveBtn"', 1)[0][-120:]
+        assert "d-none" in pre + save_bit
+        assert "btn-success" not in pre + save_bit
+
     def test_agent_creator_uses_data_action_not_onclick(self, client):
         """Static creator actions bind via data-action delegation (no inline onclick)."""
         from django.contrib.auth.models import User
@@ -432,7 +471,7 @@ class TestUxShellTemplateContracts:
         response = client.get("/settings/")
         assert response.status_code == 200
         html = response.content.decode()
-        assert "Validate Config (not available)" in html
+        assert "Validate Config (not available)" not in html
         assert "Export (not available)" in html
         assert "(soon)" not in html
         assert "btn-check-path" not in html

@@ -204,7 +204,7 @@
         </span>
       </a>
     </div>
-    <p class="os-meta mt-2 mb-0">Validate Config (not available)</p>
+
   </div>
 
   <!-- Herdr members (REQ-21). DaisyUI SPA settings sheet is not in this tree. -->
@@ -236,17 +236,17 @@
         a host. <code>kind=herdr</code>
       </p>
       <form id="herdr-remote-form" class="row g-2 align-items-end mb-2">
-        <div class="col-md-2">
+        <div class="col-md-4">
           <label class="form-label" for="herdr-remote-mode">Location</label>
           <select class="form-select" id="herdr-remote-mode" name="herdr_mode">
             <option value="local" selected>Local (no SSH)</option>
             <option value="ssh">Remote (SSH)</option>
           </select>
         </div>
-        <div class="col-md-3" id="herdr-remote-base-wrap">
+        <div class="col-md-4" id="herdr-remote-base-wrap">
           <label class="form-label" for="herdr-remote-base">Local URL (optional)</label>
           <input class="form-control" id="herdr-remote-base" name="base_url"
-                 maxlength="500" placeholder="http://127.0.0.1 — only if you chose localhost" autocomplete="off">
+                 maxlength="500" placeholder="http://127.0.0.1" autocomplete="off">
         </div>
         <div class="col-md-3" id="herdr-remote-ssh-host-wrap" hidden>
           <label class="form-label" for="herdr-remote-ssh-host">SSH host</label>

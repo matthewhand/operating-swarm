@@ -4,9 +4,18 @@
 
 export const HOSTNAME_STORAGE_KEY = 'swarm_hostname'
 
+/** Loopback IPs are not a product hostname — show `localhost` in chrome (#400). */
+export function displayHostname(host: string): string {
+  const h = host.trim().toLowerCase()
+  if (h === '127.0.0.1' || h === '0.0.0.0' || h === '::1' || h === '[::1]') {
+    return 'localhost'
+  }
+  return host.trim() || 'localhost'
+}
+
 export function defaultHostname(): string {
   try {
-    return window.location.hostname || 'localhost'
+    return displayHostname(window.location.hostname || 'localhost')
   } catch {
     return 'localhost'
   }
@@ -15,7 +24,7 @@ export function defaultHostname(): string {
 export function loadHostname(): string {
   try {
     const stored = localStorage.getItem(HOSTNAME_STORAGE_KEY)
-    if (stored && stored.trim().length > 0) return stored.trim()
+    if (stored && stored.trim().length > 0) return displayHostname(stored)
   } catch {
     /* storage unavailable */
   }
