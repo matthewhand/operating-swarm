@@ -25,18 +25,28 @@ _VALID_KINDS = frozenset({"api", "cli", "remote", "blueprint"})
 API_AGENT_RAIL_ID = "api_agent"
 API_AGENT_BLUEPRINT_ID = "chatbot"
 
+# The builtin Support seat is exposed on the rail as ``starter-support`` but the
+# blueprint that actually runs a turn is ``support``. Same alias recipe as
+# ``api_agent`` -> ``chatbot`` above, so ``POST /v1/chat/completions`` and the
+# websocket resolve the rail id instead of 404ing it (#426).
+STARTER_SUPPORT_RAIL_ID = "starter-support"
+STARTER_SUPPORT_BLUEPRINT_ID = "support"
+
 
 def resolve_chat_blueprint_id(model_or_agent_id: str | None) -> str:
     """Blueprint id that actually runs a chat turn for ``model_or_agent_id``.
 
-    ``api_agent`` (rail / starter API seat) → ``chatbot``. Fleet seats ending
-    in a catalog CLI name (e.g. ``litellm-pi``) remap to ``cli_agent``. Every
-    other id is returned stripped as-is (including ``cli_agent``, ``support``,
+    ``api_agent`` (rail / starter API seat) → ``chatbot``; ``starter-support``
+    (builtin Support seat) → ``support``. Fleet seats ending in a catalog CLI
+    name (e.g. ``litellm-pi``) remap to ``cli_agent``. Every other id is
+    returned stripped as-is (including ``cli_agent``, ``support``,
     ``software_dev``).
     """
     raw = (model_or_agent_id or "").strip()
     if raw.lower() == API_AGENT_RAIL_ID:
         return API_AGENT_BLUEPRINT_ID
+    if raw.lower() == STARTER_SUPPORT_RAIL_ID:
+        return STARTER_SUPPORT_BLUEPRINT_ID
     if raw.lower().startswith("remote:") or is_remote_impl_id(raw):
         return "remote_harness"
     from swarm.core.cli_catalog import cli_from_rail_id

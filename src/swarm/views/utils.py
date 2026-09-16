@@ -10,6 +10,8 @@ from swarm.blueprints.dynamic_team.blueprint_dynamic_team import DynamicTeamBlue
 from swarm.core.agent_kind import (
     API_AGENT_BLUEPRINT_ID,
     API_AGENT_RAIL_ID,
+    STARTER_SUPPORT_BLUEPRINT_ID,
+    STARTER_SUPPORT_RAIL_ID,
     resolve_chat_blueprint_id,
 )
 from swarm.core.blueprint_discovery import (
@@ -146,6 +148,19 @@ def _load_all_blueprint_metadata_sync():
         meta = {**meta, "name": API_AGENT_RAIL_ID}
         info["metadata"] = meta
         blueprint_classes[API_AGENT_RAIL_ID] = info
+
+    # Same recipe for the builtin Support seat: the rail calls it
+    # ``starter-support``, the blueprint is ``support`` (#426). Without this the
+    # roster advertised the seat as an ``api`` row and every completion 404ed.
+    if (
+        STARTER_SUPPORT_BLUEPRINT_ID in blueprint_classes
+        and STARTER_SUPPORT_RAIL_ID not in blueprint_classes
+    ):
+        info = dict(blueprint_classes[STARTER_SUPPORT_BLUEPRINT_ID])
+        meta = dict(info.get("metadata") or {})
+        meta = {**meta, "name": STARTER_SUPPORT_RAIL_ID}
+        info["metadata"] = meta
+        blueprint_classes[STARTER_SUPPORT_RAIL_ID] = info
 
     # Merge dynamic teams as blueprints
     dyn = load_dynamic_registry()
