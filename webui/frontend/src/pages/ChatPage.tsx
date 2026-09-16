@@ -3270,6 +3270,7 @@ const ChatPage = () => {
               }
               models={[]}
               selectedModel=""
+              defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
               footerAction={{
                 id: '__manage_api__',
                 label: 'Manage API',

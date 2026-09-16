@@ -2608,6 +2608,26 @@ html:not([data-theme="light"]) .os-composer__send,
   font-size: 0.72rem;
   color: color-mix(in srgb, currentColor 50%, transparent);
 }
+.os-search-group {
+  list-style: none;
+  padding: 0.55rem 0.65rem 0.15rem;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.os-search-row--current .os-search-row__name {
+  font-weight: 700;
+}
+.os-search-row__badge {
+  flex: 0 0 auto;
+  font-size: 0.65rem;
+  font-weight: 650;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
 .os-search-tip {
   display: inline-flex;
   align-items: center;

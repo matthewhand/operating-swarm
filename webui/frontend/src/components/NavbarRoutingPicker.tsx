@@ -22,6 +22,7 @@ import {
   isNarrowViewport,
   subscribeNarrowViewport,
 } from '../lib/narrowViewport'
+import ModelSearchPalette from './ModelSearchPalette'
 import {
   displayableModels,
   familyHasEffort,
@@ -70,6 +71,8 @@ export interface NavbarRoutingPickerProps {
   onChange: (next: RoutingPathChange) => void
   footerAction?: RoutingFooterAction
   placeholder?: string
+  /** Highlight this id as the default profile in the API model palette (#281). */
+  defaultAgent?: string
   'aria-label'?: string
 }
 
@@ -109,12 +112,15 @@ export function NavbarRoutingPicker({
   onChange,
   footerAction,
   placeholder,
+  defaultAgent,
   'aria-label': ariaLabel,
 }: NavbarRoutingPickerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const labelId = useId()
   const [open, setOpen] = useState<OpenState>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const useModelPalette = seatKind === 'api'
   // #275: the dimension the user actually asked for. In sheet (narrow) mode the
   // level used to be derived from `families.length`, which silently downgraded an
   // explicit Model request to the agent list whenever no families were probed yet.
@@ -674,22 +680,31 @@ export function NavbarRoutingPicker({
   ) => (
     <button
       type="button"
-      className={`os-routing-pill join-item ${hoverPill === dim || open === dim || open === 'sheet' ? 'os-routing-pill--hot' : ''}`}
+      className={`os-routing-pill join-item ${hoverPill === dim || open === dim || open === 'sheet' || (useModelPalette && paletteOpen) ? 'os-routing-pill--hot' : ''}`}
       data-routing-pill={dim}
       data-testid={dim === 'agent' ? 'routing-pill-agent' : dim === 'model' ? 'routing-pill-model' : 'routing-pill-effort'}
       data-legacy-testid={extraTestId}
       data-value={dim === 'agent' ? selectedAgent : dim === 'model' ? path.modelBase : path.effort || ''}
       aria-label={dim === 'agent' ? groupLabel : dim === 'model' ? 'Model' : 'Effort'}
-      aria-haspopup="menu"
-      aria-expanded={open === dim || (open === 'sheet' && sheetLevel === dim)}
+      aria-haspopup={useModelPalette ? 'dialog' : 'menu'}
+      aria-expanded={
+        useModelPalette
+          ? paletteOpen
+          : open === dim || (open === 'sheet' && sheetLevel === dim)
+      }
       title={joined}
       onMouseEnter={() => {
         setHoverPill(dim)
-        if (!narrow) openDimension(dim)
+        if (!narrow && !useModelPalette) openDimension(dim)
       }}
       onMouseLeave={() => setHoverPill((cur) => (cur === dim ? null : cur))}
       onClick={(event) => {
         event.stopPropagation()
+        if (useModelPalette) {
+          setPaletteOpen(true)
+          close()
+          return
+        }
         openDimension(dim)
       }}
     >
@@ -706,7 +721,7 @@ export function NavbarRoutingPicker({
       className={`os-routing-picker ${narrow ? 'os-routing-picker--narrow' : ''}`}
       data-testid="navbar-routing-picker"
       data-seat-kind={seatKind}
-      data-open={open || ''}
+      data-open={paletteOpen ? 'palette' : open || ''}
       onKeyDown={open ? onMenuKeyDown : undefined}
       onMouseLeave={() => {
         if (!narrow && open && document.activeElement && rootRef.current?.contains(document.activeElement)) {
@@ -727,9 +742,13 @@ export function NavbarRoutingPicker({
         onClick={(event) => {
           // #275: pills stopPropagation and open their own dimension. Only leftover
           // face padding (not a pill) may open the agent list.
-          if (open !== null) return
+          if (open !== null || paletteOpen) return
           const target = event.target as HTMLElement | null
           if (target?.closest('[data-routing-pill]')) return
+          if (useModelPalette) {
+            setPaletteOpen(true)
+            return
+          }
           openDimension('agent')
         }}
       >
@@ -756,6 +775,19 @@ export function NavbarRoutingPicker({
             {renderMenu(sheetLevel)}
           </div>
         </OverlayFocusTrap>
+      ) : null}
+      {useModelPalette ? (
+        <ModelSearchPalette
+          open={paletteOpen}
+          models={agents.map((row) => ({ id: row.id, label: row.label }))}
+          selectedId={selectedAgent}
+          defaultId={defaultAgent}
+          onClose={() => setPaletteOpen(false)}
+          onSelect={(row) => {
+            emit('agent', { agent: row.id, model: '', modelBase: '', effort: null })
+            setPaletteOpen(false)
+          }}
+        />
       ) : null}
     </div>
   )
