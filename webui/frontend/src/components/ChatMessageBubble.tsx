@@ -10,6 +10,7 @@ import {
 import { FoldVertical, Pencil } from 'lucide-react'
 import { Textarea, LoadingDots } from './DaisyUI'
 import { renderSafeMarkdown } from '../lib/markdown'
+import { renderMarkdownSafe } from '../lib/markdownSafe'
 import { setupCodeFenceControls } from '../lib/codeFences'
 import { handleSettingsLinkClick } from '../lib/settingsLinks'
 import { parseSupportNlBlueprintFence } from '../lib/supportNlBlueprint'
@@ -17,7 +18,14 @@ import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
 import SupportCreatedBlueprintCard from './SupportCreatedBlueprintCard'
 import { splitSkillRefs, type SkillInfo } from '../lib/skills'
-import { getBubbleTheme, type BubbleTheme } from '../lib/bubbleTheme'
+import {
+  getBubbleTheme,
+  loadBubbleTheme,
+  renderStreamingAffordance,
+  streamingAffordanceClass,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
+import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/streamReplies'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -44,6 +52,8 @@ export interface ChatMessageBubbleProps {
   /** Active bubble theme; defaults to speech so isolated renders stay pixel-parity. */
   theme?: BubbleTheme
   avatar?: ReactNode
+  /** Seat id for the per-seat stream-replies override (#220). */
+  seatId?: string
 }
 
 function selectionIsActive(): boolean {
@@ -66,15 +76,33 @@ export const ChatBubbleBody = memo(
     streaming,
     skillCatalog,
     onOpenSkill,
+    theme,
+    seatId,
   }: {
     text: string
     streaming: boolean
     skillCatalog?: SkillInfo[]
     onOpenSkill?: (name: string) => void
+    theme?: BubbleTheme
+    seatId?: string
   }) {
     const mdRef = useRef<HTMLDivElement | null>(null)
     const expandedIndicesRef = useRef<Set<number>>(new Set())
-    const { prose, card } = parseSupportNlBlueprintFence(text)
+    const [, setStreamEpoch] = useState(0)
+    useEffect(() => {
+      const onChange = () => setStreamEpoch((n) => n + 1)
+      window.addEventListener(STREAM_REPLIES_CHANGED_EVENT, onChange)
+      return () => window.removeEventListener(STREAM_REPLIES_CHANGED_EVENT, onChange)
+    }, [])
+    const activeTheme = theme ?? loadBubbleTheme()
+    const allowPartial = streamingPartialEnabled({ theme: activeTheme, seatId })
+    const displayText =
+      streaming && !allowPartial ? '' : streaming ? renderMarkdownSafe(text) : text
+    const affordanceClass =
+      streaming && allowPartial && renderStreamingAffordance(activeTheme) !== 'none'
+        ? streamingAffordanceClass(activeTheme)
+        : ''
+    const { prose, card } = parseSupportNlBlueprintFence(displayText)
     const segments = splitSkillRefs(prose)
 
     useEffect(() => {
@@ -87,9 +115,9 @@ export const ChatBubbleBody = memo(
       }
       root.addEventListener('click', onClick)
       return () => root.removeEventListener('click', onClick)
-    }, [text])
+    }, [displayText])
 
-    if (text.length === 0) {
+    if (displayText.length === 0) {
       return streaming ? (
         <LoadingDots size="sm" />
       ) : (
@@ -105,11 +133,17 @@ export const ChatBubbleBody = memo(
         <div
           ref={mdRef}
           data-testid="chat-md"
+          data-streaming-partial={streaming && allowPartial ? 'true' : undefined}
           className={mdClass}
           dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(prose) }}
         />
       ) : (
-        <div ref={mdRef} data-testid="chat-md" className={mdClass}>
+        <div
+          ref={mdRef}
+          data-testid="chat-md"
+          data-streaming-partial={streaming && allowPartial ? 'true' : undefined}
+          className={mdClass}
+        >
           {segments.map((segment, index) => {
             if (segment.type === 'text') {
               return (
@@ -135,13 +169,26 @@ export const ChatBubbleBody = memo(
         </div>
       )
 
+    const body = (
+      <>
+        {markdown}
+        {affordanceClass ? (
+          <span
+            className={affordanceClass}
+            data-testid="stream-affordance"
+            aria-hidden="true"
+          />
+        ) : null}
+      </>
+    )
+
     if (!card) {
-      return markdown
+      return body
     }
 
     return (
       <div data-testid="chat-md-with-nl-card">
-        {markdown}
+        {body}
         <SupportCreatedBlueprintCard card={card} />
       </div>
     )
@@ -150,7 +197,9 @@ export const ChatBubbleBody = memo(
     prev.text === next.text &&
     prev.streaming === next.streaming &&
     prev.skillCatalog === next.skillCatalog &&
-    prev.onOpenSkill === next.onOpenSkill,
+    prev.onOpenSkill === next.onOpenSkill &&
+    prev.theme === next.theme &&
+    prev.seatId === next.seatId,
 )
 
 export function ChatMessageBubble({
@@ -175,6 +224,7 @@ export function ChatMessageBubble({
   ts,
   avatar,
   theme,
+  seatId,
 }: ChatMessageBubbleProps) {
   const startFromHere = contextStrategy === 'cull'
   const contextActionLabel = startFromHere ? 'Start context from here' : 'Compress to here'
@@ -298,6 +348,8 @@ export function ChatMessageBubble({
             streaming={streaming}
             skillCatalog={skillCatalog}
             onOpenSkill={onOpenSkill}
+            theme={theme}
+            seatId={seatId}
           />
           {children}
         </div>

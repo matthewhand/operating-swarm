@@ -26,6 +26,7 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Input, ListItem, ListView, Static
 
+from swarm.tui.markdown_safe import render_markdown_safe
 from swarm.tui.client import (
     GETTER,
     POSTER,
@@ -550,7 +551,8 @@ class TuiApp(App[None]):
                     break
                 buffer.append(delta)
                 if seat.id == self._selected_id and self._session_for(seat.id) == session:
-                    view = [*running, *self._assistant_row(buffer)]
+                    shown = render_markdown_safe("".join(buffer), complete=False)
+                    view = [*running, *self._assistant_row([shown])]
                     self._set_chat_body(_render_messages(view, seat.name, session))
         except asyncio.CancelledError:
             raise  # seat / session switch — the finally block closes the stream

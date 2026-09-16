@@ -54,16 +54,21 @@ classDiagram
 
 ## Override matrix
 
-| Theme | `messageLayout` | `timestampPlacement` | Notes |
+| Theme | `messageLayout` | `timestampPlacement` | Streaming (#220) |
 |---|---|---|---|
-| `speech` | `bubble` | `above` | Default (REQ-844 tails). Time stays CSS-hidden in the header. |
-| `simple` | `bubble` | `below` | Traditional chat — datetimestamp under every message. |
-| `irc` | `line` | `inline` | Nick gutter; clock sits next to the line. |
-| `feed` | `line` | `above` | Speaker + time in the header. |
+| `speech` | `bubble` | `above` | `supportsStreaming` + caret |
+| `simple` | `bubble` | `below` | `supportsStreaming` + caret |
+| `irc` | `line` | `inline` | `supportsStreaming` + block |
+| `feed` | `line` | `above` | no live prefix |
 
 `formatTimestamp` defaults to `formatBubbleTime()`. `renderRoleBadge`,
 `renderAvatar`, `renderStreamingAffordance`, and `composerChrome` default to
 no-ops so a new theme is id + layout + placement.
+
+Streaming display is opt-in (#220): `BUBBLE_THEME_STREAMING` is the theme gate;
+a user toggle plus per-seat override sit on top. `renderMarkdownSafe` holds
+unclosed `**` / `*` / `` ` `` / fences / links until they balance or the
+stream ends.
 
 Persistence (`os.bubbleTheme`, `parseBubbleTheme` / `loadBubbleTheme` /
 `saveBubbleTheme`) is unchanged. `BUBBLE_THEMES` and `BUBBLE_THEME_LABELS`
@@ -74,7 +79,8 @@ derive from the registry.
 - `webui/frontend/src/lib/bubbleThemes/base.ts` — `BubbleThemeBase`, `formatBubbleTime`, `formatTimestamp`
 - `webui/frontend/src/lib/bubbleThemes/registry.ts` — `registerBubbleTheme`, `allBubbleThemes`
 - `webui/frontend/src/lib/bubbleThemes/themes.ts` — `SpeechTheme`, `SimpleTheme`, `IrcTheme`, `FeedTheme`
-- `webui/frontend/src/lib/bubbleTheme.ts` — backward-compat facade (`DEFAULT_BUBBLE_THEME`, storage)
+- `webui/frontend/src/lib/bubbleTheme.ts` — backward-compat facade (`DEFAULT_BUBBLE_THEME`, storage, `BUBBLE_THEME_STREAMING`)
+- `webui/frontend/src/lib/markdownSafe.ts` — `renderMarkdownSafe` (#220)
 - `webui/frontend/src/components/ChatMessageBubble.tsx` — renderer consults `getBubbleTheme`
 - Tests: `webui/frontend/src/lib/__tests__/bubbleTheme.test.ts`
 

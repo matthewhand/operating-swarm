@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
-import { ChatMessageBubble } from '../ChatMessageBubble'
+import { ChatBubbleBody, ChatMessageBubble } from '../ChatMessageBubble'
 import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
+import { STREAM_REPLIES_STORAGE_KEY } from '../../lib/streamReplies'
+import { BUBBLE_THEME_STORAGE_KEY } from '../../lib/bubbleTheme'
 import * as clipboard from '../../lib/clipboard'
 
 describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse', () => {
@@ -517,6 +519,39 @@ describe('REQ-868: settings markdown links open the in-app sheet', () => {
     fireEvent.click(screen.getByRole('link', { name: 'docs' }))
     expect(opened).toEqual([])
     window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+  })
+})
+
+describe('markdown-safe streaming (#220)', () => {
+  afterEach(() => {
+    localStorage.removeItem(STREAM_REPLIES_STORAGE_KEY)
+    localStorage.removeItem(BUBBLE_THEME_STORAGE_KEY)
+  })
+
+  it('hides partial markdown while streaming when the user toggle is off', () => {
+    const { container } = render(
+      <ChatBubbleBody text="hello **wor" streaming />,
+    )
+    expect(container.querySelector('[data-testid="chat-md"]')).toBeNull()
+    expect(container.textContent).not.toContain('**wor')
+  })
+
+  it('renders only the balanced prefix while streaming when opted in', () => {
+    localStorage.setItem(STREAM_REPLIES_STORAGE_KEY, '1')
+    localStorage.setItem(BUBBLE_THEME_STORAGE_KEY, 'speech')
+    render(<ChatBubbleBody text="hello **wor" streaming />)
+    const md = screen.getByTestId('chat-md')
+    expect(md).toHaveAttribute('data-streaming-partial', 'true')
+    expect(md.innerHTML.toLowerCase()).not.toContain('**')
+    expect(md.textContent).toContain('hello')
+    expect(md.textContent).not.toContain('wor')
+    expect(screen.getByTestId('stream-affordance')).toBeInTheDocument()
+  })
+
+  it('flushes the held tail when streaming ends', () => {
+    localStorage.setItem(STREAM_REPLIES_STORAGE_KEY, '1')
+    render(<ChatBubbleBody text="hello **world**" streaming={false} />)
+    expect(screen.getByTestId('chat-md').innerHTML).toContain('<strong>world</strong>')
   })
 })
 

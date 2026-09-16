@@ -31,6 +31,36 @@ export const BUBBLE_THEME_LABELS = Object.fromEntries(
   allBubbleThemes().map((theme) => [theme.id, theme.label]),
 ) as Record<BubbleTheme, string>
 
+/** #220 — per-theme streaming affordance (theme gate; #217 owns the rest). */
+export type StreamingAffordance = 'caret' | 'block' | 'none'
+
+export interface BubbleThemeStreaming {
+  id: BubbleTheme
+  supportsStreaming: boolean
+  renderStreamingAffordance: StreamingAffordance
+}
+
+export const BUBBLE_THEME_STREAMING: Record<BubbleTheme, BubbleThemeStreaming> = {
+  speech: { id: 'speech', supportsStreaming: true, renderStreamingAffordance: 'caret' },
+  simple: { id: 'simple', supportsStreaming: true, renderStreamingAffordance: 'caret' },
+  irc: { id: 'irc', supportsStreaming: true, renderStreamingAffordance: 'block' },
+  feed: { id: 'feed', supportsStreaming: false, renderStreamingAffordance: 'none' },
+}
+
+export function bubbleThemeSupportsStreaming(theme: BubbleTheme): boolean {
+  return BUBBLE_THEME_STREAMING[theme].supportsStreaming
+}
+
+export function renderStreamingAffordance(theme: BubbleTheme): StreamingAffordance {
+  return BUBBLE_THEME_STREAMING[theme].renderStreamingAffordance
+}
+
+export function streamingAffordanceClass(theme: BubbleTheme): string {
+  const kind = renderStreamingAffordance(theme)
+  if (kind === 'none') return ''
+  return `os-stream-affordance os-stream-affordance--${kind}`
+}
+
 export function parseBubbleTheme(raw: unknown): BubbleTheme {
   if (typeof raw === 'string' && (BUBBLE_THEMES as readonly string[]).includes(raw)) {
     return raw as BubbleTheme

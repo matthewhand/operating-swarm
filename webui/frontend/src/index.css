@@ -148,6 +148,28 @@ html:not([data-theme="light"]) .os-composer,
   background: var(--os-grok-composer, #262626);
 }
 
+/* #220: theme-gated streaming affordance (caret / block). */
+@keyframes os-stream-affordance-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.os-stream-affordance {
+  display: inline-block;
+  margin-left: 0.1em;
+  color: inherit;
+  animation: os-stream-affordance-blink 1s step-end infinite;
+}
+
+.os-stream-affordance--caret::after {
+  content: "▍";
+}
+
+.os-stream-affordance--block::after {
+  content: "█";
+}
+
 /* REQ-804: in-bubble markdown follows data-theme via DaisyUI / #464 tokens */
 .chat-md,
 .os-chat-md {
