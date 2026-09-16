@@ -875,6 +875,16 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         except Exception:
             logger.exception("Failed to install peer mailbox tools")
         try:
+            from swarm.core.agent_mcp import install_mcp_for_runtime
+
+            install_mcp_for_runtime(
+                blueprint_instance,
+                caller_id=str(blueprint_id or ""),
+                params=params if isinstance(params, dict) else {},
+            )
+        except Exception:
+            logger.exception("Failed to install agent MCP tools")
+        try:
             from swarm.core.agent_lifecycle import install_lifecycle_for_runtime
 
             install_lifecycle_for_runtime(

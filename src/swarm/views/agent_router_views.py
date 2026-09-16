@@ -8,6 +8,7 @@ API endpoints for the agent router blueprint that provides:
 """
 
 import json
+import logging
 from typing import Any
 
 from django.http import JsonResponse, StreamingHttpResponse
@@ -15,6 +16,8 @@ from django.views.decorators.http import require_http_methods
 
 from swarm.auth import enforce_api_auth
 from swarm.blueprints.agent_router import AgentRouterBlueprint
+
+logger = logging.getLogger(__name__)
 
 # Initialize the agent router blueprint
 agent_router = AgentRouterBlueprint()
@@ -388,7 +391,15 @@ def send_to_agent(request, agent_id):
             params["context"] = context
             
         blueprint.set_params(params)
-        
+        try:
+            from swarm.core.agent_mcp import apply_mcp_to_agent
+
+            target = getattr(blueprint, "_agents", {}).get(agent_id)
+            if target is not None:
+                apply_mcp_to_agent(target, agent_id)
+        except Exception:
+            logger.debug("Agent MCP attach on send skipped", exc_info=True)
+
         # Prepare messages
         messages = [{"role": "user", "content": message}]
         if context:

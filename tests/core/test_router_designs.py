@@ -124,3 +124,13 @@ def test_delete_design(designs_file):
     assert delete_design("temp") is True
     assert load_designs() == []
     assert delete_design("temp") is False
+
+
+def test_validate_rejects_mcp_mode_on_cli():
+    with pytest.raises(ValueError, match="API managed"):
+        validate_design({
+            "kind": "cli",
+            "name": "Agy",
+            "cli": "agy",
+            "mcp_mode": "all",
+        })
