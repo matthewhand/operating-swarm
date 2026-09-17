@@ -443,11 +443,10 @@ def map_team_purpose_answer(answer: str) -> str | None:
 
 
 def _assistant_asked_team_purpose(messages: list[dict[str, Any]] | None) -> bool:
-    for msg in messages or []:
-        if str(msg.get("role") or "") != "assistant":
-            continue
-        if TEAM_PURPOSE_QUESTION_ID in str(msg.get("content") or ""):
-            return True
+    """True only if the immediately preceding assistant turn asked for team purpose."""
+    for msg in reversed(messages or []):
+        if str(msg.get("role") or "").lower() == "assistant":
+            return TEAM_PURPOSE_QUESTION_ID in str(msg.get("content") or "")
     return False
 
 

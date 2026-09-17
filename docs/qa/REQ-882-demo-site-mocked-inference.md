@@ -186,9 +186,9 @@ Dual-mode, as designed:
 
 Steerage: `DemoTourBanner`, suggestion chips, guided-tour prompt, fallback notice for arbitrary input.
 
-**Hosting is operator-gated.** `scripts/deploy_demo_site.py` / `make demo-deploy` publishes to Fly (`fly.demo.toml`, app `open-swarm-demo`) or Cloudflare/GitHub Pages only when `FLY_API_TOKEN` / `flyctl auth whoami` / `CLOUDFLARE_API_TOKEN` / `GITHUB_PAGES_DEPLOY` is present. Missing credentials prints `SKIP:` and exits 0 — the mocked site still ships in-repo.
+**Hosting is operator-gated for cloud publish.** `scripts/deploy_demo_site.py` / `make demo-deploy` publishes to Fly (`fly.demo.toml`, app `open-swarm-demo`) or Cloudflare/GitHub Pages only when `FLY_API_TOKEN` / `flyctl auth whoami` / `CLOUDFLARE_API_TOKEN` / `GITHUB_PAGES_DEPLOY` is present. Missing credentials prints `SKIP:` and exits 0. **Local / static drop** needs no tokens: `make demo-build && make demo-serve` (`scripts/serve_demo_site.py`, [docs/DEMO_HOSTING.md](../DEMO_HOSTING.md), issue #439).
 
-Lock tests: `tests/unit/test_req882_demo_site_mocked_inference.py`. Behaviour: `test_demo_script_engine.py`, `test_consumer_demo_mode.py`, `test_deploy_demo_site.py`, Vitest `src/lib/demo/__tests__/*`.
+Lock tests: `tests/unit/test_req882_demo_site_mocked_inference.py`. Behaviour: `test_demo_script_engine.py`, `test_consumer_demo_mode.py`, `test_deploy_demo_site.py`, `test_serve_demo_site.py`, Vitest `src/lib/demo/__tests__/*`.
 
 ## 7. Acceptance Criteria
 

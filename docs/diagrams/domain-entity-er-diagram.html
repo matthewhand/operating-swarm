@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Swarm · Domain Entity &amp; State Model (ER)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1080px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 980px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Data Model · Open Swarm</p>
+    <h1>Core Domain Entity &amp; Persistence Relationships</h1>
+
+    <svg viewBox="0 0 1020 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="er-title er-desc">
+      <title id="er-title">Core Domain Entity &amp; Persistence Relationships</title>
+      <desc id="er-desc">Entity-relationship data model diagram depicting agents, team rosters, conversation sessions, turn records, tool calls, and routines in Open Swarm.</desc>
+      <defs>
+        <pattern id="grid-dots-er" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.08)"/>
+        </pattern>
+        <marker id="arrow-er" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="arrow-er-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#grid-dots-er)" opacity="0.6"/>
+
+      <!-- Entity 1: AgentProfile (Focal) -->
+      <g transform="translate(40, 40)">
+        <rect width="260" height="200" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="2"/>
+        <rect width="260" height="32" rx="6" fill="#f08a59"/>
+        <text x="14" y="21" fill="#2d3142" font-family="'Geist', sans-serif" font-size="14" font-weight="700">AgentProfile</text>
+        <text x="180" y="21" fill="#2d3142" font-family="'Geist Mono', monospace" font-size="10">core seat</text>
+        <!-- Attributes -->
+        <text x="14" y="56" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: string (slug)</text>
+        <text x="14" y="76" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   name: string</text>
+        <text x="14" y="96" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   kind: "api"|"cli"|"remote"</text>
+        <text x="14" y="116" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   model_id: string | null</text>
+        <text x="14" y="136" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   system_prompt: text</text>
+        <text x="14" y="156" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   tools_allowlist: json</text>
+        <text x="14" y="176" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   is_discoverable: boolean</text>
+      </g>
+
+      <!-- Entity 2: TeamRoster -->
+      <g transform="translate(390, 40)">
+        <rect width="260" height="160" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <rect width="260" height="32" rx="6" fill="#3f455d"/>
+        <text x="14" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">TeamRoster</text>
+        <text x="170" y="21" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">blueprint</text>
+        <!-- Attributes -->
+        <text x="14" y="56" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: string (blueprint_id)</text>
+        <text x="14" y="76" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   name: string</text>
+        <text x="14" y="96" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   routing_mode: "auto"|"direct"</text>
+        <text x="14" y="116" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#bfc0c0">FK</tspan> chief_of_staff_id: string</text>
+        <text x="14" y="136" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   is_active: boolean</text>
+      </g>
+
+      <!-- Entity 3: TeamMember (Junction) -->
+      <g transform="translate(730, 40)">
+        <rect width="250" height="140" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <rect width="250" height="32" rx="6" fill="#3f455d"/>
+        <text x="14" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">TeamMember</text>
+        <text x="175" y="21" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">junction</text>
+        <!-- Attributes -->
+        <text x="14" y="56" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK,FK</tspan> roster_id: string</text>
+        <text x="14" y="76" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK,FK</tspan> agent_id: string</text>
+        <text x="14" y="96" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">      role_label: string</text>
+        <text x="14" y="116" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">      priority_index: int</text>
+      </g>
+
+      <!-- Entity 4: ConversationSession -->
+      <g transform="translate(40, 310)">
+        <rect width="260" height="170" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="2"/>
+        <rect width="260" height="32" rx="6" fill="#f08a59"/>
+        <text x="14" y="21" fill="#2d3142" font-family="'Geist', sans-serif" font-size="14" font-weight="700">ConversationSession</text>
+        <text x="195" y="21" fill="#2d3142" font-family="'Geist Mono', monospace" font-size="10">thread</text>
+        <!-- Attributes -->
+        <text x="14" y="56" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: uuid / string</text>
+        <text x="14" y="76" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#bfc0c0">FK</tspan> agent_id: string</text>
+        <text x="14" y="96" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   seat_kind: "api"|"cli"|"remote"</text>
+        <text x="14" y="116" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   title: string</text>
+        <text x="14" y="136" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   is_active: boolean</text>
+        <text x="14" y="156" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   created_at: timestamp</text>
+      </g>
+
+      <!-- Entity 5: TurnRecord -->
+      <g transform="translate(390, 310)">
+        <rect width="260" height="170" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <rect width="260" height="32" rx="6" fill="#3f455d"/>
+        <text x="14" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">TurnRecord</text>
+        <text x="190" y="21" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">history</text>
+        <!-- Attributes -->
+        <text x="14" y="56" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: uuid / bigint</text>
+        <text x="14" y="76" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#bfc0c0">FK</tspan> session_id: uuid</text>
+        <text x="14" y="96" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   turn_index: int</text>
+        <text x="14" y="116" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   role: "user"|"assistant"</text>
+        <text x="14" y="136" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   content: text</text>
+        <text x="14" y="156" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   tokens_used: int</text>
+      </g>
+
+      <!-- Entity 6: ToolCallEvent -->
+      <g transform="translate(730, 310)">
+        <rect width="250" height="170" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <rect width="250" height="32" rx="6" fill="#3f455d"/>
+        <text x="14" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">ToolCallEvent</text>
+        <text x="175" y="21" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">audit log</text>
+        <!-- Attributes -->
+        <text x="14" y="56" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: uuid / bigint</text>
+        <text x="14" y="76" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#bfc0c0">FK</tspan> turn_id: uuid</text>
+        <text x="14" y="96" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   tool_name: string</text>
+        <text x="14" y="116" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   arguments: json</text>
+        <text x="14" y="136" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   status: "ok"|"denied"|"fail"</text>
+        <text x="14" y="156" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">   output_preview: text</text>
+      </g>
+
+      <!-- Entity 7: RoutineSchedule -->
+      <g transform="translate(40, 515)">
+        <rect width="450" height="85" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <rect width="450" height="28" rx="6" fill="#3f455d"/>
+        <text x="14" y="19" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">RoutineSchedule</text>
+        <text x="350" y="19" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">30d calendar</text>
+        <!-- Attributes -->
+        <text x="14" y="46" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: string  <tspan fill="#bfc0c0">FK</tspan> agent_id: string  cron: string  event_trigger: string | null</text>
+        <text x="14" y="66" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">name: string | is_active: boolean | last_run_at: timestamp</text>
+      </g>
+
+      <!-- Entity 8: RemoteSpec -->
+      <g transform="translate(530, 515)">
+        <rect width="450" height="85" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <rect width="450" height="28" rx="6" fill="#3f455d"/>
+        <text x="14" y="19" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">RemoteSpec</text>
+        <text x="345" y="19" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">harness conf</text>
+        <!-- Attributes -->
+        <text x="14" y="46" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: string  kind: "trueforge"|"omb"|"hermes"  base_url: str  ui_url: str</text>
+        <text x="14" y="66" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">auth_kind: "bearer"|"cookie" | health_path: string | timeout_s: float</text>
+      </g>
+
+      <!-- Relationships / Lines -->
+      <!-- AgentProfile (1) -> (N) ConversationSession -->
+      <line x1="170" y1="240" x2="170" y2="310" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-er-accent)"/>
+      <text x="178" y="280" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="11">1 : N</text>
+
+      <!-- ConversationSession (1) -> (N) TurnRecord -->
+      <line x1="300" y1="395" x2="390" y2="395" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-er-accent)"/>
+      <text x="330" y="385" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="11">1 : N</text>
+
+      <!-- TurnRecord (1) -> (N) ToolCallEvent -->
+      <line x1="650" y1="395" x2="730" y2="395" stroke="#bfc0c0" stroke-width="1.5" marker-end="url(#arrow-er)"/>
+      <text x="675" y="385" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">1 : N</text>
+
+      <!-- TeamRoster (1) -> (N) TeamMember -->
+      <line x1="650" y1="110" x2="730" y2="110" stroke="#bfc0c0" stroke-width="1.5" marker-end="url(#arrow-er)"/>
+      <text x="675" y="100" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">1 : N</text>
+
+      <!-- AgentProfile (1) -> (N) TeamMember (through junction) -->
+      <path d="M 300 110 L 730 110" stroke="#bfc0c0" stroke-dasharray="4,4" stroke-width="1" fill="none"/>
+      
+      <!-- AgentProfile (1) -> (N) RoutineSchedule -->
+      <line x1="110" y1="480" x2="110" y2="515" stroke="#bfc0c0" stroke-dasharray="3,3" stroke-width="1.5" marker-end="url(#arrow-er)"/>
+      <text x="118" y="502" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">1 : N</text>
+
+      <!-- Legend -->
+      <g transform="translate(40, 615)">
+        <line x1="0" y1="8" x2="36" y2="8" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-er-accent)"/>
+        <text x="46" y="12" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12">Direct Foreign Key Cascade (Session State)</text>
+
+        <line x1="320" y1="8" x2="356" y2="8" stroke="#bfc0c0" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-er)"/>
+        <text x="366" y="12" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Config / Event Relationship</text>
+
+        <rect x="580" y="2" width="12" height="12" rx="2" fill="#f08a59"/>
+        <text x="598" y="12" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">Primary Identity Entities</text>
+      </g>
+    </svg>
+  </div>
+</body>
+</html>

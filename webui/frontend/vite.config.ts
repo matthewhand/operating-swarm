@@ -25,6 +25,16 @@ export default defineConfig(({ mode }) => ({
     plugins: [
         react(),
         tailwindcss(),
+        {
+            name: 'demo-noindex',
+            transformIndexHtml(html) {
+                if (mode !== 'demo') return html
+                return html.replace(
+                    '<meta name="theme-color"',
+                    '<meta name="robots" content="noindex,nofollow" />\n    <meta name="theme-color"',
+                )
+            },
+        },
     ],
     server: {
         port: 3000,

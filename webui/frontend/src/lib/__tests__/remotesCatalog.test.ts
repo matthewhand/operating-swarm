@@ -38,10 +38,18 @@ describe('remotesCatalog (REQ-68)', () => {
         },
       ],
     })
-    expect(rail.map((row) => row.id)).toEqual(['hermes', 'omb', 'omb', 'lab-swarm'])
-    expect(rail.map((row) => row.title)).toContain('Hermes')
+    expect(rail.map((row) => row.id)).toEqual(['omb', 'lab-swarm'])
+    expect(rail.map((row) => row.title)).not.toContain('Hermes')
     expect(rail.map((row) => row.title)).toContain(OPENMOUSBOT_LABEL)
     expect(JSON.stringify(rail)).not.toMatch(/\bOMB\b/)
+  })
+
+  it('does not pin unconfigured Hermes (catalog placeholder, issue #430)', () => {
+    const rail = parseRailRemotes({
+      object: 'list',
+      data: [{ id: 'hermes', object: 'remote', title: 'Hermes', source: 'default' }],
+    })
+    expect(rail).toEqual([])
   })
 
   it('parses a configured-only list payload used by Settings / RemoteSelect', () => {

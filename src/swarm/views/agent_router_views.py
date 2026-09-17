@@ -28,6 +28,57 @@ def get_agent_router_blueprint():
     return agent_router
 
 
+def annotate_chat_models(rows: Any) -> Any:
+    """Mark which roster seats are real completions ``model`` ids (#426).
+
+    ``GET /v1/agents/`` is the rail roster, and it reports ``agent_type`` per
+    seat. An ``api`` row reads as "POST this to ``/v1/chat/completions``", but
+    that is only true when the shared recipe (``resolve_chat_blueprint_id`` into
+    the discovered blueprints — the same helper ``consumers.py`` uses for
+    ``/ws/ai-demo/``) resolves it. Seats with no blueprint of their own stay on
+    the rail as chrome and report ``chat_model: None`` instead of 404ing a
+    completion.
+
+    Accepts either the ``{agent_id: row}`` mapping ``get_agent_info()`` returns
+    or the flat list ``list_agents()`` returns.
+    """
+    try:
+        from swarm.views.utils import get_available_blueprints_sync
+
+        available = get_available_blueprints_sync()
+    except Exception:
+        # Discovery is what /v1/models is built from, so a failure here means
+        # nothing resolves. Advertise nothing rather than advertise a 404.
+        logger.warning(
+            "Blueprint discovery failed; the roster reports no chat models",
+            exc_info=True,
+        )
+        available = {}
+    if not isinstance(available, dict):
+        available = {}
+
+    from swarm.core.agent_kind import resolve_chat_blueprint_id
+
+    if isinstance(rows, dict):
+        iterable = list(rows.values())
+    elif isinstance(rows, list):
+        iterable = rows
+    else:
+        return rows
+
+    for row in iterable:
+        if not isinstance(row, dict):
+            continue
+        seat_id = row.get("agent_id")
+        if not isinstance(seat_id, str) or not seat_id.strip():
+            row["chat_model"] = None
+            continue
+        row["chat_model"] = (
+            seat_id if resolve_chat_blueprint_id(seat_id) in available else None
+        )
+    return rows
+
+
 @require_http_methods(["GET"])
 def list_agents(request):
     """
@@ -53,7 +104,8 @@ def list_agents(request):
     try:
         blueprint = get_agent_router_blueprint()
         agent_info = blueprint.get_agent_info()
-        
+        annotate_chat_models(agent_info.get("agents"))
+
         return JsonResponse({
             "status": "success",
             "data": agent_info,
@@ -310,7 +362,8 @@ def get_agent_info(request, agent_id):
     try:
         blueprint = get_agent_router_blueprint()
         agents = blueprint.list_agents()
-        
+        annotate_chat_models(agents)
+
         # Find the agent by ID
         agent_info = None
         for agent in agents:

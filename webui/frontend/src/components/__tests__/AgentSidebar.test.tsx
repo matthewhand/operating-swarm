@@ -16,6 +16,11 @@ import { BUMP_COMPLETED_KEY, HOSTNAME_OVERRIDE_KEY } from '../../lib/settingsPre
 import { saveAgentSessions, type AgentSession } from '../../lib/scaleOutSessions'
 import { publishChatConnection, resetChatConnection } from '../../lib/chatConnection'
 import { notifyCliRunState, resetCliRunState } from '../../lib/cliRunState'
+import {
+  NEEDS_APPROVAL_LABEL,
+  notifyApprovalWait,
+  resetAgentAttention,
+} from '../../lib/agentAttention'
 
 function blueprint(
   id: string,
@@ -2702,6 +2707,88 @@ describe('AgentSidebar REQ-861 conceal', () => {
     const backdrop = screen.getAllByRole('button', { name: 'Close agents sidebar' })[0]
     fireEvent.click(backdrop)
     expect(onClose).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('AgentSidebar #446 awaiting-approval attention', () => {
+  beforeEach(() => {
+    resetAgentAttention()
+    localStorage.clear()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    resetAgentAttention()
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('paints the rail row snippet slot and restores it when the decision lands', async () => {
+    rememberEmptyFavourites()
+    renderSidebar()
+    const row = await screen.findByRole('link', { name: /Codey/ })
+    expect(within(row).queryByTestId('rail-needs-approval')).not.toBeInTheDocument()
+    expect(within(row).getByText('Code assistant')).toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-1', true)
+    })
+    const mark = within(row).getByTestId('rail-needs-approval')
+    expect(mark).toHaveTextContent(NEEDS_APPROVAL_LABEL)
+    expect(mark).toHaveClass('os-rail-attention')
+    expect(within(row).queryByText('Code assistant')).not.toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-1', false)
+    })
+    expect(within(row).queryByTestId('rail-needs-approval')).not.toBeInTheDocument()
+    expect(within(row).getByText('Code assistant')).toBeInTheDocument()
+  })
+
+  it('overlays the pinned tile for the waiting agent', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'codey', name: 'Codey' }]),
+    )
+    renderSidebar()
+    const tile = await screen.findByRole('link', { name: 'Codey' })
+    expect(tile).toHaveClass('os-fav-tile')
+    expect(within(tile).queryByTestId('pin-needs-approval')).not.toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-7', true)
+    })
+    expect(within(tile).getByTestId('pin-needs-approval')).toHaveTextContent(NEEDS_APPROVAL_LABEL)
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-7', false)
+    })
+    expect(within(tile).queryByTestId('pin-needs-approval')).not.toBeInTheDocument()
+  })
+
+  it('flags a pinned team while it still has other tools outstanding', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'team:research', name: 'Research' }]),
+    )
+    renderSidebar()
+    const tile = await screen.findByRole('link', { name: 'Research' })
+
+    act(() => {
+      notifyApprovalWait('ada', 'tool-a', true)
+      notifyApprovalWait('ada', 'tool-b', true)
+    })
+    expect(within(tile).getByTestId('pin-needs-approval')).toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('ada', 'tool-a', false)
+    })
+    expect(within(tile).getByTestId('pin-needs-approval')).toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('ada', 'tool-b', false)
+    })
+    expect(within(tile).queryByTestId('pin-needs-approval')).not.toBeInTheDocument()
   })
 })
 

@@ -15,11 +15,14 @@
 | [ADR-011](./011-remote-harness.md) | Remote as abstract harness spec — Hermes / OMB / Rakazo / Herdr / nested swarm implement (REQ-203 / #680) |
 | [ADR-012](./012-swarm-cli-tui.md) | `os-cli tui` — Herdr-like rail + chat over the same API as WebUI (REQ-111 / #481) |
 | [ADR-013](./013-agent-initiated-questions.md) | Agent-initiated multi-choice questions — `ask_user` tool + WS elicit (spike, #221) |
+| [ADR-014](./014-herdr-kind-cli-vs-remote.md) | Herdr's kind — CLI subtype vs. Remote implementation (proposed: keep Remote, drop Team-member composition) |
 
 ADR-006 **amends** ADR-005’s `ApiKindBase` slot: user-facing kinds become CLI | API | Blueprint | Remote.
 
 ADR-011 **amends** ADR-006: Remote stays one kind; variants are `RemoteHarness` implementations, not extra kinds.
 
 ADR-012 **renumbers** the TUI Wave 0 record from draft ADR-011 to ADR-012 to resolve the collision with REQ-203 RemoteHarness ([#888](https://github.com/matthewhand/open-swarm/issues/888)).
+
+ADR-014 is **Proposed** and would **amend** ADR-011 §3/§5 if accepted: it keeps Herdr a Remote implementation and drops its Team-member composition. ADR-011 §7 (Slack) is unaffected.
 
 Related research (not an ADR): [Grok Bot keybinding parity](../GROK_KEYBINDING_PARITY.md) (REQ-150 / #552).

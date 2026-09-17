@@ -154,6 +154,12 @@ GITHUB_MARKETPLACE_ORG_ALLOWLIST = _csv_env('GITHUB_MARKETPLACE_ORG_ALLOWLIST', 
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # #423: serve /static/ in production, not only under DEBUG. WhiteNoise reads
+    # STATIC_ROOT (what collectstatic fills) and, with WHITENOISE_USE_FINDERS,
+    # the checked-in app static dirs too — so a deploy that has not run
+    # collectstatic still gets styled pages. Django's own static view is
+    # DEBUG-only and not meant to face a network, so it is not used.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -215,6 +221,15 @@ STATICFILES_DIRS = [
 ]
 if (BASE_DIR.parent / "staticfiles" / "webui").exists():
     STATICFILES_DIRS.append(BASE_DIR.parent / "staticfiles" / "webui")
+
+# #423: uvicorn serves the ASGI app directly, so nothing upstream would answer
+# /static/*.css unless we do. Serving from the finders as well as STATIC_ROOT
+# keeps the docker/LAN deployment (which has no collectstatic step) styled;
+# collectstatic into STATIC_ROOT remains the cheaper production path, since
+# finders walk every static directory at boot to build the file map.
+# WhiteNoise's middleware defaults are already DEBUG-aware (autorefresh, and
+# max-age 0 in DEBUG / 60s otherwise).
+WHITENOISE_USE_FINDERS = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

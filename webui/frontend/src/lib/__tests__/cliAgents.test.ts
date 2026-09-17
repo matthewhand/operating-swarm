@@ -6,6 +6,7 @@ import {
   configuredCliNames,
   discoveredCliNames,
   focusedCliName,
+  splitCliString,
   suggestedCliEntries,
 } from '../cliAgents'
 
@@ -79,4 +80,16 @@ describe('cli agents catalog (REQ-157)', () => {
     expect(focusedCliName('cli:grok')).toBe('grok')
     expect(focusedCliName('llm:local')).toBeNull()
   })
+
+  it('tokenizes CLI wrapper strings with quote grouping (splitCliString)', () => {
+    expect(splitCliString('claude -p="hello world" --output-format json')).toEqual([
+      'claude',
+      '-p=hello world',
+      '--output-format',
+      'json',
+    ])
+    expect(splitCliString('ag "claude code" --test')).toEqual(['ag', 'claude code', '--test'])
+    expect(splitCliString('')).toEqual([])
+  })
 })
+

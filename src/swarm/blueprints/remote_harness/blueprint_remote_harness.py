@@ -133,6 +133,45 @@ def _arm_omb_followup(
         logger.debug("omb follow-up watch skipped", exc_info=True)
 
 
+# Internal gap codes -> the one action that fixes them. ``result.detail``
+# already names the cause, so these are imperatives that read naturally after
+# "Fix: ". A raw snake_case code must never reach the user (REQ-890 / #449).
+_GAP_HINTS: dict[str, str] = {
+    "anythingllm_thread_required": "pick a workspace thread for this remote first.",
+    "computer_not_supported": "use this remote's chat instead — it exposes no computer surface.",
+    "computer_operate_unwired": "use this remote's chat instead — computer control is not wired for it yet.",
+    "flowise_session_required": "pick a chatflow first.",
+    "herdr_reply_empty": "check that pane is still alive in herdr, then retry.",
+    "herdr_reply_timeout": "check that pane in herdr — it may be busy or blocked — then retry.",
+    "hermes_reply_timeout": "retry in a moment — the run may still be going.",
+    "hermes_run_id_missing": "check the Hermes gateway returns a run id after accepting a send.",
+    "letta_agent_required": "pick a Letta agent first.",
+    "n8n_workflow_required": "pick a workflow first.",
+    "omb_reply_timeout": "wait for the bot's follow-up, or retry — it may still be working.",
+    "openwebui_auth": "set OPENWEBUI_API_KEY (or sign in to Open WebUI), then retry.",
+    "openwebui_chat_required": "pick a chat first.",
+    "rakazo_rpc_requires_better_auth_session": (
+        "set RAKAZO_SESSION_COOKIE (Better Auth session cookie) or RAKAZO_API_KEY, "
+        "then retry — /health stays public but /rpc/* needs a session."
+    ),
+    "rakazo_rpc_unusable": "point base_url at the Rakazo API (:3100), not the Vite UI (:5173).",
+    "slack_thread_required": "pick a Slack thread first.",
+}
+
+
+def _gap_line(gap: str) -> str:
+    """One actionable line for an internal gap code — never the raw code."""
+    code = str(gap or "").strip()
+    if not code:
+        return ""
+    hint = _GAP_HINTS.get(code)
+    if hint:
+        return f"\nFix: {hint}"
+    # A gap raised without a hint (new code, map not updated) still must not
+    # leak the identifier. De-uglify and point at the settings that own it.
+    return f"\nFix: check this remote in Settings → Remotes ({code.replace('_', ' ')})."
+
+
 def _render_operate(result: remotes_core.OperateResult) -> str:
     if result.ok and result.op == "send" and isinstance(result.data, dict):
         text = str(result.data.get("text") or result.data.get("response") or "").strip()
@@ -142,11 +181,23 @@ def _render_operate(result: remotes_core.OperateResult) -> str:
         # Never-added catalog seat: the detail is already a complete, actionable
         # sentence — do not wrap it in "{remote} {op}: FAIL —" (issue #129).
         return result.detail
-    if not result.ok and result.remote in {"omb", "hermes", "herdr"}:
-        # Named error only — never dump a UUID/run ACK as the chat bubble.
-        gap = f"\nGAP: {result.gap}" if result.gap else ""
-        return f"{result.remote} {result.op}: FAIL — {result.detail}{gap}"
-    gap = f"\nGAP: {result.gap}" if result.gap else ""
+    if not result.ok:
+        # Failures are a sentence plus a fix. Never paste the upstream body: it
+        # can be a 42 KB HTML error page or the auth envelope the user cannot
+        # act on (REQ-890 / #449). ``detail`` already names the cause.
+        logger.debug(
+            "remote %s %s failed (gap=%s, http=%s): %r",
+            result.remote,
+            result.op,
+            result.gap,
+            result.http_status,
+            result.data,
+        )
+        return (
+            f"{result.remote} {result.op}: FAIL — {result.detail}"
+            f"{_gap_line(result.gap)}"
+        )
+    gap = _gap_line(result.gap)
     data = ""
     if result.data not in (None, "", {}, []):
         try:
@@ -155,7 +206,7 @@ def _render_operate(result: remotes_core.OperateResult) -> str:
             data = "\n" + json.dumps(result.data, indent=2, default=str)[:4000]
         except Exception:
             data = f"\n{result.data!r}"[:4000]
-    return f"{result.remote} {result.op}: {'OK' if result.ok else 'FAIL'} — {result.detail}{gap}{data}"
+    return f"{result.remote} {result.op}: OK — {result.detail}{gap}{data}"
 
 
 from swarm.core.kind_bases import RemoteKindBase

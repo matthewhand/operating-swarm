@@ -54,6 +54,12 @@ import {
   notifyCliTerminated,
   peekCliRunning,
 } from '../lib/cliRunState'
+import {
+  AGENT_ATTENTION_EVENT,
+  NEEDS_APPROVAL_LABEL,
+  approvalWaitFromEvent,
+  peekApprovalWait,
+} from '../lib/agentAttention'
 import AgentAvatar from './AgentAvatar'
 import {
   agentRole,
@@ -442,6 +448,7 @@ export default function AgentSidebar({
   const [remotesPopupOpen, setRemotesPopupOpen] = useState(false)
   const [localWsStatus, setLocalWsStatus] = useState<ChatConnectionStatus>(() => getChatConnection())
   const [cliRunningIds, setCliRunningIds] = useState<Set<string>>(() => new Set())
+  const [approvalWaitIds, setApprovalWaitIds] = useState<Set<string>>(() => new Set())
   const toast = useOptionalToast()
 
   useEffect(() => {
@@ -463,6 +470,25 @@ export default function AgentSidebar({
     }
     window.addEventListener(CLI_RUN_STATE_EVENT, onRunState)
     return () => window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
+  }, [])
+
+  useEffect(() => {
+    const onAttention = (event: Event) => {
+      const detail = approvalWaitFromEvent(event)
+      if (!detail) return
+      setApprovalWaitIds((current) => {
+        // Plain tool_status frames emit `waiting: false` for tools that never
+        // waited, and they arrive continuously — bail out so the rail is not
+        // re-rendered on every one of them.
+        if (current.has(detail.agentId) === detail.waiting) return current
+        const next = new Set(current)
+        if (detail.waiting) next.add(detail.agentId)
+        else next.delete(detail.agentId)
+        return next
+      })
+    }
+    window.addEventListener(AGENT_ATTENTION_EVENT, onAttention)
+    return () => window.removeEventListener(AGENT_ATTENTION_EVENT, onAttention)
   }, [])
 
   useEffect(() => {
@@ -2348,6 +2374,7 @@ export default function AgentSidebar({
     )
     const timestampLabel = formatRailTimestamp(timestamp)
     const unread = unreadIds.includes(agent.id)
+    const needsApproval = approvalWaitIds.has(agent.id) || peekApprovalWait(agent.id)
     const mark = (
       scaleOut ? (
         // Teams/remotes (#398) must not be stacked here — import AvatarStack there.
@@ -2420,8 +2447,11 @@ export default function AgentSidebar({
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {snippet || agent.description}
+            <span
+              className={`block truncate min-w-0 flex-1${needsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={needsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {needsApproval ? NEEDS_APPROVAL_LABEL : snippet || agent.description}
             </span>
             {taskCount > 1 ? (
               <span
@@ -2549,6 +2579,10 @@ export default function AgentSidebar({
     const singleFace = stacked.faces[0]
     const dragging = draggingId === hideId
     const dropping = dropTargetId === hideId
+    const teamNeedsApproval =
+      approvalWaitIds.has(teamHideId(team.id)) ||
+      peekApprovalWait(teamHideId(team.id)) ||
+      stacked.faces.some((face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id))
     const { snippet: teamSnippet, timestamp: teamTime } = getRowLastMessage(
       teamHideId(team.id),
       sessions as any,
@@ -2686,8 +2720,11 @@ export default function AgentSidebar({
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {teamSnippet || team.description}
+            <span
+              className={`block truncate min-w-0 flex-1${teamNeedsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={teamNeedsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {teamNeedsApproval ? NEEDS_APPROVAL_LABEL : teamSnippet || team.description}
             </span>
           </span>
         </span>
@@ -2705,6 +2742,10 @@ export default function AgentSidebar({
     const totalMembers = remote.agents ? remote.agents.length : (stacked.faces.length + (stacked.remainder || 0))
     const singleMember = totalMembers === 1
     const singleFace = stacked.faces[0]
+    const remoteNeedsApproval =
+      approvalWaitIds.has(hideId) ||
+      peekApprovalWait(hideId) ||
+      stacked.faces.some((face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id))
     const { snippet: remoteSnippet, timestamp: remoteTime } = getRowLastMessage(
       hideId,
       sessions as any,
@@ -2835,8 +2876,13 @@ export default function AgentSidebar({
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {remoteSnippet || (remote as any).description || 'Remote team'}
+            <span
+              className={`block truncate min-w-0 flex-1${remoteNeedsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={remoteNeedsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {remoteNeedsApproval
+                ? NEEDS_APPROVAL_LABEL
+                : remoteSnippet || (remote as any).description || 'Remote team'}
             </span>
           </span>
         </span>
@@ -3067,6 +3113,13 @@ export default function AgentSidebar({
                 cliRunningIds.has(pin.id) ||
                 peekCliRunning(pin.id),
             )
+            const pinNeedsApproval = Boolean(
+              approvalWaitIds.has(pin.id) ||
+                peekApprovalWait(pin.id) ||
+                pinTeamPlan?.faces.some(
+                  (face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id),
+                ),
+            )
             const pinClass = `os-fav-tile group/tile ${
               draggingId === pin.id ? 'os-fav-tile--dragging' : ''
             } ${dropTargetId === pin.id ? 'os-fav-tile--drop' : ''} ${
@@ -3074,6 +3127,14 @@ export default function AgentSidebar({
             } ${pinWorkerBusy ? 'os-fav-tile--working-stack' : ''}`
             const pinFace = (
               <>
+                {pinNeedsApproval ? (
+                  <span
+                    className="os-fav-tile__attention"
+                    data-testid="pin-needs-approval"
+                  >
+                    {NEEDS_APPROVAL_LABEL}
+                  </span>
+                ) : null}
                 {pinUnread && (
                   <span
                     className="os-rail-unread-dot absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-sky-500 z-10 group-hover/tile:hidden"

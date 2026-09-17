@@ -132,15 +132,16 @@ export function parseRemote(raw: unknown): RemoteEntry | null {
   return { id, kind, title, configured, agents, capabilities }
 }
 
-/** Always listed on the conversation rail (Hermes + OpenMousBot). */
+/**
+ * Historic pin set (Hermes + OpenMousBot). Kept for callers that still
+ * special-case those kinds. It does **not** force unconfigured catalog
+ * rows onto the rail — that produced a chat seat whose only reply was
+ * "not added as a remote — catalog placeholder" (issue #430).
+ */
 export const PINNED_RAIL_REMOTE_IDS = new Set(['hermes', 'omb', 'openmousbot', 'openmausbot'])
 
-/** Pinned remotes, plus any the operator added or that already report agents. */
+/** Operator-added remotes, or rows that already report agents. */
 export function isRailRemote(remote: RemoteEntry): boolean {
-  const id = String(remote.id || '').trim().toLowerCase()
-  if (PINNED_RAIL_REMOTE_IDS.has(id) || PINNED_RAIL_REMOTE_IDS.has(String(remote.kind || '').toLowerCase())) {
-    return true
-  }
   return remote.configured || remote.agents.length > 0
 }
 

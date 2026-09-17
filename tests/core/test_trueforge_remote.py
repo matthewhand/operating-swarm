@@ -264,6 +264,124 @@ def test_trueforge_list_agents(tf_server, monkeypatch):
     assert len(listed.data["data"]) == 2
 
 
+# --- #425: a list row is an agent id, not a session to resume -------------------
+
+
+def test_trueforge_list_documents_the_resume_key(tf_server, monkeypatch):
+    """#425: the list must name which field send resumes on (session, not agent)."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/agents"): (
+            200,
+            {"data": [{"id": "agent-1", "name": "orchestrator"}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    listed = remotes_core.operate("trueforge", "list", config=cfg)
+
+    assert listed.ok is True
+    assert listed.data["rows_are"] == "agents"
+    assert listed.data["resume_key"] == "session_id"
+    assert "agent" in listed.detail.lower() and "session" in listed.detail.lower()
+
+
+def test_trueforge_send_recovers_when_the_key_is_an_agent_id(tf_server, monkeypatch):
+    """#425: the SPA forwards a list row id as ``session_id``, and the rows are
+    agents, so ``404 Session not found`` must recover by starting a session for
+    that agent instead of failing the send."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions/agent-1/turns"): (
+            404,
+            {"error": "Session not found"},
+        ),
+        ("POST", "/api/v1/sessions"): (201, {"data": {"id": "sess-new"}}),
+        ("POST", "/api/v1/sessions/sess-new/turns"): (
+            202,
+            {"data": {"id": "turn-1", "state": "running"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-new/turns/turn-1"): (
+            200,
+            {"data": {"id": "turn-1", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-new/turns/turn-1/events"): (
+            200,
+            {"data": [{"type": "model.message", "content": "Recovered."}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    sent = remotes_core.operate(
+        "trueforge", "send", prompt="hi", session_id="agent-1", config=cfg
+    )
+
+    assert sent.ok is True, sent.detail
+    assert sent.detail == "Recovered."
+    assert sent.data["session_id"] == "sess-new"
+    assert sent.data["session_created_for"] == "agent-1"
+    sess_req = next(b for m, p, b in router.received_bodies if p == "/api/v1/sessions")
+    assert sess_req["agent"]["name"] == "agent-1"
+
+
+def test_trueforge_send_says_no_session_to_resume_instead_of_a_raw_404(
+    tf_server, monkeypatch
+):
+    """#425: when no session can be started either, answer in words."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions/agent-1/turns"): (
+            404,
+            {"error": "Session not found"},
+        ),
+        ("POST", "/api/v1/sessions"): (401, {"error": "unauthorized"}),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    sent = remotes_core.operate(
+        "trueforge", "send", prompt="hi", session_id="agent-1", config=cfg
+    )
+
+    assert sent.ok is False
+    assert sent.gap == "trueforge_no_session"
+    assert "404" not in sent.detail
+    assert "Session not found" not in sent.detail
+    assert "agent-1" in sent.detail
+
+
+def test_trueforge_send_uses_a_real_session_id_as_is(tf_server, monkeypatch):
+    """#425 regression: a genuine session id is resumed, not replaced."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions/sess-real/turns"): (
+            202,
+            {"data": {"id": "turn-real", "state": "running"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-real/turns/turn-real"): (
+            200,
+            {"data": {"id": "turn-real", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-real/turns/turn-real/events"): (
+            200,
+            {"data": [{"type": "model.message", "content": "Resumed."}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    sent = remotes_core.operate(
+        "trueforge", "send", prompt="hi", session_id="sess-real", config=cfg
+    )
+
+    assert sent.ok is True, sent.detail
+    assert sent.data["session_id"] == "sess-real"
+    assert "session_created_for" not in sent.data
+    assert ("POST", "/api/v1/sessions") not in router.route_hits
+
+
 def test_trueforge_send_turn_and_poll_events(tf_server, monkeypatch):
     """Send: POST /sessions -> POST /turns -> poll /turns/{id} -> GET /events."""
     host, port, router = tf_server
@@ -395,6 +513,36 @@ def test_trueforge_send_turn_error_state(tf_server, monkeypatch):
     sent = remotes_core.operate("trueforge", "send", prompt="test error", config=cfg)
     assert sent.ok is False
     assert "Model quota exhausted" in sent.detail
+
+
+def test_trueforge_send_turn_crashed_state_extracts_nested_detail(tf_server, monkeypatch):
+    """Turn ending in 'crashed' state terminates immediately and extracts nested detail."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (
+            200,
+            {"data": {"id": "sess-crash-1"}},
+        ),
+        ("POST", "/api/v1/sessions/sess-crash-1/turns"): (
+            200,
+            {"data": {"id": "turn-crash-1", "state": "RUNNING"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-crash-1/turns/turn-crash-1"): (
+            200,
+            {"data": {"id": "turn-crash-1", "state": {"status": "crashed", "detail": "Container killed by OOM"}}},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge": {
+                "base_url": f"http://{host}:{port}",
+            }
+        }
+    }
+    sent = remotes_core.operate("trueforge", "send", prompt="test crash", config=cfg)
+    assert sent.ok is False
+    assert "Container killed by OOM" in sent.detail
 
 
 def test_trueforge_turn_state_parses_dict_and_string():
@@ -828,6 +976,37 @@ def test_container_rewrites_loopback_trueforge_not_listen_port(monkeypatch):
     assert spec.base_url == "http://host.docker.internal:8791"
 
 
+def test_container_preserves_ui_url_loopback(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "1")
+    monkeypatch.setenv("SWARM_HOST_GATEWAY", "host.docker.internal")
+    monkeypatch.setenv("PORT", "8000")
+    spec = remotes_core.load_remote(
+        "trueforge",
+        config={
+            "remotes": {
+                "trueforge": {
+                    "base_url": "http://127.0.0.1:8791",
+                    "ui_url": "http://127.0.0.1:8791",
+                }
+            }
+        },
+    )
+    assert spec.base_url == "http://host.docker.internal:8791"
+    assert spec.ui_url == "http://127.0.0.1:8791"
+
+    all_remotes = remotes_core.load_all_remotes(
+        config={
+            "remotes": {
+                "trueforge": {
+                    "base_url": "http://127.0.0.1:8791",
+                    "ui_url": "http://127.0.0.1:8791",
+                }
+            }
+        }
+    )
+    assert all_remotes["trueforge"].ui_url == "http://127.0.0.1:8791"
+
+
 def test_trueforge_send_refused_names_url(monkeypatch):
     from swarm.blueprints.remote_harness.blueprint_remote_harness import _render_operate
 
@@ -853,6 +1032,24 @@ def test_normalize_base_url_ipv6_brackets(monkeypatch):
         config={"remotes": {"trueforge": {"base_url": "http://[2001:db8::1]:8791"}}},
     )
     assert spec.base_url == "http://[2001:db8::1]:8791"
+
+
+def test_normalize_base_url_keeps_basic_auth_userinfo(monkeypatch):
+    """#463: bracketing an IPv6 host must not drop the ``user:pass@`` prefix.
+
+    ``urlunparse`` joins ``netloc`` verbatim, so the separator has to be part
+    of ``userinfo``; without it a credentialed base_url silently collapses to
+    ``http://alice:s3cret2001:db8::5:8791`` and every request 404s.
+    """
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    assert (
+        remotes_core._normalize_base_url("http://alice:s3cret@[2001:db8::5]:8791/")
+        == "http://alice:s3cret@[2001:db8::5]:8791"
+    )
+    assert (
+        remotes_core._normalize_base_url("http://alice:s3cret@example.com:8791")
+        == "http://alice:s3cret@example.com:8791"
+    )
 
 
 def test_hermes_send_refused_names_url(monkeypatch):

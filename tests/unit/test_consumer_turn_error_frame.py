@@ -92,6 +92,40 @@ async def test_blueprint_failure_also_stays_on_the_socket():
     consumer.send_error_message.assert_awaited_once()
 
 
+async def test_error_frame_names_the_missing_credential(monkeypatch):
+    """REQ-884: the user should be told what to set, not just that it failed."""
+    monkeypatch.setattr(
+        "swarm.consumers._credential_hint",
+        lambda: "Set LITELLM_API_KEY in the environment (.env or ~/.config/swarm/.env).",
+    )
+    consumer = _consumer()
+
+    async def boom(_contents_div_id):
+        raise RuntimeError("The api_key client option must be set")
+
+    consumer.respond_with_default_model = boom
+    await consumer._run_serialised_chat_turn({"message": "hi"}, "hi")
+
+    _div_id, text = consumer.send_error_message.await_args.args
+    assert "LITELLM_API_KEY" in text
+
+
+async def test_error_frame_does_not_invent_credentials(monkeypatch):
+    """When the diagnosis is silent, the message must not blame a key."""
+    monkeypatch.setattr("swarm.consumers._credential_hint", lambda: "")
+    consumer = _consumer()
+
+    async def boom(_contents_div_id):
+        raise RuntimeError("provider exploded")
+
+    consumer.respond_with_default_model = boom
+    await consumer._run_serialised_chat_turn({"message": "hi"}, "hi")
+
+    _div_id, text = consumer.send_error_message.await_args.args
+    assert "Set LITELLM" not in text
+    assert "Set OPENAI_API_KEY" not in text
+
+
 async def test_error_frame_is_not_appended_to_model_context():
     """Errors are transport chrome: they must not enter later turn context."""
     consumer = _consumer()

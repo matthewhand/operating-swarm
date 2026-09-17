@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import RolesSettingsPane, { normalizeRoleDescriptor } from '../RolesSettingsPane'
@@ -129,4 +129,65 @@ describe('RolesSettingsPane', () => {
     expect(await screen.findByTestId('role-row-chief_of_staff')).toBeInTheDocument()
     expect(screen.getByText(/Commander \(Research Squad\)/i)).toBeInTheDocument()
   })
+
+  it('allows attaching and detaching a role to an agent seat', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/roles')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [{ name: 'gate', label: 'Gate', mechanism: 'intercept' }],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/blueprints')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [{ id: 'agent-codex', name: 'Code Expert' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: [] }),
+        } as Response
+      }),
+    )
+
+    renderPane()
+    expect(await screen.findByTestId('role-row-gate')).toBeInTheDocument()
+
+    // Click "+ Attach to agent"
+    const attachBtn = screen.getByTestId('role-attach-btn-gate')
+    attachBtn.click()
+
+    // Expect the agent selector to appear
+    const select = await screen.findByTestId('role-attach-select-gate')
+    expect(select).toBeInTheDocument()
+
+    fireEvent.change(select, { target: { value: 'agent-codex' } })
+
+    // Check that 'Code Expert' now appears under Used by
+    expect(await screen.findByText('Code Expert')).toBeInTheDocument()
+
+    // Check detach button
+    const detachBtn = screen.getByTestId('detach-role-gate-agent-codex')
+    expect(detachBtn).toBeInTheDocument()
+    fireEvent.click(detachBtn)
+
+    // After detaching, agent is no longer in used by
+    await waitFor(() => {
+      expect(screen.queryByTestId('detach-role-gate-agent-codex')).not.toBeInTheDocument()
+    })
+  })
 })
+

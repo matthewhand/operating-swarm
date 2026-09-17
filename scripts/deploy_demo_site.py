@@ -52,6 +52,7 @@ def pages_credentials_present() -> bool:
 def skip(reason: str) -> int:
     print(f"SKIP: {reason}")
     print("Mocked demo site is in-repo (VITE_DEMO_MODE / SWARM_DEMO_MODE).")
+    print("Host locally: make demo-build && make demo-serve  (see docs/DEMO_HOSTING.md)")
     return 0
 
 

@@ -280,14 +280,20 @@ def test_chat_herdr_prompt_then_read():
             "w7:p1",
             "do the thing",
             "--wait",
+            # #470: idle | done | blocked (herdr repeats ``--until``).
             "--until",
             "idle",
+            "--until",
+            "done",
+            "--until",
+            "blocked",
             "--timeout",
             "1000",
         ],
         ["herdr", "agent", "read", "w7:p1", "--source", "recent", "--format", "text"],
     ]
-    assert calls[1].count("--until") == 1
+    # #470: herdr repeats --until for the stopped set (idle | done | blocked).
+    assert calls[1].count("--until") == 3
     assert "--remote" not in calls[1]
 
 
@@ -441,3 +447,74 @@ def test_remote_auth_uses_per_remote_key_and_remote_team_api_key(monkeypatch):
         _http_get_json("http://127.0.0.1:9/v1/models")
         assert captured_reqs[-1].get_header("Authorization") == "Bearer generic-team-key"
 
+
+
+def test_chat_letta_and_remote_dispatch():
+    from swarm.core.remote_teams import chat_letta, chat_remote
+
+    captured_reqs = []
+
+    class _Resp:
+        def read(self):
+            return b'{"messages": [{"message_type": "assistant_message", "content": "Letta assistant reply"}]}'
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    class _Opener:
+        def open(self, req, timeout=0):
+            captured_reqs.append(req)
+            return _Resp()
+
+    # Refuses to mint without agent_id
+    with pytest.raises(RuntimeError, match="letta agent id is required"):
+        chat_letta("http://127.0.0.1:8283", [{"role": "user", "content": "hi"}], agent_id="")
+
+    with pytest.raises(RuntimeError, match="letta agent id is required"):
+        chat_letta("http://127.0.0.1:8283", "hi", agent_id="default")
+
+    with patch("swarm.core.remote_teams.urllib.request.build_opener", return_value=_Opener()):
+        reply = chat_letta(
+            "http://127.0.0.1:8283",
+            [{"role": "user", "content": "hello"}],
+            agent_id="agent-xyz-123",
+            api_key="letta-key",
+        )
+        assert reply == "Letta assistant reply"
+        assert len(captured_reqs) == 1
+        req = captured_reqs[-1]
+        assert req.full_url == "http://127.0.0.1:8283/v1/agents/agent-xyz-123/messages"
+        assert req.get_header("Authorization") == "Bearer letta-key"
+        body = json.loads(req.data.decode("utf-8"))
+        assert body == {"messages": [{"role": "user", "content": "hello"}]}
+
+        # Via chat_remote
+        reply2 = chat_remote(
+            "http://127.0.0.1:8283",
+            [{"role": "user", "content": "hello again"}],
+            model="agent-xyz-123",
+            framework="letta",
+            api_key="letta-key",
+        )
+        assert reply2 == "Letta assistant reply"
+        assert len(captured_reqs) == 2
+        req2 = captured_reqs[-1]
+        assert req2.full_url == "http://127.0.0.1:8283/v1/agents/agent-xyz-123/messages"
+
+
+def test_chat_remote_delegates_to_herdr(monkeypatch):
+    from swarm.core.remote_teams import chat_remote
+
+    with patch("swarm.core.remote_teams.chat_herdr", return_value="herdr reply") as mock_herdr:
+        reply = chat_remote(
+            "http://unused",
+            [{"role": "user", "content": "run task"}],
+            model="w1:p1",
+            framework="herdr",
+        )
+        assert reply == "herdr reply"
+        mock_herdr.assert_called_once()
+        args, kwargs = mock_herdr.call_args
+        assert args[0] == "run task"
+        assert kwargs["target"] == "w1:p1"

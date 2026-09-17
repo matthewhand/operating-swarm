@@ -11,6 +11,7 @@ import { AVATAR_THEME_STORAGE_KEY, saveAvatarTheme } from '../../lib/avatarTheme
 import { OPEN_AGENT_EDITOR_EVENT } from '../../lib/agentSettings'
 import { saveEnabledPluginToolIds } from '../../lib/chatPluginTools'
 import { CLI_RUN_STATE_EVENT, cliRunStateFromEvent } from '../../lib/cliRunState'
+import { peekApprovalWait, resetAgentAttention } from '../../lib/agentAttention'
 
 type WsHandler = ((ev?: Event) => void) | null
 
@@ -1639,7 +1640,7 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(document.querySelector('.os-chat-header [data-avatar-theme="blobs"]')).toBeInTheDocument()
   })
 
-  it('#427: clicking Add files on CLI or remote seat toasts explanation and closes menu', async () => {
+  it('#427: clicking Add files on a CLI seat toasts explanation and closes menu', async () => {
     renderChat('/chat?blueprint=cli_agent')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
@@ -1651,6 +1652,39 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     fireEvent.click(addFilesBtn)
     expect(await screen.findByText(/File attachments aren’t supported for CLI or remote seats/)).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Add files' })).not.toBeInTheDocument()
+  })
+
+  it('shows an explanatory toast when Add files is clicked on an unsupported seat', async () => {
+    vi.mocked(fetch).mockImplementation(async (info) => {
+      const url = String(info)
+      if (url.includes('/api/remotes/')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 'omb', name: 'OpenMousBot', kind: 'remote', base_url: 'http://127.0.0.1:9' },
+            ],
+          }),
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response
+    })
+    renderChat('/chat?remote=omb')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const addFilesBtn = screen.getByRole('menuitem', { name: 'Add files' })
+    expect(addFilesBtn).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(addFilesBtn)
+
+    expect(await screen.findByText(/File attachments aren’t supported/i)).toBeInTheDocument()
   })
 
   it('REQ-76: circular up-arrow send appears only while the field has text', async () => {
@@ -3133,6 +3167,7 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
   })
 
   afterEach(() => {
+    resetAgentAttention()
     vi.unstubAllGlobals()
     window.localStorage.clear()
     resetConversationThreads()
@@ -3242,6 +3277,29 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
       id: 'ap2',
       decision: 'always',
     })
+  })
+
+  it('flags the waiting agent on the rail until the decision resolves (#446)', async () => {
+    const ws = await openAndStart()
+    expect(peekApprovalWait('codey')).toBe(false)
+
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'tool_approval',
+            id: 'att1',
+            name: 'write_file',
+            agent_id: 'codey',
+          }),
+        }),
+      )
+    })
+    expect(peekApprovalWait('codey')).toBe(true)
+    expect(peekApprovalWait('stewie')).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+    expect(peekApprovalWait('codey')).toBe(false)
   })
 })
 

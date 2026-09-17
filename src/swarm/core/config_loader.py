@@ -287,12 +287,13 @@ def load_full_configuration(
     profile_override: str | None = None,
     cli_config_overrides: dict[str, Any] | None = None,
     # default_config_path is now primarily for specific overrides or testing;
-    # if None, get_swarm_config_file() from paths.py will be used.
+    # if None, find_config_file() discovery is used.
     default_config_path_for_tests: Path | None = None,
 ) -> dict[str, Any]:
     """
     Loads and merges configuration settings from base file, blueprint specifics, profiles, and CLI overrides.
-    Uses XDG-compliant config path by default.
+    Discovers the base file the same way the rest of the app does (see
+    :func:`find_config_file`) unless a path is given explicitly.
 
     Args:
         blueprint_class_name (str): The name of the blueprint class (e.g., "MyBlueprint").
@@ -301,7 +302,8 @@ def load_full_configuration(
         cli_config_overrides (Optional[Dict[str, Any]]): Overrides provided via CLI argument.
         default_config_path_for_tests (Optional[Path]): Explicit path to a config file,
                                                         primarily for testing or specific scenarios.
-                                                        If None, uses XDG default path.
+                                                        If None, uses :func:`find_config_file`
+                                                        discovery.
 
     Returns:
         Dict[str, Any]: The final, merged configuration dictionary.
@@ -311,7 +313,7 @@ def load_full_configuration(
         FileNotFoundError: If a specific config_path_override is given but the file doesn't exist.
     """
     # Determine the configuration file path to use
-    # Priority: CLI override > test/specific override > XDG default
+    # Priority: CLI override > test/specific override > discovery
     if config_path_override:
         config_path = Path(config_path_override)
         logger.debug(f"Using CLI overridden configuration path: {config_path}")
@@ -319,8 +321,14 @@ def load_full_configuration(
         config_path = default_config_path_for_tests
         logger.debug(f"Using test/specific default configuration path: {config_path}")
     else:
-        config_path = get_swarm_config_file() # Default to XDG config file
-        logger.debug(f"Using XDG default configuration path: {config_path}")
+        # Discovery (explicit > SWARM_CONFIG_PATH > XDG swarm_config.json >
+        # upwards > CWD), matching find_config_file's documented precedence.
+        # This used to be get_swarm_config_file(), which named a config.yaml that
+        # nothing writes — so this branch silently loaded an empty base config for
+        # every caller without an override (requirements.load_active_config, and
+        # through it the MCP provider's mcpServers).
+        config_path = find_config_file() or get_swarm_config_file()
+        logger.debug(f"Using discovered configuration path: {config_path}")
 
     base_config = {}
     if config_path.is_file():

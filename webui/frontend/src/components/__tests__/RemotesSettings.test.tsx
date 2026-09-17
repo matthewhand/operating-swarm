@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RemoteOperatePane } from '../RemotesSettings'
+import { AddRemoteForm, RemoteOperatePane } from '../RemotesSettings'
 import { ToastProvider } from '../DaisyUI'
 import * as api from '../../lib/api'
 
@@ -25,6 +25,15 @@ function renderPane(remote = { id: 'omb', label: 'OpenMousBot', base_url: 'http:
 describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // #453: the pane lists on mount, so every case needs a stub or it would hit
+    // the real API. Cases that assert specific rows re-spy with their own data.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'stub',
+      op: 'list',
+      ok: true,
+      detail: 'stub list',
+      data: { bots: [] },
+    } as any)
   })
 
   afterEach(() => {
@@ -100,6 +109,65 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
       ).toBeInTheDocument()
       expect(listBtn).not.toHaveAttribute('aria-busy', 'true')
     })
+  })
+
+  it('lists targets on mount and enables Send without the operator clicking List (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 2 member(s) via local herdr (no SSH)',
+      data: {
+        members: [
+          { kind: 'herdr', name: 'w2:pG', object: 'herdr.member' },
+          { kind: 'herdr', name: 'w3:p1', object: 'herdr.member' },
+        ],
+      },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('w2:pG')
+    })
+    expect(screen.getByRole('button', { name: /^send$/i })).toBeEnabled()
+  })
+
+  it('keeps Send disabled when the target list comes back empty (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 0 member(s) via local herdr (no SSH)',
+      data: { members: [] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    })
+  })
+
+  it('ignores a target list that belongs to another remote (#453)', async () => {
+    // Browser-verified on the LAN app: a stale OpenMousBot list reached the
+    // Herdr pane and its first row was adopted as the Herdr target — a UUID no
+    // Herdr pane can accept. A list from another remote is ignored outright.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'omb',
+      op: 'list',
+      ok: true,
+      detail: 'OpenMousBot listed 1 bot(s)',
+      data: { bots: [{ id: '3a383904-ec73-444c-ba8b-9805a05d18e3', name: 'hide-qa-beta' }] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    })
+    expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('')
+    expect(screen.queryByText(/hide-qa-beta/i)).not.toBeInTheDocument()
   })
 
   it('renders routines section when capabilities.routines is true and displays routines', async () => {
@@ -308,5 +376,49 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
     expect(screen.getByLabelText(/target/i)).toHaveValue(
       '550e8400-e29b-41d4-a716-446655440000',
     )
+  })
+})
+
+describe('AddRemoteForm pre-save test connection (REQ-889)', () => {
+  it('triggers testRemoteCandidate on Test connection click and displays probe status', async () => {
+    const testSpy = vi.spyOn(api, 'testRemoteCandidate').mockResolvedValue({
+      remote: 'omb',
+      ok: true,
+      state: 'UP',
+      detail: 'tcp 4ms · http 200 on /health',
+      latency_ms: 12,
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <AddRemoteForm kinds={[{ id: 'omb', label: 'OpenMousBot' }]} onAdded={() => {}} />
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText(/Base URL/i), {
+      target: { value: 'http://127.0.0.1:8791' },
+    })
+
+    const testBtn = screen.getByRole('button', { name: /test connection/i })
+    expect(testBtn).toBeInTheDocument()
+
+    fireEvent.click(testBtn)
+
+    await waitFor(() => {
+      expect(testSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'omb',
+          base_url: 'http://127.0.0.1:8791',
+        }),
+      )
+      expect(screen.getByText(/UP \(12ms\)/i)).toBeInTheDocument()
+      expect(screen.getAllByText(/tcp 4ms · http 200 on \/health/i).length).toBeGreaterThan(0)
+    })
   })
 })

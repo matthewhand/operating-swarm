@@ -451,6 +451,59 @@ _OMB_POLL_HTTP_TIMEOUT_S = 8.0
 _OMB_NON_BOT_TARGETS = frozenset({"omb", "openmousbot", "openmausbot", "openmous"})
 OMB_BOT_REQUIRED_GAP = "omb_bot_required"
 OMB_DEDICATED_BOT_NAME = "open-swarm"
+
+# #471: a failed OMB turn ends with an error activity row instead of bot text.
+OMB_TURN_ERROR_PREFIX = "OpenMousBot turn failed on the remote: "
+
+
+def _omb_turn_start_index(msgs: list[Any], *, after_id: str = "", prompt: str = "") -> int:
+    """Index of the first message row that belongs to the turn just submitted.
+
+    Anything before it is history — a previous turn's failure must never be
+    attributed to the new one (#471).
+    """
+    if after_id:
+        for i, msg in enumerate(msgs):
+            if str(msg.get("id") or "") == after_id:
+                return i + 1
+        return 0
+    if prompt.strip():
+        want = prompt.strip()
+        for i, msg in enumerate(msgs):
+            if str(msg.get("role") or "").lower() == "user" and _omb_message_text(msg) == want:
+                return i + 1
+    return 0
+
+
+def _omb_turn_error(
+    messages: list[Any], *, after_id: str = "", prompt: str = ""
+) -> str:
+    """Cause of a terminal remote-side turn failure, or ``""`` when there is none.
+
+    A failed OMB turn ends with a non-text activity row rather than bot text::
+
+        {"role": "bot", "kind": "activity",
+         "tool": {"name": "error: Internal error", "ok": false}}
+
+    ``_omb_is_bot_text`` deliberately skips activity rows, so without this the
+    poller could only run out its deadline and report a misleading timeout while
+    the cause sat on the thread (#471). Only rows after the submitted turn count;
+    the newest failure wins.
+    """
+    msgs = [m for m in messages if isinstance(m, dict)]
+    start = _omb_turn_start_index(msgs, after_id=after_id, prompt=prompt)
+    detail = ""
+    for msg in msgs[start:]:
+        if str(msg.get("role") or "").lower() not in ("bot", "assistant", "model"):
+            continue
+        tool = msg.get("tool")
+        if not isinstance(tool, dict) or tool.get("ok") is not False:
+            continue
+        name = str(tool.get("name") or "").strip() or "unknown error"
+        if name.lower().startswith("error:"):
+            name = name.split(":", 1)[1].strip() or "unknown error"
+        detail = name
+    return detail
 _HERMES_POLL_INTERVAL_S = 0.4
 _HERMES_POLL_HTTP_TIMEOUT_S = 8.0
 _ANYTHINGLLM_SEND_TIMEOUT_S = 90.0
@@ -459,7 +512,9 @@ _FLOWISE_SEND_TIMEOUT_S = 90.0
 _N8N_SEND_TIMEOUT_S = 30.0
 _TRUEFORGE_SEND_TIMEOUT_S = 60.0
 _TRUEFORGE_DONE_STATES = frozenset({"done", "completed", "finished", "success"})
-_TRUEFORGE_ERROR_STATES = frozenset({"error", "failed", "cancelled", "canceled"})
+_TRUEFORGE_ERROR_STATES = frozenset(
+    {"error", "failed", "cancelled", "canceled", "crashed", "aborted", "killed", "timeout", "timed_out"}
+)
 
 
 class RemoteError(Exception):
@@ -652,8 +707,39 @@ def _normalize_base_url(url: str) -> str:
         userinfo = parsed.username
         if parsed.password:
             userinfo += f":{parsed.password}"
+        # urlunparse joins netloc verbatim — the separator has to live here.
+        userinfo += "@"
     host_str = f"[{host}]" if ":" in host and not (host.startswith("[") and host.endswith("]")) else host
     netloc = f"{userinfo}{host_str}" + (f":{parsed.port}" if parsed.port else "")
+    return urlunparse(
+        (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
+    ).rstrip("/")
+
+
+def _normalize_ui_url(url: str) -> str:
+    """Normalize a browser-accessible UI URL.
+
+    Unlike _normalize_base_url, this does NOT rewrite loopback addresses
+    (127.0.0.1 / localhost) to Docker gateway (host.docker.internal),
+    because ui_url is consumed by the user's host browser, not by Python
+    inside a Docker container.
+    """
+    raw = (url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "::1"}:
+        host = "127.0.0.1"
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+    netloc = f"{userinfo}{host}" + (f":{parsed.port}" if parsed.port else "")
     return urlunparse(
         (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
     ).rstrip("/")
@@ -1026,12 +1112,16 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
     env_key_name = f"{kind.upper()}_{inst_slug}_API_KEY" if inst_slug else (_ENV_KEY.get(kind) or "")
     kind_env_key_name = _ENV_KEY.get(kind) or ""
     if not spec.api_key_env:
-        spec.api_key_env = (
-            _placeholder_env_name(str(spec.api_key or ""))
-            or env_key_name
-            or kind_env_key_name
-            or ""
-        )
+        # A kind default such as ${TRUEFORGE_API_KEY} is a fallback, not an
+        # explicit choice: for a named instance the derived TRUEFORGE_2_API_KEY
+        # must win, otherwise api_key_env misreports which variable to set and a
+        # per-instance key looks unconfigured (#460). An explicit api_key_env or
+        # a custom placeholder in the config entry still takes precedence.
+        default_placeholder = _placeholder_env_name(str(spec.api_key or ""))
+        if inst_slug and env_key_name and default_placeholder in ("", kind_env_key_name):
+            spec.api_key_env = env_key_name
+        else:
+            spec.api_key_env = default_placeholder or env_key_name or kind_env_key_name or ""
     if not spec.session_cookie_env:
         spec.session_cookie_env = (
             _placeholder_env_name(str(spec.cookie or ""))
@@ -1071,7 +1161,7 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
         spec.ssh_port = _coerce_ssh_port(spec.ssh_port)
 
     spec.base_url = _normalize_base_url(_expand(spec.base_url))
-    spec.ui_url = _normalize_base_url(_expand(spec.ui_url)) if spec.ui_url else ""
+    spec.ui_url = _normalize_ui_url(_expand(spec.ui_url)) if spec.ui_url else ""
     spec.health_path = spec.health_path or "/health"
     spec.version_path = spec.version_path or spec.health_path
     if not spec.health_path.startswith("/"):
@@ -1279,7 +1369,12 @@ def persist_agent_team(
     """Persist which remotes sit in the handoff Team (``agent_team.members``)."""
     resolved: list[str] = []
     for item in members:
-        rid = _require_id(str(item))
+        # Validate, but store the *instance* id. _require_id collapses
+        # "trueforge-2" to its kind "trueforge", which silently dropped named
+        # instances from the Team (#452). load_placed_members already reads with
+        # normalize_instance_id, so the writer must agree with the reader.
+        _require_id(str(item))
+        rid = normalize_instance_id(str(item))
         if rid not in resolved:
             resolved.append(rid)
     cfg, path = load_raw_config(config_path)
@@ -1299,7 +1394,9 @@ def persist_agent_team(
 
 
 def place_team_member(remote_id: str, *, config_path: str | Path | None = None) -> tuple[list[str], Path]:
-    rid = _require_id(remote_id)
+    # Keep the instance id, not the kind — see persist_agent_team (#452).
+    _require_id(remote_id)
+    rid = normalize_instance_id(remote_id)
     cfg, path = load_raw_config(config_path)
     current = load_placed_members(cfg)
     if rid not in current:
@@ -1308,7 +1405,10 @@ def place_team_member(remote_id: str, *, config_path: str | Path | None = None) 
 
 
 def unplace_team_member(remote_id: str, *, config_path: str | Path | None = None) -> tuple[list[str], Path]:
-    rid = _require_id(remote_id)
+    # Match the instance id that place_team_member stored (#452), otherwise
+    # unplacing one instance would drop the kind and every sibling with it.
+    _require_id(remote_id)
+    rid = normalize_instance_id(remote_id)
     cfg, path = load_raw_config(config_path)
     current = [m for m in load_placed_members(cfg) if m != rid]
     return persist_agent_team(current, config_path=path)
@@ -1472,7 +1572,7 @@ def persist_remote(
                 "Refusing to persist a plaintext API key. Use api_key_env or ${ENV}."
             )
     if ui_url is not None:
-        entry["ui_url"] = _normalize_base_url(ui_url) if ui_url else ""
+        entry["ui_url"] = _normalize_ui_url(ui_url) if ui_url else ""
     if session_cookie_env is not None:
         env_name = _as_env_name(session_cookie_env)
         if env_name and not ownership.looks_like_env_name(env_name) and not ownership.is_placeholder(session_cookie_env):
@@ -1744,6 +1844,14 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
     if not is_configured(spec.id, config):
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail=_not_added_message(spec.id))
 
+    return _check_health_spec(spec, timeout, config)
+
+
+def _check_health_spec(
+    spec: RemoteSpec,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+    config: dict[str, Any] | None = None,
+) -> HealthResult:
     if spec.kind == "herdr" or kind_of_instance(spec.id, config) == "herdr":
         herdr_health = _herdr_health(spec, timeout, config)
         if herdr_health is not None:
@@ -1777,13 +1885,32 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
             url=spec.base_url,
         )
 
-    health_url = f"{spec.base_url}{spec.health_path}"
-    result = http_json("GET", health_url, headers=_auth_headers(spec), timeout=timeout)
+    health_paths = [spec.health_path]
+    is_letta = (
+        spec.kind == "letta"
+        or kind_of_instance(spec.id, config) == "letta"
+        or kind_of_instance(spec.id) == "letta"
+    )
+    if is_letta:
+        for alt in ("/v1/health", "/v1/health/", "/health"):
+            if alt not in health_paths:
+                health_paths.append(alt)
+
+    chosen_path = spec.health_path
+    health_url = f"{spec.base_url}{chosen_path}"
+    result = None
+    for path in health_paths:
+        chosen_path = path
+        health_url = f"{spec.base_url}{path}"
+        result = http_json("GET", health_url, headers=_auth_headers(spec), timeout=timeout)
+        if result.status in _UP or result.status in _AUTH:
+            break
+
     version = _extract_version(result.body)
 
     if result.status in _UP:
         # Cheap extra version probe when health has no useful body.
-        if version is None and spec.version_path != spec.health_path:
+        if version is None and spec.version_path != chosen_path:
             extra = http_json(
                 "GET",
                 f"{spec.base_url}{spec.version_path}",
@@ -1798,7 +1925,7 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
             remote=spec.id,
             ok=True,
             state="UP",
-            detail=f"tcp {tcp_ms}ms · http {result.status} on {spec.health_path}",
+            detail=f"tcp {tcp_ms}ms · http {result.status} on {chosen_path}",
             http_status=result.status,
             version=version,
             latency_ms=result.latency_ms,
@@ -1820,7 +1947,7 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
             remote=spec.id,
             ok=False,
             state="DEGRADED",
-            detail=f"tcp {tcp_ms}ms · http {result.status} on {spec.health_path}",
+            detail=f"tcp {tcp_ms}ms · http {result.status} on {chosen_path}",
             http_status=result.status,
             version=version,
             latency_ms=result.latency_ms,
@@ -1834,6 +1961,56 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
         latency_ms=result.latency_ms,
         url=health_url,
     )
+
+
+def probe_candidate_remote(
+    kind: str,
+    *,
+    remote_id: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    api_key_env: str | None = None,
+    herdr_mode: str | None = None,
+    ssh_host: str | None = None,
+    ssh_user: str | None = None,
+    ssh_port: int | str | None = None,
+    ssh_identity_env: str | None = None,
+    ssh_agent: bool | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> HealthResult:
+    """Probe candidate remote parameters prior to saving."""
+    k = str(kind or "").strip().lower()
+    k = _KIND_ALIASES.get(k, k)
+    if not k or k not in REMOTE_KIND_IDS:
+        return HealthResult(remote=remote_id or kind, ok=False, state="UNKNOWN", detail=f"Unknown kind '{kind}'")
+
+    rid = str(remote_id or "").strip().lower() or k
+    spec = default_spec(k)
+    spec.id = rid
+    spec.kind = k
+    if base_url is not None:
+        spec.base_url = str(base_url).strip()
+    if api_key is not None:
+        spec.api_key = str(api_key).strip()
+    if api_key_env is not None:
+        spec.api_key_env = str(api_key_env).strip()
+    if herdr_mode is not None:
+        spec.herdr_mode = str(herdr_mode).strip()
+    if ssh_host is not None:
+        spec.ssh_host = str(ssh_host).strip()
+    if ssh_user is not None:
+        spec.ssh_user = str(ssh_user).strip()
+    if ssh_port is not None and str(ssh_port).strip():
+        try:
+            spec.ssh_port = int(ssh_port)
+        except (ValueError, TypeError):
+            pass
+    if ssh_identity_env is not None:
+        spec.ssh_identity_env = str(ssh_identity_env).strip()
+    if ssh_agent is not None:
+        spec.ssh_agent = bool(ssh_agent)
+
+    return _check_health_spec(spec, timeout)
 
 
 def check_all_health(*, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> list[HealthResult]:
@@ -2079,174 +2256,6 @@ def _hermes_send(
     )
 
 
-def _omb_bot_target(target: str) -> str:
-    """Treat remote-kind ids as no bot so send does not POST /api/bots/omb."""
-    raw = (target or "").strip()
-    if not raw or raw.lower() in _OMB_NON_BOT_TARGETS:
-        return ""
-    return raw
-
-
-def _omb_message_text(msg: Any) -> str:
-    if not isinstance(msg, dict):
-        return ""
-    for key in ("text", "content"):
-        val = msg.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    return ""
-
-
-def _omb_is_bot_text(msg: Any) -> bool:
-    if not isinstance(msg, dict):
-        return False
-    role = str(msg.get("role") or "").lower()
-    if role not in ("bot", "assistant", "model"):
-        return False
-    kind = str(msg.get("kind") or "text").lower()
-    if kind in ("activity", "tool", "card", "screen", "image"):
-        return False
-    return bool(_omb_message_text(msg))
-
-
-def _omb_messages_from(payload: Any) -> list[Any]:
-    if isinstance(payload, list):
-        return payload
-    if not isinstance(payload, dict):
-        return []
-    for key in ("messages", "thread"):
-        val = payload.get(key)
-        if isinstance(val, list):
-            return val
-    return []
-
-
-def _omb_bots_from(payload: Any) -> list[Any]:
-    if isinstance(payload, dict):
-        bots = payload.get("bots") or payload.get("agents") or payload.get("data") or []
-    else:
-        bots = payload
-    return bots if isinstance(bots, list) else []
-
-
-def _omb_find_bot(payload: Any, bot_id: str) -> dict[str, Any] | None:
-    needle = (bot_id or "").strip()
-    if not needle:
-        return None
-    by_name = None
-    for item in _omb_bots_from(payload):
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("id") or "") == needle:
-            return item
-        if str(item.get("name") or "") == needle and by_name is None:
-            by_name = item
-    return by_name
-
-
-def _omb_receipt_ids(body: Any) -> tuple[str, str]:
-    """threadId and user message id from POST /messages 202 receipt."""
-    if not isinstance(body, dict):
-        return "", ""
-    thread_id = str(body.get("threadId") or "").strip()
-    msg = body.get("message")
-    user_id = ""
-    if isinstance(msg, dict):
-        user_id = str(msg.get("id") or "").strip()
-        if not thread_id:
-            thread_id = str(msg.get("threadId") or "").strip()
-    return thread_id, user_id
-
-
-def _omb_assistant_after(
-    messages: list[Any], *, after_id: str = "", prompt: str = ""
-) -> tuple[str, str]:
-    """First bot text after the user turn. Returns (text, message_id)."""
-    msgs = [m for m in messages if isinstance(m, dict)]
-    start = 0
-    if after_id:
-        for i, msg in enumerate(msgs):
-            if str(msg.get("id") or "") == after_id:
-                start = i + 1
-                break
-    elif prompt.strip():
-        want = prompt.strip()
-        for i, msg in enumerate(msgs):
-            if str(msg.get("role") or "").lower() == "user" and _omb_message_text(msg) == want:
-                start = i + 1
-    for msg in msgs[start:]:
-        if _omb_is_bot_text(msg):
-            return _omb_message_text(msg), str(msg.get("id") or "").strip()
-    return "", ""
-
-
-def _omb_poll_assistant(
-    spec: RemoteSpec,
-    *,
-    bot_id: str,
-    prompt: str,
-    thread_id: str,
-    after_id: str,
-    timeout: float,
-) -> tuple[str, str, str, str]:
-    """Poll OMB until a bot text exists after the user turn.
-
-    Returns ``(text, thread_id, error, message_id)``. Follow-up bot texts on
-    the same thread are out of scope here (issue #125 / #301).
-    """
-    headers = _auth_headers(spec)
-    base_url = (spec.base_url or "").rstrip("/")
-    deadline = time.monotonic() + max(float(timeout), 0.0)
-    http_timeout = min(_OMB_POLL_HTTP_TIMEOUT_S, max(float(timeout), 0.5))
-    last_activity = ""
-    saw_bot = False
-    busy = True
-    while True:
-        listed = http_json(
-            "GET",
-            f"{base_url}/api/bots?messages=20",
-            headers=headers,
-            timeout=http_timeout,
-        )
-        bot = _omb_find_bot(listed.body, bot_id) if listed.status in _UP else None
-        messages: list[Any] = []
-        if isinstance(bot, dict):
-            saw_bot = True
-            thread_id = thread_id or str(bot.get("threadId") or "").strip()
-            last_activity = str(bot.get("activity") or "")
-            busy = bool(bot.get("busy"))
-            messages = _omb_messages_from(bot)
-        if thread_id:
-            page = http_json(
-                "GET",
-                f"{base_url}/api/threads/{thread_id}/messages?limit=40",
-                headers=headers,
-                timeout=http_timeout,
-            )
-            if page.status in _UP:
-                thread_msgs = _omb_messages_from(page.body)
-                if thread_msgs:
-                    messages = thread_msgs
-        reply, reply_id = _omb_assistant_after(messages, after_id=after_id, prompt=prompt)
-        if last_activity in ("dead", "no-signal"):
-            return "", thread_id, f"OpenMousBot turn {last_activity.replace('-', ' ')}", ""
-        settled = last_activity == "waiting-on-you" or (saw_bot and not busy)
-        if reply:
-            terminal = False
-            for msg in reversed(messages):
-                if isinstance(msg, dict) and _omb_is_bot_text(msg) and _omb_message_text(msg) == reply:
-                    terminal = bool(msg.get("turnTerminal"))
-                    break
-            if terminal or settled:
-                return reply, thread_id, "", reply_id
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            if last_activity == "waiting-on-you" and not reply:
-                return "", thread_id, "OpenMousBot is waiting for operator input", ""
-            return "", thread_id, "OpenMousBot reply timed out", ""
-        time.sleep(min(max(_OMB_POLL_INTERVAL_S, 0.0), remaining))
-
-
 def summarize_omb_bots(payload: Any) -> list[dict[str, str]]:
     """Map GET /api/bots (or operate list data) to ``{id, name}`` rows.
 
@@ -2337,17 +2346,28 @@ def _omb_messages_from(payload: Any) -> list[Any]:
     return []
 
 
-def _omb_find_bot(payload: Any, bot_id: str) -> dict[str, Any] | None:
+def _omb_bots_from(payload: Any) -> list[Any]:
     if isinstance(payload, dict):
         bots = payload.get("bots") or payload.get("agents") or payload.get("data") or []
     else:
         bots = payload
-    if not isinstance(bots, list):
+    return bots if isinstance(bots, list) else []
+
+
+def _omb_find_bot(payload: Any, bot_id: str) -> dict[str, Any] | None:
+    """Resolve a listed bot by id, else by name (``_omb_send`` takes either)."""
+    needle = (bot_id or "").strip()
+    if not needle:
         return None
-    for item in bots:
-        if isinstance(item, dict) and str(item.get("id") or "") == bot_id:
+    by_name: dict[str, Any] | None = None
+    for item in _omb_bots_from(payload):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id") or "") == needle:
             return item
-    return None
+        if by_name is None and str(item.get("name") or "") == needle:
+            by_name = item
+    return by_name
 
 
 def _omb_receipt_ids(body: Any) -> tuple[str, str]:
@@ -2437,6 +2457,12 @@ def _omb_poll_assistant(
         if last_activity in ("dead", "no-signal"):
             return "", thread_id, f"OpenMousBot turn {last_activity.replace('-', ' ')}", ""
         settled = last_activity == "waiting-on-you" or (saw_bot and not busy)
+        # #471: a failed turn ends with an error activity row, not bot text, so
+        # the loop used to burn its whole budget and say "timed out" while the
+        # cause was on the thread all along. A reply (if one arrives) wins.
+        turn_error = "" if reply else _omb_turn_error(messages, after_id=after_id, prompt=prompt)
+        if turn_error:
+            return "", thread_id, f"{OMB_TURN_ERROR_PREFIX}{turn_error}", ""
         if reply:
             terminal = False
             for msg in reversed(messages):
@@ -2579,7 +2605,14 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
         detail=err or "OpenMousBot reply timed out",
         http_status=result.status,
         data={"bot_id": bot_id, "thread_id": thread_id},
-        gap="omb_reply_timeout" if "timed out" in (err or "") else "omb_reply_failed",
+        # #471: the remote named a cause — keep it distinct from a real timeout.
+        gap=(
+            "omb_turn_error"
+            if (err or "").startswith(OMB_TURN_ERROR_PREFIX)
+            else "omb_reply_timeout"
+            if "timed out" in (err or "")
+            else "omb_reply_failed"
+        ),
     )
 
 
@@ -2861,13 +2894,20 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
         elif isinstance(result.body, list):
             agents = result.body
         count = len(agents) if isinstance(agents, list) else (1 if agents else 0)
+        # #425: these rows are *agents*. A send resume key is a session id, and
+        # forwarding a row id as one produced "404 Session not found". Say what
+        # the rows are so the caller can tell the two apart.
+        payload = result.body if isinstance(result.body, dict) else {"data": result.body}
         return OperateResult(
             remote=spec.id,
             op="list",
             ok=True,
-            detail=f"TrueForge listed {count} agent(s) via GET /api/v1/agents",
+            detail=(
+                f"TrueForge listed {count} agent(s) via GET /api/v1/agents — rows are agents; "
+                "send resumes on session_id"
+            ),
             http_status=result.status,
-            data=result.body,
+            data={**payload, "rows_are": "agents", "resume_key": "session_id"},
         )
     if result.status in _AUTH:
         return OperateResult(
@@ -2931,6 +2971,58 @@ def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | N
     return _TRUEFORGE_SEND_TIMEOUT_S
 
 
+def _trueforge_create_session(
+    spec: RemoteSpec, base_url: str, agent_name: str, timeout_s: float
+) -> tuple[str, OperateResult | None]:
+    """``POST /api/v1/sessions`` for one agent. Returns ``(session_id, error)``.
+
+    Both the fresh-send path and the #425 recovery path start sessions the same
+    way, so the auth / unreachable / id-missing sentences live here once.
+    """
+    name = (agent_name or "").strip() or "orchestrator"
+    sess_resp = http_json(
+        "POST",
+        f"{base_url}/api/v1/sessions",
+        headers=_auth_headers(spec),
+        body={"agent": {"name": name}, "metadata": {}},
+        timeout=min(5.0, timeout_s),
+    )
+    if sess_resp.status in _AUTH:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail=f"TrueForge POST /api/v1/sessions requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
+            http_status=sess_resp.status,
+            data=sess_resp.body,
+        )
+    if sess_resp.status not in _UP and sess_resp.status != 201:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail=_unreachable_detail(sess_resp, "TrueForge session create"),
+            http_status=sess_resp.status,
+            data=sess_resp.body or sess_resp.text or None,
+        )
+    body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
+    sess_id = str(
+        (body.get("data") if isinstance(body.get("data"), dict) else {}).get("id")
+        or body.get("id")
+        or ""
+    )
+    if not sess_id:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail="TrueForge did not return a session id",
+            http_status=sess_resp.status,
+            data=sess_resp.body,
+        )
+    return sess_id, None
+
+
 def _trueforge_send(
     spec: RemoteSpec,
     prompt: str,
@@ -2947,49 +3039,15 @@ def _trueforge_send(
     deadline = start_time + timeout_s
 
     # 1. Session id: reuse or create via POST /api/v1/sessions
-    sess_id = (session_id or "").strip()
+    requested_session = (session_id or "").strip()
+    sess_id = requested_session
+    created_for = ""
     if not sess_id:
-        agent_name = (target or "").strip() or "orchestrator"
-        sess_resp = http_json(
-            "POST",
-            f"{base_url}/api/v1/sessions",
-            headers=_auth_headers(spec),
-            body={"agent": {"name": agent_name}, "metadata": {}},
-            timeout=min(5.0, timeout_s),
+        sess_id, err = _trueforge_create_session(
+            spec, base_url, (target or "").strip() or "orchestrator", timeout_s
         )
-        if sess_resp.status in _AUTH:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail=f"TrueForge POST /api/v1/sessions requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
-                http_status=sess_resp.status,
-                data=sess_resp.body,
-            )
-        if sess_resp.status not in _UP and sess_resp.status != 201:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail=_unreachable_detail(sess_resp, "TrueForge session create"),
-                http_status=sess_resp.status,
-                data=sess_resp.body or sess_resp.text or None,
-            )
-        body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
-        sess_id = str(
-            (body.get("data") if isinstance(body.get("data"), dict) else {}).get("id")
-            or body.get("id")
-            or ""
-        )
-        if not sess_id:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail="TrueForge did not return a session id",
-                http_status=sess_resp.status,
-                data=sess_resp.body,
-            )
+        if err is not None:
+            return err
 
     # 2. POST turn: POST /api/v1/sessions/{session_id}/turns
     remaining = max(1.0, deadline - time.monotonic())
@@ -3013,14 +3071,59 @@ def _trueforge_send(
             data=turn_resp.body,
         )
     if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
-        return OperateResult(
-            remote=spec.id,
-            op="send",
-            ok=False,
-            detail=_unreachable_detail(turn_resp, "TrueForge turn create"),
-            http_status=turn_resp.status,
-            data=turn_resp.body or turn_resp.text or None,
-        )
+        if requested_session and turn_resp.status == 404:
+            # #425: a resume key taken straight off the list is an *agent* id,
+            # and TrueForge will not turn one into a session. Start a session for
+            # that name instead of handing back a bare "404 Session not found".
+            agent_name = (target or "").strip() or requested_session
+            minted, mint_err = _trueforge_create_session(spec, base_url, agent_name, timeout_s)
+            if mint_err is not None:
+                return OperateResult(
+                    remote=spec.id,
+                    op="send",
+                    ok=False,
+                    detail=(
+                        f"There is no TrueForge session '{requested_session}' to resume, and a "
+                        f"session for '{agent_name}' could not be started: {mint_err.detail}"
+                    ),
+                    http_status=mint_err.http_status,
+                    data={"requested_session_id": requested_session, "agent": agent_name},
+                    gap="trueforge_no_session",
+                )
+            created_for, sess_id = agent_name, minted
+            turn_resp = http_json(
+                "POST",
+                f"{base_url}/api/v1/sessions/{sess_id}/turns",
+                headers=_auth_headers(spec),
+                body={
+                    "input": [{"type": "user.message", "content": prompt}],
+                    "stream": False,
+                },
+                timeout=min(5.0, max(1.0, deadline - time.monotonic())),
+            )
+            if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
+                return OperateResult(
+                    remote=spec.id,
+                    op="send",
+                    ok=False,
+                    detail=(
+                        f"There is no TrueForge session '{requested_session}' to resume, and the "
+                        f"session started for '{agent_name}' did not accept the turn: "
+                        f"{_unreachable_detail(turn_resp, 'TrueForge turn create')}"
+                    ),
+                    http_status=turn_resp.status,
+                    data={"requested_session_id": requested_session, "agent": agent_name},
+                    gap="trueforge_no_session",
+                )
+        else:
+            return OperateResult(
+                remote=spec.id,
+                op="send",
+                ok=False,
+                detail=_unreachable_detail(turn_resp, "TrueForge turn create"),
+                http_status=turn_resp.status,
+                data=turn_resp.body or turn_resp.text or None,
+            )
     tbody = turn_resp.body if isinstance(turn_resp.body, dict) else {}
     turn_id = str(
         (tbody.get("data") if isinstance(tbody.get("data"), dict) else {}).get("id")
@@ -3066,9 +3169,14 @@ def _trueforge_send(
             if last_state in _TRUEFORGE_DONE_STATES:
                 break
             if last_state in _TRUEFORGE_ERROR_STATES:
+                state_dict = turn_data.get("state") if isinstance(turn_data.get("state"), dict) else {}
                 err_msg = (
                     turn_data.get("error")
                     or turn_data.get("message")
+                    or turn_data.get("detail")
+                    or state_dict.get("error")
+                    or state_dict.get("message")
+                    or state_dict.get("detail")
                     or f"TrueForge turn {turn_id} ended with state '{last_state}'"
                 )
                 return OperateResult(
@@ -3137,6 +3245,7 @@ def _trueforge_send(
             "turn_id": turn_id,
             "turn": turn_data,
             "events": events_data,
+            **({"session_created_for": created_for} if created_for else {}),
         },
     )
 
@@ -3327,8 +3436,41 @@ def _herdr_pane_text(payload: Any) -> str:
     return ""
 
 
+def _herdr_reply_after_timeout(
+    client: Any,
+    pane: str,
+    before_seq: int | None,
+) -> str:
+    """Read the pane after a wait timeout, but only if the pane actually moved.
+
+    #470: the stopped-state wait can expire while a reply is already on screen
+    (an agent that settles in ``done`` used to be reported as a timeout and its
+    reply thrown away). ``state_change_seq`` gates the read so an untouched pane
+    can never hand stale text back as this turn's answer.
+    """
+    if client is None:
+        return ""
+    from swarm.herdr.client import extract_state_change_seq
+
+    try:
+        after_seq = extract_state_change_seq(client.agent_get(pane))
+        if before_seq is None or after_seq is None or after_seq == before_seq:
+            return ""
+        read = client.agent_read(pane, source="recent", fmt="text")
+    except Exception:
+        return ""
+    return _herdr_pane_text(read)
+
+
 def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:
-    from swarm.herdr.client import HerdrBlockedError, HerdrCLIError, HerdrClient
+    from swarm.herdr.client import (
+        WAIT_UNTIL_STOPPED,
+        HerdrBlockedError,
+        HerdrCLIError,
+        HerdrClient,
+        extract_agent_state,
+        extract_state_change_seq,
+    )
     from swarm.herdr.remote import resolve_herdr_mode
     from swarm.herdr.ssh import SSHNotConfiguredError
 
@@ -3342,18 +3484,34 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
             detail="target is required (Herdr pane / CLI id, e.g. w3:p1 or grok)",
         )
     mode = resolve_herdr_mode(spec)
+    hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
     timeout_s = float(timeout or _OPERATE_SEND_TIMEOUT_S)
     timeout_ms = max(1, int(timeout_s * 1000))
     pane = target.strip()
+    client: Any = None
+    before_seq: int | None = None
     try:
         client = HerdrClient.from_remote_config(config)
+        # One `agent get` serves both jobs: refuse a blocked pane (as
+        # `check_blocked=True` did) and remember where the pane was so a
+        # post-timeout read cannot hand back stale text (#470).
+        try:
+            state_payload = client.agent_get(pane)
+        except Exception:
+            state_payload = None
+        before_seq = extract_state_change_seq(state_payload)
+        if extract_agent_state(state_payload) == "blocked":
+            raise HerdrBlockedError(pane)
         payload = client.agent_prompt(
             pane,
             prompt,
             wait=True,
-            until="idle",
+            # idle | done | blocked — a finished turn settles in ``done`` and
+            # never returns to ``idle``, so waiting on ``idle`` alone could only
+            # expire (#470).
+            until=WAIT_UNTIL_STOPPED,
             timeout_ms=timeout_ms,
-            check_blocked=True,
+            check_blocked=False,
         )
         read = client.agent_read(pane, source="recent", fmt="text")
     except SSHNotConfiguredError as exc:
@@ -3363,6 +3521,17 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
     except HerdrCLIError as exc:
         msg = str(exc)
         if "timed out" in msg.lower():
+            # The wait expired — but the agent may have answered anyway (`done`
+            # turns, slow TUIs). Read the pane before calling it a failure #470.
+            rescued = _herdr_reply_after_timeout(client, pane, before_seq)
+            if rescued:
+                return OperateResult(
+                    remote="herdr",
+                    op="send",
+                    ok=True,
+                    detail=f"Herdr reply from {target} via {hop} (recovered after the wait timeout)",
+                    data={"target": target, "text": rescued, "response": rescued, "transport": mode},
+                )
             return OperateResult(
                 remote="herdr",
                 op="send",
@@ -3375,7 +3544,6 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
     except Exception as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
     text = _herdr_pane_text(read) or _herdr_pane_text(payload)
-    hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
     if not text:
         return OperateResult(
             remote="herdr",
@@ -4071,21 +4239,6 @@ def _letta_list(spec: RemoteSpec, timeout: float, query: str = "") -> OperateRes
         http_status=result.status,
         data=data,
     )
-
-
-def _parse_sse_json_line(line: str) -> dict[str, Any] | None:
-    text = (line or "").strip()
-    if not text or text == "[DONE]":
-        return None
-    if text.startswith("data:"):
-        text = text[5:].strip()
-        if not text or text == "[DONE]":
-            return None
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
 
 
 def _letta_post_events(

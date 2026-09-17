@@ -75,9 +75,11 @@ import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
+import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
 import SessionPicker from '../components/SessionPicker'
 import {
   fetchRemoteThreadSessions,
+  remoteAgentsFromOperate,
   remoteChatTurnParams,
   remoteListsSessions,
 } from '../lib/remoteSessions'
@@ -220,6 +222,7 @@ import {
   cliTerminatedFromEvent,
   notifyCliRunState,
 } from '../lib/cliRunState'
+import { notifyApprovalWait } from '../lib/agentAttention'
 import { publishExpectedSpaVersion } from '../lib/spaHello'
 import { maybeNotifyAgentTurn } from '../lib/agentNotifications'
 import {
@@ -240,8 +243,6 @@ import {
   OMB_BOT_REQUIRED_GAP,
   OMB_NO_AGENTS_WARNING,
   OMB_SELECT_AGENT_WARNING,
-  ombBotsFromOperate,
-  ombNavbarOptions,
   ombSendTarget,
 } from '../lib/ombBots'
 import { isOpenMousBotKind } from '../lib/remoteKinds'
@@ -946,7 +947,9 @@ const ChatPage = () => {
     () => resolveProductModes(cliQuery.data),
     [cliQuery.data],
   )
-  const showRemotesControl = productModes.remote && (isRemoteAgent || isRemoteBackedTeam)
+  const showRemotesControl =
+    Boolean(remoteFromUrl) ||
+    (productModes.remote && (isRemoteAgent || isRemoteBackedTeam))
   const bindingAgentId = remoteFromUrl || (showRemotesControl ? selectedBlueprint : '')
   const persistedRemote = bindingAgentId ? loadAgentRemoteBinding(bindingAgentId) : null
   const remotesCatalog = remotesListForSelect(
@@ -969,26 +972,26 @@ const ChatPage = () => {
     : isOpenMousBotKind(remoteFromUrl)
       ? remoteFromUrl
       : ''
-  const ombListQuery = useQuery({
-    queryKey: ['omb-operate-list', ombRemoteId],
-    queryFn: () => operateRemote(ombRemoteId, { op: 'list' }, { timeoutMs: 12000 }),
-    enabled: showRemotesControl && Boolean(ombRemoteId),
+  const activeRemoteId = (selectedRemoteId || remoteFromUrl || '').trim()
+  const remoteAgentsQuery = useQuery({
+    queryKey: ['remote-operate-list', activeRemoteId],
+    queryFn: () => operateRemote(activeRemoteId, { op: 'list' }, { timeoutMs: 12000 }),
+    enabled: showRemotesControl && Boolean(activeRemoteId),
     retry: 1,
   })
-  const ombBots = useMemo(
-    () => (ombRemoteId ? ombBotsFromOperate(ombListQuery.data?.data) : []),
-    [ombRemoteId, ombListQuery.data],
+  const remoteNavbarAgents = useMemo(
+    () => (activeRemoteId ? remoteAgentsFromOperate(remoteAgentsQuery.data?.data) : []),
+    [activeRemoteId, remoteAgentsQuery.data],
   )
-  const ombNavbarAgents = useMemo(() => ombNavbarOptions(ombBots), [ombBots])
-  const ombModelWarning = !ombRemoteId
+  const remoteAgentWarning = !activeRemoteId
     ? null
-    : ombListQuery.isError
-      ? ombListQuery.error instanceof Error
-        ? ombListQuery.error.message
-        : 'OpenMousBot agent list failed'
-      : ombListQuery.isSuccess && ombListQuery.data?.ok === false
-        ? ombListQuery.data.detail || OMB_NO_AGENTS_WARNING
-        : ombListQuery.isSuccess && ombBots.length === 0
+    : remoteAgentsQuery.isError
+      ? remoteAgentsQuery.error instanceof Error
+        ? remoteAgentsQuery.error.message
+        : 'Remote agent list failed'
+      : remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
+        ? remoteAgentsQuery.data.detail || 'No agents listed on this remote'
+        : remoteAgentsQuery.isSuccess && remoteNavbarAgents.length === 0 && ombRemoteId
           ? OMB_NO_AGENTS_WARNING
           : null
   const ombSelectedBotId = ombSendTarget(sessionFromUrl, ombRemoteId || remoteFromUrl)
@@ -1766,6 +1769,8 @@ const ChatPage = () => {
 
   const attachToolToThread = useCallback(
     (tool: ToolCallState) => {
+      const waitAgent = tool.agentId || selectedBlueprint || threadKey
+      notifyApprovalWait(waitAgent, tool.id, Boolean(tool.needsApproval))
       setThreads((prev) => {
         const current = prev[threadKey] ?? []
         const targetIndex = [...current]
@@ -1793,7 +1798,7 @@ const ChatPage = () => {
         return { ...prev, [threadKey]: next }
       })
     },
-    [threadKey],
+    [selectedBlueprint, threadKey],
   )
 
   const sendToolDecision = useCallback((id: string, decision: 'allow' | 'always' | 'deny') => {
@@ -3319,7 +3324,15 @@ const ChatPage = () => {
 
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
-      <header className="os-chat-header overflow-hidden gap-1.5 sm:gap-3">
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      <header className="os-chat-header gap-1.5 sm:gap-3">
         <div className="os-chat-header__identity flex min-w-0 flex-1 items-center gap-2 group">
           {narrow ? (
             <button
@@ -3502,10 +3515,10 @@ const ChatPage = () => {
                 label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
               }))}
               selectedAgent={selectedRemoteId}
-              models={ombNavbarAgents.map((row) => row.id)}
-              modelOptions={ombNavbarAgents}
-              selectedModel={ombSelectedBotId}
-              modelWarning={ombModelWarning}
+              models={remoteNavbarAgents.map((row) => row.id)}
+              modelOptions={remoteNavbarAgents}
+              selectedModel={ombSelectedBotId || sessionFromUrl}
+              modelWarning={remoteAgentWarning}
               footerAction={{
                 id: ADD_REMOTE_VALUE,
                 label: 'Manage Remote',
@@ -3535,6 +3548,25 @@ const ChatPage = () => {
                   }
                   return params
                 })
+              }}
+            />
+          ) : null}
+          {showRemotesControl && activeRemoteId ? (
+            <RemoteSessionSwitcher
+              remoteId={activeRemoteId}
+              remoteKind={selectedRemote?.kind || activeRemoteId}
+              remoteTitle={
+                configuredRemoteRows.find((row) => row.id === activeRemoteId)?.title ||
+                selectedRemote?.title ||
+                activeRemoteId
+              }
+              onSelectSession={(sessionId) => {
+                setSearchParams((prev) => {
+                  const params = new URLSearchParams(prev)
+                  params.set('remote', activeRemoteId)
+                  params.set('session', sessionId)
+                  return params
+                }, { replace: true })
               }}
             />
           ) : null}
@@ -4268,8 +4300,8 @@ const ChatPage = () => {
                           <button
                             type="button"
                             role="menuitem"
-                            className={`os-plus-menu__item ${!attachFilesOk ? 'opacity-60 cursor-not-allowed' : ''}`}
                             aria-disabled={!attachFilesOk}
+                            className={`os-plus-menu__item ${!attachFilesOk ? 'opacity-60 cursor-not-allowed' : ''}`}
                             title={
                               attachFilesOk
                                 ? 'Add files to this chat'

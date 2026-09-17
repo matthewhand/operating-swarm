@@ -80,6 +80,12 @@ import { openSettingsSheet } from './SettingsSheet'
 import MailboxAclEditor from './MailboxAclEditor'
 import { ContextUsageDetail } from './ContextUsageDetail'
 import { peekConversationIdForAgent } from '../lib/agentChat'
+import CreateRoleModal from './CreateRoleModal'
+import {
+  CUSTOM_ROLES_UPDATED_EVENT,
+  findCustomRole,
+  loadCustomRoles,
+} from '../lib/customRoles'
 
 /** Window event so the rail hover-edit and tests can open the agent editor. */
 export const OPEN_AGENT_EDITOR_EVENT = 'swarm:open-agent-editor'
@@ -147,6 +153,35 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [repoError, setRepoError] = useState<string | null>(null)
   const [attachedSkills, setAttachedSkills] = useState<string[]>([])
   const [addingProfile, setAddingProfile] = useState(false)
+  const [customRoles, setCustomRoles] = useState(() => loadCustomRoles())
+  const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false)
+
+  useEffect(() => {
+    const handleCustomRoles = () => setCustomRoles(loadCustomRoles())
+    window.addEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
+    return () => window.removeEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
+  }, [])
+
+  const allRoleOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [
+      ...ROLE_OPTIONS,
+      { value: 'advisor', label: 'advisor' },
+    ]
+    for (const cr of customRoles) {
+      if (!options.some((o) => o.value === cr.name)) {
+        options.push({ value: cr.name, label: cr.label || cr.name })
+      }
+    }
+    return options
+  }, [customRoles])
+
+  const handleRoleSelect = (val: string) => {
+    if (val === '__new_role__') {
+      setIsCreateRoleModalOpen(true)
+      return
+    }
+    persistRole(val as AgentRole)
+  }
 
   const blueprintsQuery = useQuery({
     queryKey: ['blueprints'],
@@ -458,16 +493,17 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             label="Role"
             name="agent-role"
             value={role}
-            onChange={(event) => persistRole(event.target.value as AgentRole)}
+            onChange={(event) => handleRoleSelect(event.target.value)}
           >
-            {ROLE_OPTIONS.map((option) => (
+            {allRoleOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
+            <option value="__new_role__">+ Create new role…</option>
           </Select>
           <p className="text-xs text-base-content/70 mt-1" data-testid="role-explanation">
-            {ROLE_BRIEFS[role] || ROLE_BRIEFS.default}
+            {ROLE_BRIEFS[role] || findCustomRole(role)?.mechanism_detail || ROLE_BRIEFS.default}
           </p>
           <p className="text-xs text-base-content/55 mt-1" data-testid="role-override-rule">
             Changing Role here wins over the blueprint default. Re-picking a
@@ -1107,6 +1143,14 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
           Close
         </Button>
       </div>
+
+      <CreateRoleModal
+        isOpen={isCreateRoleModalOpen}
+        onClose={() => setIsCreateRoleModalOpen(false)}
+        onCreated={(newRoleName) => {
+          persistRole(newRoleName as AgentRole)
+        }}
+      />
     </Modal>
   )
 }

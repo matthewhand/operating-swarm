@@ -74,7 +74,7 @@ describe('SettingsSheet', () => {
     expect(dialog).toHaveClass('modal-end')
     expect(dialog).not.toHaveClass('drawer')
     expect(dialog.className).not.toMatch(/btn-group/)
-    expect(screen.getByText('Open Swarm')).toBeInTheDocument()
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
 
     const remotesToggle = screen.getByRole('button', { name: 'Remotes' })
     expect(remotesToggle).not.toHaveClass('menu-dropdown-toggle')
@@ -327,7 +327,10 @@ describe('SettingsSheet', () => {
       vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
         const url = String(input)
         const method = (init?.method || 'GET').toUpperCase()
-        if (url.includes('/v1/remotes/') && method === 'POST') {
+        // Only the create call is the subject here. #453 added a target list on
+        // pane mount, which POSTs to /v1/remotes/<id>/operate/ once a remote is
+        // added — treating that as a create would push a duplicate entry.
+        if (url.includes('/v1/remotes/') && !url.includes('/operate/') && method === 'POST') {
           const body = JSON.parse(String(init?.body || '{}')) as { kind?: string }
           const created = {
             id: body.kind || 'omb',
@@ -460,6 +463,88 @@ describe('SettingsSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     expect(await screen.findByText(/started OpenMousBot turn/)).toBeInTheDocument()
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
+  })
+
+  it('reloads the pane when the Remote picker changes, so one remote never keeps another\'s targets (#453)', async () => {
+    const configured = [
+      {
+        id: 'omb',
+        kind: 'omb',
+        label: 'OpenMousBot',
+        title: 'OpenMousBot',
+        host_label: '',
+        base_url: 'http://127.0.0.1:8802',
+        source: 'config',
+      },
+      {
+        id: 'herdr',
+        kind: 'herdr',
+        label: 'Herdr',
+        title: 'Herdr',
+        host_label: '',
+        base_url: '',
+        source: 'builtin',
+      },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/operate/') && method === 'POST') {
+          if (url.includes('/herdr/operate/')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                remote: 'herdr',
+                op: 'list',
+                ok: true,
+                detail: 'Herdr listed 1 member(s) via local herdr (no SSH)',
+                data: { members: [{ kind: 'herdr', name: 'w2:pG', object: 'herdr.member' }] },
+              }),
+            } as Response
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              remote: 'omb',
+              op: 'list',
+              ok: true,
+              detail: 'OpenMousBot listed 1 bot(s)',
+              data: { bots: [{ id: '3a383904-ec73-444c-ba8b-9805a05d18e3', name: 'hide-qa-beta' }] },
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'list',
+            kinds: [
+              { id: 'omb', label: 'OpenMousBot' },
+              { id: 'herdr', label: 'Herdr' },
+            ],
+            configured,
+            data: configured,
+          }),
+        } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
+
+    expect(await screen.findByRole('heading', { name: 'OpenMousBot' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Bot id')).toHaveValue('3a383904-ec73-444c-ba8b-9805a05d18e3'),
+    )
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Remote' }), { target: { value: 'herdr' } })
+
+    expect(await screen.findByRole('heading', { name: 'Herdr' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('CLI / pane')).toHaveValue('w2:pG'))
+    expect(screen.queryByText(/hide-qa-beta/)).not.toBeInTheDocument()
   })
 
   it('shows honest retention pane linking to server dashboard without placebo save button (REQ-188B-1)', async () => {
@@ -1408,7 +1493,7 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
     const { onClose } = renderSheet()
     const conceal = screen.getByRole('button', { name: 'Conceal sidepane' })
     expect(conceal).toHaveAttribute('title', 'Conceal sidepane')
-    expect(screen.getByText('Open Swarm')).toBeInTheDocument()
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
     fireEvent.click(conceal)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
