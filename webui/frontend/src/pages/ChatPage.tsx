@@ -99,6 +99,7 @@ import {
   patchAgentMessage,
   peekConversationIdForAgent,
   setConversationIdForAgent,
+  toggleSummaryInContext,
   type ConversationSummary,
 } from '../lib/agentChat'
 import { canEditAgentMessages, classifyAgentKind, type AgentKind } from '../lib/agentKind'
@@ -487,6 +488,25 @@ const ChatPage = () => {
     [messages, summaries],
   )
   const summaryMap = useMemo(() => summariesById(summaries), [summaries])
+
+  // #214: persist the include-in-context tick; optimistic update, honest revert.
+  const handleToggleSummaryContext = useCallback(
+    async (summaryId: number, include: boolean) => {
+      const threadSummaries = summariesByThread[threadKey] ?? []
+      setSummariesByThread((prev) => ({
+        ...prev,
+        [threadKey]: (prev[threadKey] ?? []).map((row) =>
+          row.id === summaryId ? { ...row, include_in_context: include } : row,
+        ),
+      }))
+      try {
+        await toggleSummaryInContext({ summaryId, includeInContext: include })
+      } catch {
+        setSummariesByThread((prev) => ({ ...prev, [threadKey]: threadSummaries }))
+      }
+    },
+    [summariesByThread, threadKey],
+  )
 
   const wsRef = useRef<WebSocket | null>(null)
   const emptyRemoteOpenedForRef = useRef('')
@@ -2955,6 +2975,7 @@ const ChatPage = () => {
                   onHide={(id) =>
                     setHiddenSummaryIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
                   }
+                  onToggleContext={handleToggleSummaryContext}
                 />
               )
             }
@@ -3543,12 +3564,15 @@ function SummaryBlock({
   depth = 0,
   hiddenIds = [],
   onHide,
+  onToggleContext,
 }: {
   summary: ConversationSummary
   byId: Record<number, ConversationSummary>
   depth?: number
   hiddenIds?: number[]
   onHide?: (id: number) => void
+  /** #214: persist the include-in-context tick for this summary. */
+  onToggleContext?: (id: number, include: boolean) => void
 }) {
   const parent =
     summary.parent_summary_id != null ? byId[summary.parent_summary_id] : undefined
@@ -3561,6 +3585,8 @@ function SummaryBlock({
       meta={`Replaced ${replaced} turns`}
       className={depth > 0 ? 'chat-summary chat-summary--nested' : 'chat-summary'}
       onRemove={() => onHide?.(summary.id)}
+      inContext={summary.include_in_context !== false}
+      onToggleContext={(include) => onToggleContext?.(summary.id, include)}
       nested={
         parent && !hiddenIds.includes(parent.id) ? (
           <SummaryBlock
@@ -3569,6 +3595,7 @@ function SummaryBlock({
             depth={depth + 1}
             hiddenIds={hiddenIds}
             onHide={onHide}
+            onToggleContext={onToggleContext}
           />
         ) : null
       }

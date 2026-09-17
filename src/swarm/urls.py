@@ -103,6 +103,7 @@ from swarm.views.chat_persist_views import (
     chat_compact,
     chat_context_start,
     chat_retention_action,
+    chat_summary_toggle_context,
     chat_thread,
 )
 from swarm.views.system_views import LocalStoreView
@@ -502,6 +503,12 @@ urlpatterns = [
     # REQ-37: compact the backlog into a nested sqlite summary (raw JSON stays).
     path("chat/compact/", chat_compact, name="chat_compact"),
     path("chat/context-start/", chat_context_start, name="chat_context_start"),
+    # #214: tick/untick whether a summary (and its span) feeds model context.
+    path(
+        "chat/summary/toggle-context/",
+        chat_summary_toggle_context,
+        name="chat_summary_toggle_context",
+    ),
     # Blueprint Library endpoints
     path("blueprint-library/", blueprint_library, name="blueprint_library"),
     path("blueprint-library/creator/", blueprint_creator, name="blueprint_creator"),

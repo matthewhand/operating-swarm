@@ -7,6 +7,8 @@ No Neon, no secrets.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
@@ -21,6 +23,7 @@ from swarm.core.chat_compact import (
     llm_summarize_items,
     resolve_compact_model,
     summarize_items,
+    summary_to_dict,
 )
 from swarm.models import ChatConversation, ChatMessage, ConversationSummary
 
@@ -432,3 +435,132 @@ def test_resolve_compact_model_missing_is_honest(monkeypatch):
         resolve_compact_model("jeeves")
     assert "No default LLM" in str(exc.value)
     assert exc.value.status == 400
+
+
+# ------------------------------------------------------------ include_in_context
+
+
+def _summary_row(cid: str, start: int, end: int, *, include: bool = True, parent=None, user=None):
+    ChatConversation.objects.get_or_create(conversation_id=cid, defaults={"student": user})
+    return ConversationSummary.objects.create(
+        conversation_id=cid,
+        span={"start": start, "end": end},
+        body=f"summary of {start}..{end}",
+        include_in_context=include,
+        parent_summary=parent,
+    )
+
+
+@pytest.mark.django_db
+def test_excluded_summary_is_omitted_and_span_stays_archived(user):
+    """Core contract: unticked summary drops out of context AND its
+    summarised raw turns do not silently reappear."""
+    cid = "conv-214-exclude"
+    messages = _turns(
+        ("user", "old question"),
+        ("assistant", "old answer"),
+        ("user", "new question"),
+    )
+    row = _summary_row(cid, 0, 1, include=False, user=user)
+
+    context = build_model_context(messages, [row])
+    rendered = [str(item.get("content", "")) for item in context]
+    assert not any("summary of 0..1" in text for text in rendered)
+    assert not any("old answer" in text for text in rendered)
+    assert any("new question" in text for text in rendered)
+
+
+@pytest.mark.django_db
+def test_included_summary_keeps_current_behavior(user):
+    cid = "conv-214-include"
+    messages = _turns(("user", "old question"), ("assistant", "old answer"))
+    row = _summary_row(cid, 0, 1, include=True, user=user)
+    context = build_model_context(messages, [row])
+    joined = "\n".join(str(item.get("content", "")) for item in context)
+    assert "summary of 0..1" in joined
+    assert "old answer" not in joined
+
+
+def test_rows_without_flag_default_to_included():
+    """Legacy fakes / rows lacking the attribute behave as today."""
+
+    class FakeRow:
+        id = 7
+        span = {"start": 0, "end": 1}
+        body = "legacy"
+        parent_summary_id = None
+
+    messages = _turns(("user", "old"), ("assistant", "old reply"))
+    context = build_model_context(messages, [FakeRow()])
+    joined = "\n".join(str(item.get("content", "")) for item in context)
+    assert "legacy" in joined
+    assert "old reply" not in joined
+
+
+@pytest.mark.django_db
+def test_excluded_parent_excludes_nested_child(user):
+    cid = "conv-214-nested"
+    parent = _summary_row(cid, 0, 3, include=False, user=user)
+    child = _summary_row(cid, 1, 2, include=True, parent=parent, user=user)
+    messages = _turns(("user", "a"), ("assistant", "b"), ("user", "c"), ("user", "later"))
+    context = build_model_context(messages, [parent, child])
+    joined = "\n".join(str(item.get("content", "")) for item in context)
+    assert "summary of 0..3" not in joined
+    assert "summary of 1..2" not in joined  # nested inside excluded parent
+    assert "later" in joined
+
+
+@pytest.mark.django_db
+def test_summary_to_dict_includes_flag(user):
+    row = _summary_row("conv-214-dict", 0, 1, include=False, user=user)
+    data = summary_to_dict(row)
+    assert data["include_in_context"] is False
+    row.include_in_context = True
+    assert summary_to_dict(row)["include_in_context"] is True
+
+
+@pytest.mark.django_db
+def test_toggle_endpoint_updates_flag(client, user):
+    row = _summary_row("conv-214-toggle", 0, 1, include=True, user=user)
+    response = client.post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": row.id, "include_in_context": False}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    row.refresh_from_db()
+    assert row.include_in_context is False
+    assert response.json()["summary"]["include_in_context"] is False
+
+
+@pytest.mark.django_db
+def test_toggle_endpoint_validates(client, user):
+    row = _summary_row("conv-214-validate", 0, 1, user=user)
+    # non-boolean
+    response = client.post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": row.id, "include_in_context": "yes"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    # unknown summary → honest 404
+    response = client.post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": 999999, "include_in_context": True}),
+        content_type="application/json",
+    )
+    assert response.status_code == 404
+    row.refresh_from_db()
+    assert row.include_in_context is True
+
+
+@pytest.mark.django_db
+def test_toggle_endpoint_requires_login():
+    from django.test import Client as DjangoClient
+
+    response = DjangoClient().post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": 1, "include_in_context": False}),
+        content_type="application/json",
+    )
+    assert response.status_code in (302, 401, 403)

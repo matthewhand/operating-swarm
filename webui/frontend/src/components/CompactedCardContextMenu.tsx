@@ -80,6 +80,9 @@ export interface UseCompactedCardMenuOptions {
   copyText: string
   onToggleExpand: () => void
   onRemove: () => void
+  /** Provided only for real summaries — adds the context tick item. */
+  inContext?: boolean
+  onToggleContext?: (include: boolean) => void
 }
 
 export function useCompactedCardMenu({
@@ -88,11 +91,13 @@ export function useCompactedCardMenu({
   copyText,
   onToggleExpand,
   onRemove,
+  inContext,
+  onToggleContext,
 }: UseCompactedCardMenuOptions) {
   const [menu, setMenu] = useState<CompactedCardMenuPosition | null>(null)
   const toast = useOptionalToast()
   const canCopy = messageHasCopyableText(copyText)
-  const items = compactedCardMenuItems({ expanded, canCopy })
+  const items = compactedCardMenuItems({ expanded, canCopy, inContext })
 
   const closeMenu = useCallback(() => setMenu(null), [])
 
@@ -155,13 +160,18 @@ export function useCompactedCardMenu({
         closeMenu()
         return
       }
+      if (id === 'include_context' || id === 'exclude_context') {
+        onToggleContext?.(id === 'include_context')
+        closeMenu()
+        return
+      }
       if (id === 'delete') {
         onRemove()
         closeMenu()
         return
       }
     },
-    [closeMenu, copyText, onRemove, onToggleExpand, toast],
+    [closeMenu, copyText, onRemove, onToggleContext, onToggleExpand, toast],
   )
 
   const menuNode = menu ? (

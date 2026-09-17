@@ -61,3 +61,63 @@ describe('CompactSummaryCard (REQ-213)', () => {
     expect(onRemove).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('CompactSummaryCard include-in-context (#214)', () => {
+  it('renders no checkbox when the toggle is not wired (system pills unchanged)', () => {
+    render(<CompactSummaryCard body="digest" />)
+    expect(screen.queryByTestId('summary-context-checkbox')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-summary')).not.toHaveAttribute('data-in-context')
+  })
+
+  it('defaults to ticked and renders the honest included state', () => {
+    render(<CompactSummaryCard body="digest" inContext={true} onToggleContext={vi.fn()} />)
+    const box = screen.getByTestId('summary-context-checkbox') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-in-context', 'true')
+    expect(screen.queryByTestId('summary-excluded-note')).not.toBeInTheDocument()
+  })
+
+  it('unticking calls onToggleContext(false)', () => {
+    const onToggleContext = vi.fn()
+    render(<CompactSummaryCard body="digest" inContext={true} onToggleContext={onToggleContext} />)
+    fireEvent.click(screen.getByTestId('summary-context-checkbox'))
+    expect(onToggleContext).toHaveBeenCalledWith(false)
+  })
+
+  it('excluded state is visually honest: dimmed card + note', () => {
+    render(<CompactSummaryCard body="digest" inContext={false} onToggleContext={vi.fn()} />)
+    expect(screen.getByTestId('summary-context-checkbox')).not.toBeChecked()
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-in-context', 'false')
+    expect(screen.getByTestId('chat-summary').className).toContain('opacity-60')
+    expect(screen.getByTestId('summary-excluded-note')).toHaveTextContent(
+      'Not included in chat context',
+    )
+  })
+
+  it('menu offers the live include/exclude context item for summaries', () => {
+    const onToggleContext = vi.fn()
+    render(<CompactSummaryCard body="digest" inContext={false} onToggleContext={onToggleContext} />)
+    fireEvent.contextMenu(screen.getByTestId('chat-summary'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Include in chat context' }))
+    expect(onToggleContext).toHaveBeenCalledWith(true)
+  })
+
+  it('menu shows the ticked state and excludes via menu too', () => {
+    const onToggleContext = vi.fn()
+    render(<CompactSummaryCard body="digest" inContext={true} onToggleContext={onToggleContext} />)
+    fireEvent.contextMenu(screen.getByTestId('chat-summary'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '✓ Included in chat context' }))
+    expect(onToggleContext).toHaveBeenCalledWith(false)
+  })
+
+  it('no context item appears in the menu when the toggle is not wired', () => {
+    render(<CompactSummaryCard body="digest" />)
+    fireEvent.contextMenu(screen.getByTestId('chat-summary'))
+    expect(
+      screen.queryByRole('menuitem', { name: 'Include in chat context' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: '✓ Included in chat context' }),
+    ).not.toBeInTheDocument()
+  })
+})

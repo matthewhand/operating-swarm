@@ -11,7 +11,13 @@
 
 import type { RailMenuItemSpec } from './railContextMenu'
 
-export type CompactedCardMenuId = 'expand' | 'collapse' | 'copy' | 'delete'
+export type CompactedCardMenuId =
+  | 'expand'
+  | 'collapse'
+  | 'copy'
+  | 'include_context'
+  | 'exclude_context'
+  | 'delete'
 
 export const COMPACTED_CARD_DELETE_HONESTY =
   'Removes this card from the current view only. Raw transcript on disk is unchanged.'
@@ -40,6 +46,8 @@ export function compactedCardCopyText(opts: {
 export function compactedCardMenuItems(opts: {
   expanded: boolean
   canCopy?: boolean
+  /** Provided only for real summaries — adds the context tick item. */
+  inContext?: boolean
 }): RailMenuItemSpec[] {
   const canCopy = opts.canCopy !== false
   const items: RailMenuItemSpec[] = [
@@ -53,13 +61,21 @@ export function compactedCardMenuItems(opts: {
       disabled: !canCopy,
       reason: canCopy ? undefined : COMPACTED_CARD_COPY_EMPTY,
     },
-    {
-      id: 'delete',
-      label: 'Remove from view',
-      group: 2,
-      danger: true,
-      reason: COMPACTED_CARD_DELETE_HONESTY,
-    },
   ]
+  // Real summaries carry a live include-in-context tick (default on).
+  if (typeof opts.inContext === 'boolean') {
+    items.push(
+      opts.inContext
+        ? { id: 'exclude_context', label: '✓ Included in chat context', group: 2 }
+        : { id: 'include_context', label: 'Include in chat context', group: 2 },
+    )
+  }
+  items.push({
+    id: 'delete',
+    label: 'Remove from view',
+    group: 3,
+    danger: true,
+    reason: COMPACTED_CARD_DELETE_HONESTY,
+  })
   return items
 }
