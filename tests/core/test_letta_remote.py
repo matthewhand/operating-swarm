@@ -32,16 +32,25 @@ AGENT_WORKFLOW = "agent-bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
 
 class _Router(BaseHTTPRequestHandler):
     routes: dict[tuple[str, str], tuple[int, dict | list | str]] = {}
+    # Request log for tests that care *which* paths the client asked for.
+    # A route may be ``(status, body, {"Location": ...})`` to emit headers
+    # (used by #489 to model Letta's 307 on the un-slashed health path).
+    hits: list[tuple[str, str]] = []
 
     def _handle(self, method: str) -> None:
         key = (method, self.path.split("?", 1)[0])
-        status, body = self.routes.get(key, (404, {"error": "no route"}))
+        type(self).hits.append(key)
+        route = self.routes.get(key, (404, {"error": "no route"}))
+        status, body = route[0], route[1]
+        extra_headers = route[2] if len(route) > 2 else {}
         payload = json.dumps(body).encode("utf-8") if not isinstance(body, str) else body.encode()
         self.send_response(status)
         ctype = "application/json"
         if isinstance(body, str) and body.lstrip().startswith("data:"):
             ctype = "text/event-stream"
         self.send_header("Content-Type", ctype)
+        for name, value in extra_headers.items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -64,6 +73,7 @@ def http_router():
     yield host, port, _Router
     server.shutdown()
     _Router.routes = {}
+    _Router.hits = []
 
 
 def _cfg(host: str, port: int, **extra: dict) -> dict:
@@ -162,7 +172,11 @@ def test_default_spec_is_sanitized_and_has_no_secret():
     assert "10.0.0." not in spec.base_url and "192.168." not in spec.base_url
     assert remotes_core._ENV_BASE["letta"] == "LETTA_BASE_URL"
     assert remotes_core._ENV_KEY["letta"] == "LETTA_API_KEY"
-    assert spec.health_path == "/v1/health"
+    # #489: the trailing slash is required — "/v1/health" answers 307 with a
+    # port-less Location, so following it probes the wrong origin (404) and a
+    # healthy Letta reads as DEGRADED. Do not "tidy" the slash away.
+    assert spec.health_path == "/v1/health/"
+    assert spec.version_path == "/v1/health/"
     assert spec.api_key == "${LETTA_API_KEY}"
     pub = spec.public_dict()
     assert pub["api_key_set"] is False
@@ -402,6 +416,40 @@ def test_tolerant_health_check_variations(http_router):
     assert h3.ok is True
     assert h3.state == "UP"
     assert "/health" in h3.detail
+
+
+def test_letta_health_declares_the_terminal_path_first(http_router):
+    """#489: the declared path must be the endpoint that answers 200.
+
+    A live Letta 0.16.8 answers 307 on ``/v1/health`` with a **port-less**
+    ``Location`` (``http://<host>/v1/health/``) and 200 on ``/v1/health/``.
+    Because ``http_json()`` follows redirects by default, declaring the
+    redirect as the terminal path makes the probe leave the configured origin
+    and hit whatever answers on port 80 before the tolerant fallback rescues it
+    on a *second* request. Declaring the real endpoint means the first request
+    is the last one, and nothing off-origin is ever contacted.
+    """
+    host, port, router = http_router
+    cfg = _cfg(host, port)
+    router.routes.clear()
+    router.hits = []
+    # Exactly what a real Letta server answers (captured live).
+    router.routes[("GET", "/v1/health")] = (
+        307,
+        {"detail": "Temporary Redirect"},
+        {"Location": f"http://{host}/v1/health/"},  # port-less, as upstream sends it
+    )
+    router.routes[("GET", "/v1/health/")] = (200, {"version": "0.16.8", "status": "ok"})
+
+    h = remotes_core.check_health("letta", config=cfg, timeout=1.0)
+
+    assert h.ok is True
+    assert h.state == "UP"
+    assert h.http_status == 200
+    assert h.version == {"version": "0.16.8"}  # _extract_version keeps just the version
+    assert h.url == f"http://{host}:{port}/v1/health/"
+    # One request, to the terminal endpoint. No redirect hop, no off-origin probe.
+    assert router.hits == [("GET", "/v1/health/")]
 
 
 def test_chat_letta_and_chat_remote_dispatch(http_router):
