@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   STACK_FACE_LIMIT,
-  TEAM_STACK_ALL_MAX,
   TEAM_STACK_FACE_LIMIT,
   STACK_PULSE_MS,
   isAvatarStack,

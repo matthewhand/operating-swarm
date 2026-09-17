@@ -147,7 +147,7 @@ import {
   getChatConnection,
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
-import { markStackWorking, teamSidepaneStack } from '../lib/avatarStack'
+import { markStackWorking, teamSidepaneStack, type StackFace } from '../lib/avatarStack'
 import {
   defaultSessionForRemote,
   defaultSessionForTeam,
@@ -216,7 +216,7 @@ import {
 } from '../lib/agentEdits'
 import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
-import { declaredRosterForTeam } from '../lib/declaredRoster'
+import { declaredRosterForTeam, type DeclaredTeamRoster } from '../lib/declaredRoster'
 import { openTeamEditor } from './TeamEditor'
 import PersonaRoster from './PersonaRoster'
 import SessionPicker from './SessionPicker'
