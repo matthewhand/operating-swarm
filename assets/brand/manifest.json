@@ -1,6 +1,6 @@
 {
-  "name": "Open Swarm",
-  "short_name": "Open Swarm",
+  "name": "Operating Swarm",
+  "short_name": "OS",
   "description": "Multi-agent AI workflows as a local CLI, OpenAI-compatible API, and web UI.",
   "icons": [
     {

@@ -13,6 +13,7 @@ from swarm.core import cli_catalog
 from swarm.core.cli_models import (
     PROBE_TIMEOUT_S,
     ListModelsResult,
+    _remember,
     clear_probe_cache,
     list_models,
     list_models_many,
@@ -224,14 +225,15 @@ def test_stripped_path_probe_finds_user_local_grok(tmp_path, monkeypatch):
 
 
 def test_timeout_does_not_hang(monkeypatch):
-    # Real sleeper subprocess — must return quickly with presets + warning.
+    # Real sleeper subprocess — must return quickly, honestly empty (#272
+    # contract: timeout serves last-good/empty, never fabricated presets).
     monkeypatch.setitem(
         cli_catalog.LIST_MODELS, "grok", [PY, "-c", "import time; time.sleep(30)"]
     )
     t0 = time.monotonic()
     result = list_models("grok", timeout=0.4)
     elapsed = time.monotonic() - t0
-    assert result.models == list(cli_catalog.CLI_MODELS["grok"])
+    assert result.models == []
     assert "timed out" in (result.warning or "").lower()
     assert elapsed < 8.0  # TERM_GRACE + buffer; must not wait the full 30s
 
@@ -244,7 +246,8 @@ def test_failed_probe_falls_back_no_secrets_in_warning(monkeypatch):
         "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/claude"
     )
     result = asyncio_run_probe("claude", fake_run)
-    assert result.models == list(cli_catalog.CLI_MODELS["claude"])
+    # Runtime failure is honest: empty models (not presets), redacted warning.
+    assert result.models == []
     assert "sk-thisisafakekeybutlongenough" not in (result.warning or "")
     assert "[REDACTED]" in (result.warning or "")
     assert "failed" in (result.warning or "").lower()
@@ -302,8 +305,30 @@ async def test_probe_falls_back_to_presets_when_stdout_empty(monkeypatch):
         "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/grok"
     )
     result = await probe_list_models("grok", run_exec=fake_run)
-    assert result.models == list(cli_catalog.CLI_MODELS["grok"])
+    # Empty stdout from an installed CLI is a runtime outcome, not a missing
+    # CLI: report honestly empty, never fabricated presets (#272 contract).
+    assert result.models == []
     assert "no model ids" in (result.warning or "")
+
+
+def test_missing_cli_presets_do_not_clobber_last_good():
+    """Presets are a display hint: they never evict last-good (#272)."""
+    real = ListModelsResult(cli="grok", models=["real-model"])
+    clear_probe_cache()
+    assert _remember(real).models == ["real-model"]
+    missing = ListModelsResult(
+        cli="grok",
+        models=list(cli_catalog.CLI_MODELS["grok"]),
+        warning="grok: CLI not installed (no 'grok' on PATH)",
+    )
+    served = _remember(missing)
+    assert served.models == list(cli_catalog.CLI_MODELS["grok"])
+    from swarm.core import cli_models as cm
+
+    with cm._CACHE_LOCK:
+        entry = cm._RESULT_CACHE["grok"]
+        assert entry.last_good is not None
+        assert list(entry.last_good.models) == ["real-model"]
 
 
 def test_default_probe_timeout_is_bounded():

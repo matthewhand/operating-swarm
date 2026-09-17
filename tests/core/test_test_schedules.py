@@ -1,6 +1,6 @@
 """#222 test schedule store — seeds, CRUD, run-now, tick, failure notify."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from swarm.core import test_schedules as store
 
@@ -47,7 +47,7 @@ def test_create_interval_run_now_and_history(tmp_path, monkeypatch):
 
 def test_tick_fires_due_interval_and_skips_inactive(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
-    now = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
     due = store.create_schedule(
         {
             "name": "Due",
@@ -69,6 +69,27 @@ def test_tick_fires_due_interval_and_skips_inactive(tmp_path, monkeypatch):
     assert due["id"] in ids
     assert paused["id"] not in ids
     assert store.get_schedule(due["id"])["history"][0]["source"] == "schedule"
+
+
+def test_update_schedule_persists_next_run(tmp_path, monkeypatch):
+    """update_schedule accepts next_run — it must actually persist it (#486 sweep).
+
+    Regression: next_run was whitelisted in the patch keys but never applied, so
+    callers could not seed or correct a schedule's next fire time and
+    tick_due_schedules silently never fired the schedule.
+    """
+    _isolate(tmp_path, monkeypatch)
+    created = store.create_schedule(
+        {
+            "name": "Seeded",
+            "trigger": {"kind": "interval", "seconds": 60},
+            "check": {"kind": "script", "name": "fleet_prove"},
+        }
+    )
+    seeded = (datetime(2026, 9, 16, 12, 0, tzinfo=UTC) - timedelta(seconds=1)).isoformat()
+    updated = store.update_schedule(created["id"], {"next_run": seeded})
+    assert updated["next_run"] == seeded
+    assert store.get_schedule(created["id"])["next_run"] == seeded
 
 
 def test_failure_notifies_and_open_failures(tmp_path, monkeypatch):
@@ -106,7 +127,7 @@ def test_rejects_github_trigger_and_secrets(tmp_path, monkeypatch):
 
 def test_one_shot_deactivates_after_schedule_fire(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
-    now = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
     created = store.create_schedule(
         {
             "name": "Once",

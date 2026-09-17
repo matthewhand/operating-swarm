@@ -379,6 +379,18 @@ def update_schedule(schedule_id: str, patch: dict[str, Any] | None = None) -> di
         current["target"] = public_target(incoming.get("target"))
     if "check" in incoming:
         current["check"] = public_check(incoming.get("check"))
+    if "next_run" in incoming:
+        # Patched next_run wins (callers seed/correct the fire time); an empty
+        # value recomputes from the trigger. Applied last so a trigger patch
+        # clearing next_run above is overridable in the same call.
+        raw = str(incoming.get("next_run") or "").strip()
+        if raw:
+            parsed = parse_dt(raw)
+            if parsed is None:
+                raise ValueError("next_run must be an ISO-8601 datetime.")
+            current["next_run"] = to_iso(parsed)
+        else:
+            current["next_run"] = None
     rows = [current if row["id"] == current["id"] else row for row in list_schedules()]
     _persist(rows)
     return get_schedule(schedule_id) or current
