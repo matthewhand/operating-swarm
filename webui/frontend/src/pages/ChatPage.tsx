@@ -257,6 +257,7 @@ import {
 import { enabledToolsParam } from '../lib/chatPluginTools'
 import { railSectionsParam } from '../lib/railSections'
 import { publishCurrentChatScope } from '../lib/chatScope'
+import { publishCurrentAgent } from '../lib/currentAgent'
 import {
   AGENT_REMOTE_BINDINGS_CHANGED_EVENT,
   isRemoteKindAgent,
@@ -762,6 +763,14 @@ const ChatPage = () => {
   useEffect(() => {
     publishCurrentChatScope(conversationId)
   }, [conversationId])
+
+  // REQ-912 / REQ-914 / REQ-917: the rail and the routines calendar are siblings
+  // of this page, not descendants, so the selected seat is published rather than
+  // re-derived per surface. Published next to the chat scope so the two cannot
+  // drift, but kept a separate signal — see lib/currentAgent.ts.
+  useEffect(() => {
+    publishCurrentAgent(activeChatAgentId ? { id: activeChatAgentId, kind: agentKind } : null)
+  }, [activeChatAgentId, agentKind])
 
   useEffect(() => {
     setReplyTarget(null)
