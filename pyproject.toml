@@ -40,6 +40,7 @@ dependencies = [
     "channels>=4.0",
     "channels-redis>=4.0",
     "daphne>=4.0.0",
+    "whitenoise>=6.6.0",  # #423: serve /static/ in production (DEBUG=false, no proxy)
     "tiktoken>=0.5.0",
     "platformdirs>=4.0.0",
     "typer>=0.9.0", # Changed from typer[all]
