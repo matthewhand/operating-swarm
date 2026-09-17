@@ -2645,7 +2645,11 @@ html:not([data-theme="light"]) .os-composer__send,
   width: min(48rem, calc(100vw - 2rem));
   min-width: min(560px, calc(100vw - 2rem));
   max-width: 52rem;
-  max-height: calc(100vh - 4rem);
+  /* REQ-910 (#509): a stable frame from the viewport — identical for every
+     pane so switching tabs is a pure content swap (no measuring, no reflow
+     when the catalog loads lazily). The pane body is the single scroll
+     region; the footer stays pinned. */
+  height: min(38rem, calc(100vh - 4rem));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2695,7 +2699,11 @@ html:not([data-theme="light"]) .os-composer__send,
   color: inherit;
 }
 .os-search-palette__list {
-  max-height: min(32rem, 60vh);
+  /* REQ-910 (#509): with the shell height fixed, the pane body is the scroll
+     region — flex-fill, clipped at the shell, footer clearance preserved via
+     the existing scroll-padding-bottom. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   scroll-padding-bottom: 3.25rem;
   padding: 0.25rem 0.5rem 3.25rem;
@@ -3353,8 +3361,40 @@ html:not([data-theme="light"]) .os-composer__send,
 
 /* REQ-858 / #213: Add tools / Add skills catalog (TrueForge-style). */
 .os-search-palette--catalog {
-  width: min(56rem, calc(100vw - 2rem));
-  max-width: 56rem;
+  /* REQ-910 (#509): width must not jump between panes — the catalog variant
+     previously widened the shell 48rem → 56rem on tab switch. */
+  width: min(48rem, calc(100vw - 2rem));
+  max-width: 52rem;
+}
+/* REQ-911 (#510): the plugin pane strip, defined at last. A segmented control
+   with a decorative divider between items (the user's explicit ask) and an
+   unambiguous active state in both themes. Scoped to the plugin strip —
+   other `Tabs` consumers keep DaisyUI defaults. Dividers are pure CSS, so
+   they are never announced or focusable. */
+.os-plugins-panes {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 0.6rem;
+  padding: 0.15rem;
+  gap: 0;
+}
+.os-plugins-panes .tab {
+  border-radius: 0.45rem;
+  border-inline-start: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+.os-plugins-panes .tab:first-child {
+  border-inline-start: 0;
+}
+.os-plugins-panes .tab-active {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  color: inherit;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+}
+[data-theme="light"] .os-plugins-panes .tab-active {
+  background: color-mix(in srgb, #1a1a1a 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #1a1a1a 18%, transparent);
 }
 .os-install-catalog {
   display: flex;
@@ -3447,4 +3487,15 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 .os-health-dot--unknown {
   background: color-mix(in srgb, currentColor 35%, transparent);
+}
+
+/* REQ-912 (#511): gated rail footer entries — greyed, no hover affordance,
+   cursor signals the refusal. Kept legible in both themes via base-content
+   opacity rather than hard colors. The click path is already a no-op. */
+.os-agent-sidebar [data-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.os-agent-sidebar [data-disabled='true']:hover {
+  background: transparent;
 }

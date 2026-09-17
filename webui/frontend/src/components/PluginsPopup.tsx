@@ -193,11 +193,10 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
         aria-modal="true"
         aria-label="Plugins"
         data-testid="os-plugins-popup"
-        className={
-          pane === 'chat'
-            ? 'os-search-palette os-search-palette--centered'
-            : 'os-search-palette os-search-palette--centered os-search-palette--catalog'
-        }
+        /* REQ-910 (#509): the frame is pane-independent — the shell's height and
+           width come from CSS, identical for all three panes, so switching tabs
+           cannot move or resize the dialog. */
+        className="os-search-palette os-search-palette--centered"
       >
         <div className="os-search-palette__field">
           {pane === 'chat' ? (
@@ -331,10 +330,12 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
           )}
         </ul>
         ) : (
-          <InstallCatalog
-            surface={pane === 'skills' ? 'skills' : 'tools'}
-            onManage={() => openManage()}
-          />
+          <div className="os-search-palette__list" data-testid="os-plugins-catalog">
+            <InstallCatalog
+              surface={pane === 'skills' ? 'skills' : 'tools'}
+              onManage={() => openManage()}
+            />
+          </div>
         )}
 
         <div className="os-search-palette__footer" aria-label="Plugins actions">

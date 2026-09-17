@@ -240,6 +240,7 @@ import PluginsPopup from './PluginsPopup'
 import { OPEN_TEAM_COMPOSER_EVENT } from './TeamComposer'
 import { openSettingsSheet } from './SettingsSheet'
 import { OPEN_PLUGINS_EVENT } from '../lib/chromeOverlay'
+import { useCurrentAgent, isSwarmOwnedSeat } from '../lib/currentAgent'
 import { ConfirmModal } from './DaisyUI'
 import RailContextMenu from './RailContextMenu'
 import RailSectionHeader, { RailSectionEmpty } from './RailSectionHeader'
@@ -257,6 +258,9 @@ import {
 import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
 
 const EMPTY_BLUEPRINTS: Blueprint[] = []
+
+/** REQ-912 (#511): verbatim copy requested for the disabled hover/reason. */
+const API_ONLY_REASON = 'Currently only supported for OS API agents'
 
 export interface AgentSidebarProps {
   /** Mobile drawer open. Desktop (lg+) is always visible. */
@@ -453,11 +457,27 @@ export default function AgentSidebar({
   const [approvalWaitIds, setApprovalWaitIds] = useState<Set<string>>(() => new Set())
   const toast = useOptionalToast()
 
+  // REQ-912 (#511): Plugins and Calendar only work for swarm-run seats. The
+  // selected seat is published by ChatPage (see lib/currentAgent.ts); the
+  // signal is reactive so switching seats re-evaluates the gate without a
+  // remount. Unknown/unresolved selection stays ENABLED (issue §6) so a
+  // transient load state cannot lock the operator out. Teams is not gated.
+  const currentAgent = useCurrentAgent()
+  const pluginsCalendarSupported = currentAgent === null || isSwarmOwnedSeat(currentAgent)
+  const openPlugins = useCallback(() => {
+    if (!pluginsCalendarSupported) return
+    setPluginsOpen(true)
+  }, [pluginsCalendarSupported])
+  const openCalendar = useCallback(() => {
+    if (!pluginsCalendarSupported) return
+    setCalendarOpen(true)
+  }, [pluginsCalendarSupported])
+
   useEffect(() => {
-    const onOpenCalendar = () => setCalendarOpen(true)
+    const onOpenCalendar = () => openCalendar()
     window.addEventListener(OPEN_CALENDAR_EVENT, onOpenCalendar)
     return () => window.removeEventListener(OPEN_CALENDAR_EVENT, onOpenCalendar)
-  }, [])
+  }, [openCalendar])
 
   useEffect(() => {
     const onRunState = (event: Event) => {
@@ -521,10 +541,10 @@ export default function AgentSidebar({
   }, [])
 
   useEffect(() => {
-    const onOpenPlugins = () => setPluginsOpen(true)
+    const onOpenPlugins = () => openPlugins()
     window.addEventListener(OPEN_PLUGINS_EVENT, onOpenPlugins)
     return () => window.removeEventListener(OPEN_PLUGINS_EVENT, onOpenPlugins)
-  }, [])
+  }, [openPlugins])
 
   const localWsDown = localWsStatus === 'closed' || localWsStatus === 'failed'
   const [hostname, setHostname] = useState(() => loadHostname())
@@ -3569,25 +3589,40 @@ export default function AgentSidebar({
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
-                onClick={() => setPluginsOpen(true)}
-                title="Plugins"
-                aria-label="Plugins"
+                onClick={openPlugins}
+                title={pluginsCalendarSupported ? 'Plugins' : API_ONLY_REASON}
+                aria-label={pluginsCalendarSupported ? 'Plugins' : `Plugins: ${API_ONLY_REASON}`}
+                aria-disabled={pluginsCalendarSupported ? undefined : 'true'}
+                aria-describedby={pluginsCalendarSupported ? undefined : 'os-plugins-gate-reason'}
                 data-testid="os-plugins-button"
+                data-disabled={pluginsCalendarSupported ? undefined : 'true'}
               >
                 <Plug className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="os-plugins-label">Plugins</span>
               </button>
+              {/* #511: the reason is a real element so the explanation is
+                  reachable by keyboard and screen reader even in avatar-only
+                  mode, where the label spans are hidden. */}
+              <span id="os-plugins-gate-reason" hidden>
+                {API_ONLY_REASON}
+              </span>
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
-                onClick={() => setCalendarOpen(true)}
-                title="Calendar"
-                aria-label="Calendar"
+                onClick={openCalendar}
+                title={pluginsCalendarSupported ? 'Calendar' : API_ONLY_REASON}
+                aria-label={pluginsCalendarSupported ? 'Calendar' : `Calendar: ${API_ONLY_REASON}`}
+                aria-disabled={pluginsCalendarSupported ? undefined : 'true'}
+                aria-describedby={pluginsCalendarSupported ? undefined : 'os-calendar-gate-reason'}
                 data-testid="os-calendar-button"
+                data-disabled={pluginsCalendarSupported ? undefined : 'true'}
               >
                 <Calendar className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="os-calendar-label">Calendar</span>
               </button>
+              <span id="os-calendar-gate-reason" hidden>
+                {API_ONLY_REASON}
+              </span>
               <div className="relative os-rail-hostname-row">
                 <button
                   type="button"
