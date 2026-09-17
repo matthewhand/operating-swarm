@@ -5,10 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import AgentSidebar from "../AgentSidebar"
 import AgentCalendarView, {
   calendarEntriesForDay,
+  daysInMonth,
   executionChatHref,
   executionSourceLabel,
   formatDuration,
   getCalendarDays,
+  getCalendarMonthDays,
   isApiAgentRoutine,
   routineRunsOnDate,
   scheduledRunLabel,
@@ -643,5 +645,86 @@ describe("AgentCalendarView component", () => {
     expect(href).toContain("conversation_id=conv-github-pr-42")
     expect(href).toContain("agent=api_agent")
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe("REQ-915 / #514: calendar month window", () => {
+  it("daysInMonth knows the real month lengths, including a leap February", () => {
+    expect(daysInMonth(new Date(2026, 0, 1))).toBe(31) // Jan
+    expect(daysInMonth(new Date(2026, 3, 1))).toBe(30) // Apr
+    expect(daysInMonth(new Date(2026, 8, 1))).toBe(30) // Sep
+    expect(daysInMonth(new Date(2026, 1, 1))).toBe(28) // Feb 2026
+    expect(daysInMonth(new Date(2024, 1, 1))).toBe(29) // Feb 2024 (leap)
+  })
+
+  it("getCalendarMonthDays never drops the 31st and never spills into the next month", () => {
+    const jan = getCalendarMonthDays(new Date(2026, 0, 15), VIEW_NOW)
+    expect(jan).toHaveLength(31)
+    expect(jan[0].dateKey).toBe("2026-01-01")
+    expect(jan[30].dateKey).toBe("2026-01-31")
+    expect(jan.every((d) => d.monthNumber === 1)).toBe(true)
+
+    const feb = getCalendarMonthDays(new Date(2026, 1, 10), VIEW_NOW)
+    expect(feb).toHaveLength(28)
+    expect(feb[27].dateKey).toBe("2026-02-28")
+    expect(feb.every((d) => d.monthNumber === 2)).toBe(true)
+
+    const leapFeb = getCalendarMonthDays(new Date(2024, 1, 10), new Date(2024, 1, 10))
+    expect(leapFeb).toHaveLength(29)
+    expect(leapFeb[28].dateKey).toBe("2024-02-29")
+  })
+
+  it("renders every day of a 31-day month, including the 31st", () => {
+    renderWithProviders(
+      <AgentCalendarView
+        open={true}
+        startDate={new Date(2026, 0, 1)}
+        now={new Date(2026, 0, 1)}
+        initialRoutines={[]}
+      />,
+    )
+
+    expect(screen.getAllByTestId("calendar-day-cell")).toHaveLength(31)
+    expect(screen.getByTestId("calendar-day-2026-01-31")).toBeInTheDocument()
+  })
+
+  it("renders February without spilling into March", () => {
+    renderWithProviders(
+      <AgentCalendarView
+        open={true}
+        startDate={new Date(2026, 1, 1)}
+        now={new Date(2026, 1, 1)}
+        initialRoutines={[]}
+      />,
+    )
+
+    expect(screen.getAllByTestId("calendar-day-cell")).toHaveLength(28)
+    expect(screen.getByTestId("calendar-day-2026-02-28")).toBeInTheDocument()
+    expect(screen.queryByTestId("calendar-day-2026-03-01")).not.toBeInTheDocument()
+  })
+
+  it("shows a routine scheduled for the 31st (previously unreachable)", () => {
+    const routine: Routine = {
+      id: "monthly-31",
+      agent_id: "researcher",
+      agent_kind: "api",
+      name: "Month-end close",
+      instruction: "Close the month.",
+      active: true,
+      trigger: { kind: "cron", expression: "0 9 31 * *" } as Routine["trigger"],
+      history: [],
+    }
+
+    renderWithProviders(
+      <AgentCalendarView
+        open={true}
+        startDate={new Date(2026, 0, 1)}
+        now={new Date(2026, 0, 1)}
+        initialRoutines={[routine]}
+      />,
+    )
+
+    const cell = screen.getByTestId("calendar-day-2026-01-31")
+    expect(within(cell).getByText("Month-end close")).toBeInTheDocument()
   })
 })

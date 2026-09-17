@@ -83,6 +83,31 @@ export function localDateKey(date: Date): string {
   return `${year}-${month}-${day}`
 }
 
+/**
+ * Days in the calendar month containing `date` — 28, 29, 30 or 31.
+ *
+ * Local-time by construction: `new Date(y, m + 1, 0)` resolves to the last day
+ * of month `m`, so it accounts for leap Februaries without a table.
+ */
+export function daysInMonth(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+}
+
+/**
+ * The calendar month containing `reference` as days.
+ *
+ * REQ-915 / #514: the rail previously asked for a hard-coded 30 days, which
+ * silently dropped the 31st from every 31-day month and spilled February into
+ * March. The span must follow the real month length.
+ */
+export function getCalendarMonthDays(
+  reference: Date,
+  now: Date = new Date(),
+): CalendarDay[] {
+  const first = new Date(reference.getFullYear(), reference.getMonth(), 1)
+  return getCalendarDays(first, daysInMonth(first), now)
+}
+
 export function getCalendarDays(
   baseDate: Date,
   count: number = 30,
@@ -442,7 +467,8 @@ export const AgentCalendarView = memo(function AgentCalendarView({
     return new Date(origin.getFullYear(), origin.getMonth(), 1)
   }, [startDate, clock])
 
-  const days = useMemo(() => getCalendarDays(baseDate, 30, clock), [baseDate, clock])
+  // REQ-915 / #514: span the whole calendar month (28–31 days), not a fixed 30.
+  const days = useMemo(() => getCalendarMonthDays(baseDate, clock), [baseDate, clock])
 
   const filteredRoutines = useMemo(() => {
     if (!apiOnly) return rawRoutines
