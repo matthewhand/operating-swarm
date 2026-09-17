@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   STACK_FACE_LIMIT,
-  TEAM_STACK_ALL_MAX,
   TEAM_STACK_FACE_LIMIT,
   STACK_PULSE_MS,
   isAvatarStack,
@@ -36,9 +35,8 @@ describe('avatarStack', () => {
     expect(plan.faces.map((row) => row.id)).toEqual(['m4', 'm3'])
   })
 
-  it('teamSidepaneStack: 1–3 members show all faces; 4+ show 2 + N', () => {
-    expect(TEAM_STACK_ALL_MAX).toBe(3)
-    expect(TEAM_STACK_FACE_LIMIT).toBe(2)
+  it('teamSidepaneStack (REQ-891): shows at most 3 faces with no remainder chip; preserves roster order when idle', () => {
+    expect(STACK_FACE_LIMIT).toBe(3)
 
     const one = teamSidepaneStack([face('m1', 100)])
     expect(one.faces.map((f) => f.id)).toEqual(['m1'])
@@ -53,13 +51,37 @@ describe('avatarStack', () => {
     expect(three.remainder).toBe(0)
 
     const four = teamSidepaneStack([1, 2, 3, 4].map((n) => face(`m${n}`, n * 100)))
-    expect(four.faces.map((f) => f.id)).toEqual(['m1', 'm2'])
-    expect(four.remainder).toBe(2)
+    expect(four.faces.map((f) => f.id)).toEqual(['m1', 'm2', 'm3'])
+    expect(four.remainder).toBe(0)
 
     const five = teamSidepaneStack([1, 2, 3, 4, 5].map((n) => face(`m${n}`, n * 100)))
-    // Roster order preserved — first 2 members, not most-recent.
-    expect(five.faces.map((f) => f.id)).toEqual(['m1', 'm2'])
-    expect(five.remainder).toBe(3)
+    // Roster order preserved when idle — first 3 members, no remainder (+N) chip
+    expect(five.faces.map((f) => f.id)).toEqual(['m1', 'm2', 'm3'])
+    expect(five.remainder).toBe(0)
+  })
+
+  it('teamSidepaneStack (REQ-891): orders faces most-recently-active first (startedAt desc) when anyWorking is true', () => {
+    const five = [
+      face('m1', 100),
+      face('m2', 200),
+      face('m3', 500),
+      face('m4', 300),
+      face('m5', 400),
+    ]
+    const working = teamSidepaneStack(five, true)
+    // Most recent startedAt desc: m3 (500), m5 (400), m4 (300)
+    expect(working.faces.map((f) => f.id)).toEqual(['m3', 'm5', 'm4'])
+    expect(working.remainder).toBe(0)
+
+    // Also orders by startedAt desc when individual face has working: true without passing explicit anyWorking
+    const withWorkingFace = [
+      face('m1', 100),
+      { ...face('m2', 200), working: true },
+      face('m3', 500),
+    ]
+    const autoWorking = teamSidepaneStack(withWorkingFace)
+    expect(autoWorking.faces.map((f) => f.id)).toEqual(['m3', 'm2', 'm1'])
+    expect(autoWorking.remainder).toBe(0)
   })
 
   it('staggers animation delay by startedAt so four faces do not lockstep', () => {

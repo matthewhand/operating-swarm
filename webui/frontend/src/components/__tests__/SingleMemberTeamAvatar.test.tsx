@@ -50,6 +50,17 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
                   { id: 'bot-2', name: 'Bot 2', role: 'worker' },
                 ],
               },
+              {
+                id: 'quad-team',
+                name: 'Quad Team',
+                description: 'Team with 4 members',
+                members: [
+                  { id: 'q1', name: 'Q1', role: 'lead', started_at: '2026-09-03T00:00:01Z' },
+                  { id: 'q2', name: 'Q2', role: 'worker', started_at: '2026-09-03T00:00:02Z' },
+                  { id: 'q3', name: 'Q3', role: 'worker', started_at: '2026-09-03T00:00:03Z' },
+                  { id: 'q4', name: 'Q4', role: 'worker', started_at: '2026-09-03T00:00:04Z', working: true },
+                ],
+              },
             ],
           }),
         } as Response
@@ -73,6 +84,17 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
                 agents: [
                   { id: 'r1', name: 'R1', started_at: '2026-09-03T00:00:00Z' },
                   { id: 'r2', name: 'R2', started_at: '2026-09-03T00:00:01Z' },
+                ],
+              },
+              {
+                id: 'quad-remote',
+                title: 'Quad Remote',
+                configured: true,
+                agents: [
+                  { id: 'qr1', name: 'QR1', started_at: '2026-09-03T00:00:01Z' },
+                  { id: 'qr2', name: 'QR2', started_at: '2026-09-03T00:00:02Z' },
+                  { id: 'qr3', name: 'QR3', started_at: '2026-09-03T00:00:03Z' },
+                  { id: 'qr4', name: 'QR4', started_at: '2026-09-03T00:00:04Z' },
                 ],
               },
             ],
@@ -167,5 +189,53 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     const stack = within(duoRemote).getByLabelText('Duo Remote members')
     expect(stack).toHaveAttribute('data-avatar-stack', 'true')
     expect(duoRemote.querySelectorAll('.os-avatar-stack__face')).toHaveLength(2)
+  })
+
+  it('REQ-891: renders at most 3 faces with no +N remainder chip for 4-member team, newest-active first when working', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentSidebar open />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const quadTeam = await within(list).findByRole('link', { name: /Quad Team \(team\)/ })
+
+    // 4 members -> capped at 3 faces with NO remainder chip
+    expect(quadTeam).toHaveAttribute('data-stack-count', '3')
+    expect(quadTeam).toHaveAttribute('data-remainder', '0')
+    expect(within(quadTeam).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+    const faces = quadTeam.querySelectorAll('.os-avatar-stack__face')
+    expect(faces).toHaveLength(3)
+
+    // Q4 is working, so newest-active first: Q4 (00:04), Q3 (00:03), Q2 (00:02)
+    expect(faces[0]!.getAttribute('data-face-id')).toBe('q4')
+    expect(faces[1]!.getAttribute('data-face-id')).toBe('q3')
+    expect(faces[2]!.getAttribute('data-face-id')).toBe('q2')
+  })
+
+  it('REQ-891: renders at most 3 faces with no +N remainder chip for 4-member remote', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentSidebar open />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const quadRemote = await within(list).findByRole('link', { name: /Quad Remote \(remote\)/ })
+
+    // 4 members -> capped at 3 faces with NO remainder chip, stable roster order when idle
+    expect(quadRemote).toHaveAttribute('data-stack-count', '3')
+    expect(quadRemote).toHaveAttribute('data-remainder', '0')
+    expect(within(quadRemote).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+    const faces = quadRemote.querySelectorAll('.os-avatar-stack__face')
+    expect(faces).toHaveLength(3)
+    expect(faces[0]!.getAttribute('data-face-id')).toBe('qr1')
+    expect(faces[1]!.getAttribute('data-face-id')).toBe('qr2')
+    expect(faces[2]!.getAttribute('data-face-id')).toBe('qr3')
   })
 })

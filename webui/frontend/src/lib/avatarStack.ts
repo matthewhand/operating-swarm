@@ -20,17 +20,27 @@ export const TEAM_STACK_FACE_LIMIT = 2
 export const TEAM_STACK_ALL_MAX = 3
 
 /**
- * Team sidepane stack (#57): 1–3 members show every face with no remainder;
- * 4+ members collapse to the first 2 faces plus +{n-2}. Roster order is
- * preserved — unlike {@link selectStackedFaces} this does not re-sort by
- * recency, because a team roster is a stable list, not an activity feed.
+ * Team sidepane stack (REQ-891 #458 #438): shows at most {@link STACK_FACE_LIMIT} (3)
+ * faces with NO remainder (+N) chip.
+ * When `anyWorking` is true: orders faces most-recently-active first (`startedAt` desc).
+ * When idle: preserves stable roster order.
  */
 export function teamSidepaneStack<T extends StackFace>(
   faces: readonly T[],
+  anyWorking?: boolean,
 ): { faces: T[]; remainder: number } {
+  const isWorking = anyWorking !== undefined ? anyWorking : faces.some((face) => Boolean(face.working))
   const all = [...faces]
-  if (all.length <= TEAM_STACK_ALL_MAX) return { faces: all, remainder: 0 }
-  return { faces: all.slice(0, TEAM_STACK_FACE_LIMIT), remainder: all.length - TEAM_STACK_FACE_LIMIT }
+  const ordered = isWorking
+    ? all.sort((a, b) => {
+        if (b.startedAt !== a.startedAt) return b.startedAt - a.startedAt
+        return 0
+      })
+    : all
+  return {
+    faces: ordered.slice(0, STACK_FACE_LIMIT),
+    remainder: 0,
+  }
 }
 
 /** Matches `.os-scale-out-pulse` / `.os-stacked-avatar--pulse` (1.4s). */

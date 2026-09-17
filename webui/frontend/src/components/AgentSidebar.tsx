@@ -147,7 +147,7 @@ import {
   getChatConnection,
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
-import { markStackWorking, teamSidepaneStack } from '../lib/avatarStack'
+import { markStackWorking, teamSidepaneStack, type StackFace } from '../lib/avatarStack'
 import {
   defaultSessionForRemote,
   defaultSessionForTeam,
@@ -216,7 +216,7 @@ import {
 } from '../lib/agentEdits'
 import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
-import { declaredRosterForTeam } from '../lib/declaredRoster'
+import { declaredRosterForTeam, type DeclaredTeamRoster } from '../lib/declaredRoster'
 import { openTeamEditor } from './TeamEditor'
 import PersonaRoster from './PersonaRoster'
 import SessionPicker from './SessionPicker'
@@ -2560,13 +2560,73 @@ export default function AgentSidebar({
     )
   }
 
+  const renderTeamAvatar = ({
+    name,
+    totalMembers,
+    singleFace,
+    stacked,
+    declared,
+    teamId,
+    animate = true,
+  }: {
+    name: string
+    totalMembers: number
+    singleFace?: StackFace
+    stacked: { faces: StackFace[]; remainder: number }
+    declared?: DeclaredTeamRoster | null
+    teamId?: string
+    animate?: boolean
+  }) => {
+    if (declared) {
+      return <PersonaRoster roster={declared} groupId={teamId || name} label={`${name} declared members`} />
+    }
+    if (totalMembers >= 2) {
+      return (
+        <AvatarStack
+          faces={stacked.faces}
+          remainder={stacked.remainder}
+          animate={animate}
+          label={`${name} members`}
+        />
+      )
+    }
+    if (totalMembers === 1 && singleFace) {
+      return (
+        <AgentAvatar
+          src={singleFace.avatarSrc || singleFace.src}
+          agentId={singleFace.id}
+          alt={singleFace.name || name}
+          size="sm"
+        />
+      )
+    }
+    return (
+      <span
+        className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
+        aria-hidden="true"
+      >
+        <Users className="h-3.5 w-3.5" />
+      </span>
+    )
+  }
+
   const renderTeamLink = (team: TeamRoster, hidden: boolean, nested = false, spillSlot?: number) => {
     const name = team.name || team.id
     const hideId = teamHideId(team.id)
     const active = selectedTeamId === team.id
     const sessions = sessionsForTeam(team)
     const declared = declaredRosterForTeam(team, catalog)
-    const declaredFaces = declared ? null : teamSidepaneStack(stackFacesForTeam(team))
+    const rawFaces = stackFacesForTeam(team)
+    const marked = markStackWorking(
+      rawFaces,
+      (id) => cliRunningIds.has(id) || peekCliRunning(id),
+    )
+    const teamWorkerBusy = Boolean(
+      marked.anyWorking ||
+      cliRunningIds.has(hideId) ||
+      peekCliRunning(hideId),
+    )
+    const declaredFaces = declared ? null : teamSidepaneStack(marked.faces, teamWorkerBusy)
     const stacked = declaredFaces || { faces: [], remainder: 0 }
     const totalMembers = declared
       ? declared.parsed
@@ -2574,9 +2634,9 @@ export default function AgentSidebar({
         : 1
       : team.members
         ? team.members.length
-        : stacked.faces.length + (stacked.remainder || 0)
+        : rawFaces.length
     const singleMember = !declared && totalMembers === 1
-    const singleFace = stacked.faces[0]
+    const singleFace = rawFaces[0] || stacked.faces[0]
     const dragging = draggingId === hideId
     const dropping = dropTargetId === hideId
     const teamNeedsApproval =
@@ -2631,13 +2691,13 @@ export default function AgentSidebar({
           active ? 'os-agent-row--active' : ''
         } ${nested ? 'os-agent-row--nested' : ''} ${dragging ? 'os-agent-row--dragging' : ''} ${
           dropping ? 'os-agent-row--drop' : ''
-        }`}
+        } ${teamWorkerBusy ? 'os-agent-row--working-stack' : ''}`}
         aria-current={active ? 'page' : undefined}
         aria-label={`${name} (team)`}
         data-agent-id={hideId}
         data-kind="team"
         data-hotkey={spillSlot}
-        data-stack-count={String(declared ? (declared.parsed ? declared.count : 1) : stacked.faces.length)}
+        data-stack-count={String(declared ? (declared.parsed ? declared.count : 1) : (singleMember ? 1 : stacked.faces.length))}
         data-remainder={String(declared ? 0 : stacked.remainder)}
         data-persona-count={declared ? String(declared.parsed ? declared.count : 1) : undefined}
         data-roster={declared ? 'declared' : undefined}
@@ -2659,30 +2719,15 @@ export default function AgentSidebar({
         {...rowMenuHandlers(hideId, name, hidden, 'team', sessions, team.id)}
       >
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
-          {declared ? (
-            <PersonaRoster roster={declared} groupId={team.id} label={`${name} declared members`} />
-          ) : totalMembers >= 2 ? (
-            <AvatarStack
-              faces={stacked.faces}
-              remainder={stacked.remainder}
-              animate
-              label={`${name} members`}
-            />
-          ) : singleMember && singleFace ? (
-            <AgentAvatar
-              src={singleFace.avatarSrc || singleFace.src}
-              agentId={singleFace.id}
-              alt={singleFace.name || name}
-              size="sm"
-            />
-          ) : (
-            <span
-              className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
-              aria-hidden="true"
-            >
-              <Users className="h-3.5 w-3.5" />
-            </span>
-          )}
+          {renderTeamAvatar({
+            name,
+            totalMembers,
+            singleFace,
+            stacked,
+            declared,
+            teamId: team.id,
+            animate: teamWorkerBusy,
+          })}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
@@ -2738,10 +2783,20 @@ export default function AgentSidebar({
     const active = selectedRemoteId === remote.id
     const dragging = draggingId === hideId
     const sessions = sessionsForRemote(remote)
-    const stacked = teamSidepaneStack(stackFacesForRemote(remote))
-    const totalMembers = remote.agents ? remote.agents.length : (stacked.faces.length + (stacked.remainder || 0))
+    const rawFaces = stackFacesForRemote(remote)
+    const marked = markStackWorking(
+      rawFaces,
+      (id) => cliRunningIds.has(id) || peekCliRunning(id),
+    )
+    const remoteWorkerBusy = Boolean(
+      marked.anyWorking ||
+      cliRunningIds.has(hideId) ||
+      peekCliRunning(hideId),
+    )
+    const stacked = teamSidepaneStack(marked.faces, remoteWorkerBusy)
+    const totalMembers = remote.agents ? remote.agents.length : rawFaces.length
     const singleMember = totalMembers === 1
-    const singleFace = stacked.faces[0]
+    const singleFace = rawFaces[0] || stacked.faces[0]
     const remoteNeedsApproval =
       approvalWaitIds.has(hideId) ||
       peekApprovalWait(hideId) ||
@@ -2775,14 +2830,16 @@ export default function AgentSidebar({
         to={`/chat?remote=${encodeURIComponent(remote.id)}`}
         className={`os-remote-item os-agent-row group/row os-agent-row--remote ${
           active ? 'os-agent-row--active' : ''
-        } ${dragging ? 'os-agent-row--dragging' : ''}`}
+        } ${dragging ? 'os-agent-row--dragging' : ''} ${
+          remoteWorkerBusy ? 'os-agent-row--working-stack' : ''
+        }`}
         aria-current={active ? 'page' : undefined}
         aria-label={`${name} (remote)`}
         data-agent-id={hideId}
         data-kind="remote"
         data-hotkey={spillSlot}
         data-remote-id={remote.id}
-        data-stack-count={String(stacked.faces.length)}
+        data-stack-count={String(singleMember ? 1 : stacked.faces.length)}
         data-remainder={String(stacked.remainder)}
         draggable={!hidden}
         onDragStart={(event) => beginRowDrag(event, { id: hideId, name })}
@@ -2817,28 +2874,14 @@ export default function AgentSidebar({
         {...rowMenuHandlers(hideId, name, hidden, 'remote', sessions, remote.id)}
       >
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
-          {totalMembers >= 2 ? (
-            <AvatarStack
-              faces={stacked.faces}
-              remainder={stacked.remainder}
-              animate
-              label={`${name} members`}
-            />
-          ) : singleMember && singleFace ? (
-            <AgentAvatar
-              src={singleFace.avatarSrc || singleFace.src}
-              agentId={singleFace.id}
-              alt={singleFace.name || name}
-              size="sm"
-            />
-          ) : (
-            <span
-              className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
-              aria-hidden="true"
-            >
-              <Users className="h-3.5 w-3.5" />
-            </span>
-          )}
+          {renderTeamAvatar({
+            name,
+            totalMembers,
+            singleFace,
+            stacked,
+            teamId: remote.id,
+            animate: remoteWorkerBusy,
+          })}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
@@ -3100,12 +3143,18 @@ export default function AgentSidebar({
             const pinUnread = unreadIds.includes(pin.id)
             const pinTeamPlan = pinTeam
               ? (() => {
-                  const stacked = teamSidepaneStack(stackFacesForTeam(pinTeam))
+                  const rawFaces = stackFacesForTeam(pinTeam)
                   const marked = markStackWorking(
-                    stacked.faces,
+                    rawFaces,
                     (id) => cliRunningIds.has(id) || peekCliRunning(id),
                   )
-                  return { ...marked, remainder: stacked.remainder }
+                  const busy = Boolean(
+                    marked.anyWorking ||
+                      cliRunningIds.has(pin.id) ||
+                      peekCliRunning(pin.id),
+                  )
+                  const stacked = teamSidepaneStack(marked.faces, busy)
+                  return { ...marked, anyWorking: busy, faces: stacked.faces, remainder: stacked.remainder }
                 })()
               : null
             const pinWorkerBusy = Boolean(
