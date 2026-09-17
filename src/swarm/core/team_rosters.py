@@ -24,7 +24,10 @@ from pathlib import Path
 from typing import Any
 
 from swarm.core.agent_roles import CANONICAL_ROLES, normalize_agent_role
-from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
+from swarm.core.paths import (
+    ensure_swarm_directories_exist,
+    get_user_config_dir_for_swarm,
+)
 from swarm.core.team_cos import apply_cos_fields, find_member
 
 logger = logging.getLogger(__name__)
@@ -293,6 +296,94 @@ def blueprint_id_from_source(source: Any) -> str | None:
         return None
     blueprint_id = text.split(":", 1)[1].strip()
     return blueprint_id or None
+
+
+def advisor_blueprint_for_agent(
+    roster_id: Any, agent_blueprint_id: Any
+) -> str | None:
+    """Blueprint id of the one advisor wired to ``agent_blueprint_id``.
+
+    A team wire (handoff / as_tool — the per-roster ``wires`` toggles) to a
+    member with ``role == 'advisor'`` marks the source agent as advised.
+    When several advisors exist, the first in roster order wins (no
+    double-fire). Returns None when the agent has no wired advisor or the
+    member is not a blueprint-backed seat.
+    """
+    roster = resolve_roster(str(roster_id or "").strip())
+    if not isinstance(roster, dict):
+        return None
+    wires = roster.get("wires")
+    wired = isinstance(wires, dict) and (wires.get("handoff") or wires.get("as_tool"))
+    if isinstance(wires, dict) and not wired:
+        return None
+    wanted = str(agent_blueprint_id or "").strip()
+    if not wanted:
+        return None
+    members = roster.get("members")
+    if not isinstance(members, list):
+        return None
+    for row in members:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("role") or "") != "advisor":
+            continue
+        source = row.get("source")
+        bid = blueprint_id_from_source(source)
+        if bid and bid != wanted:
+            return bid
+    return None
+
+
+def skeptic_blueprint_for_agent(
+    roster_id: Any, agent_blueprint_id: Any
+) -> str | None:
+    """Blueprint id of the one skeptic wired to ``agent_blueprint_id``.
+
+    Mirror of :func:`advisor_blueprint_for_agent` for the adversarial review
+    loop: a team wire (handoff / as_tool) to a member with
+    ``role == 'skeptic'`` marks the source agent as skeptic-reviewed. When
+    several skeptics exist, the first in roster order wins (no double-fire).
+    Returns None when the agent has no wired skeptic or the roster disables
+    its wires.
+    """
+    roster = resolve_roster(str(roster_id or "").strip())
+    if not isinstance(roster, dict):
+        return None
+    wires = roster.get("wires")
+    wired = isinstance(wires, dict) and (wires.get("handoff") or wires.get("as_tool"))
+    if isinstance(wires, dict) and not wired:
+        return None
+    wanted = str(agent_blueprint_id or "").strip()
+    if not wanted:
+        return None
+    members = roster.get("members")
+    if not isinstance(members, list):
+        return None
+    # The audited agent must be a roster member (by seat id or by the
+    # blueprint its source points at). Stricter than the advisor resolver:
+    # the rework loop re-prompts a specific worker, so misfires onto
+    # non-member agents that merely share a blueprint id would be wrong.
+    member_blueprints = {
+        bid
+        for row in members
+        if isinstance(row, dict)
+        and (bid := blueprint_id_from_source(row.get("source")))
+    }
+    if wanted not in member_blueprints and not any(
+        isinstance(row, dict) and str(row.get("id") or "") == wanted
+        for row in members
+    ):
+        return None
+    for row in members:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("role") or "") != "skeptic":
+            continue
+        source = row.get("source")
+        bid = blueprint_id_from_source(source)
+        if bid and bid != wanted:
+            return bid
+    return None
 
 
 def blueprint_id_for_team_target(team_id: Any, target: Any = None) -> str | None:

@@ -16,13 +16,12 @@ Sidepane class names (reuse these; do not invent a parallel set):
 * ``data-role="<role>"`` may appear on the row for identification
 * Rows have no role fill, left-border accent, or outline (REQ-67)
 
-REQ-75: a blueprint may declare ``metadata.role`` (applied on create / re-pick)
-and an optional ``metadata.workflow`` hint (``handoff`` / ``as_tool``). The
-agent editor role wins once the operator explicitly overrides it.
-
-REQ-28: Chief of Staff keeps a distinct **badge** colour — not support / gate /
-skeptic. REQ-67 removed role row chrome. Hover-edit (REQ-25) can later target
-this role's blueprint; this module at least names the badge contract.
+REQ-852: this module is now the **compatibility shim** for the roles
+package (``swarm.core.roles``). The ``Role`` base class, ``ROLE_REGISTRY``,
+and per-role classes live there; the tables below **derive** from the
+registry at import time. Every public name is re-exported here so existing
+``from swarm.core.agent_roles import ...`` call sites (15+ core modules and
+tests that grep for that import line) keep working unchanged.
 """
 
 from __future__ import annotations
@@ -31,59 +30,31 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from swarm.core.roles import adapters as _adapters  # noqa: F401  (populate registry)
+from swarm.core.roles.base import ROLE_CSS_CLASS_PREFIX
+from swarm.core.roles.registry import ROLE_REGISTRY
+
 ROLE_DEFAULT = "default"
 ROLE_SUPPORT = "support"
 ROLE_GATE = "gate"
 ROLE_SKEPTIC = "skeptic"
+ROLE_ADVISOR = "advisor"
 ROLE_CHIEF_OF_STAFF = "chief_of_staff"
 ROLE_ENGINEER = "engineer"
 ROLE_SUGGESTIONS = "suggestions"
 
-# User-facing / config aliases → canonical role.
+# User-facing / config aliases → canonical role. Derived from the registry's
+# per-role ``aliases`` tuples (single source of truth).
 ROLE_ALIASES: dict[str, str] = {
-    "default": ROLE_DEFAULT,
-    "none": ROLE_DEFAULT,
-    "worker": ROLE_DEFAULT,
-    "agent": ROLE_DEFAULT,
-    "coordinator": ROLE_DEFAULT,
-    "support": ROLE_SUPPORT,
-    "helper": ROLE_SUPPORT,
-    "gate": ROLE_GATE,
-    "tool_gate": ROLE_GATE,
-    "tool-gate": ROLE_GATE,
-    "toolgate": ROLE_GATE,
-    "skeptic": ROLE_SKEPTIC,
-    "reviewer": ROLE_SKEPTIC,
-    "chief_of_staff": ROLE_CHIEF_OF_STAFF,
-    "chief-of-staff": ROLE_CHIEF_OF_STAFF,
-    "chiefofstaff": ROLE_CHIEF_OF_STAFF,
-    "cos": ROLE_CHIEF_OF_STAFF,
-    "chief": ROLE_CHIEF_OF_STAFF,
-    "engineer": ROLE_ENGINEER,
-    "eng": ROLE_ENGINEER,
-    "suggestions": ROLE_SUGGESTIONS,
-    "suggestion": ROLE_SUGGESTIONS,
-    "suggest": ROLE_SUGGESTIONS,
+    alias: role_id
+    for role_id, role in ROLE_REGISTRY.items()
+    for alias in role.aliases
 }
 
-CANONICAL_ROLES: tuple[str, ...] = (
-    ROLE_DEFAULT,
-    ROLE_SUPPORT,
-    ROLE_GATE,
-    ROLE_SKEPTIC,
-    ROLE_CHIEF_OF_STAFF,
-    ROLE_ENGINEER,
-    ROLE_SUGGESTIONS,
-)
+CANONICAL_ROLES: tuple[str, ...] = tuple(ROLE_REGISTRY)
 
 ROLE_BADGE_LABELS: dict[str, str] = {
-    ROLE_DEFAULT: "",
-    ROLE_SUPPORT: "Support",
-    ROLE_GATE: "Gate",
-    ROLE_SKEPTIC: "Skeptic",
-    ROLE_CHIEF_OF_STAFF: "CoS",
-    ROLE_ENGINEER: "Engineer",
-    ROLE_SUGGESTIONS: "Suggest",
+    role_id: (role.badge or "") for role_id, role in ROLE_REGISTRY.items()
 }
 
 WORKFLOW_HANDOFF = "handoff"
@@ -103,40 +74,70 @@ WEBUI_BLUEPRINT_IDS = frozenset({"django_chat"})
 WEBUI_KINDS = frozenset({"webui", "django_chat", "webpage", "django-chat"})
 
 # CSS contract for the AGENTS sidepane badge (Django + SPA). REQ-67: not on the row.
-ROLE_CSS_CLASS_PREFIX = "os-agent-role-"
+# ROLE_CSS_CLASS_PREFIX is re-exported from roles.base (imported above).
 ROLE_CSS_CLASSES: dict[str, str] = {
-    role: f"{ROLE_CSS_CLASS_PREFIX}{role}" for role in CANONICAL_ROLES
+    role_id: f"{ROLE_CSS_CLASS_PREFIX}{role_id}" for role_id in CANONICAL_ROLES
 }
 
 ROLE_MECHANISMS: dict[str, str] = {
-    ROLE_DEFAULT: "none",
-    ROLE_SUPPORT: "implement",
-    ROLE_GATE: "intercept",
-    ROLE_SKEPTIC: "parse",
-    ROLE_CHIEF_OF_STAFF: "intercept",
-    ROLE_ENGINEER: "implement",
-    ROLE_SUGGESTIONS: "parse",
+    role_id: getattr(role, "mechanism", "none")
+    for role_id, role in ROLE_REGISTRY.items()
 }
 
 ROLE_MECHANISM_DETAILS: dict[str, str] = {
-    ROLE_DEFAULT: "Worker agent executing standard conversational turns without role overrides.",
-    ROLE_SUPPORT: "Socratic support and agent lifecycle manager (REQ-7, REQ-154).",
-    ROLE_GATE: "Tool-call classifier intercepting execution requests before execution.",
-    ROLE_SKEPTIC: "Post-run output validator performing bounded retries on failures.",
-    ROLE_CHIEF_OF_STAFF: "Orchestrator seat with cross-team communication and mailbox-wide scope (REQ-28).",
-    ROLE_ENGINEER: "Implementer seat for software development, test authoring, and file editing.",
-    ROLE_SUGGESTIONS: "Generates quick-select follow-up prompt chips after model turns (REQ-85).",
+    role_id: getattr(role, "mechanism_detail", "")
+    for role_id, role in ROLE_REGISTRY.items()
 }
 
 ROLE_ALLOW_ALL: dict[str, bool] = {
-    ROLE_DEFAULT: False,
-    ROLE_SUPPORT: False,
-    ROLE_GATE: False,
-    ROLE_SKEPTIC: False,
-    ROLE_CHIEF_OF_STAFF: True,
-    ROLE_ENGINEER: False,
-    ROLE_SUGGESTIONS: False,
+    role_id: bool(getattr(role, "allowed_everywhere", False))
+    for role_id, role in ROLE_REGISTRY.items()
 }
+
+__all__ = [
+    "ROLE_DEFAULT",
+    "ROLE_SUPPORT",
+    "ROLE_GATE",
+    "ROLE_SKEPTIC",
+    "ROLE_ADVISOR",
+    "ROLE_CHIEF_OF_STAFF",
+    "ROLE_ENGINEER",
+    "ROLE_SUGGESTIONS",
+    "ROLE_ALIASES",
+    "CANONICAL_ROLES",
+    "ROLE_BADGE_LABELS",
+    "WORKFLOW_HANDOFF",
+    "WORKFLOW_AS_TOOL",
+    "WORKFLOW_ALIASES",
+    "CANONICAL_WORKFLOWS",
+    "WEBUI_BLUEPRINT_IDS",
+    "WEBUI_KINDS",
+    "ROLE_CSS_CLASS_PREFIX",
+    "ROLE_CSS_CLASSES",
+    "ROLE_MECHANISMS",
+    "ROLE_MECHANISM_DETAILS",
+    "ROLE_ALLOW_ALL",
+    "role_aliases_for",
+    "get_canonical_role_descriptors",
+    "normalize_agent_role",
+    "normalize_workflow",
+    "is_webui_blueprint",
+    "apply_blueprint_role",
+    "is_chief_of_staff",
+    "can_manage_agent_lifecycle",
+    "role_css_class",
+    "role_badge_label",
+    "role_from_agent",
+    "attach_role",
+    "find_role_agent",
+    "find_role_name",
+    "normalize_roster",
+    "blueprint_role_fields",
+    "ModeBPayload",
+    "is_mode_b_payload",
+    "parse_mode_b_payload",
+    "ROLE_REGISTRY",
+]
 
 
 def role_aliases_for(role: str) -> list[str]:
@@ -305,16 +306,15 @@ def normalize_roster(agents: Any) -> list[dict[str, str]]:
     if agents is None:
         return roster
     if isinstance(agents, dict):
-        iterable = agents.items()
+        pairs = list(agents.items())
     else:
-        pairs: list[tuple[str | None, Any]] = []
+        pairs = []
         for i, item in enumerate(agents):
             if isinstance(item, str):
                 pairs.append((item, {"name": item, "role": ROLE_DEFAULT}))
             else:
                 pairs.append((_agent_name(item, str(i)), item))
-        iterable = pairs
-    for name, agent in iterable:
+    for name, agent in pairs:
         if not name or str(name).startswith("_"):
             continue
         roster.append({
