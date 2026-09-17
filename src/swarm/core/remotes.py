@@ -296,8 +296,12 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "base_url": "http://127.0.0.1:8283",
         "ui_url": "",
         "api_key": "${LETTA_API_KEY}",
-        "health_path": "/v1/health",
-        "version_path": "/v1/health",
+        # #489: the trailing slash is load-bearing. "/v1/health" answers 307
+        # with a port-less Location (http://host/v1/health/), and http_json()
+        # follows redirects — so the probe left the origin, got a 404 from
+        # whatever listens on :80, and reported a healthy server DEGRADED.
+        "health_path": "/v1/health/",
+        "version_path": "/v1/health/",
         "notes": (
             "Letta memory-agent backend (:8283, self-hosted). Point "
             "LETTA_BASE_URL at your box; LETTA_API_KEY when the server "
