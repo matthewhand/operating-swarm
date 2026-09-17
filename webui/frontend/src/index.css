@@ -213,6 +213,54 @@ html:not([data-theme="light"]) .os-composer,
   color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
 }
 
+/* #565: the reply quote. `line-clamp` would put an ellipsis inside the fade, so
+   the clamp is a max-height plus a mask — the same convention #556 uses for the
+   rail label. Expansion is per message; this component is mounted per message. */
+.os-quote {
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-left: 3px solid color-mix(in srgb, var(--color-base-content) 28%, transparent);
+  background: color-mix(in srgb, var(--color-base-content) 5%, transparent);
+  color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
+  border-radius: 0 0.3rem 0.3rem 0;
+}
+/* Only the alpha channel of a mask gradient matters, so this is written with
+   rgba() rather than a hex literal — the mask needs an opacity stop, not a
+   colour, and REQ-804's chrome contract forbids bare hex here. */
+.os-quote--clamped .os-quote__body {
+  max-height: calc(4 * 1.45em);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 55%, transparent);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 55%, transparent);
+}
+.os-quote__toggle {
+  display: inline-block;
+  margin-top: 0.15rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-primary) 85%, var(--color-base-content));
+  cursor: pointer;
+}
+.os-quote__toggle:hover,
+.os-quote__toggle:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+/* #521: the inline message editor. It floors at the height of the message it is
+   replacing (set inline from a measurement) and scrolls beyond it, so a long
+   message can never produce a smaller editor than the message itself. */
+.os-bubble-editor {
+  width: 100%;
+  min-height: 2.5rem;
+  overflow-y: auto;
+  resize: vertical;
+  field-sizing: content;
+}
+
 .chat-md hr,
 .os-chat-md hr {
   border: 0;

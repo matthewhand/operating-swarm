@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import fs from 'fs'
+import path from 'path'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { ChatBubbleBody, ChatMessageBubble } from '../ChatMessageBubble'
 import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
@@ -621,6 +623,92 @@ describe('REQ-867: bubble click selects text; Edit lives in MessageRowActions', 
     fireEvent.change(textarea, { target: { value: 'revised copy' } })
     fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
     expect(onSaveEdit).toHaveBeenCalledWith('revised copy')
+  })
+
+  it('#521: the editor is the same bubble box, not a smaller surface', () => {
+    const { unmount } = render(<ChatMessageBubble {...defaultProps} />)
+    const bubble = screen.getByTestId('chat-bubble')
+    const bubbleClasses = bubble.className
+    expect(bubble).toHaveClass('chat-bubble', 'select-text')
+    unmount()
+
+    render(<ChatMessageBubble {...defaultProps} editing={true} />)
+    const editor = screen.getByTestId('chat-bubble')
+    // Same element contract as the message it replaces — so it cannot be
+    // narrower — plus a flag to tell the two states apart.
+    expect(editor).toHaveClass('chat-bubble', 'select-text')
+    expect(editor).toHaveAttribute('data-editing', 'true')
+    expect(bubbleClasses).toContain('chat-bubble')
+
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' })
+    expect(textarea).toHaveClass('os-bubble-editor')
+  })
+
+  it('#521: the editor floors at the measured message height and scrolls beyond it', () => {
+    const spy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ height: 320 } as DOMRect)
+    try {
+      // Same component instance: the bubble is measured while on screen, then
+      // the edit state opens against that measurement.
+      const { rerender } = render(<ChatMessageBubble {...defaultProps} />)
+      expect(screen.getByTestId('chat-bubble')).not.toHaveAttribute('data-editing')
+
+      rerender(<ChatMessageBubble {...defaultProps} editing={true} />)
+
+      const textarea = screen.getByRole('textbox', { name: 'Edit message' })
+      // A long message must not produce a smaller editor than the message.
+      expect((textarea as HTMLElement).style.minHeight).toBe('320px')
+    } finally {
+      spy.mockRestore()
+    }
+
+    const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf-8')
+    const rule = css.slice(css.indexOf('.os-bubble-editor'))
+    const body = rule.slice(0, rule.indexOf('}'))
+    expect(body).toContain('overflow-y: auto')
+  })
+})
+
+describe('#565 reply quote in the bubble', () => {
+  const quotedProps = {
+    role: 'user' as const,
+    agentName: 'You',
+    text: [
+      '> **Support**: Existing answer text',
+      '>',
+      '> a second quoted line',
+      '> a third quoted line',
+      '> a fourth quoted line',
+      '> a fifth quoted line',
+      '',
+      'Here is my followup',
+    ].join('\n'),
+    streaming: false,
+    editing: false,
+    onCancelEdit: () => {},
+    onSaveEdit: () => {},
+  }
+
+  it('renders the leading quote separately from the reply body', () => {
+    render(<ChatMessageBubble {...quotedProps} />)
+    const quote = screen.getByTestId('bubble-quote')
+    expect(quote).toHaveTextContent('Existing answer text')
+    expect(quote).toHaveAttribute('data-clamped', 'true')
+    // The reply's own text is outside the quote.
+    expect(screen.getByTestId('chat-md')).toHaveTextContent('Here is my followup')
+  })
+
+  it('leaves an ordinary message with no quote untouched', () => {
+    render(<ChatMessageBubble {...quotedProps} text="A plain answer" />)
+    expect(screen.queryByTestId('bubble-quote')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-md')).toHaveTextContent('A plain answer')
+  })
+
+  it('does not clamp a short quote', () => {
+    render(<ChatMessageBubble {...quotedProps} text={'> **Support**: just one line\n\nbody'} />)
+    expect(screen.getByTestId('bubble-quote')).toHaveAttribute('data-clamped', 'false')
+    expect(screen.queryByTestId('bubble-quote-toggle')).not.toBeInTheDocument()
   })
 })
 

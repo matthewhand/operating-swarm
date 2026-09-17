@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -24,6 +25,8 @@ import {
   type BubbleTheme,
 } from '../lib/bubbleTheme'
 import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/streamReplies'
+import { splitLeadingQuote } from '../lib/replyQuote'
+import { QuotedReply } from './QuotedReply'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -85,7 +88,12 @@ export const ChatBubbleBody = memo(
       streaming && allowPartial && renderStreamingAffordance(activeTheme) !== 'none'
         ? streamingAffordanceClass(activeTheme)
         : ''
-    const { prose, card } = parseSupportNlBlueprintFence(displayText)
+    // #565: a reply is only markdown — the quote is the blockquote the send
+    // path prepends. Split it off so it can be clamped/expanded on screen while
+    // the bytes that went on the wire stay whole.
+    const quoted = splitLeadingQuote(displayText)
+    const contentText = quoted ? quoted.body : displayText
+    const { prose, card } = parseSupportNlBlueprintFence(contentText)
     const segments = splitSkillRefs(prose)
 
     useEffect(() => {
@@ -154,6 +162,7 @@ export const ChatBubbleBody = memo(
 
     const body = (
       <>
+        {quoted ? <QuotedReply quote={quoted.quote} /> : null}
         {markdown}
         {affordanceClass ? (
           <span
@@ -206,6 +215,9 @@ export function ChatMessageBubble({
 }: ChatMessageBubbleProps) {
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  /** #521: last measured height of the rendered bubble, in px. */
+  const bubbleRef = useRef<HTMLDivElement | null>(null)
+  const bubbleHeightRef = useRef(0)
 
   useEffect(() => {
     if (editing) {
@@ -215,6 +227,15 @@ export function ChatMessageBubble({
     }
     return undefined
   }, [editing, text])
+
+  // #521: record the bubble's height while it is on screen, so entering edit
+  // mode starts from the size of the message being edited rather than from a
+  // fixed `min-h-24`, which is what made long messages shrink.
+  useLayoutEffect(() => {
+    if (editing) return
+    const height = bubbleRef.current?.getBoundingClientRect().height ?? 0
+    if (height > 0) bubbleHeightRef.current = height
+  })
 
   if (role === 'system' || isSystemPreload) {
     return (
@@ -280,12 +301,27 @@ export function ChatMessageBubble({
         ) : null}
       </div>
       {editing ? (
-        <div className="chat-bubble bg-base-200 text-base-content w-full max-w-xl">
+        // #521: the editor is the same bubble — same `chat-bubble` box, same
+        // role colours, same width contract — so it cannot be narrower than
+        // what it replaces. Height floors at the measured message height and
+        // scrolls beyond it.
+        <div
+          className={`chat-bubble w-full max-w-xl select-text ${
+            role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
+          }`}
+          data-testid="chat-bubble"
+          data-editing="true"
+        >
           <Textarea
             ref={textareaRef}
             aria-label="Edit message"
             size="sm"
-            className="w-full min-h-24"
+            className="os-bubble-editor w-full"
+            style={
+              bubbleHeightRef.current > 0
+                ? { minHeight: `${Math.round(bubbleHeightRef.current)}px` }
+                : undefined
+            }
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleEditorKeyDown}
@@ -305,6 +341,7 @@ export function ChatMessageBubble({
         </div>
       ) : (
         <div
+          ref={bubbleRef}
           className={`chat-bubble select-text ${
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
           }`}

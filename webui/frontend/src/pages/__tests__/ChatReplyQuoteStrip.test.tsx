@@ -181,4 +181,42 @@ describe('REQ-198: Chat right-click Reply — quote strip in composer, sent with
     expect(screen.queryByTestId('composer-reply-strip')).not.toBeInTheDocument()
     expect(input).toHaveAttribute('placeholder', 'Message …')
   })
+
+  it('#565: the full multi-line quote goes on the wire, even though the bubble clamps it', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+
+    const lines = ['line one', 'line two', 'line three', 'line four', 'line five', 'line six']
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, lines.join('\n'))
+    })
+
+    const bubble = await screen.findByText(/line six/i)
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+    fireEvent.click(await screen.findByTestId('context-menu-reply'))
+
+    const input = screen.getByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(input, { target: { value: 'clamped on screen only' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
+
+    const lastSent = JSON.parse(ws.sentFrames[ws.sentFrames.length - 1])
+    // Every quoted line reaches the wire, prefixed — the bubble's 4-line clamp
+    // must never reach the payload.
+    expect(lastSent.message).toContain('> **Support**: line one')
+    for (const line of lines.slice(1)) {
+      expect(lastSent.message).toContain(`> ${line}`)
+    }
+    expect(lastSent.message).toContain('clamped on screen only')
+  })
 })
