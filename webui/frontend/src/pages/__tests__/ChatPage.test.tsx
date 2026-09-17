@@ -1640,6 +1640,20 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(document.querySelector('.os-chat-header [data-avatar-theme="blobs"]')).toBeInTheDocument()
   })
 
+  it('#427: clicking Add files on a CLI seat toasts explanation and closes menu', async () => {
+    renderChat('/chat?blueprint=cli_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const addFilesBtn = screen.getByRole('menuitem', { name: 'Add files' })
+    expect(addFilesBtn).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(addFilesBtn)
+    expect(await screen.findByText(/File attachments aren’t supported for CLI or remote seats/)).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add files' })).not.toBeInTheDocument()
+  })
+
   it('shows an explanatory toast when Add files is clicked on an unsupported seat', async () => {
     vi.mocked(fetch).mockImplementation(async (info) => {
       const url = String(info)

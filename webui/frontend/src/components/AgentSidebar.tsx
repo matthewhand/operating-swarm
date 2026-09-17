@@ -3090,14 +3090,14 @@ export default function AgentSidebar({
             ) : null}
           {visiblePins.map((pin, pinIdx) => {
             const live = agents.find((agent) => agent.id === pin.id)
-            const pinName = live ? agentLabel(live) : pin.name || pin.id
+            const pinTeam = pin.id.startsWith('team:')
+              ? teams.find((item) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
+              : undefined
+            const pinName = live ? agentLabel(live) : pinTeam?.name || pin.name || pin.id
             const role = live ? agentRole(live) : 'default'
             const badge = live ? roleBadgeLabel(role) : ''
             const pinActive = Boolean(selectedId && selectedId === pin.id)
             const pinUnread = unreadIds.includes(pin.id)
-            const pinTeam = pin.id.startsWith('team:')
-              ? teams.find((item) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
-              : undefined
             const pinTeamPlan = pinTeam
               ? (() => {
                   const stacked = teamSidepaneStack(stackFacesForTeam(pinTeam))
@@ -3174,14 +3174,15 @@ export default function AgentSidebar({
                     label={`${pinName} members`}
                   />
                 ) : (
-                <AgentAvatar
-                  src={live?.avatar_path}
-                  agentId={pin.id}
-                  size="lg"
-                  className="os-fav-tile__avatar"
-                  status={pinWorkerBusy ? 'working' : 'idle'}
-                  active={pinWorkerBusy}
-                />
+                  <AgentAvatar
+                    src={pinTeamPlan?.faces[0]?.avatarSrc || pinTeamPlan?.faces[0]?.src || live?.avatar_path}
+                    agentId={pinTeamPlan?.faces[0]?.agentId || pinTeamPlan?.faces[0]?.id || pin.id}
+                    alt={pinTeamPlan?.faces[0]?.name || pinName}
+                    size="lg"
+                    className="os-fav-tile__avatar"
+                    status={pinWorkerBusy ? 'working' : 'idle'}
+                    active={pinWorkerBusy}
+                  />
                 )}
                 <span className="os-fav-tile__name">{pinName}</span>
                 {pinIdx < 9 && (

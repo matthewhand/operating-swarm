@@ -1023,3 +1023,44 @@ def test_trueforge_send_refused_names_url(monkeypatch):
     out = _render_operate(sent)
     assert "trueforge send: FAIL" in out
     assert out.rstrip().endswith('""') is False
+
+
+def test_normalize_base_url_ipv6_brackets(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    spec = remotes_core.load_remote(
+        "trueforge",
+        config={"remotes": {"trueforge": {"base_url": "http://[2001:db8::1]:8791"}}},
+    )
+    assert spec.base_url == "http://[2001:db8::1]:8791"
+
+
+def test_normalize_base_url_keeps_basic_auth_userinfo(monkeypatch):
+    """#463: bracketing an IPv6 host must not drop the ``user:pass@`` prefix.
+
+    ``urlunparse`` joins ``netloc`` verbatim, so the separator has to be part
+    of ``userinfo``; without it a credentialed base_url silently collapses to
+    ``http://alice:s3cret2001:db8::5:8791`` and every request 404s.
+    """
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    assert (
+        remotes_core._normalize_base_url("http://alice:s3cret@[2001:db8::5]:8791/")
+        == "http://alice:s3cret@[2001:db8::5]:8791"
+    )
+    assert (
+        remotes_core._normalize_base_url("http://alice:s3cret@example.com:8791")
+        == "http://alice:s3cret@example.com:8791"
+    )
+
+
+def test_hermes_send_refused_names_url(monkeypatch):
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    sent = remotes_core.operate(
+        "hermes",
+        "send",
+        prompt="hi",
+        config={"remotes": {"hermes": {"base_url": "http://127.0.0.1:9"}}},
+    )
+    assert sent.ok is False
+    assert "127.0.0.1:9" in sent.detail
+    assert "refused" in sent.detail.lower()
+

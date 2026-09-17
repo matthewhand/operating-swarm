@@ -29,11 +29,13 @@ export interface MemberSession {
 export function facesFromSessions(sessions: MemberSession[]): StackFace[] {
   return sessions.map((session) => ({
     id: session.memberId || session.id,
+    agentId: session.memberId || session.id,
     name: session.title,
     startedAt: session.startedAt,
     role: session.role,
     working: session.status === 'running',
     avatarSrc: session.avatarSrc,
+    src: session.avatarSrc,
   }))
 }
 

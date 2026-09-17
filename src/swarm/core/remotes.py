@@ -707,8 +707,10 @@ def _normalize_base_url(url: str) -> str:
         userinfo = parsed.username
         if parsed.password:
             userinfo += f":{parsed.password}"
+        # urlunparse joins netloc verbatim — the separator has to live here.
         userinfo += "@"
-    netloc = f"{userinfo}{host}" + (f":{parsed.port}" if parsed.port else "")
+    host_str = f"[{host}]" if ":" in host and not (host.startswith("[") and host.endswith("]")) else host
+    netloc = f"{userinfo}{host_str}" + (f":{parsed.port}" if parsed.port else "")
     return urlunparse(
         (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
     ).rstrip("/")
@@ -2202,7 +2204,7 @@ def _hermes_send(
             remote="hermes",
             op="send",
             ok=False,
-            detail=result.error or f"Hermes send failed (http {result.status})",
+            detail=_unreachable_detail(result, "Hermes send"),
             http_status=result.status,
             data=result.body or result.text,
         )
@@ -2567,7 +2569,7 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
             remote="omb",
             op="send",
             ok=False,
-            detail=result.error or f"OpenMousBot send failed (http {result.status})",
+            detail=_unreachable_detail(result, "OpenMousBot send"),
             http_status=result.status,
             data=result.body or result.text,
         )
@@ -2743,7 +2745,7 @@ def _rakazo_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> 
         remote="rakazo",
         op="send",
         ok=False,
-        detail=result.error or f"Rakazo send failed (http {result.status})",
+        detail=_unreachable_detail(result, "Rakazo send"),
         http_status=result.status,
         data=result.body or result.text,
     )
