@@ -765,6 +765,7 @@ html[data-os-theme="light"] .os-agent-sidebar {
 .os-agent-role-badge[data-role="support"] { color: #3d8f8a; }
 .os-agent-role-badge[data-role="gate"] { color: #c9a227; }
 .os-agent-role-badge[data-role="skeptic"] { color: #8a5a9b; }
+.os-agent-role-badge[data-role="advisor"] { color: #8a7a4a; }
 .os-agent-role-badge[data-role="chief_of_staff"] { color: #4f8ec9; }
 .os-agent-role-badge[data-role="suggestions"] { color: #5a8a6b; }
 .os-agent-role-badge[data-role="engineer"] { color: #5c7a8a; }
