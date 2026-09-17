@@ -5,6 +5,7 @@ v1 is **API↔API** and **not a global mesh**. Discoverability is:
     (same-team members ∪ relationship-edge members ∪ Support/CoS allow-all)
     ∩ same kind
     ∩ (whitelist / ¬blacklist)
+    ∩ (internal-only rail section members, Issue #163)
     − hidden − archived − self
 
 Handoff / ``as_tool`` graphs stay on openai-agents (REQ-156). This mailbox is
@@ -36,6 +37,14 @@ from swarm.core.agent_roles import (
     is_chief_of_staff,
     normalize_agent_role,
 )
+from swarm.core.section_talk import (
+    REASON_INTERNAL_ONLY,
+    REASON_TARGET_LOCKED,
+    SectionTalkState,
+    can_section_talk,
+    filter_talk_targets,
+    parse_section_talk_state,
+)
 from swarm.core.team_isolation import role_of_member, teams_containing
 from swarm.core.team_rosters import iter_normalized_rosters
 from swarm.core.transcript_roles import append_event, append_turn
@@ -55,9 +64,10 @@ ERROR_NOT_DISCOVERABLE = "not_discoverable"
 ERROR_CALLER_KIND = "caller_kind_unsupported"
 ERROR_EMPTY_CONTENT = "empty_content"
 ERROR_KIND_FILTER = "kind_not_supported"
+ERROR_SECTION_LOCKED = "section_internal_only"
 
 AclMode = Literal["whitelist", "blacklist"]
-AclEntryKind = Literal["agent", "team", "role"]
+AclEntryKind = Literal["agent", "team", "role", "section"]
 
 
 class PeerMailboxError(Exception):
@@ -74,7 +84,7 @@ class PeerMailboxError(Exception):
 
 @dataclass(frozen=True)
 class AclEntry:
-    """One allow/deny entry. Kinds: agent, team, role (REQ-162 model)."""
+    """One allow/deny entry. Kinds: agent, team, role, section (REQ-162 / #219)."""
 
     kind: AclEntryKind
     id: str
@@ -89,7 +99,7 @@ class AclEntry:
         if not isinstance(raw, dict):
             return None
         kind = str(raw.get("kind") or "agent").strip().lower()
-        if kind not in ("agent", "team", "role"):
+        if kind not in ("agent", "team", "role", "section"):
             return None
         ident = str(raw.get("id") or raw.get("name") or "").strip()
         if not ident:
@@ -146,6 +156,7 @@ class Peer:
     kind: AgentKind
     role: str = "default"
     teams: set[str] = field(default_factory=set)
+    sections: set[str] = field(default_factory=set)
     archived: bool = False
     source: str = ""
 
@@ -202,11 +213,13 @@ def catalog_from_rosters(
                 kind=peer.kind,
                 role=peer.role,
                 teams=set(peer.teams),
+                sections=set(peer.sections),
                 archived=peer.archived,
                 source=peer.source,
             )
             continue
         existing.teams.update(peer.teams)
+        existing.sections.update(peer.sections)
         if is_chief_of_staff(peer.role) or normalize_agent_role(peer.role) == ROLE_SUPPORT:
             existing.role = peer.role
         existing.archived = existing.archived or peer.archived
@@ -218,6 +231,8 @@ def _side_agent_ids(kind: str, ident: str, catalog: dict[str, Peer]) -> set[str]
         return {ident} if ident in catalog else set()
     if kind == "team":
         return {peer.id for peer in catalog.values() if ident in peer.teams}
+    if kind == "section":
+        return {peer.id for peer in catalog.values() if ident in peer.sections}
     return set()
 
 
@@ -246,6 +261,15 @@ def _entry_matches(entry: AclEntry, peer: Peer) -> bool:
         return normalize_agent_role(peer.role) == normalize_agent_role(entry.id)
     if entry.kind == "team":
         return entry.id in peer.teams
+    if entry.kind == "section":
+        if entry.id in peer.sections:
+            return True
+        try:
+            from swarm.core.agent_sections import section_id_for_agent
+
+            return section_id_for_agent(peer.id) == entry.id
+        except Exception:
+            return False
     return False
 
 
@@ -304,6 +328,7 @@ class MailboxContext:
     relationships: Any | None = None
     acl: AclPolicy | None = None
     chat_base_dir: Path | None = None
+    section_talk: SectionTalkState | None = None
 
     def catalog(self) -> dict[str, Peer]:
         extra = list(self.extra_peers)
@@ -316,7 +341,18 @@ class MailboxContext:
                     teams=teams_containing(self.caller_id, self.rosters),
                 )
             )
-        return catalog_from_rosters(self.rosters, extra=extra)
+        catalog = catalog_from_rosters(self.rosters, extra=extra)
+        try:
+            from swarm.core.agent_sections import membership_map
+
+            members = membership_map()
+        except Exception:
+            members = {}
+        for peer in catalog.values():
+            sid = members.get(peer.id)
+            if sid:
+                peer.sections.add(sid)
+        return catalog
 
     def caller(self) -> Peer:
         catalog = self.catalog()
@@ -377,7 +413,8 @@ class MailboxContext:
             if self._is_hidden(ident) or self._is_archived(peer):
                 continue
             visible.add(ident)
-        return apply_acl(visible, catalog, self.acl)
+        visible = apply_acl(visible, catalog, self.acl)
+        return filter_talk_targets(self.caller_id, visible, self.section_talk)
 
     def list_peers(self, kind: str = V1_KIND) -> dict[str, Any]:
         want = str(kind or V1_KIND).strip().lower() or V1_KIND
@@ -431,6 +468,15 @@ class MailboxContext:
             )
         if target_id == self.caller_id:
             return
+        decision = can_section_talk(self.caller_id, target_id, self.section_talk)
+        if not decision.allowed and decision.reason in (
+            REASON_INTERNAL_ONLY,
+            REASON_TARGET_LOCKED,
+        ):
+            raise PeerMailboxError(
+                ERROR_SECTION_LOCKED,
+                f"Agent {target_id!r} is outside this caller's internal-only section.",
+            )
         if target_id not in self.discoverable_ids(kind=V1_KIND):
             raise PeerMailboxError(
                 ERROR_NOT_DISCOVERABLE,
@@ -476,6 +522,7 @@ class MailboxContext:
         }
         if not delivered:
             result["warning"] = "delivery_skipped_no_user_key"
+        self._maybe_fire_mailbox_routines(target, body)
         return result
 
     def _deliver(self, target_id: str, content: str) -> bool:
@@ -517,6 +564,22 @@ class MailboxContext:
             base_dir=base,
         )
         return path is not None
+
+    def _maybe_fire_mailbox_routines(self, target_id: str, content: str) -> None:
+        """Best-effort: fire Active mailbox_message routines. Never raises."""
+        try:
+            from swarm.core.routines import deliver_mailbox_message
+
+            deliver_mailbox_message(
+                {
+                    "sender": self.caller_id,
+                    "content": content,
+                    "subject": "",
+                    "target_id": target_id,
+                }
+            )
+        except Exception:
+            logger.exception("mailbox routine delivery failed")
 
     def list_agents_tool(self, kind: str = V1_KIND) -> dict[str, Any]:
         return self.list_peers(kind=kind)
@@ -738,6 +801,9 @@ def context_from_runtime(
         from swarm.core.agent_mailbox_acl import resolve_acl_policy
 
         acl = resolve_acl_policy(str(caller_id or "").strip(), role).policy
+    section_talk = parse_section_talk_state(
+        params.get("rail_sections") or params.get("section_talk")
+    )
     return MailboxContext(
         caller_id=str(caller_id or "").strip(),
         caller_kind=kind,
@@ -749,6 +815,7 @@ def context_from_runtime(
         relationships=relationships,
         acl=acl,
         chat_base_dir=chat_base_dir,
+        section_talk=section_talk,
     )
 
 
@@ -776,6 +843,7 @@ __all__ = [
     "ERROR_KIND_FILTER",
     "ERROR_KIND_MISMATCH",
     "ERROR_NOT_DISCOVERABLE",
+    "ERROR_SECTION_LOCKED",
     "ERROR_TARGET_ARCHIVED",
     "ERROR_TARGET_HIDDEN",
     "ERROR_UNKNOWN_ID",

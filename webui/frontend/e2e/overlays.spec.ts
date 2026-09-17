@@ -77,3 +77,22 @@ test('Settings and Teams sheets open over a fixture chat message', async ({ page
 
   expect(jsErrors, `uncaught JS errors: ${jsErrors.join(' | ')}`).toHaveLength(0)
 })
+
+test('Search overlay traps Tab inside the dialog', async ({ page }) => {
+  await stubApis(page)
+  await page.goto('/chat')
+  await page.getByRole('button', { name: 'Search' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Search' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('combobox', { name: 'Search' })).toBeFocused()
+
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab')
+    const inside = await page.evaluate(() => {
+      const el = document.querySelector('[role="dialog"][aria-label="Search"]')
+      const active = document.activeElement
+      return Boolean(el && active && el.contains(active))
+    })
+    expect(inside, `Tab ${i + 1} left the Search dialog`).toBe(true)
+  }
+})

@@ -38,15 +38,16 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-import re
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse, urlunparse
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
-REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
-REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 
 def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> str:
@@ -80,6 +81,16 @@ def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> st
         return "trueforge"
     if raw.startswith("anythingllm"):
         return "anythingllm"
+    if raw.startswith("letta"):
+        return "letta"
+    if raw.startswith("openwebui") or raw.startswith("open-webui") or raw.startswith("open_webui"):
+        return "openwebui"
+    if raw.startswith("flowise"):
+        return "flowise"
+    if raw.startswith("n8n"):
+        return "n8n"
+    if raw.startswith("slack"):
+        return "slack"
     return raw or (remote_id or "")
 
 
@@ -98,10 +109,15 @@ def _instance_slug(remote_id: str, kind: str | None = None) -> str:
     tail = raw[len(k) + 1 :] if (raw.startswith(k) and len(raw) > len(k) and raw[len(k)] in ("-", "_")) else raw
     return re.sub(r"[^a-z0-9]+", "_", tail).strip("_").upper()
 # Kinds that never appear until the user (or env) adds them.
-OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm"})
+OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack"})
 REMOTE_KIND_LABELS: dict[str, str] = {
     "hermes": "Hermes",
     "anythingllm": "AnythingLLM",
+    "letta": "Letta",
+    "openwebui": "Open WebUI",
+    "flowise": "Flowise",
+    "n8n": "n8n",
+    "slack": "Slack",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -120,6 +136,18 @@ _KIND_ALIASES: dict[str, str] = {
     "true-forge": "trueforge",
     "anything-llm": "anythingllm",
     "anything_llm": "anythingllm",
+    "memgpt": "letta",
+    "open-webui": "openwebui",
+    "open_webui": "openwebui",
+    "owui": "openwebui",
+    "flowiseai": "flowise",
+    "flowise-ai": "flowise",
+    "n8n-io": "n8n",
+    "slackbot": "slack",
+    "slack-api": "slack",
+    "slack_api": "slack",
+    "nemo-slack": "slack",
+    "nemo_slack": "slack",
 }
 
 # REQ-11 default roster. ``swarm`` is in the catalog but is not auto-placed
@@ -144,6 +172,11 @@ TEAM_VOCABULARY: dict[str, str] = {
 _TOOL_NAMES: dict[str, str] = {
     "hermes": "consult_hermes",
     "anythingllm": "consult_anythingllm",
+    "letta": "consult_letta",
+    "openwebui": "consult_openwebui",
+    "flowise": "consult_flowise",
+    "n8n": "consult_n8n",
+    "slack": "consult_slack",
     "omb": "consult_omb",
     "rakazo": "consult_rakazo",
     "herdr": "consult_herdr",
@@ -196,7 +229,9 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "Rakazo API :3100, Vite UI :5173, tree C:\\rakazo. "
             "GET /health is public. bots.list / threads.send live under "
             "/rpc/* and require a Better Auth session (cookie or bearer). "
-            "Health works without auth; operate fails honestly on 401."
+            "Operate sends Cookie from RAKAZO_SESSION_COOKIE and/or Bearer "
+            "from RAKAZO_API_KEY via env/secret-store (names only). "
+            "Health works without auth; 401 is an honest gap when unset."
         ),
     },
     "herdr": {
@@ -255,6 +290,97 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "a new thread. Opt-in: not placed until + Add."
         ),
     },
+    "letta": {
+        "title": "Letta",
+        "host_label": "letta",
+        "base_url": "http://127.0.0.1:8283",
+        "ui_url": "",
+        "api_key": "${LETTA_API_KEY}",
+        "health_path": "/v1/health",
+        "version_path": "/v1/health",
+        "notes": (
+            "Letta memory-agent backend (:8283, self-hosted). Point "
+            "LETTA_BASE_URL at your box; LETTA_API_KEY when the server "
+            "requires a password. GET /v1/agents/ lists agents as resumable "
+            "sessions (search via query_text / title filter). "
+            "POST /v1/agents/<id>/messages (or /messages/stream) chats into "
+            "that agent; send requires an existing agent session id and "
+            "never mints a new agent. Opt-in: not placed until + Add."
+        ),
+    },
+    "openwebui": {
+        "title": "Open WebUI",
+        "host_label": "openwebui",
+        "base_url": "http://127.0.0.1:8080",
+        "ui_url": "",
+        "api_key": "${OPENWEBUI_API_KEY}",
+        "health_path": "/health",
+        "version_path": "/api/models",
+        "notes": (
+            "External Open WebUI instance (:8080 docker default). Not Operating "
+            "Swarm's own WebUI (os-webui) and never a replacement for it. API key "
+            "from Open WebUI → Settings → Account → API keys; point "
+            "OPENWEBUI_BASE_URL at your box. GET /api/v1/chats/ lists chats as "
+            "resumable sessions; GET /api/v1/chats/search?text= filters when many. "
+            "POST /api/chat/completions with chat_id resumes that chat (stream, "
+            "sync fallback); POST /api/chat/completed persists the turn. Send "
+            "requires a chat session id and never mints a new chat. Opt-in: not "
+            "placed until + Add."
+        ),
+    },
+    "flowise": {
+        "title": "Flowise",
+        "host_label": "flowise",
+        "base_url": "http://127.0.0.1:3000",
+        "ui_url": "",
+        "api_key": "${FLOWISE_API_KEY}",
+        "health_path": "/api/v1/chatflows",
+        "version_path": "/api/v1/chatflows",
+        "notes": (
+            "Flowise low-code flows (:3000). API key from Flowise settings; "
+            "point FLOWISE_BASE_URL at your box. GET /api/v1/chatflows lists "
+            "flows; GET /api/v1/chatmessage/<id> lists chat sessions under a "
+            "flow. Resume key is flowId or flowId:chatId. POST "
+            "/api/v1/prediction/<id> with chatId resumes that session and "
+            "never mints a random thread. Streaming uses SSE token events. "
+            "Opt-in: not placed until + Add."
+        ),
+    },
+    "n8n": {
+        "title": "n8n",
+        "host_label": "n8n",
+        "base_url": "http://127.0.0.1:5678",
+        "ui_url": "",
+        "api_key": "${N8N_API_KEY}",
+        "health_path": "/healthz",
+        "version_path": "/healthz",
+        "notes": (
+            "n8n workflow automation (:5678, self-hosted). API key from "
+            "Settings → n8n API; point N8N_BASE_URL at your box. "
+            "GET /api/v1/workflows lists chat/webhook flows as resumable "
+            "sessions (resume key workflow:webhook). POST /webhook/<path> "
+            "sends chatInput into that flow; send requires a listed session "
+            "id and never mints a new workflow. Opt-in: not placed until + Add."
+        ),
+    },
+    "slack": {
+        "title": "Slack (NemoHermes)",
+        "host_label": "slack",
+        "base_url": "https://slack.com/api",
+        "ui_url": "",
+        "api_key": "${SLACK_BOT_TOKEN}",
+        "health_path": "/auth.test",
+        "version_path": "/auth.test",
+        "notes": (
+            "Slack Web API for NemoHermes threads-as-sessions. "
+            "POST auth.test health; conversations.list + conversations.history "
+            "list channel threads as resumable sessions (resume key "
+            "channel_id:thread_ts). chat.postMessage posts into an existing "
+            "thread; send never mints a new thread. Bot token from "
+            "SLACK_BOT_TOKEN (xoxb-… env-var name only). Opt-in: not placed "
+            "until + Add. Do not clone NemoHermes source."
+        ),
+    },
     "trueforge": {
         "title": "TrueForge",
         "host_label": "trueforge",
@@ -282,6 +408,11 @@ _ENV_BASE = {
     "swarm": "SWARM_REMOTE_BASE_URL",
     "trueforge": "TRUEFORGE_BASE_URL",
     "anythingllm": "ANYTHINGLLM_BASE_URL",
+    "letta": "LETTA_BASE_URL",
+    "openwebui": "OPENWEBUI_BASE_URL",
+    "flowise": "FLOWISE_BASE_URL",
+    "n8n": "N8N_BASE_URL",
+    "slack": "SLACK_BASE_URL",
 }
 _ENV_KEY = {
     "hermes": "HERMES_API_KEY",
@@ -291,6 +422,11 @@ _ENV_KEY = {
     "swarm": "SWARM_REMOTE_API_KEY",
     "trueforge": "TRUEFORGE_API_KEY",
     "anythingllm": "ANYTHINGLLM_API_KEY",
+    "letta": "LETTA_API_KEY",
+    "openwebui": "OPENWEBUI_API_KEY",
+    "flowise": "FLOWISE_API_KEY",
+    "n8n": "N8N_API_KEY",
+    "slack": "SLACK_BOT_TOKEN",
 }
 _ENV_UI = {"rakazo": "RAKAZO_UI_URL", "hermes": "HERMES_UI_URL"}
 _ENV_COOKIE = {"rakazo": "RAKAZO_SESSION_COOKIE"}
@@ -306,6 +442,79 @@ _FORBIDDEN_BASE_HINTS = ("fly.dev", "open-litellm", "openlitellm")
 
 _DEFAULT_TIMEOUT_S = 3.0
 _OPERATE_TIMEOUT_S = 8.0
+_OPERATE_LIST_TIMEOUT_S = _OPERATE_TIMEOUT_S
+_OPERATE_SEND_TIMEOUT_S = 180.0
+_OMB_LIST_PATH = "/api/bots?messages=0"  # omit transcripts (issue #300)
+_OMB_REPLY_TIMEOUT_S = 180.0
+_OMB_POLL_INTERVAL_S = 0.4
+_OMB_POLL_HTTP_TIMEOUT_S = 8.0
+_OMB_NON_BOT_TARGETS = frozenset({"omb", "openmousbot", "openmausbot", "openmous"})
+OMB_BOT_REQUIRED_GAP = "omb_bot_required"
+OMB_DEDICATED_BOT_NAME = "open-swarm"
+
+# #471: a failed OMB turn ends with an error activity row instead of bot text.
+OMB_TURN_ERROR_PREFIX = "OpenMousBot turn failed on the remote: "
+
+
+def _omb_turn_start_index(msgs: list[Any], *, after_id: str = "", prompt: str = "") -> int:
+    """Index of the first message row that belongs to the turn just submitted.
+
+    Anything before it is history — a previous turn's failure must never be
+    attributed to the new one (#471).
+    """
+    if after_id:
+        for i, msg in enumerate(msgs):
+            if str(msg.get("id") or "") == after_id:
+                return i + 1
+        return 0
+    if prompt.strip():
+        want = prompt.strip()
+        for i, msg in enumerate(msgs):
+            if str(msg.get("role") or "").lower() == "user" and _omb_message_text(msg) == want:
+                return i + 1
+    return 0
+
+
+def _omb_turn_error(
+    messages: list[Any], *, after_id: str = "", prompt: str = ""
+) -> str:
+    """Cause of a terminal remote-side turn failure, or ``""`` when there is none.
+
+    A failed OMB turn ends with a non-text activity row rather than bot text::
+
+        {"role": "bot", "kind": "activity",
+         "tool": {"name": "error: Internal error", "ok": false}}
+
+    ``_omb_is_bot_text`` deliberately skips activity rows, so without this the
+    poller could only run out its deadline and report a misleading timeout while
+    the cause sat on the thread (#471). Only rows after the submitted turn count;
+    the newest failure wins.
+    """
+    msgs = [m for m in messages if isinstance(m, dict)]
+    start = _omb_turn_start_index(msgs, after_id=after_id, prompt=prompt)
+    detail = ""
+    for msg in msgs[start:]:
+        if str(msg.get("role") or "").lower() not in ("bot", "assistant", "model"):
+            continue
+        tool = msg.get("tool")
+        if not isinstance(tool, dict) or tool.get("ok") is not False:
+            continue
+        name = str(tool.get("name") or "").strip() or "unknown error"
+        if name.lower().startswith("error:"):
+            name = name.split(":", 1)[1].strip() or "unknown error"
+        detail = name
+    return detail
+_HERMES_POLL_INTERVAL_S = 0.4
+_HERMES_POLL_HTTP_TIMEOUT_S = 8.0
+_ANYTHINGLLM_SEND_TIMEOUT_S = 90.0
+_LETTA_SEND_TIMEOUT_S = 90.0
+_FLOWISE_SEND_TIMEOUT_S = 90.0
+_N8N_SEND_TIMEOUT_S = 30.0
+_TRUEFORGE_SEND_TIMEOUT_S = 60.0
+_TRUEFORGE_DONE_STATES = frozenset({"done", "completed", "finished", "success"})
+_TRUEFORGE_ERROR_STATES = frozenset(
+    {"error", "failed", "cancelled", "canceled", "crashed", "aborted", "killed", "timeout", "timed_out"}
+)
 
 
 class RemoteError(Exception):
@@ -337,6 +546,7 @@ class RemoteSpec:
     ssh_agent: bool = True
     provenance: dict[str, Any] = field(default_factory=dict)
     kind: str = ""
+    timeout: float | None = None
 
     def origin(self) -> tuple[str, int]:
         parsed = urlparse(self.base_url)
@@ -463,13 +673,90 @@ def _looks_like_forbidden_llm_proxy(url: str) -> bool:
     return any(hint in lowered for hint in _FORBIDDEN_BASE_HINTS)
 
 
+def _running_in_container() -> bool:
+    """True when this process should treat 127.0.0.1 as the Docker host, not itself."""
+    flag = (os.environ.get("SWARM_REWRITE_LOOPBACK") or "").strip().lower()
+    if flag in ("1", "true", "yes"):
+        return True
+    if flag in ("0", "false", "no"):
+        return False
+    return Path("/.dockerenv").exists()
+
+
 def _normalize_base_url(url: str) -> str:
     raw = (url or "").strip().rstrip("/")
     if not raw:
         return ""
     if "://" not in raw:
         raw = f"http://{raw}"
-    return raw
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "::1"}:
+        # TrueForge (and many local harnesses) bind IPv4 only. `localhost` prefers
+        # ::1 → ECONNREFUSED even when 127.0.0.1:port is UP.
+        host = "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if (
+        host in _LOOPBACK_HOSTS
+        and _running_in_container()
+        and port != this_server_listen_port()
+    ):
+        host = (os.environ.get("SWARM_HOST_GATEWAY") or "host.docker.internal").strip() or "host.docker.internal"
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+    netloc = f"{userinfo}{host}" + (f":{parsed.port}" if parsed.port else "")
+    return urlunparse(
+        (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
+    ).rstrip("/")
+
+
+def _normalize_ui_url(url: str) -> str:
+    """Normalize a browser-accessible UI URL.
+
+    Unlike _normalize_base_url, this does NOT rewrite loopback addresses
+    (127.0.0.1 / localhost) to Docker gateway (host.docker.internal),
+    because ui_url is consumed by the user's host browser, not by Python
+    inside a Docker container.
+    """
+    raw = (url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "::1"}:
+        host = "127.0.0.1"
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+    netloc = f"{userinfo}{host}" + (f":{parsed.port}" if parsed.port else "")
+    return urlunparse(
+        (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
+    ).rstrip("/")
+
+
+def _unreachable_detail(result: HttpResult, what: str) -> str:
+    """Name the URL on connection-refused so chat is not a bare URLError."""
+    err = (result.error or "").strip()
+    url = (result.url or "").strip()
+    if "Connection refused" in err or "Errno 111" in err:
+        where = url or "the remote"
+        return (
+            f"{what} refused at {where}. Nothing is listening on that host:port "
+            "from this process. If Operating Swarm is in Docker, 127.0.0.1 is the "
+            "container — use host.docker.internal or the host LAN IP."
+        )
+    if err:
+        return f"{what} failed: {err}" + (f" ({url})" if url else "")
+    return f"{what} failed (http {result.status})"
 
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
@@ -584,6 +871,25 @@ def _as_env_name(value: str) -> str:
     raw = (value or "").strip()
     derived = _placeholder_env_name(raw)
     return derived or raw
+
+
+def get_secret(name: str) -> str:
+    """Read ``name`` from the process env (the secret-store). Never log the value."""
+    key = (name or "").strip()
+    if not key:
+        return ""
+    return os.environ.get(key, "").strip()
+
+
+def _expand_secret(value: Any) -> str:
+    """Resolve ``${ENV}`` placeholders via get_secret. Do not expandvars raw secrets."""
+    raw = str(value or "").strip()
+    env_name = _placeholder_env_name(raw)
+    if env_name:
+        return get_secret(env_name)
+    if _is_unresolved_placeholder(raw):
+        return ""
+    return raw
 
 
 def _coerce_bool(value: Any, default: bool = True) -> bool:
@@ -775,6 +1081,12 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             spec.ssh_port = _coerce_ssh_port(block["ssh_port"])
         if "ssh_agent" in block and block["ssh_agent"] is not None:
             spec.ssh_agent = _coerce_bool(block["ssh_agent"], default=True)
+        if "timeout" in block and block["timeout"] is not None:
+            try:
+                loaded_timeout = float(block["timeout"])
+                spec.timeout = loaded_timeout if loaded_timeout > 0 else None
+            except (TypeError, ValueError):
+                pass
         persisted_base = str(block.get("base_url") or "").strip()
         persisted_ui = str(block.get("ui_url") or "").strip()
 
@@ -793,27 +1105,37 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
     if env_ui and (ownership.field_is_forced(env_ui_key) or not persisted_ui):
         spec.ui_url = env_ui
 
-    # Secrets stay env-only: file may hold ${VAR}; live value comes from env.
+    # Secrets stay env-only: file may hold ${VAR}; live value comes from
+    # get_secret (process env is the secret-store). Never log values.
     env_key_name = f"{kind.upper()}_{inst_slug}_API_KEY" if inst_slug else (_ENV_KEY.get(kind) or "")
     kind_env_key_name = _ENV_KEY.get(kind) or ""
-    env_key = os.environ.get(env_key_name, "").strip() if env_key_name else ""
-    if not env_key and inst_slug and kind_env_key_name:
-        env_key = os.environ.get(kind_env_key_name, "").strip()
-    if env_key:
-        spec.api_key = env_key
-    env_cookie = _ENV_COOKIE.get(kind)
-    if env_cookie and os.environ.get(env_cookie, "").strip():
-        spec.cookie = os.environ[env_cookie].strip()
-
     if not spec.api_key_env:
-        spec.api_key_env = (
-            _placeholder_env_name(str(spec.api_key or ""))
-            or env_key_name
-            or kind_env_key_name
+        # A kind default such as ${TRUEFORGE_API_KEY} is a fallback, not an
+        # explicit choice: for a named instance the derived TRUEFORGE_2_API_KEY
+        # must win, otherwise api_key_env misreports which variable to set and a
+        # per-instance key looks unconfigured (#460). An explicit api_key_env or
+        # a custom placeholder in the config entry still takes precedence.
+        default_placeholder = _placeholder_env_name(str(spec.api_key or ""))
+        if inst_slug and env_key_name and default_placeholder in ("", kind_env_key_name):
+            spec.api_key_env = env_key_name
+        else:
+            spec.api_key_env = default_placeholder or env_key_name or kind_env_key_name or ""
+    if not spec.session_cookie_env:
+        spec.session_cookie_env = (
+            _placeholder_env_name(str(spec.cookie or ""))
+            or _ENV_COOKIE.get(kind)
             or ""
         )
-    if not spec.session_cookie_env:
-        spec.session_cookie_env = _placeholder_env_name(str(spec.cookie or ""))
+    stored_key = get_secret(env_key_name)
+    if not stored_key and inst_slug:
+        stored_key = get_secret(kind_env_key_name)
+    if not stored_key:
+        stored_key = get_secret(spec.api_key_env)
+    spec.api_key = stored_key or _expand_secret(spec.api_key)
+    stored_cookie = get_secret(spec.session_cookie_env)
+    if not stored_cookie:
+        stored_cookie = get_secret(_ENV_COOKIE.get(kind) or "")
+    spec.cookie = stored_cookie or _expand_secret(spec.cookie)
 
     if kind == "herdr":
         env_ssh_host = os.environ.get(_ENV_HERDR_SSH_HOST, "").strip()
@@ -837,9 +1159,7 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
         spec.ssh_port = _coerce_ssh_port(spec.ssh_port)
 
     spec.base_url = _normalize_base_url(_expand(spec.base_url))
-    spec.ui_url = _normalize_base_url(_expand(spec.ui_url)) if spec.ui_url else ""
-    spec.api_key = str(_expand(spec.api_key) or "")
-    spec.cookie = str(_expand(spec.cookie) or "")
+    spec.ui_url = _normalize_ui_url(_expand(spec.ui_url)) if spec.ui_url else ""
     spec.health_path = spec.health_path or "/health"
     spec.version_path = spec.version_path or spec.health_path
     if not spec.health_path.startswith("/"):
@@ -860,6 +1180,11 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
         "api_key": ownership.badge_for(
             env_var=spec.api_key_env or kind_env_key_name,
             persisted=f"${{{spec.api_key_env}}}" if spec.api_key_env else "",
+            secret=True,
+        ),
+        "cookie": ownership.badge_for(
+            env_var=spec.session_cookie_env or _ENV_COOKIE.get(kind) or "",
+            persisted=f"${{{spec.session_cookie_env}}}" if spec.session_cookie_env else "",
             secret=True,
         ),
     }
@@ -1042,7 +1367,12 @@ def persist_agent_team(
     """Persist which remotes sit in the handoff Team (``agent_team.members``)."""
     resolved: list[str] = []
     for item in members:
-        rid = _require_id(str(item))
+        # Validate, but store the *instance* id. _require_id collapses
+        # "trueforge-2" to its kind "trueforge", which silently dropped named
+        # instances from the Team (#452). load_placed_members already reads with
+        # normalize_instance_id, so the writer must agree with the reader.
+        _require_id(str(item))
+        rid = normalize_instance_id(str(item))
         if rid not in resolved:
             resolved.append(rid)
     cfg, path = load_raw_config(config_path)
@@ -1062,7 +1392,9 @@ def persist_agent_team(
 
 
 def place_team_member(remote_id: str, *, config_path: str | Path | None = None) -> tuple[list[str], Path]:
-    rid = _require_id(remote_id)
+    # Keep the instance id, not the kind — see persist_agent_team (#452).
+    _require_id(remote_id)
+    rid = normalize_instance_id(remote_id)
     cfg, path = load_raw_config(config_path)
     current = load_placed_members(cfg)
     if rid not in current:
@@ -1071,7 +1403,10 @@ def place_team_member(remote_id: str, *, config_path: str | Path | None = None) 
 
 
 def unplace_team_member(remote_id: str, *, config_path: str | Path | None = None) -> tuple[list[str], Path]:
-    rid = _require_id(remote_id)
+    # Match the instance id that place_team_member stored (#452), otherwise
+    # unplacing one instance would drop the kind and every sibling with it.
+    _require_id(remote_id)
+    rid = normalize_instance_id(remote_id)
     cfg, path = load_raw_config(config_path)
     current = [m for m in load_placed_members(cfg) if m != rid]
     return persist_agent_team(current, config_path=path)
@@ -1235,7 +1570,7 @@ def persist_remote(
                 "Refusing to persist a plaintext API key. Use api_key_env or ${ENV}."
             )
     if ui_url is not None:
-        entry["ui_url"] = _normalize_base_url(ui_url) if ui_url else ""
+        entry["ui_url"] = _normalize_ui_url(ui_url) if ui_url else ""
     if session_cookie_env is not None:
         env_name = _as_env_name(session_cookie_env)
         if env_name and not ownership.looks_like_env_name(env_name) and not ownership.is_placeholder(session_cookie_env):
@@ -1358,11 +1693,16 @@ def remove_remote(
 
 def _auth_headers(spec: RemoteSpec) -> dict[str, str]:
     headers = {"Accept": "application/json", "User-Agent": "open-swarm-remotes/1"}
-    if spec.api_key:
-        headers["Authorization"] = f"Bearer {spec.api_key}"
-        headers["X-API-Key"] = spec.api_key
-    if spec.cookie:
-        headers["Cookie"] = spec.cookie
+    key = spec.api_key
+    if key and not _is_unresolved_placeholder(key):
+        headers["Authorization"] = f"Bearer {key}"
+        headers["X-API-Key"] = key
+        kind = (spec.kind or spec.id or "").strip().lower()
+        if kind == "n8n" or kind.startswith("n8n"):
+            headers["X-N8N-API-KEY"] = key
+    cookie = spec.cookie
+    if cookie and not _is_unresolved_placeholder(cookie):
+        headers["Cookie"] = cookie
     return headers
 
 
@@ -1502,10 +1842,21 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
     if not is_configured(spec.id, config):
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail=_not_added_message(spec.id))
 
+    return _check_health_spec(spec, timeout, config)
+
+
+def _check_health_spec(
+    spec: RemoteSpec,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+    config: dict[str, Any] | None = None,
+) -> HealthResult:
     if spec.kind == "herdr" or kind_of_instance(spec.id, config) == "herdr":
         herdr_health = _herdr_health(spec, timeout, config)
         if herdr_health is not None:
             return herdr_health
+
+    if spec.kind == "slack" or kind_of_instance(spec.id, config) == "slack":
+        return _slack_health(spec, timeout)
 
     if not spec.base_url:
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="base_url is empty")
@@ -1532,13 +1883,32 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
             url=spec.base_url,
         )
 
-    health_url = f"{spec.base_url}{spec.health_path}"
-    result = http_json("GET", health_url, headers=_auth_headers(spec), timeout=timeout)
+    health_paths = [spec.health_path]
+    is_letta = (
+        spec.kind == "letta"
+        or kind_of_instance(spec.id, config) == "letta"
+        or kind_of_instance(spec.id) == "letta"
+    )
+    if is_letta:
+        for alt in ("/v1/health", "/v1/health/", "/health"):
+            if alt not in health_paths:
+                health_paths.append(alt)
+
+    chosen_path = spec.health_path
+    health_url = f"{spec.base_url}{chosen_path}"
+    result = None
+    for path in health_paths:
+        chosen_path = path
+        health_url = f"{spec.base_url}{path}"
+        result = http_json("GET", health_url, headers=_auth_headers(spec), timeout=timeout)
+        if result.status in _UP or result.status in _AUTH:
+            break
+
     version = _extract_version(result.body)
 
     if result.status in _UP:
         # Cheap extra version probe when health has no useful body.
-        if version is None and spec.version_path != spec.health_path:
+        if version is None and spec.version_path != chosen_path:
             extra = http_json(
                 "GET",
                 f"{spec.base_url}{spec.version_path}",
@@ -1553,7 +1923,7 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
             remote=spec.id,
             ok=True,
             state="UP",
-            detail=f"tcp {tcp_ms}ms · http {result.status} on {spec.health_path}",
+            detail=f"tcp {tcp_ms}ms · http {result.status} on {chosen_path}",
             http_status=result.status,
             version=version,
             latency_ms=result.latency_ms,
@@ -1575,7 +1945,7 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
             remote=spec.id,
             ok=False,
             state="DEGRADED",
-            detail=f"tcp {tcp_ms}ms · http {result.status} on {spec.health_path}",
+            detail=f"tcp {tcp_ms}ms · http {result.status} on {chosen_path}",
             http_status=result.status,
             version=version,
             latency_ms=result.latency_ms,
@@ -1589,6 +1959,56 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
         latency_ms=result.latency_ms,
         url=health_url,
     )
+
+
+def probe_candidate_remote(
+    kind: str,
+    *,
+    remote_id: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    api_key_env: str | None = None,
+    herdr_mode: str | None = None,
+    ssh_host: str | None = None,
+    ssh_user: str | None = None,
+    ssh_port: int | str | None = None,
+    ssh_identity_env: str | None = None,
+    ssh_agent: bool | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> HealthResult:
+    """Probe candidate remote parameters prior to saving."""
+    k = str(kind or "").strip().lower()
+    k = _KIND_ALIASES.get(k, k)
+    if not k or k not in REMOTE_KIND_IDS:
+        return HealthResult(remote=remote_id or kind, ok=False, state="UNKNOWN", detail=f"Unknown kind '{kind}'")
+
+    rid = str(remote_id or "").strip().lower() or k
+    spec = default_spec(k)
+    spec.id = rid
+    spec.kind = k
+    if base_url is not None:
+        spec.base_url = str(base_url).strip()
+    if api_key is not None:
+        spec.api_key = str(api_key).strip()
+    if api_key_env is not None:
+        spec.api_key_env = str(api_key_env).strip()
+    if herdr_mode is not None:
+        spec.herdr_mode = str(herdr_mode).strip()
+    if ssh_host is not None:
+        spec.ssh_host = str(ssh_host).strip()
+    if ssh_user is not None:
+        spec.ssh_user = str(ssh_user).strip()
+    if ssh_port is not None and str(ssh_port).strip():
+        try:
+            spec.ssh_port = int(ssh_port)
+        except (ValueError, TypeError):
+            pass
+    if ssh_identity_env is not None:
+        spec.ssh_identity_env = str(ssh_identity_env).strip()
+    if ssh_agent is not None:
+        spec.ssh_agent = bool(ssh_agent)
+
+    return _check_health_spec(spec, timeout)
 
 
 def check_all_health(*, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> list[HealthResult]:
@@ -1630,6 +2050,122 @@ def _hermes_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     )
 
 
+def _hermes_run_id(payload: Any) -> str:
+    if isinstance(payload, dict):
+        for key in ("run_id", "job_id", "id", "jobId", "runId"):
+            val = payload.get(key)
+            if isinstance(val, (str, int)) and str(val).strip():
+                return str(val).strip()
+        data = payload.get("data")
+        if data is not payload:
+            found = _hermes_run_id(data)
+            if found:
+                return found
+    return ""
+
+
+def _hermes_jobs_from(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in ("jobs", "data", "items", "sessions", "runs"):
+        val = payload.get(key)
+        if isinstance(val, list):
+            return [item for item in val if isinstance(item, dict)]
+    if _hermes_run_id(payload) or payload.get("status") or payload.get("state"):
+        return [payload]
+    return []
+
+
+def _hermes_find_job(payload: Any, run_id: str) -> dict[str, Any] | None:
+    needle = (run_id or "").strip()
+    if not needle:
+        return None
+    for job in _hermes_jobs_from(payload):
+        if _hermes_run_id(job) == needle:
+            return job
+    return None
+
+
+def _hermes_job_text(job: Any) -> str:
+    if isinstance(job, str) and job.strip():
+        return job.strip()
+    if not isinstance(job, dict):
+        return ""
+    for key in ("output", "result", "text", "response", "content", "message"):
+        val = job.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        nested = _hermes_job_text(val)
+        if nested:
+            return nested
+    choices = job.get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            nested = _hermes_job_text(choice)
+            if nested:
+                return nested
+    return ""
+
+
+def _hermes_job_status(job: Any) -> str:
+    if not isinstance(job, dict):
+        return ""
+    return str(job.get("status") or job.get("state") or "").strip().lower()
+
+
+def _hermes_poll_run(
+    spec: RemoteSpec,
+    *,
+    run_id: str,
+    timeout: float,
+    seed: Any = None,
+) -> tuple[str, str, dict[str, Any] | None]:
+    """Poll Hermes jobs/runs until output or timeout. Returns (text, error, job)."""
+    headers = _auth_headers(spec)
+    base_url = (spec.base_url or "").rstrip("/")
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    http_timeout = min(_HERMES_POLL_HTTP_TIMEOUT_S, max(float(timeout), 0.5))
+    job = seed if isinstance(seed, dict) else None
+    while True:
+        if job is None or not _hermes_job_text(job):
+            for path in (
+                f"{base_url}/api/jobs/{run_id}",
+                f"{base_url}/v1/runs/{run_id}",
+                f"{base_url}/api/jobs",
+                f"{base_url}/api/sessions",
+            ):
+                polled = http_json("GET", path, headers=headers, timeout=http_timeout)
+                if polled.status not in _UP:
+                    continue
+                found = _hermes_find_job(polled.body, run_id)
+                if found is None and isinstance(polled.body, dict):
+                    wrapper = any(k in polled.body for k in ("jobs", "sessions", "items", "runs"))
+                    body_id = _hermes_run_id(polled.body)
+                    if not wrapper and body_id in ("", run_id) and (
+                        _hermes_job_text(polled.body) or _hermes_job_status(polled.body)
+                    ):
+                        found = polled.body
+                if found:
+                    job = found
+                    if _hermes_job_text(job):
+                        break
+        text = _hermes_job_text(job)
+        status = _hermes_job_status(job)
+        if text and status in ("", "completed", "complete", "succeeded", "success", "done", "finished"):
+            return text, "", job
+        if status in ("failed", "error", "cancelled", "canceled"):
+            err = ""
+            if isinstance(job, dict):
+                err = str(job.get("error") or job.get("message") or "").strip()
+            return "", err or f"Hermes run {run_id} ended with status {status}", job
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "", "Hermes run timed out", job
+        time.sleep(min(max(_HERMES_POLL_INTERVAL_S, 0.0), remaining))
+
+
 def _hermes_send(
     spec: RemoteSpec,
     prompt: str,
@@ -1643,22 +2179,15 @@ def _hermes_send(
     body: dict[str, Any] = {"input": prompt}
     if session_id:
         body["session_id"] = session_id
+    timeout_s = float(timeout or _OPERATE_SEND_TIMEOUT_S)
+    start_timeout = min(timeout_s, 10.0)
     result = http_json(
         "POST",
         f"{spec.base_url}/v1/runs",
         headers=headers,
         body=body,
-        timeout=timeout,
+        timeout=start_timeout,
     )
-    if result.status in _UP or result.status == 202:
-        return OperateResult(
-            remote="hermes",
-            op="send",
-            ok=True,
-            detail="started Hermes run via POST /v1/runs",
-            http_status=result.status,
-            data=result.body or result.text,
-        )
     if result.status in _AUTH:
         return OperateResult(
             remote="hermes",
@@ -1668,34 +2197,304 @@ def _hermes_send(
             http_status=result.status,
             data=result.body,
         )
+    if result.status not in _UP:
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=False,
+            detail=result.error or f"Hermes send failed (http {result.status})",
+            http_status=result.status,
+            data=result.body or result.text,
+        )
+    payload = result.body if isinstance(result.body, dict) else {}
+    run_id = _hermes_run_id(payload)
+    immediate = _hermes_job_text(payload)
+    status = _hermes_job_status(payload)
+    if immediate and status in ("", "completed", "complete", "succeeded", "success", "done", "finished"):
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=True,
+            detail="Hermes reply",
+            http_status=result.status,
+            data={"run_id": run_id, "text": immediate, "response": immediate},
+        )
+    if not run_id:
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=False,
+            detail="Hermes POST /v1/runs did not return a run id",
+            http_status=result.status,
+            data=payload or result.text,
+            gap="hermes_run_id_missing",
+        )
+    poll_budget = max(timeout_s - start_timeout, timeout_s)
+    text, err, job = _hermes_poll_run(spec, run_id=run_id, timeout=poll_budget, seed=payload)
+    if text:
+        data: dict[str, Any] = {"run_id": run_id, "text": text, "response": text}
+        if isinstance(job, dict):
+            data["job"] = job
+        return OperateResult(
+            remote="hermes",
+            op="send",
+            ok=True,
+            detail="Hermes reply",
+            http_status=result.status,
+            data=data,
+        )
     return OperateResult(
         remote="hermes",
         op="send",
         ok=False,
-        detail=result.error or f"Hermes send failed (http {result.status})",
+        detail=err or "Hermes run timed out",
         http_status=result.status,
-        data=result.body or result.text,
+        data={"run_id": run_id, "job": job},
+        gap="hermes_reply_timeout" if "timed out" in (err or "") else "hermes_reply_failed",
     )
+
+
+def summarize_omb_bots(payload: Any) -> list[dict[str, str]]:
+    """Map GET /api/bots (or operate list data) to ``{id, name}`` rows.
+
+    Nested ``messages`` payloads are dropped — a live OMB dump can be hundreds
+    of KB per bot and is not a navbar option.
+    """
+    raw: Any = payload
+    if isinstance(payload, dict):
+        raw = (
+            payload.get("bots")
+            or payload.get("agents")
+            or payload.get("members")
+            or payload.get("data")
+            or []
+        )
+        if isinstance(raw, dict):
+            raw = raw.get("bots") or raw.get("agents") or raw.get("data") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if isinstance(item, str):
+            bot_id = item.strip()
+            name = bot_id
+        elif isinstance(item, dict):
+            bot_id = str(item.get("id") or item.get("bot_id") or "").strip()
+            name = str(item.get("name") or item.get("title") or bot_id).strip() or bot_id
+        else:
+            continue
+        if not bot_id or bot_id in seen:
+            continue
+        seen.add(bot_id)
+        out.append({"id": bot_id, "name": name})
+    return out
+
+
+def _omb_mint_dedicated_bot(spec: RemoteSpec, headers: dict[str, str], timeout_s: float) -> HttpResult:
+    base_url = (spec.base_url or "").rstrip("/")
+    return http_json(
+        "POST",
+        f"{base_url}/api/bots",
+        headers=headers,
+        body={"name": OMB_DEDICATED_BOT_NAME},
+        timeout=timeout_s,
+    )
+
+
+def _omb_bot_target(target: str) -> str:
+    """Treat remote-kind ids as no bot so send does not POST /api/bots/omb."""
+    raw = (target or "").strip()
+    if not raw or raw.lower() in _OMB_NON_BOT_TARGETS:
+        return ""
+    return raw
+
+
+def _omb_message_text(msg: Any) -> str:
+    if not isinstance(msg, dict):
+        return ""
+    for key in ("text", "content"):
+        val = msg.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _omb_is_bot_text(msg: Any) -> bool:
+    if not isinstance(msg, dict):
+        return False
+    role = str(msg.get("role") or "").lower()
+    if role not in ("bot", "assistant", "model"):
+        return False
+    kind = str(msg.get("kind") or "text").lower()
+    if kind in ("activity", "tool", "card", "screen", "image"):
+        return False
+    return bool(_omb_message_text(msg))
+
+
+def _omb_messages_from(payload: Any) -> list[Any]:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    for key in ("messages", "thread"):
+        val = payload.get(key)
+        if isinstance(val, list):
+            return val
+    return []
+
+
+def _omb_bots_from(payload: Any) -> list[Any]:
+    if isinstance(payload, dict):
+        bots = payload.get("bots") or payload.get("agents") or payload.get("data") or []
+    else:
+        bots = payload
+    return bots if isinstance(bots, list) else []
+
+
+def _omb_find_bot(payload: Any, bot_id: str) -> dict[str, Any] | None:
+    """Resolve a listed bot by id, else by name (``_omb_send`` takes either)."""
+    needle = (bot_id or "").strip()
+    if not needle:
+        return None
+    by_name: dict[str, Any] | None = None
+    for item in _omb_bots_from(payload):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id") or "") == needle:
+            return item
+        if by_name is None and str(item.get("name") or "") == needle:
+            by_name = item
+    return by_name
+
+
+def _omb_receipt_ids(body: Any) -> tuple[str, str]:
+    """threadId and user message id from POST /messages 202 receipt."""
+    if not isinstance(body, dict):
+        return "", ""
+    thread_id = str(body.get("threadId") or "").strip()
+    msg = body.get("message")
+    user_id = ""
+    if isinstance(msg, dict):
+        user_id = str(msg.get("id") or "").strip()
+        if not thread_id:
+            thread_id = str(msg.get("threadId") or "").strip()
+    return thread_id, user_id
+
+
+def _omb_assistant_after(
+    messages: list[Any], *, after_id: str = "", prompt: str = ""
+) -> tuple[str, str]:
+    """First bot text after the user turn. Returns (text, message_id)."""
+    msgs = [m for m in messages if isinstance(m, dict)]
+    start = 0
+    if after_id:
+        for i, msg in enumerate(msgs):
+            if str(msg.get("id") or "") == after_id:
+                start = i + 1
+                break
+    elif prompt.strip():
+        want = prompt.strip()
+        for i, msg in enumerate(msgs):
+            if str(msg.get("role") or "").lower() == "user" and _omb_message_text(msg) == want:
+                start = i + 1
+    for msg in msgs[start:]:
+        if _omb_is_bot_text(msg):
+            return _omb_message_text(msg), str(msg.get("id") or "").strip()
+    return "", ""
+
+
+def _omb_poll_assistant(
+    spec: RemoteSpec,
+    *,
+    bot_id: str,
+    prompt: str,
+    thread_id: str,
+    after_id: str,
+    timeout: float,
+) -> tuple[str, str, str, str]:
+    """Poll OMB until a bot text exists after the user turn.
+
+    Returns ``(text, thread_id, error, message_id)``. Follow-ups on the same
+    thread are not waited for here — ``omb_session_watch`` (issue #125).
+    """
+    headers = _auth_headers(spec)
+    base_url = (spec.base_url or "").rstrip("/")
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    http_timeout = min(_OMB_POLL_HTTP_TIMEOUT_S, max(float(timeout), 0.5))
+    last_activity = ""
+    saw_bot = False
+    busy = True
+    while True:
+        listed = http_json(
+            "GET",
+            f"{base_url}/api/bots?messages=20",
+            headers=headers,
+            timeout=http_timeout,
+        )
+        bot = _omb_find_bot(listed.body, bot_id) if listed.status in _UP else None
+        messages: list[Any] = []
+        if isinstance(bot, dict):
+            saw_bot = True
+            thread_id = thread_id or str(bot.get("threadId") or "").strip()
+            last_activity = str(bot.get("activity") or "")
+            busy = bool(bot.get("busy"))
+            messages = _omb_messages_from(bot)
+        if thread_id:
+            page = http_json(
+                "GET",
+                f"{base_url}/api/threads/{thread_id}/messages?limit=40",
+                headers=headers,
+                timeout=http_timeout,
+            )
+            if page.status in _UP:
+                thread_msgs = _omb_messages_from(page.body)
+                if thread_msgs:
+                    messages = thread_msgs
+        reply, reply_id = _omb_assistant_after(messages, after_id=after_id, prompt=prompt)
+        if last_activity in ("dead", "no-signal"):
+            return "", thread_id, f"OpenMousBot turn {last_activity.replace('-', ' ')}", ""
+        settled = last_activity == "waiting-on-you" or (saw_bot and not busy)
+        # #471: a failed turn ends with an error activity row, not bot text, so
+        # the loop used to burn its whole budget and say "timed out" while the
+        # cause was on the thread all along. A reply (if one arrives) wins.
+        turn_error = "" if reply else _omb_turn_error(messages, after_id=after_id, prompt=prompt)
+        if turn_error:
+            return "", thread_id, f"{OMB_TURN_ERROR_PREFIX}{turn_error}", ""
+        if reply:
+            terminal = False
+            for msg in reversed(messages):
+                if isinstance(msg, dict) and _omb_is_bot_text(msg) and _omb_message_text(msg) == reply:
+                    terminal = bool(msg.get("turnTerminal"))
+                    break
+            if terminal or settled:
+                return reply, thread_id, "", reply_id
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if last_activity == "waiting-on-you" and not reply:
+                return "", thread_id, "OpenMousBot is waiting for operator input", ""
+            return "", thread_id, "OpenMousBot reply timed out", ""
+        time.sleep(min(max(_OMB_POLL_INTERVAL_S, 0.0), remaining))
 
 
 def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
-    result = http_json("GET", f"{base_url}/api/bots", headers=_auth_headers(spec), timeout=timeout_s)
+    result = http_json(
+        "GET",
+        f"{base_url}{_OMB_LIST_PATH}",
+        headers=_auth_headers(spec),
+        timeout=timeout_s,
+    )
     if result.status in _UP:
-        bots = None
-        if isinstance(result.body, dict):
-            bots = result.body.get("bots") or result.body.get("agents") or result.body.get("data")
-        elif isinstance(result.body, list):
-            bots = result.body
-        count = len(bots) if isinstance(bots, list) else (1 if bots else 0)
+        bots = summarize_omb_bots(result.body)
         return OperateResult(
             remote="omb",
             op="list",
             ok=True,
-            detail=f"OpenMousBot listed {count} bot(s) via GET /api/bots",
+            detail=f"OpenMousBot listed {len(bots)} bot(s) via GET {_OMB_LIST_PATH}",
             http_status=result.status,
-            data=result.body,
+            data={"bots": bots},
         )
     if result.status in _AUTH:
         return OperateResult(
@@ -1705,6 +2504,7 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
             detail="OpenMousBot /api/bots requires auth. Set remotes.omb.api_key or OMB_API_KEY.",
             http_status=result.status,
             data=result.body,
+            gap=OMB_BOT_REQUIRED_GAP,
         )
     return OperateResult(
         remote="omb",
@@ -1713,40 +2513,48 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
         detail=result.error or f"OpenMousBot list failed (http {result.status})",
         http_status=result.status,
         data=result.body or result.text,
+        gap=OMB_BOT_REQUIRED_GAP,
     )
 
 
 def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> OperateResult:
     if not prompt.strip():
         return OperateResult(remote="omb", op="send", ok=False, detail="prompt is required")
-    bot_id = (target or "").strip()
+    bot_id = _omb_bot_target(target)
     headers = _auth_headers(spec)
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
-    if not bot_id:
+    minted = False
+    if bot_id:
         listed = _omb_list(spec, timeout_s)
-        bots = []
-        if listed.ok and isinstance(listed.data, dict):
-            bots = listed.data.get("bots") or listed.data.get("agents") or []
-        elif listed.ok and isinstance(listed.data, list):
-            bots = listed.data
-        if isinstance(bots, list) and bots:
-            first = bots[0] if isinstance(bots[0], dict) else {}
-            bot_id = str(first.get("id") or "")
+        if listed.ok:
+            found = _omb_find_bot(listed.data, bot_id)
+            if found:
+                bot_id = str(found.get("id") or bot_id)
+        # Target already names a bot (id or name). Never mint a second one.
+    else:
+        # Never default to bots[0] (specialists). Mint a dedicated bot only
+        # when the operator did not pick an agent.
+        created = _omb_mint_dedicated_bot(spec, headers, timeout_s)
+        if created.status in _UP and isinstance(created.body, dict):
+            bot = created.body.get("bot") or created.body
+            if isinstance(bot, dict):
+                bot_id = str(bot.get("id") or "").strip()
+            minted = True
         if not bot_id:
-            created = http_json("POST", f"{base_url}/api/bots", headers=headers, body={}, timeout=timeout_s)
-            if created.status in _UP and isinstance(created.body, dict):
-                bot = created.body.get("bot") or {}
-                bot_id = str(bot.get("id") or "")
-            if not bot_id:
-                return OperateResult(
-                    remote="omb",
-                    op="send",
-                    ok=False,
-                    detail="No OpenMousBot bot id given and none could be listed/created",
-                    http_status=created.status if "created" in locals() else listed.http_status,
-                    data={"list": listed.data},
-                )
+            return OperateResult(
+                remote="omb",
+                op="send",
+                ok=False,
+                detail=(
+                    "No OpenMousBot agent selected. Pick a listed bot id "
+                    "(navbar / operate target); send will not guess bots[0] "
+                    "and could not mint a dedicated open-swarm bot."
+                ),
+                http_status=created.status,
+                data=created.body or created.text,
+                gap=OMB_BOT_REQUIRED_GAP,
+            )
     result = http_json(
         "POST",
         f"{base_url}/api/bots/{bot_id}/messages",
@@ -1754,30 +2562,90 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
         body={"text": prompt},
         timeout=timeout_s,
     )
-    if result.status in _UP or result.status == 202:
+    if result.status not in _UP:
+        return OperateResult(
+            remote="omb",
+            op="send",
+            ok=False,
+            detail=result.error or f"OpenMousBot send failed (http {result.status})",
+            http_status=result.status,
+            data=result.body or result.text,
+        )
+    thread_id, after_id = _omb_receipt_ids(result.body)
+    poll_timeout = min(float(timeout or _OMB_REPLY_TIMEOUT_S), _OMB_REPLY_TIMEOUT_S)
+    text, thread_id, err, message_id = _omb_poll_assistant(
+        spec,
+        bot_id=bot_id,
+        prompt=prompt,
+        thread_id=thread_id,
+        after_id=after_id,
+        timeout=poll_timeout,
+    )
+    if text:
         return OperateResult(
             remote="omb",
             op="send",
             ok=True,
-            detail=f"started OpenMousBot turn via POST /api/bots/{bot_id}/messages",
+            detail="OpenMousBot reply",
             http_status=result.status,
-            data={"bot_id": bot_id, "response": result.body or result.text},
+            data={
+                "bot_id": bot_id,
+                "text": text,
+                "thread_id": thread_id,
+                "message_id": message_id,
+                "minted": minted,
+            },
         )
     return OperateResult(
         remote="omb",
         op="send",
         ok=False,
-        detail=result.error or f"OpenMousBot send failed (http {result.status})",
+        detail=err or "OpenMousBot reply timed out",
         http_status=result.status,
-        data=result.body or result.text,
+        data={"bot_id": bot_id, "thread_id": thread_id},
+        # #471: the remote named a cause — keep it distinct from a real timeout.
+        gap=(
+            "omb_turn_error"
+            if (err or "").startswith(OMB_TURN_ERROR_PREFIX)
+            else "omb_reply_timeout"
+            if "timed out" in (err or "")
+            else "omb_reply_failed"
+        ),
     )
 
 
 def _rakazo_rpc(spec: RemoteSpec, path: str, payload: dict[str, Any], timeout: float) -> HttpResult:
     url = f"{spec.base_url}{path}"
-    headers = _auth_headers(spec)
-    # oRPC envelope used by the mobile probe and Hono RPCHandler.
-    return http_json("POST", url, headers=headers, body={"json": payload}, timeout=timeout)
+    headers = dict(_auth_headers(spec))
+    headers.setdefault("Content-Type", "application/json")
+    started = time.monotonic()
+    # httpx so respx can mock CI; never log header values.
+    try:
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
+            resp = client.post(url, headers=headers, json={"json": payload})
+        text = resp.text or ""
+        parsed: Any = None
+        if text.strip():
+            try:
+                parsed = resp.json()
+            except ValueError:
+                parsed = None
+        return HttpResult(
+            status=resp.status_code,
+            body=parsed,
+            text=text,
+            error="" if resp.status_code < 400 else f"http {resp.status_code}",
+            url=url,
+            latency_ms=round((time.monotonic() - started) * 1000),
+            headers={k.lower(): v for k, v in resp.headers.items()},
+        )
+    except (httpx.HTTPError, OSError, ValueError) as exc:
+        return HttpResult(
+            status=None,
+            error=f"{type(exc).__name__}: {exc}",
+            url=url,
+            latency_ms=round((time.monotonic() - started) * 1000),
+        )
 
 
 def _rakazo_list(spec: RemoteSpec, timeout: float) -> OperateResult:
@@ -1801,8 +2669,8 @@ def _rakazo_list(spec: RemoteSpec, timeout: float) -> OperateResult:
             detail=(
                 "Rakazo /rpc/bots/list requires a Better Auth session. "
                 "Health (GET /health) is public; operate is not. "
-                "Set remotes.rakazo.cookie (or RAKAZO_SESSION_COOKIE) from a signed-in UI session, "
-                "or a bearer if this deploy added API-key auth."
+                "Export RAKAZO_SESSION_COOKIE and/or RAKAZO_API_KEY "
+                "(env/secret-store names only; never persist values)."
             ),
             http_status=result.status,
             data=result.body,
@@ -2024,13 +2892,20 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
         elif isinstance(result.body, list):
             agents = result.body
         count = len(agents) if isinstance(agents, list) else (1 if agents else 0)
+        # #425: these rows are *agents*. A send resume key is a session id, and
+        # forwarding a row id as one produced "404 Session not found". Say what
+        # the rows are so the caller can tell the two apart.
+        payload = result.body if isinstance(result.body, dict) else {"data": result.body}
         return OperateResult(
             remote=spec.id,
             op="list",
             ok=True,
-            detail=f"TrueForge listed {count} agent(s) via GET /api/v1/agents",
+            detail=(
+                f"TrueForge listed {count} agent(s) via GET /api/v1/agents — rows are agents; "
+                "send resumes on session_id"
+            ),
             http_status=result.status,
-            data=result.body,
+            data={**payload, "rows_are": "agents", "resume_key": "session_id"},
         )
     if result.status in _AUTH:
         return OperateResult(
@@ -2051,65 +2926,126 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     )
 
 
+def _trueforge_turn_state(turn_data: dict[str, Any] | None) -> str:
+    """Normalize TrueForge turn ``state`` from a string or ``{"status": ...}`` dict."""
+    if not isinstance(turn_data, dict):
+        return ""
+    raw_state = turn_data.get("state")
+    if isinstance(raw_state, dict):
+        return str(raw_state.get("status") or raw_state.get("state") or "").strip().lower()
+    return str(raw_state or turn_data.get("status") or "").strip().lower()
+
+
+def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | None = None) -> float:
+    """Send/poll budget for TrueForge LLM turns (not health/list probes).
+
+    ``operate()`` send uses ``_OPERATE_SEND_TIMEOUT_S`` (list stays 8s). Treat
+    those generic operate defaults as unset and resolve
+    ``SWARM_TRUEFORGE_TIMEOUT``, then ``spec.timeout``, then 60s.
+    """
+    if timeout is not None:
+        try:
+            explicit = float(timeout)
+        except (TypeError, ValueError):
+            explicit = 0.0
+        if explicit > 0 and explicit not in {_OPERATE_TIMEOUT_S, _OPERATE_SEND_TIMEOUT_S}:
+            return explicit
+    env_raw = os.environ.get("SWARM_TRUEFORGE_TIMEOUT", "").strip()
+    if env_raw:
+        try:
+            env_val = float(env_raw)
+            if env_val > 0:
+                return env_val
+        except ValueError:
+            pass
+    spec_timeout = getattr(spec, "timeout", None) if spec is not None else None
+    if spec_timeout is not None:
+        try:
+            spec_val = float(spec_timeout)
+            if spec_val > 0:
+                return spec_val
+        except (TypeError, ValueError):
+            pass
+    return _TRUEFORGE_SEND_TIMEOUT_S
+
+
+def _trueforge_create_session(
+    spec: RemoteSpec, base_url: str, agent_name: str, timeout_s: float
+) -> tuple[str, OperateResult | None]:
+    """``POST /api/v1/sessions`` for one agent. Returns ``(session_id, error)``.
+
+    Both the fresh-send path and the #425 recovery path start sessions the same
+    way, so the auth / unreachable / id-missing sentences live here once.
+    """
+    name = (agent_name or "").strip() or "orchestrator"
+    sess_resp = http_json(
+        "POST",
+        f"{base_url}/api/v1/sessions",
+        headers=_auth_headers(spec),
+        body={"agent": {"name": name}, "metadata": {}},
+        timeout=min(5.0, timeout_s),
+    )
+    if sess_resp.status in _AUTH:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail=f"TrueForge POST /api/v1/sessions requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
+            http_status=sess_resp.status,
+            data=sess_resp.body,
+        )
+    if sess_resp.status not in _UP and sess_resp.status != 201:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail=_unreachable_detail(sess_resp, "TrueForge session create"),
+            http_status=sess_resp.status,
+            data=sess_resp.body or sess_resp.text or None,
+        )
+    body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
+    sess_id = str(
+        (body.get("data") if isinstance(body.get("data"), dict) else {}).get("id")
+        or body.get("id")
+        or ""
+    )
+    if not sess_id:
+        return "", OperateResult(
+            remote=spec.id,
+            op="send",
+            ok=False,
+            detail="TrueForge did not return a session id",
+            http_status=sess_resp.status,
+            data=sess_resp.body,
+        )
+    return sess_id, None
+
+
 def _trueforge_send(
     spec: RemoteSpec,
     prompt: str,
     target: str = "",
-    timeout: float = _OPERATE_TIMEOUT_S,
+    timeout: float | None = None,
     *,
     session_id: str | None = None,
 ) -> OperateResult:
     if not prompt.strip():
         return OperateResult(remote=spec.id, op="send", ok=False, detail="prompt is required")
     base_url = (spec.base_url or "").rstrip("/")
-    timeout_s = float(timeout or _OPERATE_TIMEOUT_S)
+    timeout_s = _trueforge_send_timeout_s(timeout, spec)
     start_time = time.monotonic()
     deadline = start_time + timeout_s
 
     # 1. Session id: reuse or create via POST /api/v1/sessions
-    sess_id = (session_id or "").strip()
+    requested_session = (session_id or "").strip()
+    sess_id = requested_session
+    created_for = ""
     if not sess_id:
-        agent_name = (target or "").strip() or "orchestrator"
-        sess_resp = http_json(
-            "POST",
-            f"{base_url}/api/v1/sessions",
-            headers=_auth_headers(spec),
-            body={"agent": {"name": agent_name}, "metadata": {}},
-            timeout=min(5.0, timeout_s),
+        sess_id, err = _trueforge_create_session(
+            spec, base_url, (target or "").strip() or "orchestrator", timeout_s
         )
-        if sess_resp.status in _AUTH:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail=f"TrueForge POST /api/v1/sessions requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
-                http_status=sess_resp.status,
-                data=sess_resp.body,
-            )
-        if sess_resp.status not in _UP and sess_resp.status != 201:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail=sess_resp.error or f"TrueForge session create failed (http {sess_resp.status})",
-                http_status=sess_resp.status,
-                data=sess_resp.body or sess_resp.text,
-            )
-        body = sess_resp.body if isinstance(sess_resp.body, dict) else {}
-        sess_id = str(
-            (body.get("data") if isinstance(body.get("data"), dict) else {}).get("id")
-            or body.get("id")
-            or ""
-        )
-        if not sess_id:
-            return OperateResult(
-                remote=spec.id,
-                op="send",
-                ok=False,
-                detail="TrueForge did not return a session id",
-                http_status=sess_resp.status,
-                data=sess_resp.body,
-            )
+        if err is not None:
+            return err
 
     # 2. POST turn: POST /api/v1/sessions/{session_id}/turns
     remaining = max(1.0, deadline - time.monotonic())
@@ -2133,14 +3069,59 @@ def _trueforge_send(
             data=turn_resp.body,
         )
     if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
-        return OperateResult(
-            remote=spec.id,
-            op="send",
-            ok=False,
-            detail=turn_resp.error or f"TrueForge turn create failed (http {turn_resp.status})",
-            http_status=turn_resp.status,
-            data=turn_resp.body or turn_resp.text,
-        )
+        if requested_session and turn_resp.status == 404:
+            # #425: a resume key taken straight off the list is an *agent* id,
+            # and TrueForge will not turn one into a session. Start a session for
+            # that name instead of handing back a bare "404 Session not found".
+            agent_name = (target or "").strip() or requested_session
+            minted, mint_err = _trueforge_create_session(spec, base_url, agent_name, timeout_s)
+            if mint_err is not None:
+                return OperateResult(
+                    remote=spec.id,
+                    op="send",
+                    ok=False,
+                    detail=(
+                        f"There is no TrueForge session '{requested_session}' to resume, and a "
+                        f"session for '{agent_name}' could not be started: {mint_err.detail}"
+                    ),
+                    http_status=mint_err.http_status,
+                    data={"requested_session_id": requested_session, "agent": agent_name},
+                    gap="trueforge_no_session",
+                )
+            created_for, sess_id = agent_name, minted
+            turn_resp = http_json(
+                "POST",
+                f"{base_url}/api/v1/sessions/{sess_id}/turns",
+                headers=_auth_headers(spec),
+                body={
+                    "input": [{"type": "user.message", "content": prompt}],
+                    "stream": False,
+                },
+                timeout=min(5.0, max(1.0, deadline - time.monotonic())),
+            )
+            if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
+                return OperateResult(
+                    remote=spec.id,
+                    op="send",
+                    ok=False,
+                    detail=(
+                        f"There is no TrueForge session '{requested_session}' to resume, and the "
+                        f"session started for '{agent_name}' did not accept the turn: "
+                        f"{_unreachable_detail(turn_resp, 'TrueForge turn create')}"
+                    ),
+                    http_status=turn_resp.status,
+                    data={"requested_session_id": requested_session, "agent": agent_name},
+                    gap="trueforge_no_session",
+                )
+        else:
+            return OperateResult(
+                remote=spec.id,
+                op="send",
+                ok=False,
+                detail=_unreachable_detail(turn_resp, "TrueForge turn create"),
+                http_status=turn_resp.status,
+                data=turn_resp.body or turn_resp.text or None,
+            )
     tbody = turn_resp.body if isinstance(turn_resp.body, dict) else {}
     turn_id = str(
         (tbody.get("data") if isinstance(tbody.get("data"), dict) else {}).get("id")
@@ -2182,13 +3163,18 @@ def _trueforge_send(
                 if isinstance(poll_resp.body, dict) and isinstance(poll_resp.body.get("data"), dict)
                 else (poll_resp.body if isinstance(poll_resp.body, dict) else {})
             )
-            last_state = str(turn_data.get("state") or "").strip().lower()
-            if last_state in ("done", "completed", "finished", "success"):
+            last_state = _trueforge_turn_state(turn_data)
+            if last_state in _TRUEFORGE_DONE_STATES:
                 break
-            if last_state in ("error", "failed", "cancelled", "canceled"):
+            if last_state in _TRUEFORGE_ERROR_STATES:
+                state_dict = turn_data.get("state") if isinstance(turn_data.get("state"), dict) else {}
                 err_msg = (
                     turn_data.get("error")
                     or turn_data.get("message")
+                    or turn_data.get("detail")
+                    or state_dict.get("error")
+                    or state_dict.get("message")
+                    or state_dict.get("detail")
                     or f"TrueForge turn {turn_id} ended with state '{last_state}'"
                 )
                 return OperateResult(
@@ -2201,7 +3187,7 @@ def _trueforge_send(
                 )
         time.sleep(0.1)
 
-    if last_state not in ("done", "completed", "finished", "success"):
+    if last_state not in _TRUEFORGE_DONE_STATES:
         return OperateResult(
             remote=spec.id,
             op="send",
@@ -2257,6 +3243,7 @@ def _trueforge_send(
             "turn_id": turn_id,
             "turn": turn_data,
             "events": events_data,
+            **({"session_created_for": created_for} if created_for else {}),
         },
     )
 
@@ -2421,8 +3408,67 @@ def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None 
     )
 
 
-def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:  # noqa: ARG001
-    from swarm.herdr.client import HerdrBlockedError, HerdrClient, extract_prompt_type
+def _herdr_pane_text(payload: Any) -> str:
+    """Pane text from ``agent_read`` / prompt result — never the agent_prompted ACK."""
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        text = payload.strip()
+        if text.lower() in {"agent_prompted", '{"type":"agent_prompted"}'}:
+            return ""
+        return text
+    if isinstance(payload, dict):
+        ptype = str(payload.get("type") or "").strip().lower()
+        if ptype == "agent_prompted":
+            nested = payload.get("text") or payload.get("output") or payload.get("content")
+            if nested is not None and nested is not payload:
+                return _herdr_pane_text(nested)
+            return ""
+        for key in ("text", "output", "content", "message", "result"):
+            val = payload.get(key)
+            if val is payload:
+                continue
+            found = _herdr_pane_text(val)
+            if found:
+                return found
+    return ""
+
+
+def _herdr_reply_after_timeout(
+    client: Any,
+    pane: str,
+    before_seq: int | None,
+) -> str:
+    """Read the pane after a wait timeout, but only if the pane actually moved.
+
+    #470: the stopped-state wait can expire while a reply is already on screen
+    (an agent that settles in ``done`` used to be reported as a timeout and its
+    reply thrown away). ``state_change_seq`` gates the read so an untouched pane
+    can never hand stale text back as this turn's answer.
+    """
+    if client is None:
+        return ""
+    from swarm.herdr.client import extract_state_change_seq
+
+    try:
+        after_seq = extract_state_change_seq(client.agent_get(pane))
+        if before_seq is None or after_seq is None or after_seq == before_seq:
+            return ""
+        read = client.agent_read(pane, source="recent", fmt="text")
+    except Exception:
+        return ""
+    return _herdr_pane_text(read)
+
+
+def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:
+    from swarm.herdr.client import (
+        WAIT_UNTIL_STOPPED,
+        HerdrBlockedError,
+        HerdrCLIError,
+        HerdrClient,
+        extract_agent_state,
+        extract_state_change_seq,
+    )
     from swarm.herdr.remote import resolve_herdr_mode
     from swarm.herdr.ssh import SSHNotConfiguredError
 
@@ -2436,22 +3482,81 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
             detail="target is required (Herdr pane / CLI id, e.g. w3:p1 or grok)",
         )
     mode = resolve_herdr_mode(spec)
+    hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
+    timeout_s = float(timeout or _OPERATE_SEND_TIMEOUT_S)
+    timeout_ms = max(1, int(timeout_s * 1000))
+    pane = target.strip()
+    client: Any = None
+    before_seq: int | None = None
     try:
         client = HerdrClient.from_remote_config(config)
-        payload = client.agent_prompt(target.strip(), prompt)
+        # One `agent get` serves both jobs: refuse a blocked pane (as
+        # `check_blocked=True` did) and remember where the pane was so a
+        # post-timeout read cannot hand back stale text (#470).
+        try:
+            state_payload = client.agent_get(pane)
+        except Exception:
+            state_payload = None
+        before_seq = extract_state_change_seq(state_payload)
+        if extract_agent_state(state_payload) == "blocked":
+            raise HerdrBlockedError(pane)
+        payload = client.agent_prompt(
+            pane,
+            prompt,
+            wait=True,
+            # idle | done | blocked — a finished turn settles in ``done`` and
+            # never returns to ``idle``, so waiting on ``idle`` alone could only
+            # expire (#470).
+            until=WAIT_UNTIL_STOPPED,
+            timeout_ms=timeout_ms,
+            check_blocked=False,
+        )
+        read = client.agent_read(pane, source="recent", fmt="text")
     except SSHNotConfiguredError as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=str(exc))
     except HerdrBlockedError as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=str(exc), data={"target": target})
+    except HerdrCLIError as exc:
+        msg = str(exc)
+        if "timed out" in msg.lower():
+            # The wait expired — but the agent may have answered anyway (`done`
+            # turns, slow TUIs). Read the pane before calling it a failure #470.
+            rescued = _herdr_reply_after_timeout(client, pane, before_seq)
+            if rescued:
+                return OperateResult(
+                    remote="herdr",
+                    op="send",
+                    ok=True,
+                    detail=f"Herdr reply from {target} via {hop} (recovered after the wait timeout)",
+                    data={"target": target, "text": rescued, "response": rescued, "transport": mode},
+                )
+            return OperateResult(
+                remote="herdr",
+                op="send",
+                ok=False,
+                detail=f"Herdr send timed out after {timeout_s:.0f}s",
+                data={"target": target},
+                gap="herdr_reply_timeout",
+            )
+        return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
     except Exception as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
-    hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
+    text = _herdr_pane_text(read) or _herdr_pane_text(payload)
+    if not text:
+        return OperateResult(
+            remote="herdr",
+            op="send",
+            ok=False,
+            detail=f"Herdr wait finished for {target} via {hop} but returned no pane text",
+            data={"target": target, "response": payload, "transport": mode},
+            gap="herdr_reply_empty",
+        )
     return OperateResult(
         remote="herdr",
         op="send",
         ok=True,
-        detail=f"Herdr prompted {target} via {hop} (type={extract_prompt_type(payload) or 'ok'})",
-        data={"target": target, "response": payload, "transport": mode},
+        detail=f"Herdr reply from {target} via {hop}",
+        data={"target": target, "text": text, "response": text, "transport": mode},
     )
 
 
@@ -2486,20 +3591,86 @@ def _herdr_interrogate(spec: RemoteSpec, target: str, timeout: float, config: di
     )
 
 
-def _anythingllm_list(spec: RemoteSpec, timeout: float) -> OperateResult:
-    """List AnythingLLM workspace threads as sessions (id = workspace:thread).
+def filter_anythingllm_sessions(
+    rows: list[dict[str, Any]], query: str = ""
+) -> list[dict[str, Any]]:
+    """Client-or-server search over AnythingLLM workspace/thread session rows."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return list(rows)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("id", "title", "snippet", "channel", "thread_ts")
+        ).lower()
+        if needle in blob:
+            out.append(row)
+    return out
 
-    GET /api/v1/workspaces returns each workspace with its ``threads`` array
-    (``slug`` + ``name``). We treat every thread as a resumable session; the
-    workspace slug is the namespace so ids stay unique and unguessable.
-    """
+
+def _anythingllm_threads_payload(body: Any) -> list[Any]:
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        nested = body.get("threads") or body.get("data") or body.get("items") or []
+        return nested if isinstance(nested, list) else []
+    return []
+
+
+def _anythingllm_fetch_threads(
+    spec: RemoteSpec, ws_slug: str, timeout: float
+) -> list[Any]:
+    result = http_json(
+        "GET",
+        f"{spec.base_url}/api/v1/workspace/{ws_slug}/threads",
+        headers=_auth_headers(spec),
+        timeout=timeout,
+    )
+    if result.status not in _UP:
+        return []
+    return _anythingllm_threads_payload(result.body)
+
+
+def _anythingllm_session_row(
+    *,
+    session_id: str,
+    title: str,
+    snippet: str,
+    channel: str,
+    thread_ts: str = "",
+    updated_at: str = "",
+) -> dict[str, Any] | None:
     from swarm.core.remote_harness import remote_session_from_dict
 
-    headers = _auth_headers(spec)
+    session = remote_session_from_dict(
+        {
+            "id": session_id,
+            "title": title,
+            "snippet": snippet,
+            "source": "anythingllm",
+            "updated_at": updated_at,
+            "channel": channel[:128],
+            "thread_ts": thread_ts[:64],
+        }
+    )
+    return None if session is None else session.as_dict()
+
+
+def _anythingllm_list(
+    spec: RemoteSpec, timeout: float, query: str = ""
+) -> OperateResult:
+    """List AnythingLLM workspaces and threads as searchable, resumable sessions.
+
+    GET /api/v1/workspaces returns each workspace (optional nested ``threads``).
+    A workspace itself is a session (id = slug) so the main chat can be resumed.
+    Each thread is ``workspace:thread``. Missing nested threads fall back to
+    GET /api/v1/workspace/<slug>/threads. ``query`` filters title/id/channel.
+    """
     result = http_json(
         "GET",
         f"{spec.base_url}/api/v1/workspaces",
-        headers=headers,
+        headers=_auth_headers(spec),
         timeout=timeout,
     )
     workspaces: Any
@@ -2511,40 +3682,59 @@ def _anythingllm_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     else:
         workspaces = []
     normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for ws in workspaces:
         if not isinstance(ws, dict):
             continue
         ws_slug = str(ws.get("slug") or ws.get("id") or "").strip()
         ws_name = str(ws.get("name") or ws_slug or "workspace").strip()
-        threads = ws.get("threads")
-        if not isinstance(threads, list):
+        if not ws_slug:
             continue
+        workspace_row = _anythingllm_session_row(
+            session_id=ws_slug,
+            title=ws_name,
+            snippet="workspace",
+            channel=ws_name,
+            updated_at=str(ws.get("updatedAt") or ws.get("lastUpdatedAt") or "").strip(),
+        )
+        if workspace_row is not None and ws_slug not in seen:
+            seen.add(ws_slug)
+            normalized.append(workspace_row)
+        threads = ws.get("threads")
+        if not isinstance(threads, list) or not threads:
+            threads = _anythingllm_fetch_threads(spec, ws_slug, timeout)
         for thread in threads:
             if not isinstance(thread, dict):
                 continue
             thread_slug = str(thread.get("slug") or thread.get("id") or "").strip()
-            if not ws_slug or not thread_slug:
+            if not thread_slug:
                 continue
-            session = remote_session_from_dict(
-                {
-                    "id": f"{ws_slug}:{thread_slug}",
-                    "title": str(thread.get("name") or f"{ws_name} thread").strip(),
-                    "snippet": "",
-                    "source": "anythingllm",
-                    "updated_at": str(thread.get("updatedAt") or thread.get("updated_at") or "").strip(),
-                    "channel": ws_name[:128],
-                    "thread_ts": thread_slug[:64],
-                }
+            sid = f"{ws_slug}:{thread_slug}"
+            if sid in seen:
+                continue
+            row = _anythingllm_session_row(
+                session_id=sid,
+                title=str(thread.get("name") or f"{ws_name} thread").strip(),
+                snippet=ws_name,
+                channel=ws_name,
+                thread_ts=thread_slug,
+                updated_at=str(thread.get("updatedAt") or thread.get("updated_at") or "").strip(),
             )
-            if session is not None:
-                normalized.append(session.as_dict())
+            if row is None:
+                continue
+            seen.add(sid)
+            normalized.append(row)
+    normalized = filter_anythingllm_sessions(normalized, query)
     data: dict[str, Any] = {"sessions": normalized, "source": "anythingllm"}
     if result.status in _UP:
         return OperateResult(
             remote="anythingllm",
             op="list",
             ok=True,
-            detail=f"listed {len(normalized)} AnythingLLM thread(s) across {len(workspaces)} workspace(s)",
+            detail=(
+                f"listed {len(normalized)} AnythingLLM session(s) across "
+                f"{len(workspaces)} workspace(s)"
+            ),
             http_status=result.status,
             data=data,
         )
@@ -2571,6 +3761,237 @@ def _anythingllm_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     )
 
 
+def _anythingllm_split_session(session_id: str) -> tuple[str, str]:
+    sid = (session_id or "").strip()
+    if ":" in sid:
+        ws_slug, _, thread_slug = sid.partition(":")
+        return ws_slug.strip(), thread_slug.strip()
+    return sid, ""
+
+
+def _anythingllm_chat_urls(spec: RemoteSpec, ws_slug: str, thread_slug: str) -> tuple[str, str]:
+    base = f"{spec.base_url}/api/v1/workspace/{ws_slug}"
+    if thread_slug:
+        return f"{base}/thread/{thread_slug}/stream-chat", f"{base}/thread/{thread_slug}/chat"
+    return f"{base}/stream-chat", f"{base}/chat"
+
+
+def _anythingllm_chat_body(prompt: str, ws_slug: str, thread_slug: str) -> dict[str, Any]:
+    body: dict[str, Any] = {"message": prompt, "mode": "chat"}
+    if not thread_slug and ws_slug:
+        # Workspace-level resume: AnythingLLM keys history by sessionId.
+        body["sessionId"] = ws_slug
+    return body
+
+
+def _parse_sse_json_line(line: str) -> dict[str, Any] | None:
+    text = (line or "").strip()
+    if not text or text == "[DONE]":
+        return None
+    if text.startswith("data:"):
+        text = text[5:].strip()
+        if not text or text == "[DONE]":
+            return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _anythingllm_delta(payload: dict[str, Any], assembled: str) -> str:
+    text = str(payload.get("textResponse") or payload.get("text") or payload.get("content") or "")
+    if not text:
+        return ""
+    if assembled and text.startswith(assembled):
+        return text[len(assembled) :]
+    if assembled and assembled.endswith(text):
+        return ""
+    return text
+
+
+def iter_anythingllm_chat(
+    spec: RemoteSpec,
+    prompt: str,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+    timeout: float = _ANYTHINGLLM_SEND_TIMEOUT_S,
+) -> Any:
+    """Yield ``(delta, done, error)`` from AnythingLLM stream-chat (sync fallback).
+
+    Resume key is a workspace slug (main workspace chat) or ``workspace:thread``.
+    Never mints a new thread.
+    """
+    sid = (session_id or target or "").strip()
+    ws_slug, thread_slug = _anythingllm_split_session(sid)
+    if not ws_slug:
+        yield (
+            "",
+            True,
+            (
+                "Pick an AnythingLLM workspace or thread. Open Swarm does not mint "
+                "new threads. Pass session_id as workspace or workspace:thread "
+                "(list the remote to see available sessions)."
+            ),
+        )
+        return
+    if not prompt.strip():
+        yield ("", True, "prompt is required")
+        return
+    chat_timeout = timeout if timeout >= 30 else _ANYTHINGLLM_SEND_TIMEOUT_S
+    stream_url, sync_url = _anythingllm_chat_urls(spec, ws_slug, thread_slug)
+    body = _anythingllm_chat_body(prompt, ws_slug, thread_slug)
+    assembled = ""
+    error = None
+    done = False
+    for event, http_status, fail in _anythingllm_post_events(
+        spec, stream_url, body, chat_timeout, accept_sse=True
+    ):
+        if fail:
+            error = fail
+            break
+        if http_status in _AUTH:
+            yield ("", True, "AnythingLLM chat requires a valid API key (Settings → API keys).")
+            return
+        if event is None:
+            continue
+        gateway_error = str(event.get("error") or "").strip()
+        if gateway_error and gateway_error.lower() not in ("false", "0"):
+            yield ("", True, f"AnythingLLM upstream error: {gateway_error}")
+            return
+        delta = _anythingllm_delta(event, assembled)
+        if delta:
+            assembled += delta
+            close = bool(event.get("close"))
+            yield (delta, close, None)
+            if close:
+                done = True
+                break
+        elif bool(event.get("close")):
+            done = True
+            yield ("", True, None)
+            break
+    if done:
+        return
+    if assembled and not error:
+        yield ("", True, None)
+        return
+    # stream-chat missing/empty → synchronous thread/workspace chat.
+    result = http_json(
+        "POST",
+        sync_url,
+        headers=_auth_headers(spec),
+        body=body,
+        timeout=chat_timeout,
+    )
+    payload = result.body if isinstance(result.body, dict) else {}
+    text_response = str(payload.get("textResponse") or payload.get("text") or "").strip()
+    gateway_error = str(payload.get("error") or "").strip()
+    if result.status in _UP and text_response:
+        delta = text_response[len(assembled) :] if text_response.startswith(assembled) else text_response
+        if delta:
+            yield (delta, True, None)
+        else:
+            yield ("", True, None)
+        return
+    if result.status in _AUTH:
+        yield ("", True, "AnythingLLM chat requires a valid API key (Settings → API keys).")
+        return
+    if gateway_error:
+        yield ("", True, f"AnythingLLM upstream error: {gateway_error}")
+        return
+    yield (
+        "",
+        True,
+        error or result.error or f"AnythingLLM send failed (http {result.status})",
+    )
+
+
+def _anythingllm_post_events(
+    spec: RemoteSpec,
+    url: str,
+    body: dict[str, Any],
+    timeout: float,
+    *,
+    accept_sse: bool,
+) -> Any:
+    """Yield ``(event_dict|None, http_status, error)`` from stream-chat or JSON."""
+    started = time.monotonic()
+    req_headers = dict(_auth_headers(spec))
+    req_headers.setdefault("Content-Type", "application/json")
+    if accept_sse:
+        req_headers["Accept"] = "text/event-stream, application/json"
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=timeout) as resp:
+            status = getattr(resp, "status", None) or resp.getcode()
+            ctype = str(resp.headers.get("Content-Type") or "").lower()
+            if status not in _UP:
+                raw = resp.read()
+                text = raw.decode("utf-8", errors="replace") if raw else ""
+                parsed: Any = None
+                if text.strip():
+                    try:
+                        parsed = json.loads(text)
+                    except json.JSONDecodeError:
+                        parsed = None
+                err = ""
+                if isinstance(parsed, dict):
+                    err = str(parsed.get("error") or parsed.get("message") or "").strip()
+                yield (parsed if isinstance(parsed, dict) else None, status, err or f"http {status}")
+                return
+            if "event-stream" in ctype:
+                buf = b""
+                while True:
+                    chunk = resp.read(256)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        event = _parse_sse_json_line(line.decode("utf-8", errors="replace"))
+                        if event is not None:
+                            yield (event, status, "")
+                return
+            raw = resp.read()
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+            if text.lstrip().startswith("data:"):
+                for line in text.splitlines():
+                    event = _parse_sse_json_line(line)
+                    if event is not None:
+                        yield (event, status, "")
+                return
+            parsed = None
+            if text.strip():
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+            if isinstance(parsed, dict):
+                yield (parsed, status, "")
+            elif text.strip():
+                yield ({"textResponse": text.strip()}, status, "")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read() if hasattr(exc, "read") else b""
+        text = raw.decode("utf-8", errors="replace") if raw else ""
+        parsed = None
+        if text.strip():
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+        err = ""
+        if isinstance(parsed, dict):
+            err = str(parsed.get("error") or parsed.get("message") or "").strip()
+        yield (parsed if isinstance(parsed, dict) else None, exc.code, err or f"http {exc.code}")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        _ = started
+        yield (None, None, f"{type(exc).__name__}: {exc}")
+
+
 def _anythingllm_send(
     spec: RemoteSpec,
     prompt: str,
@@ -2579,83 +4000,1605 @@ def _anythingllm_send(
     session_id: str | None = None,
     target: str = "",
 ) -> OperateResult:
-    """Send into an existing AnythingLLM thread (never mints a new one).
+    """Send into an existing AnythingLLM workspace or thread (never mints a new one).
 
-    ``session_id`` is ``workspace:thread`` — the thread slug comes from the
-    session list. POST /api/v1/workspace/<ws>/thread/<thread>/chat replies
-    inside that thread; AnythingLLM returns ``textResponse`` (or an ``error``
-    string on upstream failures, e.g. a misconfigured chat model).
+    ``session_id`` is a workspace slug (main chat) or ``workspace:thread``.
+    Prefers POST .../stream-chat and falls back to .../chat. AnythingLLM
+    ``error`` bodies surface, never faked.
     """
-    from dataclasses import replace
-
     sid = (session_id or target or "").strip()
-    ws_slug, _, thread_slug = sid.partition(":")
-    if not ws_slug or not thread_slug:
+    ws_slug, thread_slug = _anythingllm_split_session(sid)
+    if not ws_slug:
         return OperateResult(
             remote="anythingllm",
             op="send",
             ok=False,
             detail=(
-                "Pick an AnythingLLM thread. Open Swarm does not mint new "
-                "threads. Pass session_id as workspace:thread "
-                "(list the remote to see available threads)."
+                "Pick an AnythingLLM workspace or thread. Open Swarm does not mint "
+                "new threads. Pass session_id as workspace or workspace:thread "
+                "(list the remote to see available sessions)."
             ),
             gap="anythingllm_thread_required",
         )
     if not prompt.strip():
         return OperateResult(remote="anythingllm", op="send", ok=False, detail="prompt is required")
-    url = f"{spec.base_url}/api/v1/workspace/{ws_slug}/thread/{thread_slug}/chat"
-    result = http_json(
-        "POST",
-        url,
-        headers=_auth_headers(spec),
-        body={"message": prompt, "mode": "chat"},
-        timeout=timeout,
-    )
-    payload = result.body if isinstance(result.body, dict) else {}
-    text_response = str(payload.get("textResponse") or payload.get("text") or "").strip()
-    gateway_error = str(payload.get("error") or "").strip()
-    if result.status in _UP and text_response:
-        sources = payload.get("sources")
-        data: dict[str, Any] = {
-            "response": text_response,
-            "thread": f"{ws_slug}:{thread_slug}",
-        }
-        if isinstance(sources, list) and sources:
-            data["sources"] = sources[:10]
+    assembled = ""
+    error = None
+    http_status: int | None = None
+    for delta, done, err in iter_anythingllm_chat(
+        spec, prompt, session_id=sid, timeout=timeout
+    ):
+        if err:
+            error = err
+            break
+        if delta:
+            assembled += delta
+        if done:
+            break
+    label = thread_slug or ws_slug
+    if assembled and not error:
         return OperateResult(
             remote="anythingllm",
             op="send",
             ok=True,
-            detail=f"AnythingLLM replied in thread {thread_slug}",
-            http_status=result.status,
-            data=data,
+            detail=f"AnythingLLM replied in {label}",
+            http_status=http_status or 200,
+            data={"response": assembled, "thread": sid},
         )
-    if result.status in _AUTH:
+    if error and "API key" in error:
         return OperateResult(
             remote="anythingllm",
             op="send",
             ok=False,
-            detail="AnythingLLM chat requires a valid API key (Settings → API keys).",
-            http_status=result.status,
-            data=result.body,
+            detail=error,
+            http_status=401,
         )
-    if gateway_error:
+    if error and error.startswith("AnythingLLM upstream error:"):
         return OperateResult(
             remote="anythingllm",
             op="send",
             ok=False,
-            detail=f"AnythingLLM upstream error: {gateway_error}",
-            http_status=result.status,
-            data=result.body,
+            detail=error,
+            data={"error": error},
+        )
+    if error and error == "prompt is required":
+        return OperateResult(remote="anythingllm", op="send", ok=False, detail=error)
+    if error and "does not mint" in error:
+        return OperateResult(
+            remote="anythingllm",
+            op="send",
+            ok=False,
+            detail=error,
+            gap="anythingllm_thread_required",
         )
     return OperateResult(
         remote="anythingllm",
         op="send",
         ok=False,
-        detail=result.error or f"AnythingLLM send failed (http {result.status})",
+        detail=error or "AnythingLLM send failed",
+    )
+
+
+def filter_letta_sessions(rows: list[dict[str, Any]], query: str = "") -> list[dict[str, Any]]:
+    """Search Letta agent-session rows by id/title/snippet/channel."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return list(rows)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("id", "title", "snippet", "channel", "thread_ts")
+        ).lower()
+        if needle in blob:
+            out.append(row)
+    return out
+
+
+def _letta_agents_payload(body: Any) -> list[Any]:
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        nested = body.get("agents") or body.get("data") or body.get("items") or []
+        return nested if isinstance(nested, list) else []
+    return []
+
+
+def _letta_text_from_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str) and item.strip():
+                parts.append(item.strip())
+            elif isinstance(item, dict):
+                text = str(item.get("text") or item.get("content") or "").strip()
+                if text:
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    if isinstance(content, dict):
+        return str(content.get("text") or content.get("content") or "").strip()
+    return ""
+
+
+def _letta_assistant_text(payload: Any) -> str:
+    """Pull visible assistant text out of a Letta messages response."""
+    messages: list[Any]
+    if isinstance(payload, dict):
+        messages = payload.get("messages") or payload.get("data") or []
+        if not isinstance(messages, list):
+            messages = []
+        if not messages and (payload.get("message_type") or payload.get("content")):
+            messages = [payload]
+    elif isinstance(payload, list):
+        messages = payload
+    else:
+        messages = []
+    parts: list[str] = []
+    reasoning_parts: list[str] = []
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("message_type") or item.get("role") or "").strip().lower()
+        if kind in ("user_message", "user", "system_message", "system"):
+            continue
+        if kind in ("assistant_message", "assistant", "") or "assistant" in kind:
+            text = _letta_text_from_content(item.get("content") or item.get("text"))
+            if text:
+                parts.append(text)
+                continue
+        if kind == "reasoning_message":
+            reasoning = str(item.get("reasoning") or "").strip()
+            if reasoning:
+                reasoning_parts.append(reasoning)
+    if parts:
+        return "\n".join(parts).strip()
+    return "\n".join(reasoning_parts).strip()
+
+
+def _letta_session_row(agent: dict[str, Any]) -> dict[str, Any] | None:
+    from swarm.core.remote_harness import remote_session_from_dict
+
+    agent_id = str(agent.get("id") or agent.get("agent_id") or "").strip()
+    if not agent_id:
+        return None
+    name = str(agent.get("name") or agent.get("title") or agent_id).strip()
+    snippet = str(agent.get("description") or agent.get("snippet") or "").strip()
+    agent_type = str(agent.get("agent_type") or agent.get("type") or "").strip()
+    session = remote_session_from_dict(
+        {
+            "id": agent_id,
+            "title": name,
+            "snippet": snippet[:240],
+            "source": "letta",
+            "updated_at": str(
+                agent.get("updated_at") or agent.get("last_run_completion") or agent.get("created_at") or ""
+            ).strip(),
+            "channel": (agent_type or "agent")[:128],
+            "thread_ts": agent_id[:64],
+        }
+    )
+    return None if session is None else session.as_dict()
+
+
+def _letta_list(spec: RemoteSpec, timeout: float, query: str = "") -> OperateResult:
+    """List Letta agents as searchable, resumable sessions.
+
+    GET /v1/agents/ returns memory agents (and workflow agents). Each agent is
+    a resume key — send never mints a new one. ``query`` is passed as
+    ``query_text`` and also applied client-side on title/id/snippet.
+    """
+    needle = (query or "").strip()
+    path = f"{spec.base_url}/v1/agents/?limit=200"
+    if needle:
+        path += f"&query_text={quote(needle)}"
+    result = http_json("GET", path, headers=_auth_headers(spec), timeout=timeout)
+    agents = _letta_agents_payload(result.body)
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for agent in agents:
+        if not isinstance(agent, dict):
+            continue
+        row = _letta_session_row(agent)
+        if row is None or row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        normalized.append(row)
+    normalized = filter_letta_sessions(normalized, needle)
+    data: dict[str, Any] = {"sessions": normalized, "source": "letta"}
+    if result.status in _UP:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="list",
+            ok=True,
+            detail=f"listed {len(normalized)} Letta agent session(s)",
+            http_status=result.status,
+            data=data,
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="list",
+            ok=False,
+            detail=(
+                "Letta /v1/agents/ requires a valid API key. "
+                "Set remotes.letta.api_key or LETTA_API_KEY "
+                "(self-hosted password, or Letta Cloud token)."
+            ),
+            http_status=result.status,
+            data=data,
+        )
+    return OperateResult(
+        remote=spec.id or "letta",
+        op="list",
+        ok=False,
+        detail=result.error or f"Letta list failed (http {result.status})",
+        http_status=result.status,
+        data=data,
+    )
+
+
+def _letta_post_events(
+    spec: RemoteSpec,
+    url: str,
+    body: dict[str, Any],
+    timeout: float,
+    *,
+    accept_sse: bool,
+) -> Any:
+    """Yield ``(event_dict|None, http_status, error)`` from stream or JSON."""
+    req_headers = dict(_auth_headers(spec))
+    req_headers.setdefault("Content-Type", "application/json")
+    if accept_sse:
+        req_headers["Accept"] = "text/event-stream, application/json"
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=timeout) as resp:
+            status = getattr(resp, "status", None) or resp.getcode()
+            ctype = str(resp.headers.get("Content-Type") or "").lower()
+            if status not in _UP:
+                raw = resp.read()
+                text = raw.decode("utf-8", errors="replace") if raw else ""
+                parsed: Any = None
+                if text.strip():
+                    try:
+                        parsed = json.loads(text)
+                    except json.JSONDecodeError:
+                        parsed = None
+                err = ""
+                if isinstance(parsed, dict):
+                    err = str(parsed.get("error") or parsed.get("detail") or parsed.get("message") or "").strip()
+                yield (parsed if isinstance(parsed, dict) else None, status, err or f"http {status}")
+                return
+            if "event-stream" in ctype:
+                buf = b""
+                while True:
+                    chunk = resp.read(256)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        event = _parse_sse_json_line(line.decode("utf-8", errors="replace"))
+                        if event is not None:
+                            yield (event, status, "")
+                return
+            raw = resp.read()
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+            if text.lstrip().startswith("data:"):
+                for line in text.splitlines():
+                    event = _parse_sse_json_line(line)
+                    if event is not None:
+                        yield (event, status, "")
+                return
+            parsed = None
+            if text.strip():
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+            if parsed is not None:
+                yield (parsed if isinstance(parsed, dict) else {"messages": parsed}, status, "")
+            elif text.strip():
+                yield ({"content": text.strip(), "message_type": "assistant_message"}, status, "")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read() if hasattr(exc, "read") else b""
+        text = raw.decode("utf-8", errors="replace") if raw else ""
+        parsed = None
+        if text.strip():
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+        err = ""
+        if isinstance(parsed, dict):
+            err = str(parsed.get("error") or parsed.get("detail") or parsed.get("message") or "").strip()
+        yield (parsed if isinstance(parsed, dict) else None, exc.code, err or f"http {exc.code}")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        yield (None, None, f"{type(exc).__name__}: {exc}")
+
+
+def _letta_delta(payload: dict[str, Any], assembled: str) -> str:
+    kind = str(payload.get("message_type") or payload.get("role") or "").strip().lower()
+    if kind in ("reasoning_message", "tool_call_message", "tool_return_message", "ping"):
+        return ""
+    text = _letta_assistant_text(payload)
+    if not text:
+        text = _letta_text_from_content(payload.get("content") or payload.get("text"))
+    if not text:
+        return ""
+    if assembled and text.startswith(assembled):
+        return text[len(assembled) :]
+    if assembled and assembled.endswith(text):
+        return ""
+    return text
+
+
+def iter_letta_chat(
+    spec: RemoteSpec,
+    prompt: str,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+    timeout: float = _LETTA_SEND_TIMEOUT_S,
+) -> Any:
+    """Yield ``(delta, done, error)`` from Letta stream, with sync fallback.
+
+    Resume key is an existing Letta agent id. Never mints a new agent.
+    """
+    sid = (session_id or target or "").strip()
+    if not sid:
+        yield (
+            "",
+            True,
+            (
+                "Pick a Letta agent. Open Swarm does not mint new agents. "
+                "Pass session_id as the agent id (list the remote to see "
+                "available sessions)."
+            ),
+        )
+        return
+    if not prompt.strip():
+        yield ("", True, "prompt is required")
+        return
+    chat_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
+    encoded = quote(sid, safe="")
+    stream_url = f"{spec.base_url}/v1/agents/{encoded}/messages/stream"
+    sync_url = f"{spec.base_url}/v1/agents/{encoded}/messages"
+    body = {"messages": [{"role": "user", "content": prompt}]}
+    assembled = ""
+    error = None
+    stream_ok = False
+    for event, http_status, fail in _letta_post_events(
+        spec, stream_url, {**body, "stream_tokens": True}, chat_timeout, accept_sse=True
+    ):
+        if fail:
+            error = fail
+            break
+        if http_status in _AUTH:
+            yield ("", True, "Letta chat requires a valid API key (LETTA_API_KEY).")
+            return
+        if http_status in _UP:
+            stream_ok = True
+        if event is None:
+            continue
+        gateway_error = str(event.get("error") or event.get("detail") or "").strip()
+        if gateway_error and gateway_error.lower() not in ("false", "0"):
+            yield ("", True, f"Letta upstream error: {gateway_error}")
+            return
+        delta = _letta_delta(event, assembled)
+        if delta:
+            assembled += delta
+            yield (delta, False, None)
+    if assembled and not error:
+        yield ("", True, None)
+        return
+    if stream_ok:
+        yield ("", True, "Letta returned an empty reply.")
+        return
+    result = http_json(
+        "POST",
+        sync_url,
+        headers=_auth_headers(spec),
+        body=body,
+        timeout=chat_timeout,
+    )
+    text_response = _letta_assistant_text(result.body)
+    gateway_error = ""
+    if isinstance(result.body, dict):
+        gateway_error = str(result.body.get("error") or result.body.get("detail") or "").strip()
+    if result.status in _UP and text_response:
+        delta = text_response[len(assembled) :] if text_response.startswith(assembled) else text_response
+        if delta:
+            yield (delta, True, None)
+        else:
+            yield ("", True, None)
+        return
+    if result.status in _AUTH:
+        yield ("", True, "Letta chat requires a valid API key (LETTA_API_KEY).")
+        return
+    if result.status == 404:
+        yield (
+            "",
+            True,
+            f"Letta agent '{sid}' was not found. List sessions and pick an existing agent.",
+        )
+        return
+    if gateway_error:
+        yield ("", True, f"Letta upstream error: {gateway_error}")
+        return
+    yield (
+        "",
+        True,
+        error or result.error or f"Letta send failed (http {result.status})",
+    )
+
+
+def _letta_send(
+    spec: RemoteSpec,
+    prompt: str,
+    timeout: float,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+) -> OperateResult:
+    """Send into an existing Letta agent (never mints a new one)."""
+    sid = (session_id or target or "").strip()
+    if not sid:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=False,
+            detail=(
+                "Pick a Letta agent. Open Swarm does not mint new agents. "
+                "Pass session_id as the agent id (list the remote to see "
+                "available sessions)."
+            ),
+            gap="letta_agent_required",
+        )
+    if not prompt.strip():
+        return OperateResult(remote=spec.id or "letta", op="send", ok=False, detail="prompt is required")
+    assembled = ""
+    error = None
+    http_status: int | None = None
+    for delta, done, err in iter_letta_chat(spec, prompt, session_id=sid, timeout=timeout):
+        if err:
+            error = err
+            break
+        if delta:
+            assembled += delta
+        if done:
+            break
+    if assembled and not error:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=True,
+            detail=f"Letta replied in agent {sid}",
+            http_status=http_status or 200,
+            data={"response": assembled, "agent": sid, "thread": sid},
+        )
+    if error and "API key" in error:
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=False,
+            detail=error,
+            http_status=401,
+        )
+    if error and "not found" in error.lower():
+        return OperateResult(
+            remote=spec.id or "letta",
+            op="send",
+            ok=False,
+            detail=error,
+            http_status=404,
+            gap="letta_agent_required",
+        )
+    return OperateResult(
+        remote=spec.id or "letta",
+        op="send",
+        ok=False,
+        detail=error or "Letta send failed",
+        http_status=http_status,
+    )
+
+
+def filter_flowise_sessions(rows: list[dict[str, Any]], query: str = "") -> list[dict[str, Any]]:
+    """Case-insensitive substring filter over Flowise session rows."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return list(rows)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("id", "title", "snippet", "channel", "thread_ts")
+        )
+        if needle in blob.lower():
+            out.append(row)
+    return out
+
+
+def _flowise_chatflows_payload(body: Any) -> list[Any]:
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        for key in ("chatflows", "data", "flows"):
+            val = body.get(key)
+            if isinstance(val, list):
+                return val
+    return []
+
+
+def _flowise_messages_payload(body: Any) -> list[Any]:
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        for key in ("data", "messages", "chatmessages"):
+            val = body.get(key)
+            if isinstance(val, list):
+                return val
+    return []
+
+
+def _flowise_session_row(
+    *,
+    session_id: str,
+    title: str,
+    snippet: str,
+    channel: str,
+    thread_ts: str = "",
+    updated_at: str = "",
+) -> dict[str, Any] | None:
+    from swarm.core.remote_harness import remote_session_from_dict
+
+    sid = (session_id or "").strip()
+    if not sid:
+        return None
+    session = remote_session_from_dict(
+        {
+            "id": sid,
+            "title": (title or sid).strip() or sid,
+            "snippet": (snippet or "").strip(),
+            "source": "flowise",
+            "updated_at": (updated_at or "").strip(),
+            "channel": (channel or "")[:128],
+            "thread_ts": (thread_ts or "")[:64],
+        }
+    )
+    return session.as_dict() if session is not None else None
+
+
+def _flowise_fetch_messages(spec: RemoteSpec, flow_id: str, timeout: float) -> list[Any]:
+    result = http_json(
+        "GET",
+        f"{spec.base_url}/api/v1/chatmessage/{flow_id}",
+        headers=_auth_headers(spec),
+        timeout=min(float(timeout or _DEFAULT_TIMEOUT_S), 4.0),
+    )
+    if result.status not in _UP:
+        return []
+    return _flowise_messages_payload(result.body)
+
+
+def _flowise_list(spec: RemoteSpec, timeout: float, query: str = "") -> OperateResult:
+    """List Flowise chatflows and their chat sessions.
+
+    GET /api/v1/chatflows is the catalog. Each flow is a resumable session
+    (id = flowId). GET /api/v1/chatmessage/<flowId> groups existing chats
+    as flowId:chatId so send can resume instead of minting a new thread.
+    """
+    headers = _auth_headers(spec)
+    result = http_json(
+        "GET",
+        f"{spec.base_url}/api/v1/chatflows",
+        headers=headers,
+        timeout=timeout,
+    )
+    flows = _flowise_chatflows_payload(result.body)
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for flow in flows:
+        if not isinstance(flow, dict):
+            continue
+        flow_id = str(flow.get("id") or flow.get("_id") or "").strip()
+        if not flow_id or flow_id in seen:
+            continue
+        seen.add(flow_id)
+        flow_name = str(flow.get("name") or flow.get("label") or flow_id).strip() or flow_id
+        flow_type = str(flow.get("type") or "CHATFLOW").strip()
+        flow_row = _flowise_session_row(
+            session_id=flow_id,
+            title=flow_name,
+            snippet=flow_type,
+            channel=flow_name,
+            updated_at=str(flow.get("updatedDate") or flow.get("updatedAt") or "").strip(),
+        )
+        if flow_row is not None:
+            normalized.append(flow_row)
+        grouped: dict[str, dict[str, str]] = {}
+        for msg in _flowise_fetch_messages(spec, flow_id, timeout):
+            if not isinstance(msg, dict):
+                continue
+            chat_id = str(msg.get("chatId") or msg.get("sessionId") or "").strip()
+            if not chat_id or chat_id == flow_id:
+                continue
+            sid = f"{flow_id}:{chat_id}"
+            if sid in seen:
+                content = str(msg.get("content") or "").strip()
+                role = str(msg.get("role") or "").lower()
+                if content and role in ("usermessage", "userMessage", "user") and not grouped.get(sid, {}).get("title"):
+                    grouped[sid]["title"] = content[:80]
+                continue
+            seen.add(sid)
+            content = str(msg.get("content") or "").strip()
+            role = str(msg.get("role") or "")
+            title = content[:80] if content and "user" in role.lower() else chat_id
+            grouped[sid] = {
+                "title": title or chat_id,
+                "snippet": content[:160],
+                "updated_at": str(msg.get("createdDate") or msg.get("createdAt") or "").strip(),
+            }
+        for sid, meta in grouped.items():
+            _, _, chat_id = sid.partition(":")
+            row = _flowise_session_row(
+                session_id=sid,
+                title=meta.get("title") or chat_id,
+                snippet=meta.get("snippet") or "",
+                channel=flow_name,
+                thread_ts=chat_id,
+                updated_at=meta.get("updated_at") or "",
+            )
+            if row is not None:
+                normalized.append(row)
+    normalized = filter_flowise_sessions(normalized, query)
+    data: dict[str, Any] = {"sessions": normalized, "source": "flowise"}
+    if result.status in _UP:
+        return OperateResult(
+            remote="flowise",
+            op="list",
+            ok=True,
+            detail=f"listed {len(normalized)} Flowise flow/session(s) across {len(flows)} flow(s)",
+            http_status=result.status,
+            data=data,
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote="flowise",
+            op="list",
+            ok=False,
+            detail=(
+                "Flowise /api/v1/chatflows requires a valid API key. "
+                "Set remotes.flowise.api_key or FLOWISE_API_KEY."
+            ),
+            http_status=result.status,
+            data=data,
+        )
+    return OperateResult(
+        remote="flowise",
+        op="list",
+        ok=False,
+        detail=result.error or f"Flowise list failed (http {result.status})",
+        http_status=result.status,
+        data=data,
+    )
+
+
+def _flowise_split_session(session_id: str) -> tuple[str, str]:
+    sid = (session_id or "").strip()
+    if not sid:
+        return "", ""
+    if ":" in sid:
+        flow_id, _, chat_id = sid.partition(":")
+        return flow_id.strip(), chat_id.strip()
+    return sid, sid
+
+
+def _flowise_token_text(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text or text == "[DONE]":
+        return ""
+    if text[:1] in "{\"[" :
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return text
+        if isinstance(parsed, str):
+            return parsed
+        if isinstance(parsed, dict):
+            for key in ("token", "text", "content", "message"):
+                val = parsed.get(key)
+                if isinstance(val, str) and val:
+                    return val
+            nested = parsed.get("data")
+            if isinstance(nested, str) and nested:
+                return nested
+            if isinstance(nested, dict):
+                inner = nested.get("token") or nested.get("text")
+                if isinstance(inner, str):
+                    return inner
+            return ""
+        return ""
+    return text
+
+
+def _iter_sse_blocks(lines: list[str]):
+    event_type = "message"
+    data_lines: list[str] = []
+    for raw_line in lines:
+        line = raw_line.rstrip("\r")
+        if not line:
+            if data_lines:
+                yield event_type, "\n".join(data_lines)
+            event_type = "message"
+            data_lines = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event_type = line[6:].strip() or "message"
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+            continue
+    if data_lines:
+        yield event_type, "\n".join(data_lines)
+
+
+def _flowise_post_events(
+    spec: RemoteSpec,
+    url: str,
+    body: dict[str, Any],
+    timeout: float,
+    *,
+    accept_sse: bool,
+) -> Any:
+    """Yield ``(event_type, data_text, http_status, error)``."""
+    req_headers = dict(_auth_headers(spec))
+    req_headers.setdefault("Content-Type", "application/json")
+    if accept_sse:
+        req_headers["Accept"] = "text/event-stream, application/json"
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=timeout) as resp:
+            status = getattr(resp, "status", None) or resp.getcode()
+            ctype = str(resp.headers.get("Content-Type") or "").lower()
+            raw = resp.read()
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+            if status not in _UP:
+                parsed: Any = None
+                if text.strip():
+                    try:
+                        parsed = json.loads(text)
+                    except json.JSONDecodeError:
+                        parsed = None
+                err = ""
+                if isinstance(parsed, dict):
+                    err = str(parsed.get("error") or parsed.get("message") or "").strip()
+                yield ("error", text, status, err or f"http {status}")
+                return
+            if "event-stream" in ctype or text.lstrip().startswith(("event:", "data:")):
+                for event_type, payload in _iter_sse_blocks(text.splitlines()):
+                    yield (event_type, payload, status, "")
+                return
+            yield ("json", text, status, "")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read() if hasattr(exc, "read") else b""
+        text = raw.decode("utf-8", errors="replace") if raw else ""
+        parsed = None
+        if text.strip():
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+        err = ""
+        if isinstance(parsed, dict):
+            err = str(parsed.get("error") or parsed.get("message") or "").strip()
+        yield ("error", text, exc.code, err or f"http {exc.code}")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        yield ("error", "", None, f"{type(exc).__name__}: {exc}")
+
+
+def iter_flowise_chat(
+    spec: RemoteSpec,
+    prompt: str,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+    timeout: float = _FLOWISE_SEND_TIMEOUT_S,
+) -> Any:
+    """Yield ``(delta, done, error)`` from Flowise prediction (SSE then JSON)."""
+    sid = (session_id or target or "").strip()
+    flow_id, chat_id = _flowise_split_session(sid)
+    if not flow_id:
+        yield (
+            "",
+            True,
+            (
+                "Pick a Flowise flow or chat session. Open Swarm does not mint "
+                "new threads. Pass session_id as flowId or flowId:chatId "
+                "(list the remote to see available sessions)."
+            ),
+        )
+        return
+    if not prompt.strip():
+        yield ("", True, "prompt is required")
+        return
+    chat_timeout = timeout if timeout >= 30 else _FLOWISE_SEND_TIMEOUT_S
+    url = f"{spec.base_url}/api/v1/prediction/{flow_id}"
+    body = {
+        "question": prompt,
+        "chatId": chat_id or flow_id,
+        "streaming": True,
+        "overrideConfig": {"sessionId": chat_id or flow_id},
+    }
+    assembled = ""
+    error = None
+    done = False
+    for event_type, payload, http_status, fail in _flowise_post_events(
+        spec, url, body, chat_timeout, accept_sse=True
+    ):
+        if fail:
+            error = fail
+            break
+        if http_status in _AUTH:
+            yield ("", True, "Flowise chat requires a valid API key (FLOWISE_API_KEY).")
+            return
+        kind = (event_type or "").lower()
+        if kind in ("error",) and payload:
+            token = _flowise_token_text(payload) or payload.strip()
+            yield ("", True, f"Flowise upstream error: {token}")
+            return
+        if kind in ("end", "complete", "done"):
+            done = True
+            yield ("", True, None)
+            break
+        if kind == "json":
+            parsed: Any = None
+            if payload.strip():
+                try:
+                    parsed = json.loads(payload)
+                except json.JSONDecodeError:
+                    parsed = None
+            text_response = ""
+            if isinstance(parsed, dict):
+                err = str(parsed.get("error") or parsed.get("message") or "").strip()
+                if err and not parsed.get("text") and not parsed.get("token"):
+                    yield ("", True, f"Flowise upstream error: {err}")
+                    return
+                text_response = str(
+                    parsed.get("text") or parsed.get("textResponse") or parsed.get("answer") or ""
+                ).strip()
+            elif payload.strip():
+                text_response = payload.strip()
+            if text_response:
+                delta = text_response[len(assembled) :] if text_response.startswith(assembled) else text_response
+                if delta:
+                    assembled += delta
+                    yield (delta, True, None)
+                else:
+                    yield ("", True, None)
+                done = True
+                break
+            continue
+        if kind in ("token", "message", "data", ""):
+            delta = _flowise_token_text(payload)
+            if delta:
+                assembled += delta
+                yield (delta, False, None)
+    if done:
+        return
+    if assembled and not error:
+        yield ("", True, None)
+        return
+    sync_body = dict(body)
+    sync_body["streaming"] = False
+    result = http_json(
+        "POST",
+        url,
+        headers=_auth_headers(spec),
+        body=sync_body,
+        timeout=chat_timeout,
+    )
+    payload = result.body if isinstance(result.body, dict) else {}
+    text_response = str(
+        payload.get("text") or payload.get("textResponse") or payload.get("answer") or ""
+    ).strip()
+    gateway_error = str(payload.get("error") or "").strip()
+    if result.status in _UP and text_response:
+        delta = text_response[len(assembled) :] if text_response.startswith(assembled) else text_response
+        if delta:
+            yield (delta, True, None)
+        else:
+            yield ("", True, None)
+        return
+    if result.status in _AUTH:
+        yield ("", True, "Flowise chat requires a valid API key (FLOWISE_API_KEY).")
+        return
+    if gateway_error:
+        yield ("", True, f"Flowise upstream error: {gateway_error}")
+        return
+    yield (
+        "",
+        True,
+        error or result.error or f"Flowise send failed (http {result.status})",
+    )
+
+
+def _flowise_send(
+    spec: RemoteSpec,
+    prompt: str,
+    timeout: float,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+) -> OperateResult:
+    """Send into an existing Flowise flow or chat session (never mints a new one)."""
+    sid = (session_id or target or "").strip()
+    flow_id, chat_id = _flowise_split_session(sid)
+    if not flow_id:
+        return OperateResult(
+            remote="flowise",
+            op="send",
+            ok=False,
+            detail=(
+                "Pick a Flowise flow or chat session. Open Swarm does not mint "
+                "new threads. Pass session_id as flowId or flowId:chatId "
+                "(list the remote to see available sessions)."
+            ),
+            gap="flowise_session_required",
+        )
+    if not prompt.strip():
+        return OperateResult(remote="flowise", op="send", ok=False, detail="prompt is required")
+    assembled = ""
+    error = None
+    for delta, done, err in iter_flowise_chat(spec, prompt, session_id=sid, timeout=timeout):
+        if err:
+            error = err
+            break
+        if delta:
+            assembled += delta
+        if done:
+            break
+    label = chat_id or flow_id
+    if assembled and not error:
+        return OperateResult(
+            remote="flowise",
+            op="send",
+            ok=True,
+            detail=f"Flowise replied in {label}",
+            http_status=200,
+            data={"response": assembled, "thread": sid, "chatId": chat_id or flow_id},
+        )
+    if error and "API key" in error:
+        return OperateResult(
+            remote="flowise",
+            op="send",
+            ok=False,
+            detail=error,
+            http_status=401,
+        )
+    if error and error.startswith("Flowise upstream error:"):
+        return OperateResult(
+            remote="flowise",
+            op="send",
+            ok=False,
+            detail=error,
+            data={"error": error},
+        )
+    if error and error == "prompt is required":
+        return OperateResult(remote="flowise", op="send", ok=False, detail=error)
+    if error and "does not mint" in error:
+        return OperateResult(
+            remote="flowise",
+            op="send",
+            ok=False,
+            detail=error,
+            gap="flowise_session_required",
+        )
+    return OperateResult(
+        remote="flowise",
+        op="send",
+        ok=False,
+        detail=error or "Flowise send failed",
+    )
+
+
+
+def _n8n_workflows_payload(body: Any) -> list[Any]:
+    if isinstance(body, dict):
+        data = body.get("data")
+        if isinstance(data, list):
+            return data
+        if isinstance(body.get("workflows"), list):
+            return body["workflows"]
+    if isinstance(body, list):
+        return body
+    return []
+
+
+def _n8n_trigger_node(workflow: dict[str, Any]) -> dict[str, Any] | None:
+    nodes = workflow.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    webhook: dict[str, Any] | None = None
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("disabled"):
+            continue
+        ntype = str(node.get("type") or "").lower()
+        if "chattrigger" in ntype:
+            return node
+        if ntype.endswith("webhook") or ntype.endswith(".webhook"):
+            webhook = webhook or node
+    return webhook
+
+
+def _n8n_webhook_path(node: dict[str, Any]) -> str:
+    params = node.get("parameters") if isinstance(node.get("parameters"), dict) else {}
+    path = str(params.get("path") or "").strip().strip("/")
+    webhook_id = str(node.get("webhookId") or params.get("webhookId") or "").strip()
+    ntype = str(node.get("type") or "").lower()
+    if "chattrigger" in ntype:
+        return webhook_id or path
+    return path or webhook_id
+
+
+def _n8n_matches_query(row: dict[str, Any], query: str) -> bool:
+    q = (query or "").strip().lower()
+    if not q:
+        return True
+    hay = " ".join(
+        str(row.get(key) or "")
+        for key in ("id", "title", "snippet", "channel")
+    ).lower()
+    return q in hay
+
+
+def _n8n_list(spec: RemoteSpec, timeout: float, query: str = "") -> OperateResult:
+    """List n8n chat/webhook workflows as resumable sessions.
+
+    GET /api/v1/workflows. Each chatTrigger (else webhook) flow is a session
+    with resume key ``workflowId:webhookPath``. Cron/manual-only workflows
+    are omitted. ``query`` filters id/title/channel client-or-server side.
+    """
+    from swarm.core.remote_harness import remote_session_from_dict
+
+    headers = _auth_headers(spec)
+    result = http_json(
+        "GET",
+        f"{spec.base_url}/api/v1/workflows?limit=250",
+        headers=headers,
+        timeout=timeout,
+    )
+    workflows = _n8n_workflows_payload(result.body)
+    normalized: list[dict[str, Any]] = []
+    for wf in workflows:
+        if not isinstance(wf, dict):
+            continue
+        wf_id = str(wf.get("id") or "").strip()
+        if not wf_id:
+            continue
+        trigger = _n8n_trigger_node(wf)
+        if trigger is None:
+            continue
+        path = _n8n_webhook_path(trigger)
+        if not path:
+            continue
+        title = str(wf.get("name") or wf_id).strip()
+        ntype = str(trigger.get("type") or "")
+        channel = "chat" if "chattrigger" in ntype.lower() else "webhook"
+        session = remote_session_from_dict(
+            {
+                "id": f"{wf_id}:{path}",
+                "title": title,
+                "snippet": channel,
+                "source": "n8n",
+                "updated_at": str(wf.get("updatedAt") or wf.get("updated_at") or "").strip(),
+                "channel": title[:128],
+                "thread_ts": path[:64],
+            }
+        )
+        if session is None:
+            continue
+        row = session.as_dict()
+        if _n8n_matches_query(row, query):
+            normalized.append(row)
+    data: dict[str, Any] = {"sessions": normalized, "source": "n8n"}
+    if result.status in _UP:
+        return OperateResult(
+            remote="n8n",
+            op="list",
+            ok=True,
+            detail=f"listed {len(normalized)} n8n flow(s)",
+            http_status=result.status,
+            data=data,
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote="n8n",
+            op="list",
+            ok=False,
+            detail=(
+                "n8n /api/v1/workflows requires a valid API key. "
+                "Set remotes.n8n.api_key or N8N_API_KEY "
+                "(Settings → n8n API on the n8n box)."
+            ),
+            http_status=result.status,
+            data=data,
+        )
+    return OperateResult(
+        remote="n8n",
+        op="list",
+        ok=False,
+        detail=result.error or f"n8n list failed (http {result.status})",
+        http_status=result.status,
+        data=data,
+    )
+
+
+def _n8n_split_session(session_id: str) -> tuple[str, str]:
+    sid = (session_id or "").strip()
+    wf_id, sep, rest = sid.partition(":")
+    if not sep or not wf_id or not rest:
+        return "", ""
+    return wf_id, rest
+
+
+def _n8n_reply_text(body: Any, text: str = "") -> str:
+    if isinstance(body, dict):
+        for key in ("output", "text", "message", "json"):
+            val = body.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+            if isinstance(val, dict):
+                nested = _n8n_reply_text(val, "")
+                if nested:
+                    return nested
+        data = body.get("data")
+        if isinstance(data, list) and data:
+            nested = _n8n_reply_text(data[0], "")
+            if nested:
+                return nested
+        if isinstance(data, dict):
+            nested = _n8n_reply_text(data, "")
+            if nested:
+                return nested
+    if isinstance(body, list) and body:
+        nested = _n8n_reply_text(body[0], "")
+        if nested:
+            return nested
+    raw = (text or "").strip()
+    if raw.startswith("data:"):
+        parts: list[str] = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload in ("", "[DONE]"):
+                continue
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError:
+                parts.append(payload)
+                continue
+            chunk = _n8n_reply_text(parsed, "")
+            if chunk:
+                parts.append(chunk)
+        if parts:
+            return "".join(parts)
+    return raw
+
+
+def _n8n_send(
+    spec: RemoteSpec,
+    prompt: str,
+    timeout: float,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+) -> OperateResult:
+    """Send into an existing n8n chat/webhook flow (never mints a workflow).
+
+    ``session_id`` is ``workflowId:webhookPath`` from the session list.
+    POST /webhook/<path> with ``action=sendMessage`` + ``sessionId`` resumes
+    that flow's memory; inactive flows fall back to /webhook-test/<path>.
+    """
+    sid = (session_id or target or "").strip()
+    wf_id, webhook_path = _n8n_split_session(sid)
+    if not wf_id or not webhook_path:
+        return OperateResult(
+            remote="n8n",
+            op="send",
+            ok=False,
+            detail=(
+                "Pick an n8n workflow. Open Swarm does not mint new "
+                "workflows. Pass session_id as workflow:webhook "
+                "(list the remote to see available flows)."
+            ),
+            gap="n8n_workflow_required",
+        )
+    if not prompt.strip():
+        return OperateResult(remote="n8n", op="send", ok=False, detail="prompt is required")
+    body = {
+        "action": "sendMessage",
+        "sessionId": sid,
+        "chatInput": prompt,
+    }
+    headers = _auth_headers(spec)
+    prod = f"{spec.base_url}/webhook/{webhook_path}"
+    result = http_json("POST", prod, headers=headers, body=body, timeout=timeout)
+    if result.status == 404:
+        test_url = f"{spec.base_url}/webhook-test/{webhook_path}"
+        result = http_json("POST", test_url, headers=headers, body=body, timeout=timeout)
+    reply = _n8n_reply_text(result.body, result.text)
+    if result.status in _UP and reply:
+        return OperateResult(
+            remote="n8n",
+            op="send",
+            ok=True,
+            detail=f"n8n replied in flow {wf_id}",
+            http_status=result.status,
+            data={"response": reply, "thread": sid, "workflow": wf_id},
+        )
+    if result.status in _AUTH:
+        return OperateResult(
+            remote="n8n",
+            op="send",
+            ok=False,
+            detail="n8n chat requires a valid API key (Settings → n8n API).",
+            http_status=result.status,
+            data=result.body,
+        )
+    if result.status in _UP and not reply:
+        return OperateResult(
+            remote="n8n",
+            op="send",
+            ok=False,
+            detail="n8n returned an empty chat reply",
+            http_status=result.status,
+            data=result.body or result.text,
+        )
+    return OperateResult(
+        remote="n8n",
+        op="send",
+        ok=False,
+        detail=result.error or f"n8n send failed (http {result.status})",
         http_status=result.status,
         data=result.body or result.text,
+    )
+
+
+
+_SLACK_AUTH_ERRORS = frozenset(
+    {"invalid_auth", "not_authed", "token_revoked", "account_inactive", "token_expired"}
+)
+_SLACK_CHANNEL_CAP = 20
+
+
+def _slack_method_url(spec: RemoteSpec, method: str) -> str:
+    base = (spec.base_url or "").rstrip("/")
+    return f"{base}/{method.lstrip('/')}"
+
+
+def _slack_ok(body: Any) -> bool:
+    return isinstance(body, dict) and body.get("ok") is True
+
+
+def _slack_error(body: Any, fallback: str = "") -> str:
+    if isinstance(body, dict):
+        err = str(body.get("error") or "").strip()
+        if err:
+            return err
+    return fallback
+
+
+def _slack_api(
+    spec: RemoteSpec,
+    method: str,
+    timeout: float,
+    body: dict[str, Any] | None = None,
+) -> HttpResult:
+    """POST one Slack Web API method. Slack returns HTTP 200 with ok=false."""
+    return http_json(
+        "POST",
+        _slack_method_url(spec, method),
+        headers=_auth_headers(spec),
+        body=body if body is not None else {},
+        timeout=timeout,
+    )
+
+
+def _parse_slack_session_id(raw: str) -> tuple[str, str]:
+    """Split ``channel_id:thread_ts``. thread_ts is ``epoch.seq`` (contains a dot)."""
+    sid = (raw or "").strip()
+    channel_id, _, thread_ts = sid.partition(":")
+    return channel_id.strip(), thread_ts.strip()
+
+
+def _slack_health(spec: RemoteSpec, timeout: float) -> HealthResult:
+    """POST auth.test. HTTP 200 + ok=false still means Slack is reachable."""
+    if not spec.base_url:
+        return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="base_url is empty")
+    host, port = spec.origin()
+    tcp_ms: float | None = None
+    if host and port:
+        tcp_ms = _tcp_probe(host, port, timeout)
+        if tcp_ms is None:
+            return HealthResult(
+                remote=spec.id,
+                ok=False,
+                state="DOWN",
+                detail=f"tcp {host}:{port} refused/timed out",
+                url=spec.base_url,
+            )
+    result = _slack_api(spec, "auth.test", timeout, {})
+    body = result.body if isinstance(result.body, dict) else {}
+    url = _slack_method_url(spec, "auth.test")
+    if _slack_ok(body):
+        version = {key: body[key] for key in ("team", "user", "bot_id", "url") if key in body}
+        team = str(body.get("team") or "").strip()
+        detail = "Slack auth.test ok"
+        if team:
+            detail += f" team={team}"
+        if tcp_ms is not None:
+            detail = f"tcp {tcp_ms}ms · {detail}"
+        return HealthResult(
+            remote=spec.id,
+            ok=True,
+            state="UP",
+            detail=detail,
+            http_status=result.status,
+            version=version or body,
+            latency_ms=result.latency_ms,
+            url=url,
+        )
+    err = _slack_error(body, result.error or (f"http {result.status}" if result.status else "no response"))
+    if result.status in _AUTH or err in _SLACK_AUTH_ERRORS:
+        return HealthResult(
+            remote=spec.id,
+            ok=True,
+            state="UP",
+            detail=f"Slack auth.test {err} (auth required — endpoint is alive)",
+            http_status=result.status or 401,
+            version={"auth_required": True, "error": err},
+            latency_ms=result.latency_ms,
+            url=url,
+        )
+    if result.status is not None:
+        return HealthResult(
+            remote=spec.id,
+            ok=False,
+            state="DEGRADED",
+            detail=f"Slack auth.test failed: {err}",
+            http_status=result.status,
+            latency_ms=result.latency_ms,
+            url=url,
+        )
+    return HealthResult(
+        remote=spec.id,
+        ok=False,
+        state="DEGRADED",
+        detail=f"Slack auth.test failed: {err}",
+        latency_ms=result.latency_ms,
+        url=url,
+    )
+
+
+def _slack_list(spec: RemoteSpec, timeout: float) -> OperateResult:
+    """List Slack channel threads as sessions (id = channel_id:thread_ts).
+
+    conversations.list + conversations.history. A message with ``reply_count``
+    is a thread parent — the same mapping AnythingLLM uses for workspace
+    threads. Send never mints a new thread.
+    """
+    from swarm.core.remote_harness import remote_session_from_dict
+
+    listed = _slack_api(
+        spec,
+        "conversations.list",
+        timeout,
+        {
+            "exclude_archived": True,
+            "limit": 100,
+            "types": "public_channel,private_channel,mpim,im",
+        },
+    )
+    body = listed.body if isinstance(listed.body, dict) else {}
+    data: dict[str, Any] = {"sessions": [], "source": "slack"}
+    err = _slack_error(body)
+    if listed.status in _AUTH or err in _SLACK_AUTH_ERRORS:
+        return OperateResult(
+            remote="slack",
+            op="list",
+            ok=False,
+            detail=(
+                "Slack conversations.list requires a valid bot token. "
+                "Set remotes.slack.api_key or SLACK_BOT_TOKEN "
+                "(xoxb-… env-var name only)."
+            ),
+            http_status=listed.status or 401,
+            data=data,
+        )
+    if not _slack_ok(body):
+        return OperateResult(
+            remote="slack",
+            op="list",
+            ok=False,
+            detail=f"Slack list failed: {err or listed.error or f'http {listed.status}'}",
+            http_status=listed.status,
+            data=data,
+        )
+    channels = body.get("channels") or []
+    if not isinstance(channels, list):
+        channels = []
+    normalized: list[dict[str, Any]] = []
+    scanned = 0
+    for channel in channels:
+        if not isinstance(channel, dict):
+            continue
+        channel_id = str(channel.get("id") or "").strip()
+        if not channel_id:
+            continue
+        scanned += 1
+        if scanned > _SLACK_CHANNEL_CAP:
+            break
+        channel_name = str(channel.get("name") or channel.get("user") or channel_id).strip()
+        hist = _slack_api(
+            spec,
+            "conversations.history",
+            timeout,
+            {"channel": channel_id, "limit": 100},
+        )
+        hist_body = hist.body if isinstance(hist.body, dict) else {}
+        if not _slack_ok(hist_body):
+            continue
+        messages = hist_body.get("messages") or []
+        if not isinstance(messages, list):
+            continue
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            try:
+                reply_count = int(msg.get("reply_count") or 0)
+            except (TypeError, ValueError):
+                reply_count = 0
+            if reply_count <= 0:
+                continue
+            thread_ts = str(msg.get("thread_ts") or msg.get("ts") or "").strip()
+            if not thread_ts:
+                continue
+            text = str(msg.get("text") or "").strip()
+            title = (text.splitlines()[0] if text else f"#{channel_name} thread")[:200]
+            session = remote_session_from_dict(
+                {
+                    "id": f"{channel_id}:{thread_ts}",
+                    "title": title,
+                    "snippet": text[:240],
+                    "source": "slack",
+                    "updated_at": str(msg.get("latest_reply") or thread_ts),
+                    "channel": (channel_name or channel_id)[:128],
+                    "thread_ts": thread_ts[:64],
+                }
+            )
+            if session is not None:
+                normalized.append(session.as_dict())
+    data = {"sessions": normalized, "source": "slack"}
+    return OperateResult(
+        remote="slack",
+        op="list",
+        ok=True,
+        detail=f"listed {len(normalized)} Slack thread(s) across {scanned} channel(s)",
+        http_status=listed.status,
+        data=data,
+    )
+
+
+def _slack_send(
+    spec: RemoteSpec,
+    prompt: str,
+    timeout: float,
+    *,
+    session_id: str | None = None,
+    target: str = "",
+) -> OperateResult:
+    """Post into an existing Slack thread (never mints a new one).
+
+    ``session_id`` is ``channel_id:thread_ts``. chat.postMessage with
+    ``thread_ts`` replies in that thread; conversations.replies is read once
+    for a NemoHermes bot reply (no retry loop).
+    """
+    sid = (session_id or target or "").strip()
+    channel_id, thread_ts = _parse_slack_session_id(sid)
+    if not channel_id or not thread_ts:
+        return OperateResult(
+            remote="slack",
+            op="send",
+            ok=False,
+            detail=(
+                "Pick a Slack thread. Open Swarm does not mint new "
+                "threads. Pass session_id as channel_id:thread_ts "
+                "(list the remote to see available threads)."
+            ),
+            gap="slack_thread_required",
+        )
+    if not prompt.strip():
+        return OperateResult(remote="slack", op="send", ok=False, detail="prompt is required")
+    posted = _slack_api(
+        spec,
+        "chat.postMessage",
+        timeout,
+        {"channel": channel_id, "thread_ts": thread_ts, "text": prompt},
+    )
+    body = posted.body if isinstance(posted.body, dict) else {}
+    err = _slack_error(body)
+    if posted.status in _AUTH or err in _SLACK_AUTH_ERRORS:
+        return OperateResult(
+            remote="slack",
+            op="send",
+            ok=False,
+            detail="Slack chat.postMessage requires a valid bot token (SLACK_BOT_TOKEN).",
+            http_status=posted.status or 401,
+            data=body,
+        )
+    if not _slack_ok(body):
+        return OperateResult(
+            remote="slack",
+            op="send",
+            ok=False,
+            detail=f"Slack send failed: {err or posted.error or f'http {posted.status}'}",
+            http_status=posted.status,
+            data=body or posted.text,
+        )
+    posted_ts = str(body.get("ts") or "").strip()
+    replies = _slack_api(
+        spec,
+        "conversations.replies",
+        timeout,
+        {"channel": channel_id, "ts": thread_ts, "limit": 50},
+    )
+    reply_text = ""
+    replies_body = replies.body if isinstance(replies.body, dict) else {}
+    if _slack_ok(replies_body):
+        messages = replies_body.get("messages") or []
+        if isinstance(messages, list):
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                ts = str(msg.get("ts") or "")
+                if ts == thread_ts:
+                    continue
+                if posted_ts and ts and ts <= posted_ts:
+                    continue
+                if msg.get("bot_id") or msg.get("subtype") == "bot_message":
+                    reply_text = str(msg.get("text") or "").strip()
+                    if reply_text:
+                        break
+    data: dict[str, Any] = {
+        "channel": channel_id,
+        "thread": f"{channel_id}:{thread_ts}",
+        "posted_ts": posted_ts,
+    }
+    if reply_text:
+        data["response"] = reply_text
+        detail = f"Slack thread {thread_ts} replied"
+    else:
+        detail = f"posted into Slack thread {thread_ts}; no NemoHermes reply yet"
+    return OperateResult(
+        remote="slack",
+        op="send",
+        ok=True,
+        detail=detail,
+        http_status=posted.status,
+        data=data,
     )
 
 
@@ -2666,13 +5609,17 @@ def operate(
     prompt: str = "",
     target: str = "",
     config: dict[str, Any] | None = None,
-    timeout: float = _OPERATE_TIMEOUT_S,
+    timeout: float | None = None,
     session_id: str | None = None,
+    query: str = "",
 ) -> OperateResult:
     """List or send a job. Never raises; never crash-loops.
 
     ``session_id`` is a stored remote thread (#369-style). REQ-65 on-mode
-    agents drop it so each task starts a new remote job.
+    agents drop it so each task starts a new remote job. ``query`` filters
+    session-capable list results (Open WebUI chats, AnythingLLM threads, Letta agents).
+    List stays on the short operate bound; send (poll-for-reply) uses the
+    longer send bound so a real remote turn is not aborted as hung (#302).
     """
     try:
         from swarm.core.session_policy import resume_remote_session_id
@@ -2684,6 +5631,8 @@ def operate(
         action = (op or "list").strip().lower()
         if action in ("start", "job", "run"):
             action = "send"
+        if timeout is None:
+            timeout = _OPERATE_SEND_TIMEOUT_S if action == "send" else _OPERATE_LIST_TIMEOUT_S
         if action == "interrogate" and rkind != "herdr":
             return OperateResult(
                 remote=rid,
@@ -2725,8 +5674,43 @@ def operate(
                 spec, prompt, timeout, session_id=resume_id
             )
         if rkind == "anythingllm":
-            return _anythingllm_list(spec, timeout) if action == "list" else _anythingllm_send(
-                spec, prompt, timeout, session_id=resume_id
+            if action == "list":
+                return _anythingllm_list(spec, timeout, query=query or prompt)
+            send_timeout = timeout if timeout >= 30 else _ANYTHINGLLM_SEND_TIMEOUT_S
+            return _anythingllm_send(
+                spec, prompt, send_timeout, session_id=resume_id, target=target
+            )
+        if rkind == "letta":
+            if action == "list":
+                return _letta_list(spec, timeout, query=query or prompt)
+            send_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
+            return _letta_send(
+                spec, prompt, send_timeout, session_id=resume_id, target=target
+            )
+        if rkind == "openwebui":
+            from swarm.core.openwebui_remote import openwebui_list, openwebui_send, send_timeout as owui_send_timeout
+            if action == "list":
+                return openwebui_list(spec, timeout, query=query or prompt)
+            return openwebui_send(
+                spec, prompt, owui_send_timeout(timeout), session_id=resume_id, target=target
+            )
+        if rkind == "flowise":
+            if action == "list":
+                return _flowise_list(spec, timeout, query=query or prompt)
+            send_timeout = timeout if timeout >= 30 else _FLOWISE_SEND_TIMEOUT_S
+            return _flowise_send(
+                spec, prompt, send_timeout, session_id=resume_id, target=target
+            )
+        if rkind == "n8n":
+            if action == "list":
+                return _n8n_list(spec, timeout, query=query or prompt)
+            send_timeout = timeout if timeout >= 30 else _N8N_SEND_TIMEOUT_S
+            return _n8n_send(
+                spec, prompt, send_timeout, session_id=resume_id, target=target
+            )
+        if rkind == "slack":
+            return _slack_list(spec, timeout) if action == "list" else _slack_send(
+                spec, prompt, timeout, session_id=resume_id, target=target
             )
         if rkind == "omb":
             return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
@@ -2801,6 +5785,84 @@ def _anythingllm_send_bound(
     return _anythingllm_send(spec, prompt, timeout, session_id=session_id, target=target)
 
 
+def _slack_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    return _slack_send(spec, prompt, timeout, session_id=session_id, target=target)
+
+
+
+def _n8n_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    send_timeout = timeout if timeout != _OPERATE_TIMEOUT_S else _N8N_SEND_TIMEOUT_S
+    return _n8n_send(spec, prompt, send_timeout, session_id=session_id, target=target)
+
+
+
+def _flowise_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    send_timeout = timeout if timeout >= 30 else _FLOWISE_SEND_TIMEOUT_S
+    return _flowise_send(spec, prompt, send_timeout, session_id=session_id, target=target)
+
+
+
+def _openwebui_list_bound(
+    spec: RemoteSpec, *, timeout: float, config: dict[str, Any] | None = None  # noqa: ARG001
+) -> OperateResult:
+    from swarm.core.openwebui_remote import openwebui_list
+
+    return openwebui_list(spec, timeout)
+
+
+def _openwebui_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    *,
+    target: str = "",
+    timeout: float,
+    session_id: str | None = None,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+) -> OperateResult:
+    from swarm.core.openwebui_remote import openwebui_send, send_timeout
+
+    return openwebui_send(
+        spec, prompt, send_timeout(timeout), session_id=session_id, target=target
+    )
+
+
+def _letta_send_bound(
+    spec: RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> OperateResult:
+    send_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
+    return _letta_send(spec, prompt, send_timeout, session_id=session_id, target=target)
+
+
 def _omb_send_bound(
     spec: RemoteSpec,
     prompt: str,
@@ -2808,9 +5870,9 @@ def _omb_send_bound(
     *,
     timeout: float,
     config: dict[str, Any] | None = None,  # noqa: ARG001
-    session_id: str | None = None,  # noqa: ARG001
+    session_id: str | None = None,
 ) -> OperateResult:
-    return _omb_send(spec, prompt, target, timeout)
+    return _omb_send(spec, prompt, target or (session_id or ""), timeout)
 
 
 def _rakazo_send_bound(
@@ -2963,6 +6025,56 @@ def _install_remote_harnesses() -> None:
             health_fn=_bind_health("anythingllm"),
             list_fn=_bind_http_list(_anythingllm_list),
             send_fn=_anythingllm_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="letta",
+            label="Letta",
+            capabilities=capabilities_for("letta"),
+            health_fn=_bind_health("letta"),
+            list_fn=_bind_http_list(_letta_list),
+            send_fn=_letta_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="openwebui",
+            label="Open WebUI",
+            capabilities=capabilities_for("openwebui"),
+            health_fn=_bind_health("openwebui"),
+            list_fn=_openwebui_list_bound,
+            send_fn=_openwebui_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="flowise",
+            label="Flowise",
+            capabilities=capabilities_for("flowise"),
+            health_fn=_bind_health("flowise"),
+            list_fn=_bind_http_list(_flowise_list),
+            send_fn=_flowise_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="n8n",
+            label="n8n",
+            capabilities=capabilities_for("n8n"),
+            health_fn=_bind_health("n8n"),
+            list_fn=_bind_http_list(_n8n_list),
+            send_fn=_n8n_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="slack",
+            label="Slack",
+            capabilities=capabilities_for("slack"),
+            health_fn=_bind_health("slack"),
+            list_fn=_bind_http_list(_slack_list),
+            send_fn=_slack_send_bound,
         )
     )
     register_harness(

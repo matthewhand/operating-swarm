@@ -439,6 +439,15 @@ describe('AgentRouterPage integration', () => {
     expect(within(screen.getByRole('main')).queryByText('Thinking & routing…')).not.toBeInTheDocument()
   })
 
+  it('#403 header wraps backends so the agent name stays readable', async () => {
+    renderPage()
+    const header = await screen.findByTestId('agents-chat-header')
+    expect(header.className).toMatch(/flex-wrap/)
+    expect(screen.getByTestId('agents-header-backends')).toBeInTheDocument()
+    const nameBtn = within(header).getByRole('button', { name: /click to edit name/i })
+    expect(nameBtn.className).not.toMatch(/max-w-\[12rem\]/)
+  })
+
   it('edits the bot name and purpose from the chat header', async () => {
     renderPage()
     const header = screen.getByRole('banner')
@@ -717,12 +726,12 @@ describe('AgentRouterPage integration', () => {
   it('populates input from quick prompt starter pill', async () => {
     renderPage()
 
-    const pill = screen.getByRole('button', { name: /Explain Open Swarm/i })
+    const pill = screen.getByRole('button', { name: /Explain Operating Swarm/i })
     fireEvent.click(pill)
 
     const input = getChatInput()
     expect(input).toHaveValue(
-      'Explain Open Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
+      'Explain Operating Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
     )
   })
 
@@ -815,6 +824,10 @@ describe('AgentRouterPage integration', () => {
     expect(within(dialog).getByDisplayValue('Chief of Staff')).toBeInTheDocument()
     expect(within(dialog).getByDisplayValue('Engineer')).toBeInTheDocument()
     expect(within(dialog).getByDisplayValue('Skeptic')).toBeInTheDocument()
+    expect(within(dialog).getByRole('textbox', { name: 'Persona 1 name' })).toHaveDisplayValue(
+      'Chief of Staff',
+    )
+    expect(within(dialog).getByRole('textbox', { name: 'Persona 1 instructions' })).toBeInTheDocument()
   })
 
   it('saves the current agents as a named team and reloads Unsaved', async () => {

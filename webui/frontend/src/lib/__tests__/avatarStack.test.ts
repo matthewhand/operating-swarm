@@ -9,6 +9,7 @@ import {
   selectStackedFaces,
   stackAnimationDelayMs,
   teamSidepaneStack,
+  markStackWorking,
   type StackFace,
 } from '../avatarStack'
 
@@ -35,25 +36,30 @@ describe('avatarStack', () => {
     expect(plan.faces.map((row) => row.id)).toEqual(['m4', 'm3'])
   })
 
-  it('teamSidepaneStack: shows every member at 4 or fewer, 2 + N above that', () => {
-    expect(TEAM_STACK_ALL_MAX).toBe(4)
+  it('teamSidepaneStack: 1–3 members show all faces; 4+ show 2 + N', () => {
+    expect(TEAM_STACK_ALL_MAX).toBe(3)
     expect(TEAM_STACK_FACE_LIMIT).toBe(2)
 
-    const three = [1, 2, 3].map((n) => face(`m${n}`, n * 100))
-    const small = teamSidepaneStack(three)
-    expect(small.faces.map((f) => f.id)).toEqual(['m1', 'm2', 'm3'])
-    expect(small.remainder).toBe(0)
+    const one = teamSidepaneStack([face('m1', 100)])
+    expect(one.faces.map((f) => f.id)).toEqual(['m1'])
+    expect(one.remainder).toBe(0)
 
-    const four = [1, 2, 3, 4].map((n) => face(`m${n}`, n * 100))
-    const exact = teamSidepaneStack(four)
-    expect(exact.faces).toHaveLength(4)
-    expect(exact.remainder).toBe(0)
+    const two = teamSidepaneStack([1, 2].map((n) => face(`m${n}`, n * 100)))
+    expect(two.faces.map((f) => f.id)).toEqual(['m1', 'm2'])
+    expect(two.remainder).toBe(0)
 
-    const five = [1, 2, 3, 4, 5].map((n) => face(`m${n}`, n * 100))
-    const crowded = teamSidepaneStack(five)
+    const three = teamSidepaneStack([1, 2, 3].map((n) => face(`m${n}`, n * 100)))
+    expect(three.faces.map((f) => f.id)).toEqual(['m1', 'm2', 'm3'])
+    expect(three.remainder).toBe(0)
+
+    const four = teamSidepaneStack([1, 2, 3, 4].map((n) => face(`m${n}`, n * 100)))
+    expect(four.faces.map((f) => f.id)).toEqual(['m1', 'm2'])
+    expect(four.remainder).toBe(2)
+
+    const five = teamSidepaneStack([1, 2, 3, 4, 5].map((n) => face(`m${n}`, n * 100)))
     // Roster order preserved — first 2 members, not most-recent.
-    expect(crowded.faces.map((f) => f.id)).toEqual(['m1', 'm2'])
-    expect(crowded.remainder).toBe(3)
+    expect(five.faces.map((f) => f.id)).toEqual(['m1', 'm2'])
+    expect(five.remainder).toBe(3)
   })
 
   it('staggers animation delay by startedAt so four faces do not lockstep', () => {
@@ -68,6 +74,14 @@ describe('avatarStack', () => {
     expect(isAvatarStack(1, 0)).toBe(false)
     expect(isAvatarStack(2, 0)).toBe(true)
     expect(isAvatarStack(1, 1)).toBe(true)
+  })
+
+  it('#432 markStackWorking flags faces whose id is running', () => {
+    const faces = [face('ada', 1), face('bea', 2)]
+    const marked = markStackWorking(faces, (id) => id === 'bea')
+    expect(marked.anyWorking).toBe(true)
+    expect(marked.faces.map((row) => row.working)).toEqual([false, true])
+    expect(markStackWorking(faces, () => false).anyWorking).toBe(false)
   })
 
   it('parses startedAt from a number, ISO string, or fallback index', () => {

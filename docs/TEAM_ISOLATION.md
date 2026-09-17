@@ -53,4 +53,7 @@ Code: `swarm.core.agent_roles`, `swarm.core.team_rosters`,
 Peer mailbox (`list_agents` / `send_message`, REQ-153) is a **different**
 channel: same-kind API tools, team-scoped plus relationship edges. CoS/Support
 are allow-all same-kind on that graph, then REQ-162 whitelist/blacklist ACL
-applies. See [ADR-009](./adr/009-peer-mailbox.md).
+applies. A locked rail section (Issue #163) further restricts mailbox talk to
+members of that section; CoS/Support allow-all does not bypass it. See
+[ADR-009](./adr/009-peer-mailbox.md) and
+[ISSUE-163-section-internal-talk.md](./qa/ISSUE-163-section-internal-talk.md).

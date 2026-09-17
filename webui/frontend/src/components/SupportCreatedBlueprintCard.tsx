@@ -1,31 +1,72 @@
-import { useContext, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useContext, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { QueryClientContext } from '@tanstack/react-query'
 import { FileCode2, EyeOff } from 'lucide-react'
 import { Button, Textarea } from './DaisyUI'
+import { createCustomBlueprint } from '../lib/api'
 import {
+  ADD_AS_AGENT_LABEL,
+  SAVE_AS_BLUEPRINT_LABEL,
   VIEW_EDIT_CODE_LABEL,
   type SupportNlBlueprintCard,
 } from '../lib/supportNlBlueprint'
+import { focusAgentChat } from '../lib/agentNotifications'
 
 export interface SupportCreatedBlueprintCardProps {
   card: SupportNlBlueprintCard
 }
 
 /**
- * REQ-158: Support-created team is usable; Python stays hidden until asked.
+ * REQ-158 / #440: Support-drafted team. Persist is Add as agent / Save as blueprint.
  */
 export default function SupportCreatedBlueprintCard({
   card,
 }: SupportCreatedBlueprintCardProps) {
   const [revealed, setRevealed] = useState(false)
+  const [persisted, setPersisted] = useState(card.persisted)
+  const [busy, setBusy] = useState<'add' | 'save' | null>(null)
+  const [error, setError] = useState('')
   const queryClient = useContext(QueryClientContext)
+  const navigate = useNavigate()
 
-  useEffect(() => {
-    if (queryClient) {
-      void queryClient.invalidateQueries({ queryKey: ['blueprints'] })
+  const openSeat = (id: string) => {
+    const href = card.chatHref || `/chat?blueprint=${encodeURIComponent(id)}`
+    navigate(href)
+    focusAgentChat(id)
+  }
+
+  const persist = async (asAgent: boolean) => {
+    if (persisted) {
+      if (asAgent) openSeat(card.id)
+      return
     }
-  }, [queryClient, card.id])
+    setBusy(asAgent ? 'add' : 'save')
+    setError('')
+    try {
+      const created = await createCustomBlueprint({
+        id: card.id,
+        name: card.title,
+        description: card.description || card.graphLabel,
+        code: card.code,
+        category: 'api',
+        tags: ['support-nl', 'handoff', 'team'],
+        kind: 'api',
+        rail: true,
+        source: card.source || 'support-nl',
+      })
+      setPersisted(true)
+      await queryClient?.invalidateQueries({ queryKey: ['blueprints'] })
+      await queryClient?.invalidateQueries({ queryKey: ['custom-blueprints'] })
+      if (asAgent) {
+        const id = created.id || card.id
+        openSeat(id)
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <div
@@ -36,12 +77,14 @@ export default function SupportCreatedBlueprintCard({
       <div className="card-body p-3 gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h4 className="card-title text-sm m-0">{card.title}</h4>
-          {card.usable ? (
+          {persisted ? (
             <span className="badge badge-success badge-sm" data-testid="support-nl-usable">
               Usable
             </span>
           ) : (
-            <span className="badge badge-warning badge-sm">Not on rail</span>
+            <span className="badge badge-warning badge-sm" data-testid="support-nl-draft">
+              Draft
+            </span>
           )}
         </div>
         <p className="text-sm text-base-content/80 m-0" data-testid="support-nl-graph">
@@ -52,13 +95,31 @@ export default function SupportCreatedBlueprintCard({
           not write Python.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Link
-            to={card.chatHref}
+          <button
+            type="button"
             className="btn btn-primary btn-xs"
-            data-testid="support-nl-open-chat"
+            data-testid="support-nl-add-agent"
+            disabled={busy !== null}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void persist(true)
+            }}
           >
-            Open in chat
-          </Link>
+            {busy === 'add' ? 'Adding…' : ADD_AS_AGENT_LABEL}
+          </button>
+          {!persisted ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              data-testid="support-nl-save-blueprint"
+              disabled={busy !== null}
+              onClick={() => void persist(false)}
+            >
+              {busy === 'save' ? 'Saving…' : SAVE_AS_BLUEPRINT_LABEL}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -76,6 +137,11 @@ export default function SupportCreatedBlueprintCard({
             {revealed ? 'Hide code' : VIEW_EDIT_CODE_LABEL}
           </Button>
         </div>
+        {error ? (
+          <p className="text-xs text-error m-0" data-testid="support-nl-save-error">
+            {error}
+          </p>
+        ) : null}
         {revealed ? (
           <Textarea
             aria-label="Blueprint Python source"

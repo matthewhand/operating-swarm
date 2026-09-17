@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
+import LlmProfileAddForm from './LlmProfileAddForm'
 import InferenceOrderList, { type InferenceCatalogOption } from './InferenceOrderList'
 import {
   fetchBlueprints,
@@ -47,6 +48,21 @@ import {
   saveAgentSettings,
 } from '../lib/agentSettings'
 import {
+  EMPTY_VOICE_BIND,
+  parseSpeechMode,
+  parseVoiceBind,
+  type AgentVoiceBind,
+  type SpeechMode,
+} from '../lib/agentVoiceBind'
+import {
+  STREAM_REPLIES_SEAT_LABEL,
+  STREAM_REPLIES_SEAT_TOOLTIP,
+  loadSeatStreamReplies,
+  parseSeatStreamReplies,
+  saveSeatStreamReplies,
+  type SeatStreamReplies,
+} from '../lib/streamReplies'
+import {
   agentRole,
   applyBlueprintAssignment,
   assignableBlueprints,
@@ -62,6 +78,14 @@ import { defaultAvatarPrompt, isImageGenConfigured, parseImageGenSettings } from
 import AgentAvatar from './AgentAvatar'
 import { openSettingsSheet } from './SettingsSheet'
 import MailboxAclEditor from './MailboxAclEditor'
+import { ContextUsageDetail } from './ContextUsageDetail'
+import { peekConversationIdForAgent } from '../lib/agentChat'
+import CreateRoleModal from './CreateRoleModal'
+import {
+  CUSTOM_ROLES_UPDATED_EVENT,
+  findCustomRole,
+  loadCustomRoles,
+} from '../lib/customRoles'
 
 /** Window event so the rail hover-edit and tests can open the agent editor. */
 export const OPEN_AGENT_EDITOR_EVENT = 'swarm:open-agent-editor'
@@ -105,6 +129,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const id = agentId || ''
   const toggleId = useId()
   const suggestionsToggleId = useId()
+  const autoSpeakId = useId()
   const { success, error: toastError } = useToast()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -115,6 +140,9 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [profileOverride, setProfileOverride] = useState('')
   const [newChatPerTask, setNewChatPerTask] = useState(false)
   const [useSuggestions, setUseSuggestions] = useState(false)
+  const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
+  const [streamReplies, setStreamReplies] = useState<SeatStreamReplies>(null)
+  const streamRepliesId = useId()
   const [savingSettings, setSavingSettings] = useState(false)
   const [boundRemoteId, setBoundRemoteId] = useState('')
   const [inferenceSeats, setInferenceSeats] = useState<InferenceSeat[]>([])
@@ -124,6 +152,36 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [githubRepo, setGithubRepo] = useState('')
   const [repoError, setRepoError] = useState<string | null>(null)
   const [attachedSkills, setAttachedSkills] = useState<string[]>([])
+  const [addingProfile, setAddingProfile] = useState(false)
+  const [customRoles, setCustomRoles] = useState(() => loadCustomRoles())
+  const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false)
+
+  useEffect(() => {
+    const handleCustomRoles = () => setCustomRoles(loadCustomRoles())
+    window.addEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
+    return () => window.removeEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
+  }, [])
+
+  const allRoleOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [
+      ...ROLE_OPTIONS,
+      { value: 'advisor', label: 'advisor' },
+    ]
+    for (const cr of customRoles) {
+      if (!options.some((o) => o.value === cr.name)) {
+        options.push({ value: cr.name, label: cr.label || cr.name })
+      }
+    }
+    return options
+  }, [customRoles])
+
+  const handleRoleSelect = (val: string) => {
+    if (val === '__new_role__') {
+      setIsCreateRoleModalOpen(true)
+      return
+    }
+    persistRole(val as AgentRole)
+  }
 
   const blueprintsQuery = useQuery({
     queryKey: ['blueprints'],
@@ -257,6 +315,8 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
       if (!cancelled) {
         setNewChatPerTask(settings.new_chat_per_task)
         setUseSuggestions(settings.use_suggestions)
+        setVoiceBind(parseVoiceBind(settings))
+        setStreamReplies(loadSeatStreamReplies(id))
         if (!edit.folder && settings.folder) {
           setFolder(settings.folder)
         }
@@ -284,6 +344,17 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     setSavingSettings(true)
     try {
       await saveAgentSettings(id, { use_suggestions: next })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const persistVoicePatch = async (patch: Partial<AgentVoiceBind>) => {
+    setVoiceBind((prev) => ({ ...prev, ...patch }))
+    if (!id) return
+    setSavingSettings(true)
+    try {
+      await saveAgentSettings(id, patch)
     } finally {
       setSavingSettings(false)
     }
@@ -422,16 +493,17 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             label="Role"
             name="agent-role"
             value={role}
-            onChange={(event) => persistRole(event.target.value as AgentRole)}
+            onChange={(event) => handleRoleSelect(event.target.value)}
           >
-            {ROLE_OPTIONS.map((option) => (
+            {allRoleOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
+            <option value="__new_role__">+ Create new role…</option>
           </Select>
           <p className="text-xs text-base-content/70 mt-1" data-testid="role-explanation">
-            {ROLE_BRIEFS[role] || ROLE_BRIEFS.default}
+            {ROLE_BRIEFS[role] || findCustomRole(role)?.mechanism_detail || ROLE_BRIEFS.default}
           </p>
           <p className="text-xs text-base-content/55 mt-1" data-testid="role-override-rule">
             Changing Role here wins over the blueprint default. Re-picking a
@@ -579,6 +651,178 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
               </p>
             </div>
           )}
+        </div>
+
+        <div
+          className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+          data-testid="agent-editor-voice"
+        >
+          <div>
+            <span className="text-sm font-semibold text-base-content/80">Voice</span>
+            <p className="text-xs text-base-content/60 mt-0.5">
+              This robot&apos;s voice chat. Inherit uses Settings → Speech. Empty bind
+              stays on the global path.
+            </p>
+          </div>
+          <Select
+            label="Speech mode"
+            name="agent-speech-mode"
+            size="sm"
+            aria-label="Speech mode"
+            value={voiceBind.speech_mode}
+            disabled={!id || savingSettings}
+            onChange={(event) => {
+              const next = parseSpeechMode(event.target.value)
+              void persistVoicePatch({ speech_mode: next as SpeechMode })
+            }}
+          >
+            <option value="inherit">Inherit global speech</option>
+            <option value="voice">Voice (this agent)</option>
+            <option value="endpoint">This robot&apos;s audio endpoint</option>
+          </Select>
+          {voiceBind.speech_mode !== 'inherit' ? (
+            <>
+              <Input
+                label="TTS voice"
+                name="agent-tts-voice"
+                size="sm"
+                value={voiceBind.tts_voice}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_voice: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_voice: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Textarea
+                label="Voice instruction"
+                name="agent-tts-voice-instruction"
+                value={voiceBind.tts_voice_instruction}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({
+                    ...prev,
+                    tts_voice_instruction: event.target.value,
+                  }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_voice_instruction: event.target.value.trim() })
+                }}
+                rows={3}
+                spellCheck={false}
+              />
+            </>
+          ) : null}
+          {voiceBind.speech_mode === 'endpoint' ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input
+                label="STT base URL"
+                name="agent-stt-base-url"
+                size="sm"
+                value={voiceBind.stt_base_url}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_base_url: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_base_url: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="STT model"
+                name="agent-stt-model"
+                size="sm"
+                value={voiceBind.stt_model}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_model: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_model: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="STT API key env"
+                name="agent-stt-api-key-env"
+                size="sm"
+                value={voiceBind.stt_api_key_env}
+                disabled={!id || savingSettings}
+                placeholder="STT_API_KEY"
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_api_key_env: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_api_key_env: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS base URL"
+                name="agent-tts-base-url"
+                size="sm"
+                value={voiceBind.tts_base_url}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_base_url: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_base_url: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS model"
+                name="agent-tts-model"
+                size="sm"
+                value={voiceBind.tts_model}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_model: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_model: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS API key env"
+                name="agent-tts-api-key-env"
+                size="sm"
+                value={voiceBind.tts_api_key_env}
+                disabled={!id || savingSettings}
+                placeholder="TTS_API_KEY"
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_api_key_env: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_api_key_env: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+            </div>
+          ) : null}
+          <label
+            htmlFor={autoSpeakId}
+            className="label cursor-pointer items-center justify-between gap-4 px-0 py-1"
+          >
+            <span className="label-text text-sm">Auto-speak replies</span>
+            <input
+              id={autoSpeakId}
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              role="switch"
+              aria-label="Auto-speak replies"
+              checked={voiceBind.auto_speak_replies}
+              disabled={!id || savingSettings}
+              onChange={(event) => {
+                void persistVoicePatch({ auto_speak_replies: event.target.checked })
+              }}
+            />
+          </label>
         </div>
 
         {/* LLM Override Picker by Kind (REQ-124) */}
@@ -747,6 +991,25 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
                 </select>
               </div>
             </div>
+            {addingProfile ? (
+              <LlmProfileAddForm
+                className="space-y-3 rounded-box border border-base-300 bg-base-100 p-3"
+                onCancel={() => setAddingProfile(false)}
+                onSaved={async () => {
+                  setAddingProfile(false)
+                  await llmProfilesQuery.refetch()
+                }}
+              />
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAddingProfile(true)}
+              >
+                Add LLM profile
+              </Button>
+            )}
           </div>
         )}
 
@@ -782,6 +1045,13 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             void saveAgentSettings(id, { folder: next.folder.trim() })
           }}
         />
+
+        {id ? (
+          <ContextUsageDetail
+            agentId={id}
+            conversationId={peekConversationIdForAgent(id)}
+          />
+        ) : null}
 
         <div
           className="tooltip tooltip-bottom w-full text-left"
@@ -827,6 +1097,34 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
           </label>
         </div>
 
+        <div
+          className="tooltip tooltip-bottom w-full text-left"
+          data-tip={STREAM_REPLIES_SEAT_TOOLTIP}
+        >
+          <label htmlFor={streamRepliesId} className="label py-0">
+            <span className="label-text text-base font-semibold">{STREAM_REPLIES_SEAT_LABEL}</span>
+          </label>
+          <select
+            id={streamRepliesId}
+            className="select select-bordered w-full"
+            aria-label={STREAM_REPLIES_SEAT_LABEL}
+            data-testid="seat-stream-replies"
+            value={streamReplies === null ? 'inherit' : streamReplies ? 'on' : 'off'}
+            disabled={!id}
+            onChange={(event) => {
+              const next = parseSeatStreamReplies(
+                event.target.value === 'inherit' ? 'inherit' : event.target.value,
+              )
+              setStreamReplies(next)
+              if (id) saveSeatStreamReplies(id, next)
+            }}
+          >
+            <option value="inherit">Inherit user preference</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -845,6 +1143,14 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
           Close
         </Button>
       </div>
+
+      <CreateRoleModal
+        isOpen={isCreateRoleModalOpen}
+        onClose={() => setIsCreateRoleModalOpen(false)}
+        onCreated={(newRoleName) => {
+          persistRole(newRoleName as AgentRole)
+        }}
+      />
     </Modal>
   )
 }

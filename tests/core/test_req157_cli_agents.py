@@ -27,7 +27,18 @@ def test_known_clis_are_documented():
     names = set(cli_catalog.catalog_names())
     # omp (#193) and qwen joined the shipped catalog after REQ-157 froze the
     # original seven; keep the tuple-order contract for all of them.
-    assert names == {"agy", "claude", "codex", "gemini", "grok", "omp", "opencode", "pi", "qwen"}
+    assert names == {
+        "agy",
+        "claude",
+        "codex",
+        "gemini",
+        "grok",
+        "kilocode",
+        "omp",
+        "opencode",
+        "pi",
+        "qwen",
+    }
     assert tuple(cli_catalog.KNOWN_CLIS) == tuple(cli_catalog.catalog_names())
     assert cli_catalog.executable_for("agy") == "agy"
 
@@ -115,7 +126,9 @@ def test_source_locks_opt_in_and_github_only():
     assert "Never ``auth_check``" in catalog or "never ``auth_check``" in catalog
     assert "cli_agents_catalog_payload" in view
     assert "No CLI agents configured yet" in pane
-    assert "Suggested CLI agents" in pane
+    assert 'aria-label="CLI agents"' in pane
+    assert "Show unavailable" in pane
+    assert "os-cli-settings-btn" in pane
     assert "info?.configured" in context
     assert "info?.clis" not in context
     assert "installed_catalog_clis" not in support

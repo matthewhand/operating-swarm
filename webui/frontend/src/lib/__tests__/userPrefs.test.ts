@@ -4,6 +4,7 @@ import { DEFAULT_PINNED_SUPPORT, PINNED_AGENTS_STORAGE_KEY } from '../pinnedAgen
 import { HOSTNAME_OVERRIDE_KEY } from '../settingsPrefs'
 import { AGENT_DROPDOWNS_STORAGE_KEY } from '../agentSettings'
 import {
+  USER_PREFS_CHANGED_EVENT,
   USER_PREFS_PATH,
   hydrateRailPrefs,
   parseAutoCompressPct,
@@ -291,5 +292,47 @@ describe('userPrefs', () => {
     expect(JSON.parse(String(call?.[1]?.body || '{}')).values).toEqual({
       agent_dropdowns: { cli_agent: { cli: 'grok' } },
     })
+  })
+
+  it('saveUserPrefs dispatches USER_PREFS_CHANGED_EVENT when PATCH returns prefs', async () => {
+    const seen: unknown[] = []
+    const onChange = (event: Event) => {
+      seen.push((event as CustomEvent).detail)
+    }
+    window.addEventListener(USER_PREFS_CHANGED_EVENT, onChange)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          object: 'user_preferences',
+          empty: false,
+          favourites: [],
+          hidden_agents: [],
+          hostname_override: '',
+          context_strategy: 'cull',
+        }),
+      ),
+    )
+    const saved = await saveUserPrefs({ context_strategy: 'cull' })
+    window.removeEventListener(USER_PREFS_CHANGED_EVENT, onChange)
+    expect(saved?.context_strategy).toBe('cull')
+    expect(seen).toHaveLength(1)
+    expect((seen[0] as { context_strategy?: string }).context_strategy).toBe('cull')
+  })
+
+  it('saveUserPrefs returns null and does not dispatch when PATCH fails', async () => {
+    const seen: unknown[] = []
+    const onChange = (event: Event) => {
+      seen.push((event as CustomEvent).detail)
+    }
+    window.addEventListener(USER_PREFS_CHANGED_EVENT, onChange)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ error: 'nope' }, false)),
+    )
+    const saved = await saveUserPrefs({ hostname_override: 'lab-box' })
+    window.removeEventListener(USER_PREFS_CHANGED_EVENT, onChange)
+    expect(saved).toBeNull()
+    expect(seen).toHaveLength(0)
   })
 })

@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
+from pathlib import Path
 from typing import Callable, Mapping, TextIO
 from urllib.parse import quote, urlparse, urlunparse
+
+from swarm.core.paths import get_user_data_dir_for_swarm
 
 # sysexits.h EX_CONFIG — systemd RestartPreventExitStatus=78 (Neon runbook).
 EX_CONFIG = 78
@@ -29,8 +33,46 @@ _QUOTA_MARKERS = (
 
 _POSTGRES_ENGINES = frozenset({"postgres", "postgresql", "postgresql_psycopg2"})
 
-DEFAULT_SQLITE_NAME = "/tmp/db.sqlite3"
-DEFAULT_SQLITE_TEST_NAME = "/tmp/test_db.sqlite3"
+
+def _is_pytest_env(env: Mapping[str, str]) -> bool:
+    """True when this process is pytest (isolated sqlite, not operator XDG)."""
+    if "PYTEST_VERSION" in env:
+        return True
+    if env is os.environ and ("pytest" in sys.modules or "PYTEST_VERSION" in os.environ):
+        return True
+    return False
+
+
+def _ensure_private_dir(path: Path) -> None:
+    """Create ``path`` with user-only permissions (0700)."""
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path, 0o700)
+    except OSError:
+        pass
+
+
+def _harden_sqlite_file(path: Path) -> None:
+    if path.is_file():
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+
+def default_sqlite_name() -> str:
+    """Native SQLite path: ``<get_user_data_dir_for_swarm()>/db.sqlite3`` (never ``/tmp``)."""
+    return str(get_user_data_dir_for_swarm() / "db.sqlite3")
+
+
+def default_sqlite_test_name() -> str:
+    return str(get_user_data_dir_for_swarm() / "test_db.sqlite3")
+
+
+def _pytest_sqlite_dir() -> Path:
+    d = Path(tempfile.gettempdir()) / f"swarm-pytest-{os.getpid()}"
+    _ensure_private_dir(d)
+    return d
 
 
 def _env_get(env: Mapping[str, str], key: str) -> str:
@@ -69,11 +111,17 @@ def resolve_database_url(env: Mapping[str, str] | None = None) -> str | None:
 
 def sqlite_name(env: Mapping[str, str] | None = None) -> str:
     env = os.environ if env is None else env
-    return (
-        _env_get(env, "DJANGO_DB_NAME")
-        or _env_get(env, "SQLITE_DB_PATH")
-        or DEFAULT_SQLITE_NAME
-    )
+    explicit = _env_get(env, "DJANGO_DB_NAME") or _env_get(env, "SQLITE_DB_PATH")
+    if explicit:
+        return explicit
+    if _is_pytest_env(env):
+        path = _pytest_sqlite_dir() / "db.sqlite3"
+        _harden_sqlite_file(path)
+        return str(path)
+    path = Path(default_sqlite_name())
+    _ensure_private_dir(path.parent)
+    _harden_sqlite_file(path)
+    return str(path)
 
 
 def django_databases(env: Mapping[str, str] | None = None) -> dict:
@@ -88,7 +136,14 @@ def django_databases(env: Mapping[str, str] | None = None) -> dict:
                 url, conn_max_age=600, conn_health_checks=True
             ),
         }
-    test_name = _env_get(env, "DJANGO_TEST_DB_NAME") or DEFAULT_SQLITE_TEST_NAME
+    test_name = _env_get(env, "DJANGO_TEST_DB_NAME")
+    if not test_name:
+        if _is_pytest_env(env):
+            test_name = str(_pytest_sqlite_dir() / "test_db.sqlite3")
+        else:
+            test_path = Path(default_sqlite_test_name())
+            _ensure_private_dir(test_path.parent)
+            test_name = str(test_path)
     return {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",

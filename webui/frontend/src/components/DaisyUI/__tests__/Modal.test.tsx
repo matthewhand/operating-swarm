@@ -59,7 +59,7 @@ describe('Modal Accessibility and Focus Restoration', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps FocusTrap mounted and toggles active with isOpen', () => {
+  it('toggles modal-open and aria-modal with isOpen without a FocusTrap wrapper', () => {
     const onClose = vi.fn();
     const { rerender } = render(
       <Modal isOpen={false} onClose={onClose} title="Trap Test">
@@ -111,6 +111,29 @@ describe('Modal Accessibility and Focus Restoration', () => {
     const dialog = screen.getByRole('dialog', { hidden: true });
     fireEvent.click(dialog);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a top-left >> conceal button on right-docked sheets', () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen={true} onClose={onClose} placement="end" size="sheet" title="Sheet">
+        <p>Docked</p>
+      </Modal>
+    );
+    const conceal = screen.getByRole('button', { name: 'Conceal sidepane' });
+    expect(conceal).toHaveAttribute('title', 'Conceal sidepane');
+    expect(conceal).toHaveAttribute('data-testid', 'sidepane-conceal');
+    fireEvent.click(conceal);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render the sidepane conceal button on a centered modal', () => {
+    render(
+      <Modal isOpen={true} onClose={() => {}} title="Centered">
+        <p>Body</p>
+      </Modal>
+    );
+    expect(screen.queryByRole('button', { name: 'Conceal sidepane' })).not.toBeInTheDocument();
   });
 
   it('exposes aria-label when title is omitted', () => {

@@ -68,7 +68,8 @@ def test_post_hop_seeds_same_conversation(api_client, tmp_path):
     assert body["cli_session_id"] is None
     assert body["from_cli"] == "grok"
     assert body["to_cli"] == "agy"
-    assert "Carried summary context from grok → agy" in body["status"]
+    assert body["status"].startswith("Started a new agy session (grok → agy).")
+    assert "Carried summary context" in body["status"]
     assert "sk-" not in body["injection"]["text"]
     assert "Token bucket" in body["injection"]["text"] or "rate limiter" in body["injection"]["text"].lower()
     assert get_cli_session("u0", "cli_agent", "agy") is None

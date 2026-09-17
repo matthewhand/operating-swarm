@@ -1,4 +1,4 @@
-"""REQ-111 Wave 0: swarm-cli TUI scaffold (API client, not a second runtime).
+"""REQ-111: os-cli TUI (API client, not a second runtime).
 
 Interactive Textual chrome is a Wave 1 extra. This package lists rail seats
 over the same REST the WebUI uses and renders a placeholder two-pane dump.

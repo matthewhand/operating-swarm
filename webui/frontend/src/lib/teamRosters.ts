@@ -15,11 +15,28 @@ export const MANAGE_TEAMS_VALUE = '__manage__'
 export const MANAGE_TEAMS_HREF = '/teams/'
 
 /**
+ * Explicit "All members" marker (#288).
+ *
+ * `session=` alone cannot carry the choice: a member id writes `session=<id>`,
+ * while All members has no id to write — so a blank `session` is
+ * indistinguishable from "no choice yet", and ChatPage re-defaults that state to
+ * the team's nominated seat (#169). Without this marker an explicit All members
+ * pick is silently lost on reload.
+ */
+export const ALL_MEMBERS_PARAM = 'members'
+
+/** True when the URL carries an explicit All members pick. */
+export function isAllMembersChoice(value: string | null | undefined): boolean {
+  return value === ALL_MEMBERS_TARGET
+}
+
+/**
  * Shared ?team=&session= contract for the header Team members dropdown
  * and the rail SessionPicker (REQ-171A-1 / #601).
  *
- * A member id writes `session=<id>`. All members clears `session` (the
- * picker has no all-members href; `all` is only the send-target sentinel).
+ * A member id writes `session=<id>`. All members clears `session` and sets
+ * `members=all` so the choice survives a reload (#288); the picker itself still
+ * has no all-members href — `all` is only the send-target sentinel.
  */
 export function applyTeamMemberSessionParam(
   params: URLSearchParams,
@@ -30,8 +47,10 @@ export function applyTeamMemberSessionParam(
   if (teamId) next.set('team', teamId)
   if (!memberId || memberId === ALL_MEMBERS_TARGET) {
     next.delete('session')
+    next.set(ALL_MEMBERS_PARAM, ALL_MEMBERS_TARGET)
   } else {
     next.set('session', memberId)
+    next.delete(ALL_MEMBERS_PARAM)
   }
   return next
 }

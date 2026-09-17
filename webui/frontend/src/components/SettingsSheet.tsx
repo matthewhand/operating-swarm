@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, FileCode2, HardDrive, Plus, Server } from 'lucide-react'
 import { Alert, Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
 import DefinitionPane from './DefinitionPane'
+import LlmProfileAddForm from './LlmProfileAddForm'
 import AvatarThemePicker from './AvatarThemePicker'
 import EnvOverrideBadge from './EnvOverrideBadge'
 import McpServersPane from './McpServersPane'
@@ -21,6 +22,9 @@ import {
   fetchBlueprints,
   fetchCustomBlueprints,
   fetchConfigOwnership,
+  fetchCliAgents,
+  fetchChatRetentionStats,
+  triggerChatRetentionAction,
   fetchLlmProfiles,
   fetchLocalStore,
   fetchRemotes,
@@ -44,9 +48,7 @@ import {
   unusedRemoteKinds,
 } from '../lib/remotes'
 import {
-  LLM_PROFILE_PROVIDERS,
   TASK_CLASS_LABELS,
-  buildLlmProfileEntry,
   missingProfileWarning,
   uiStatusWarnings,
 } from '../lib/llmProfiles'
@@ -70,6 +72,13 @@ import {
   loadHostnameOverride,
   saveBumpCompleted,
 } from '../lib/settingsPrefs'
+import {
+  PRODUCT_MODE_KEYS,
+  PRODUCT_MODE_LABELS,
+  PRODUCT_MODE_LIMITATIONS,
+  resolveProductModes,
+  type ProductModes,
+} from '../lib/productModes'
 import { HOSTNAME_CHANGED_EVENT, dispatchHostnameChanged } from '../lib/hostname'
 import { agentLabel, catalogLabel } from '../lib/supportAgent'
 import {
@@ -97,6 +106,16 @@ import {
   THEME_SET_EVENT,
   type Theme,
 } from '../lib/theme'
+import {
+  bubbleThemeSupportsStreaming,
+  loadBubbleTheme,
+} from '../lib/bubbleTheme'
+import {
+  STREAM_REPLIES_LABEL,
+  STREAM_REPLIES_TOOLTIP,
+  loadStreamReplies,
+  saveStreamReplies,
+} from '../lib/streamReplies'
 /** Window event so the rail hover-edit, command palette, and tests can open the sheet. */
 export const OPEN_SETTINGS_EVENT = 'swarm:open-settings'
 
@@ -135,6 +154,41 @@ export function openSettingsSheet(detail?: OpenSettingsDetail): void {
   window.dispatchEvent(new CustomEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, { detail }))
 }
 
+const SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  'general',
+  'definition',
+  'blueprint',
+  'remotes',
+  'retention',
+  'hostname',
+  'llm-profiles',
+  'mcp',
+  'cli-agents',
+  'roles',
+  'sandboxes',
+  'rail',
+  'image-gen',
+  'speech',
+  'system',
+  'plugins',
+]
+
+export function isSettingsSection(value: string): value is SettingsSection {
+  return (SETTINGS_SECTIONS as readonly string[]).includes(value)
+}
+
+/** Parse `/chat?settings=true` or `/chat?settings=cli-agents` (Django dump banner). */
+export function settingsDetailFromQuery(
+  raw: string | null | undefined,
+): OpenSettingsDetail | null {
+  if (raw == null) return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  if (trimmed === 'true' || trimmed === '1') return {}
+  if (isSettingsSection(trimmed)) return { section: trimmed }
+  return {}
+}
+
 export interface SettingsSheetProps {
   isOpen: boolean
   onClose: () => void
@@ -168,32 +222,41 @@ export default function SettingsSheet({
   initialProviderId = null,
   focusRateLimits = false,
 }: SettingsSheetProps) {
-  const { success } = useToast()
+  const { success, error: toastError } = useToast()
   const [section, setSection] = useState<SettingsSection>('retention')
   const [hostname, setHostname] = useState(() => loadHostnameOverride())
+  const hostnameDirtyRef = useRef(false)
   const [autoCompressPct, setAutoCompressPct] = useState(80)
   const [contextStrategy, setContextStrategy] = useState<'compress' | 'cull'>('compress')
   const [cullTriggerPct, setCullTriggerPct] = useState(90)
   const [cullFractionPct, setCullFractionPct] = useState(50)
   const [selectedBlueprintId, setSelectedBlueprintId] = useState(blueprintId || '')
   const [bumpCompleted, setBumpCompleted] = useState(() => loadBumpCompleted())
+  const [searchQuery, setSearchQuery] = useState('')
   const resolvedDefinitionId = definitionId || teamId || blueprintId || ''
   const resolvedKind: DefinitionKind =
     definitionKind || (teamId ? 'team' : blueprintId ? 'role' : 'blueprint')
 
   useEffect(() => {
     if (!isOpen) return
+    let cancelled = false
+    hostnameDirtyRef.current = false
     void fetchUserPrefs().then((server) => {
+      if (cancelled) return
       if (server && !server.empty) {
-        applyHostnameOverride(server.hostname_override)
-        setHostname(server.hostname_override)
+        if (!hostnameDirtyRef.current) {
+          applyHostnameOverride(server.hostname_override)
+          setHostname(server.hostname_override)
+        }
         setAutoCompressPct(parseAutoCompressPct(server.context_auto_compress_pct))
         setContextStrategy(parseContextStrategy(server.context_strategy))
         setCullTriggerPct(parseCullTriggerPct(server.context_cull_trigger_pct))
         setCullFractionPct(parseCullFractionPct(server.context_cull_fraction_pct))
         return
       }
-      setHostname(loadHostnameOverride())
+      if (!hostnameDirtyRef.current) {
+        setHostname(loadHostnameOverride())
+      }
       setAutoCompressPct(
         server ? parseAutoCompressPct(server.context_auto_compress_pct) : DEFAULT_AUTO_COMPRESS_PCT,
       )
@@ -227,6 +290,9 @@ export default function SettingsSheet({
         current === 'blueprint' || current === 'definition' ? 'retention' : current,
       )
     }
+    return () => {
+      cancelled = true
+    }
   }, [isOpen, blueprintId, initialSection, initialProviderId])
 
   useEffect(() => {
@@ -243,13 +309,24 @@ export default function SettingsSheet({
     return () => window.removeEventListener(HOSTNAME_CHANGED_EVENT, onHostnameChanged)
   }, [])
 
-  const handleSaveHostname = (event: FormEvent) => {
+  const handleSaveHostname = async (event: FormEvent) => {
     event.preventDefault()
     const next = applyHostnameOverride(hostname)
+    hostnameDirtyRef.current = false
     setHostname(next)
     dispatchHostnameChanged(next)
-    void saveUserPrefs({ hostname_override: next })
-    success('Hostname saved', 'Override stored for this account.')
+    const saved = await saveUserPrefs({ hostname_override: next })
+    if (saved) {
+      success('Hostname saved', 'Override stored for this account.')
+    } else {
+      toastError('Hostname not saved', 'Could not store the override for this account.')
+    }
+  }
+
+  const matchSearch = (title: string, keywords: string[] = []) => {
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase()
+    return title.toLowerCase().includes(q) || keywords.some((k) => k.toLowerCase().includes(q))
   }
 
   return (
@@ -262,8 +339,8 @@ export default function SettingsSheet({
       className={`flex min-h-0 flex-col ${OVERLAY_CHROME_CLASSES} overflow-hidden`}
     >
       <div className="flex min-h-[24rem] flex-1 flex-col gap-0 overflow-hidden rounded-box border border-base-300 md:flex-row">
-        <nav aria-label="Settings sections" className="w-full shrink-0 border-b border-base-300 bg-base-200 md:w-52 md:border-b-0 md:border-r">
-          <div className="flex items-center gap-2 px-3 pt-3 pb-1">
+        <nav aria-label="Settings sections" className="w-full shrink-0 border-b border-base-300 bg-base-200 md:w-56 md:border-b-0 md:border-r flex flex-col">
+          <div className="flex items-center gap-2 px-3 pt-3 pb-2">
             <img
               src="/webui-geometric.svg"
               alt=""
@@ -271,170 +348,271 @@ export default function SettingsSheet({
               height={28}
               className="os-brand-mark-geometric shrink-0"
             />
-            <span className="text-sm font-semibold tracking-tight">Open Swarm</span>
+            <span className="text-sm font-semibold tracking-tight">Operating Swarm</span>
           </div>
-          <ul className="menu menu-md w-full rounded-none p-2">
-            <li>
-              <button
-                type="button"
-                className={section === 'general' ? 'menu-active' : undefined}
-                aria-current={section === 'general' ? 'page' : undefined}
-                onClick={() => setSection('general')}
-              >
-                General
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'definition' ? 'menu-active' : undefined}
-                aria-current={section === 'definition' ? 'page' : undefined}
-                onClick={() => setSection('definition')}
-              >
-                Definition
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'blueprint' ? 'menu-active' : undefined}
-                aria-current={section === 'blueprint' ? 'page' : undefined}
-                onClick={() => setSection('blueprint')}
-              >
-                Blueprints
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'remotes' ? 'menu-active' : undefined}
-                aria-current={section === 'remotes' ? 'page' : undefined}
-                onClick={() => setSection('remotes')}
-              >
-                Remotes
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'retention' ? 'menu-active' : undefined}
-                aria-current={section === 'retention' ? 'page' : undefined}
-                onClick={() => setSection('retention')}
-              >
-                Retention
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'hostname' ? 'menu-active' : undefined}
-                aria-current={section === 'hostname' ? 'page' : undefined}
-                onClick={() => setSection('hostname')}
-              >
-                Hostname
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'llm-profiles' ? 'menu-active' : undefined}
-                aria-current={section === 'llm-profiles' ? 'page' : undefined}
-                onClick={() => setSection('llm-profiles')}
-              >
-                Show LLM profiles
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'mcp' ? 'menu-active' : undefined}
-                aria-current={section === 'mcp' ? 'page' : undefined}
-                onClick={() => setSection('mcp')}
-              >
-                MCP servers
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'cli-agents' ? 'menu-active' : undefined}
-                aria-current={section === 'cli-agents' ? 'page' : undefined}
-                onClick={() => setSection('cli-agents')}
-              >
-                CLI agents
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'roles' ? 'menu-active' : undefined}
-                aria-current={section === 'roles' ? 'page' : undefined}
-                onClick={() => setSection('roles')}
-              >
-                Roles
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'sandboxes' ? 'menu-active' : undefined}
-                aria-current={section === 'sandboxes' ? 'page' : undefined}
-                onClick={() => setSection('sandboxes')}
-              >
-                Sandboxes
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'rail' ? 'menu-active' : undefined}
-                aria-current={section === 'rail' ? 'page' : undefined}
-                onClick={() => setSection('rail')}
-              >
-                Rail
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'image-gen' ? 'menu-active' : undefined}
-                aria-current={section === 'image-gen' ? 'page' : undefined}
-                onClick={() => setSection('image-gen')}
-              >
-                Image generation
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'speech' ? 'menu-active' : undefined}
-                aria-current={section === 'speech' ? 'page' : undefined}
-                onClick={() => setSection('speech')}
-              >
-                Speech
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'system' ? 'menu-active' : undefined}
-                aria-current={section === 'system' ? 'page' : undefined}
-                onClick={() => setSection('system')}
-              >
-                System
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className={section === 'plugins' ? 'menu-active' : undefined}
-                aria-current={section === 'plugins' ? 'page' : undefined}
-                onClick={() => setSection('plugins')}
-              >
-                Plugins
-              </button>
-            </li>
-          </ul>
+
+          <div className="px-2 pb-2">
+            <input
+              type="search"
+              placeholder="Search settings…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="input input-bordered input-xs w-full text-xs"
+              aria-label="Search settings"
+            />
+          </div>
+
+          <div className="flex-1 overflow-y-auto os-scrollable-picker-list">
+            <ul className="menu menu-md w-full rounded-none p-2 space-y-0.5">
+              {/* Category 1: General & Appearance */}
+              {(matchSearch('General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ||
+                matchSearch('Hostname', ['network', 'ip', 'domain', 'host', 'override']) ||
+                matchSearch('Rail', ['avatar', 'order', 'bump', 'surfaces'])) ? (
+                <>
+                  <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-1">
+                    General & Appearance
+                  </li>
+                  {matchSearch('General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'general' ? 'menu-active' : undefined}
+                        aria-current={section === 'general' ? 'page' : undefined}
+                        onClick={() => setSection('general')}
+                      >
+                        General
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Hostname', ['network', 'ip', 'domain', 'host', 'override']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'hostname' ? 'menu-active' : undefined}
+                        aria-current={section === 'hostname' ? 'page' : undefined}
+                        onClick={() => setSection('hostname')}
+                      >
+                        Hostname
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Rail', ['avatar', 'order', 'bump', 'surfaces']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'rail' ? 'menu-active' : undefined}
+                        aria-current={section === 'rail' ? 'page' : undefined}
+                        onClick={() => setSection('rail')}
+                      >
+                        Rail
+                      </button>
+                    </li>
+                  ) : null}
+                </>
+              ) : null}
+
+              {/* Category 2: Models & Runtimes */}
+              {(matchSearch('CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ||
+                matchSearch('Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ||
+                matchSearch('Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ||
+                matchSearch('Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal'])) ? (
+                <>
+                  <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
+                    Models & Runtimes
+                  </li>
+                  {matchSearch('CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'cli-agents' ? 'menu-active' : undefined}
+                        aria-current={section === 'cli-agents' ? 'page' : undefined}
+                        onClick={() => setSection('cli-agents')}
+                      >
+                        CLI agents
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'llm-profiles' ? 'menu-active' : undefined}
+                        aria-current={section === 'llm-profiles' ? 'page' : undefined}
+                        onClick={() => setSection('llm-profiles')}
+                      >
+                        Show LLM profiles
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'remotes' ? 'menu-active' : undefined}
+                        aria-current={section === 'remotes' ? 'page' : undefined}
+                        onClick={() => setSection('remotes')}
+                      >
+                        Remotes
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'sandboxes' ? 'menu-active' : undefined}
+                        aria-current={section === 'sandboxes' ? 'page' : undefined}
+                        onClick={() => setSection('sandboxes')}
+                      >
+                        Sandboxes
+                      </button>
+                    </li>
+                  ) : null}
+                </>
+              ) : null}
+
+              {/* Category 3: Tools & Architecture */}
+              {(matchSearch('MCP servers', ['mcp', 'tools', 'modelcontextprotocol']) ||
+                matchSearch('Plugins', ['plugins', 'openapi', 'marketplace', 'tools']) ||
+                matchSearch('Roles', ['roles', 'safety', 'router', 'gate', 'skeptic']) ||
+                matchSearch('Blueprints', ['blueprints', 'recipes', 'python', 'custom']) ||
+                matchSearch('Definition', ['definition', 'explain', 'instructions'])) ? (
+                <>
+                  <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
+                    Tools & Architecture
+                  </li>
+                  {matchSearch('MCP servers', ['mcp', 'tools', 'modelcontextprotocol']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'mcp' ? 'menu-active' : undefined}
+                        aria-current={section === 'mcp' ? 'page' : undefined}
+                        onClick={() => setSection('mcp')}
+                      >
+                        MCP servers
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Plugins', ['plugins', 'openapi', 'marketplace', 'tools']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'plugins' ? 'menu-active' : undefined}
+                        aria-current={section === 'plugins' ? 'page' : undefined}
+                        onClick={() => setSection('plugins')}
+                      >
+                        Plugins
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Roles', ['roles', 'safety', 'router', 'gate', 'skeptic']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'roles' ? 'menu-active' : undefined}
+                        aria-current={section === 'roles' ? 'page' : undefined}
+                        onClick={() => setSection('roles')}
+                      >
+                        Roles
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Blueprints', ['blueprints', 'recipes', 'python', 'custom']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'blueprint' ? 'menu-active' : undefined}
+                        aria-current={section === 'blueprint' ? 'page' : undefined}
+                        onClick={() => setSection('blueprint')}
+                      >
+                        Blueprints
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Definition', ['definition', 'explain', 'instructions']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'definition' ? 'menu-active' : undefined}
+                        aria-current={section === 'definition' ? 'page' : undefined}
+                        onClick={() => setSection('definition')}
+                      >
+                        Definition
+                      </button>
+                    </li>
+                  ) : null}
+                </>
+              ) : null}
+
+              {/* Category 4: Media & Voice */}
+              {(matchSearch('Image generation', ['image', 'images', 'generation', 'diffusion']) ||
+                matchSearch('Speech', ['speech', 'tts', 'stt', 'audio', 'voice'])) ? (
+                <>
+                  <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
+                    Media & Voice
+                  </li>
+                  {matchSearch('Image generation', ['image', 'images', 'generation', 'diffusion']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'image-gen' ? 'menu-active' : undefined}
+                        aria-current={section === 'image-gen' ? 'page' : undefined}
+                        onClick={() => setSection('image-gen')}
+                      >
+                        Image generation
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('Speech', ['speech', 'tts', 'stt', 'audio', 'voice']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'speech' ? 'menu-active' : undefined}
+                        aria-current={section === 'speech' ? 'page' : undefined}
+                        onClick={() => setSection('speech')}
+                      >
+                        Speech
+                      </button>
+                    </li>
+                  ) : null}
+                </>
+              ) : null}
+
+              {/* Category 5: System & Storage */}
+              {(matchSearch('Retention', ['retention', 'chat', 'trash', 'persistence', 'archive']) ||
+                matchSearch('System', ['system', 'sqlite', 'database', 'facts', 'config'])) ? (
+                <>
+                  <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
+                    System & Storage
+                  </li>
+                  {matchSearch('Retention', ['retention', 'chat', 'trash', 'persistence', 'archive']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'retention' ? 'menu-active' : undefined}
+                        aria-current={section === 'retention' ? 'page' : undefined}
+                        onClick={() => setSection('retention')}
+                      >
+                        Retention
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('System', ['system', 'sqlite', 'database', 'facts', 'config']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'system' ? 'menu-active' : undefined}
+                        aria-current={section === 'system' ? 'page' : undefined}
+                        onClick={() => setSection('system')}
+                      >
+                        System
+                      </button>
+                    </li>
+                  ) : null}
+                </>
+              ) : null}
+            </ul>
+          </div>
         </nav>
 
         <div className="min-w-0 flex-1 overflow-y-auto bg-base-100 p-4 sm:p-5">
@@ -489,7 +667,10 @@ export default function SettingsSheet({
           {section === 'hostname' && (
             <HostnamePane
               value={hostname}
-              onChange={setHostname}
+              onChange={(next) => {
+                hostnameDirtyRef.current = true
+                setHostname(next)
+              }}
               onSave={handleSaveHostname}
             />
           )}
@@ -1080,7 +1261,10 @@ function RemotesCatalogPane({
             </ul>
           )}
 
-          {selected ? <RemoteOperatePane remote={selected} /> : null}
+          {/* Keyed by remote id: without it React reuses this pane across a
+              Remote switch, so the previous remote's list, adopted target, and
+              result panes leak into the next one (#453 follow-up). */}
+          {selected ? <RemoteOperatePane key={selected.id} remote={selected} /> : null}
 
           {adding ? (
             <form className="space-y-3 rounded-box border border-base-300 p-3" onSubmit={handleAdd}>
@@ -1258,14 +1442,47 @@ function RemotesCatalogPane({
 }
 
 function RetentionPane() {
+  const { success, error: toastError } = useToast()
+  const queryClient = useQueryClient()
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
+
+  const statsQuery = useQuery({
+    queryKey: ['chat-retention-stats'],
+    queryFn: fetchChatRetentionStats,
+    retry: 1,
+  })
+
+  const actionMutation = useMutation({
+    mutationFn: ({
+      action,
+      agentId,
+    }: {
+      action: 'archive' | 'archive_all' | 'restore' | 'empty_trash'
+      agentId?: string
+    }) => triggerChatRetentionAction(action, agentId),
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: ['chat-retention-stats'] })
+      if (vars.action === 'archive_all') success('Retention', 'All chats moved to trash')
+      else if (vars.action === 'empty_trash') success('Retention', 'Trash emptied')
+      else if (vars.action === 'archive') success('Retention', `Chat ${vars.agentId} moved to trash`)
+      else if (vars.action === 'restore') success('Retention', `Chat ${vars.agentId} restored`)
+    },
+    onError: (err: Error) => {
+      toastError('Retention', err.message || 'Action failed')
+    },
+  })
+
+  const stats = statsQuery.data
+
   return (
     <div className="space-y-4" data-testid="settings-retention-pane">
       <div>
         <h4 className="text-lg font-semibold">Retention</h4>
         <p className="mt-1 text-sm text-base-content/70">
-          Chat retention, archiving, and trash pruning are managed by the server storage engine.
+          Chat retention, archiving, and trash pruning are managed by the server storage engine. One JSON file per agent thread. Active threads restore automatically when reloading or switching agents.
         </p>
       </div>
+
       <div className="rounded-box border border-base-300 bg-base-200/50 p-4 space-y-3">
         <p className="text-sm text-base-content/80">
           To inspect chat disk usage, archive old sessions, or empty trash, open the server retention dashboard.
@@ -1279,6 +1496,134 @@ function RetentionPane() {
           </a>
         </div>
       </div>
+
+      {statsQuery.isPending ? (
+        <p className="text-sm text-base-content/60">Loading retention stats…</p>
+      ) : statsQuery.isError ? (
+        <Alert type="warning" icon={<AlertCircle className="h-5 w-5" />}>
+          <span className="text-sm">Could not load retention statistics. Check connection.</span>
+        </Alert>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="stat-card rounded-lg border border-base-300 bg-base-200/60 p-3 text-center">
+              <div className="text-xl font-bold text-base-content">{stats?.active_count ?? 0}</div>
+              <div className="text-xs text-base-content/60 uppercase tracking-wide mt-0.5">Active Chats</div>
+            </div>
+            <div className="stat-card rounded-lg border border-base-300 bg-base-200/60 p-3 text-center">
+              <div className="text-xl font-bold text-base-content">{stats?.trash_count ?? 0}</div>
+              <div className="text-xs text-base-content/60 uppercase tracking-wide mt-0.5">In Trash</div>
+            </div>
+            <div className="stat-card rounded-lg border border-base-300 bg-base-200/60 p-3 text-center">
+              <div className="text-xl font-bold text-base-content">{stats?.bytes_label ?? '0 B'}</div>
+              <div className="text-xs text-base-content/60 uppercase tracking-wide mt-0.5">Disk Used</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={(stats?.active_count ?? 0) === 0 || actionMutation.isPending}
+              onClick={() => actionMutation.mutate({ action: 'archive_all' })}
+            >
+              Move all to trash
+            </Button>
+            {confirmEmpty ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  className="btn-error"
+                  disabled={actionMutation.isPending}
+                  onClick={() => {
+                    actionMutation.mutate({ action: 'empty_trash' })
+                    setConfirmEmpty(false)
+                  }}
+                >
+                  Confirm empty trash
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmEmpty(false)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-error hover:bg-error/10"
+                disabled={(stats?.trash_count ?? 0) === 0 || actionMutation.isPending}
+                onClick={() => setConfirmEmpty(true)}
+              >
+                Empty trash
+              </Button>
+            )}
+          </div>
+
+          {(stats?.chats || []).length > 0 ? (
+            <div className="space-y-2 pt-2">
+              <h5 className="text-sm font-semibold">Active threads</h5>
+              <ul className="space-y-1.5 max-h-48 overflow-y-auto os-scrollable-picker-list">
+                {(stats?.chats || []).map((chat) => (
+                  <li
+                    key={chat.agent_id}
+                    className="flex items-center justify-between rounded-lg border border-base-300 bg-base-200/40 px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <span className="font-mono font-medium">{chat.agent_id}</span>
+                      <span className="ml-2 text-xs text-base-content/60">
+                        {chat.message_count} messages
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => actionMutation.mutate({ action: 'archive', agentId: chat.agent_id })}
+                      disabled={actionMutation.isPending}
+                    >
+                      Move to trash
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {(stats?.trash || []).length > 0 ? (
+            <div className="space-y-2 pt-2">
+              <h5 className="text-sm font-semibold">Trash</h5>
+              <ul className="space-y-1.5 max-h-48 overflow-y-auto os-scrollable-picker-list">
+                {(stats?.trash || []).map((item) => (
+                  <li
+                    key={item.agent_id + item.filename}
+                    className="flex items-center justify-between rounded-lg border border-base-300 bg-base-200/40 px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <span className="font-mono font-medium">{item.agent_id}</span>
+                      <span className="ml-2 text-xs text-base-content/60">
+                        {item.message_count} msgs · {item.filename}
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => actionMutation.mutate({ action: 'restore', agentId: item.agent_id })}
+                      disabled={actionMutation.isPending}
+                    >
+                      Restore
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   )
 }
@@ -1339,6 +1684,9 @@ function GeneralPane({
 }) {
   const [themePref, setThemePref] = useState<Theme>(initialTheme)
   const [navbarVisible, setNavbarVisible] = useState<boolean>(initialNavbarThemeVisible)
+  const [streamReplies, setStreamReplies] = useState<boolean>(loadStreamReplies)
+  const bubbleTheme = loadBubbleTheme()
+  const streamThemeOk = bubbleThemeSupportsStreaming(bubbleTheme)
 
   useEffect(() => {
     const onSet = (event: Event) => {
@@ -1419,6 +1767,29 @@ function GeneralPane({
           </label>
           <p className="text-xs text-base-content/60">
             Show a quick theme toggle button in the top navigation bar.
+          </p>
+        </div>
+
+        <div className="form-control">
+          <label className="label cursor-pointer justify-start gap-4">
+            <input
+              type="checkbox"
+              className="toggle"
+              checked={streamReplies}
+              disabled={!streamThemeOk}
+              onChange={(e) => {
+                const next = saveStreamReplies(e.target.checked)
+                setStreamReplies(next)
+              }}
+              aria-label={STREAM_REPLIES_LABEL}
+              data-testid="stream-replies-toggle"
+            />
+            <span className="label-text">{STREAM_REPLIES_LABEL}</span>
+          </label>
+          <p className="text-xs text-base-content/60">
+            {streamThemeOk
+              ? STREAM_REPLIES_TOOLTIP
+              : 'The current bubble theme does not support streaming.'}
           </p>
         </div>
       </section>
@@ -1545,6 +1916,26 @@ function RailPane({
   bumpCompleted: boolean
   onBumpCompleted: (next: boolean) => void
 }) {
+  const queryClient = useQueryClient()
+  const { success, error: toastError } = useToast()
+  const modesQuery = useQuery({
+    queryKey: ['cli-agents'],
+    queryFn: fetchCliAgents,
+    retry: 1,
+  })
+  const modes = resolveProductModes(modesQuery.data)
+  const limitations = modesQuery.data?.mode_limitations ?? PRODUCT_MODE_LIMITATIONS
+  const saveModes = useMutation({
+    mutationFn: (next: ProductModes) =>
+      patchConfigSection('settings', { upsert: { product_modes: next } }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['cli-agents'] })
+      success('Product modes', 'Saved successfully')
+    },
+    onError: () => {
+      toastError('Product modes', 'Could not save product modes')
+    },
+  })
   return (
     <div className="space-y-4">
       <div>
@@ -1554,6 +1945,33 @@ function RailPane({
           Favourite tiles keep their own order.
         </p>
       </div>
+      <fieldset className="space-y-3" data-testid="product-modes">
+        <legend className="text-sm font-semibold">Manage surfaces</legend>
+        <p className="text-sm text-base-content/70">
+          Fresh install starts CLI-only from discovered host CLIs. Enable API,
+          Blueprint, Team, or Remote to show those rail/navbar affordances.
+        </p>
+        {PRODUCT_MODE_KEYS.map((key) => (
+          <label key={key} className="flex cursor-pointer items-start gap-4">
+            <input
+              type="checkbox"
+              className="toggle mt-0.5"
+              checked={modes[key]}
+              disabled={saveModes.isPending}
+              aria-label={`Manage ${PRODUCT_MODE_LABELS[key]}`}
+              onChange={(event) =>
+                saveModes.mutate({ ...modes, [key]: event.target.checked })
+              }
+            />
+            <span>
+              <span className="label-text">Manage {PRODUCT_MODE_LABELS[key]}</span>
+              <p className="mt-0.5 text-xs text-base-content/60">
+                {limitations[key] || PRODUCT_MODE_LIMITATIONS[key]}
+              </p>
+            </span>
+          </label>
+        ))}
+      </fieldset>
       <label className="label cursor-pointer justify-start gap-4">
         <input
           type="checkbox"
@@ -1708,28 +2126,10 @@ function LlmProfilesPane({
   const [overrideOn, setOverrideOn] = useState(false)
   const [taskMap, setTaskMap] = useState<Partial<Record<LlmTaskClass, string>>>({})
   const [saving, setSaving] = useState(false)
-  const [profileName, setProfileName] = useState('')
-  const [profileProvider, setProfileProvider] = useState('openai')
-  const [profileModel, setProfileModel] = useState('')
-  const [profileBaseUrl, setProfileBaseUrl] = useState('')
-  const [profileKeyEnv, setProfileKeyEnv] = useState('OPENAI_API_KEY')
-  const [profileTemperature, setProfileTemperature] = useState('')
-  const [profileMaxTokens, setProfileMaxTokens] = useState('')
-  const [profileTimeout, setProfileTimeout] = useState('')
   const [addingProfile, setAddingProfile] = useState(false)
-  const [addAdvancedOpen, setAddAdvancedOpen] = useState(false)
 
   const resetAddForm = () => {
     setAddingProfile(false)
-    setAddAdvancedOpen(false)
-    setProfileName('')
-    setProfileProvider('openai')
-    setProfileModel('')
-    setProfileBaseUrl('')
-    setProfileKeyEnv('OPENAI_API_KEY')
-    setProfileTemperature('')
-    setProfileMaxTokens('')
-    setProfileTimeout('')
   }
   const hydrated = useRef(false)
   const defaultBadge = remote?.provenance?.default_llm_profile
@@ -1913,140 +2313,15 @@ function LlmProfilesPane({
       <EnvOverrideBadge badge={defaultBadge} />
 
       {addingProfile ? (
-        <div
-          data-testid="llm-profile-add-overlay"
+        <LlmProfileAddForm
           className={`max-h-[min(70vh,36rem)] space-y-3 overflow-y-auto rounded-box p-4 ${OVERLAY_CHROME_CLASSES}`}
-        >
-          <p className="text-sm font-medium">Add LLM profile</p>
-          <Input
-            label="Name"
-            name="llm-profile-id"
-            value={profileName}
-            onChange={(event) => setProfileName(event.target.value)}
-            placeholder="local"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Select
-            label="Provider"
-            name="llm-profile-provider"
-            value={profileProvider}
-            onChange={(event) => setProfileProvider(event.target.value)}
-            size="sm"
-          >
-            {LLM_PROFILE_PROVIDERS.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </Select>
-          <Input
-            label="Model"
-            name="llm-profile-model"
-            value={profileModel}
-            onChange={(event) => setProfileModel(event.target.value)}
-            placeholder="gpt-4o-mini"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Input
-            label="API key env"
-            name="llm-profile-key-env"
-            value={profileKeyEnv}
-            onChange={(event) => setProfileKeyEnv(event.target.value)}
-            placeholder="OPENAI_API_KEY"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Input
-            label="Base URL"
-            name="llm-profile-base"
-            value={profileBaseUrl}
-            onChange={(event) => setProfileBaseUrl(event.target.value)}
-            placeholder="https://api.openai.com/v1"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            className="text-sm font-medium underline-offset-2 hover:underline"
-            aria-expanded={addAdvancedOpen}
-            aria-controls="llm-profile-add-advanced"
-            onClick={() => setAddAdvancedOpen((open) => !open)}
-          >
-            Advanced
-          </button>
-          {addAdvancedOpen ? (
-            <div id="llm-profile-add-advanced" data-testid="llm-profile-add-advanced" className="space-y-3">
-              <Input
-                label="Temperature"
-                name="llm-profile-temperature"
-                value={profileTemperature}
-                onChange={(event) => setProfileTemperature(event.target.value)}
-                placeholder="0.2"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Input
-                label="Max tokens"
-                name="llm-profile-max-tokens"
-                value={profileMaxTokens}
-                onChange={(event) => setProfileMaxTokens(event.target.value)}
-                placeholder="4096"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Input
-                label="Timeout (sec)"
-                name="llm-profile-timeout"
-                value={profileTimeout}
-                onChange={(event) => setProfileTimeout(event.target.value)}
-                placeholder="60"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!profileName.trim() || !profileModel.trim()}
-              onClick={async () => {
-                try {
-                  await patchConfigSection('llm', {
-                    upsert: {
-                      [profileName.trim()]: buildLlmProfileEntry({
-                        provider: profileProvider,
-                        model: profileModel,
-                        apiKeyEnv: profileKeyEnv,
-                        baseUrl: profileBaseUrl,
-                        temperature: profileTemperature,
-                        maxTokens: profileMaxTokens,
-                        timeoutSec: profileTimeout,
-                      }),
-                    },
-                  })
-                  resetAddForm()
-                  success('LLM profile saved', 'Named profile stored in swarm_config.json llm.')
-                  hydrated.current = false
-                  await profilesQuery.refetch()
-                } catch (err) {
-                  toastError(
-                    'Could not save LLM profile',
-                    err instanceof Error ? err.message : 'Request failed.',
-                  )
-                }
-              }}
-            >
-              Save profile
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={resetAddForm}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+          onCancel={resetAddForm}
+          onSaved={async () => {
+            resetAddForm()
+            hydrated.current = false
+            await profilesQuery.refetch()
+          }}
+        />
       ) : (
         <Button type="button" variant="outline" size="sm" onClick={() => setAddingProfile(true)}>
           Add LLM profile

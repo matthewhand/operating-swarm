@@ -10,8 +10,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_NEW_SESSION_RE = re.compile(r"^Started a new \S+ session\.?$", re.IGNORECASE)
-_RESUME_SESSION_RE = re.compile(r"^Resumed \S+ session\.?$", re.IGNORECASE)
+_NEW_SESSION_RE = re.compile(
+    r"^Started a new \S+ session(?: on \S+)?\.?$", re.IGNORECASE
+)
+_RESUME_SESSION_RE = re.compile(
+    r"^Resumed \S+ session(?: on \S+)?\.?$", re.IGNORECASE
+)
 
 
 def is_cli_session_notice(text: str | None) -> bool:
@@ -36,14 +40,52 @@ def _last_user_index(messages: list[dict[str, Any]]) -> int:
     return last
 
 
+def _same_turn_notice(blob: str, needle: str) -> bool:
+    """Exact match, or a hop notice that already announced this new session."""
+    if not blob or not needle:
+        return False
+    if blob == needle:
+        return True
+    return _hop_notice_covers(blob, needle)
+
+
+def _hop_notice_covers(blob: str, needle: str) -> bool:
+    """True when ``blob`` is a hop notice for the same ``Started a new {cli}``.
+
+    REQ-866: ``Started a new {cli} session (from → to). …`` already announced
+    the short ``Started a new {cli} session.`` pre-emit. A prior-turn short
+    line must not suppress a later turn (REQ-92).
+    """
+    if not blob or not needle:
+        return False
+    if not _NEW_SESSION_RE.match(needle):
+        return False
+    prefix = needle.rstrip(".")
+    return blob.startswith(prefix) and " → " in blob
+
+
 def transcript_already_has_notice(messages: list[dict[str, Any]], text: str) -> bool:
-    """True when this turn already recorded the same status line."""
+    """True when this turn already recorded the same status line.
+
+    Hop notices are written at dropdown time (before the next user send), so a
+    later ``Started a new {cli} session.`` pre-emit must treat them as present.
+    """
     needle = (text or "").strip()
     if not needle:
         return False
     last_user = _last_user_index(messages)
     for row in messages[last_user + 1 :]:
-        if (row.get("role") or "") == "status" and _status_text(row) == needle:
+        if (row.get("role") or "") == "status" and _same_turn_notice(
+            _status_text(row), needle
+        ):
+            return True
+    if not _NEW_SESSION_RE.match(needle):
+        return False
+    prior = messages[: last_user + 1] if last_user >= 0 else messages
+    for row in prior:
+        if (row.get("role") or "") == "status" and _hop_notice_covers(
+            _status_text(row), needle
+        ):
             return True
     return False
 
@@ -107,14 +149,20 @@ def new_cli_session_notice_if_needed(
         params.get("agent") or params.get("agent_id") or blueprint_id or ""
     ).strip()
     agent_id = chat_store.normalize_agent_id(agent) if agent else ""
+    host = None
+    raw_remote = params.get("cli_remote") or params.get("remote")
+    if raw_remote:
+        from swarm.core.cli_remote import remote_endpoint_label, resolve_cli_remote
+
+        host = remote_endpoint_label(resolve_cli_remote(cli_name, params=params))
     if agent_id and is_new_chat_per_task(agent_id):
-        return session_notice_text(cli_name, resumed=False)
+        return session_notice_text(cli_name, resumed=False, host=host)
     if is_new_chat_per_task(cli_name):
-        return session_notice_text(cli_name, resumed=False)
+        return session_notice_text(cli_name, resumed=False, host=host)
     if not user_key or not agent_id:
         # Without a thread we cannot prove resume; stay quiet (no spurious line).
         return None
     stored = get_cli_session(user_key, agent_id, cli_name)
     if stored:
         return None
-    return session_notice_text(cli_name, resumed=False)
+    return session_notice_text(cli_name, resumed=False, host=host)

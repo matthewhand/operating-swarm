@@ -140,6 +140,10 @@ _custom_blueprint_request = inline_serializer(
             help_text="Opt the seat onto the AGENTS rail (CLI/API creates set true).",
         ),
         "source": serializers.CharField(required=False, help_text="Provenance, e.g. add-agent."),
+        "remote": serializers.DictField(
+            required=False,
+            help_text="Optional CLI remote endpoint {host, port, username, password_env, box}.",
+        ),
     },
 )
 
@@ -393,7 +397,7 @@ class CustomBlueprintsView(APIView):
                         "env_vars": body.get("env_vars") or [],
                         **{
                             key: body[key]
-                            for key in ("kind", "command", "cli", "rail", "source")
+                            for key in ("kind", "command", "cli", "rail", "source", "remote")
                             if key in body
                         },
                     }
@@ -480,6 +484,7 @@ class CustomBlueprintDetailView(APIView):
                 "cli",
                 "rail",
                 "source",
+                "remote",
             ]:
                 if key in body:
                     item[key] = body[key]
@@ -756,8 +761,11 @@ class CliAgentsView(APIView):
     """CLI-agent catalog + opt-in configured list + PATH discovery (REQ-157).
 
     GET /v1/cli-agents/ -> {clis, known, configured, discovered, installed,
-    suggestions, catalog, native_consensus, list_models, list_sessions, rail}.
+    suggestions, catalog, native_consensus, list_models, list_sessions, rail,
+    modes, mode_limitations}.
     Discovery is PATH/stat only — no auth_check, no login, no network.
+    ``modes`` is CLI-first (#151): API/Blueprint/Team/Remote off until enabled.
+    ``discovered`` is the rail/picker start set (#149) — never invents missing CLIs.
     Live model probes are GET /v1/cli-agents/<cli>/models.
     Hop matrix is GET /v1/cli-sessions/hop/.
 
@@ -788,6 +796,88 @@ class CliAgentModelsView(APIView):
         if name:
             return Response(list_models(name).as_dict())
         return Response([row.as_dict() for row in list_models_all()])
+
+
+class CliAgentCandidatesView(APIView):
+    """Discovered candidate executable paths for a CLI name on host_cli_path.
+
+    GET /v1/cli-agents/candidates?name=<name> -> {"name": str, "candidates": [...]}
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def get(self, request, *_args, **_kwargs):
+        from swarm.core.cli_driver import find_cli_candidates
+
+        name = (request.query_params.get("name") or "").strip()
+        candidates = find_cli_candidates(name) if name else []
+        return Response({"name": name, "candidates": candidates})
+
+
+class CliAgentTestView(APIView):
+    """Pre-save probe: execute <cli> --version in sanitized environment.
+
+    POST /v1/cli-agents/test {"cli": "..."} -> {"ok": bool, "version": str, "message": str}
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def post(self, request, *_args, **_kwargs):
+        from swarm.core.cli_driver import test_cli_binary
+
+        cli_cmd = request.data.get("cli") if isinstance(request.data, dict) else ""
+        if isinstance(cli_cmd, list):
+            cli_cmd = " ".join(cli_cmd)
+        result = test_cli_binary(str(cli_cmd or "").strip())
+        return Response(result, status=200)
+
+
+class CliAgentDriversView(APIView):
+    """Catalog of registered BaseCliAgent drivers with metadata and candidates.
+
+    GET /v1/cli-agents/drivers/ -> {"drivers": [...]}
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def get(self, _request, *_args, **_kwargs):
+        from swarm.core.cli_registry import driver_catalog_descriptors
+
+        return Response({"drivers": driver_catalog_descriptors()})
+
+
+class ChatRetentionStatsView(APIView):
+    """Chat persistence and retention stats for Settings.
+
+    GET /v1/chat/retention/stats/ -> stats dict
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def get(self, request, *_args, **_kwargs):
+        from swarm.core import chat_store
+
+        user_key = chat_store.user_key_for(request.user)
+        try:
+            chat_store.prune_expired(user_key)
+            stats = chat_store.stats(user_key)
+        except Exception:
+            logger.exception("Failed to collect chat persistence stats")
+            stats = {
+                "store_dir": "",
+                "format": "json",
+                "active_count": 0,
+                "trash_count": 0,
+                "bytes_used": 0,
+                "bytes_label": "0 B",
+                "max_age_days": 90,
+                "auto_archive_enabled": True,
+                "chats": [],
+                "trash": [],
+                "env_dir": "SWARM_CHAT_DIR",
+                "env_max_age": "SWARM_CHAT_MAX_AGE_DAYS",
+            }
+        return Response(stats)
 
 
 class ConfigOptionsView(APIView):

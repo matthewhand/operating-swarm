@@ -12,10 +12,11 @@
  * Tool args/output render only when the ws events actually carried them.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Copy, X } from 'lucide-react'
 import { ToolStatusBadge } from './ToolCallPopup'
 import type { ToolCallState } from '../lib/safety'
+import { SidepaneConcealButton } from './SidepaneConceal'
 
 /** Tool calls as rendered in the panel; args/output appear when the backend sends them. */
 export interface PanelToolCall extends ToolCallState {
@@ -65,6 +66,21 @@ export function GenerationsPanel({
   const [rawLoading, setRawLoading] = useState(false)
   const [rawError, setRawError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const panelRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      const el = target instanceof Element ? target : (target as Node | null)?.parentElement
+      if (!el) return
+      if (panelRef.current?.contains(el)) return
+      if (el.closest('[data-testid="header-avatar-generations"]')) return
+      onClose()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open, onClose])
 
   useEffect(() => {
     if (!open) {
@@ -140,13 +156,15 @@ export function GenerationsPanel({
 
   return (
     <section
+      ref={panelRef}
       className="os-generations-panel"
       data-testid="generations-panel"
       role="dialog"
       aria-label={`${agentName} generations`}
     >
-      <div className="flex items-center justify-between px-3 py-2 border-b border-base-content/10">
-        <h2 className="text-sm font-semibold truncate">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-base-content/10">
+        <SidepaneConcealButton onClick={onClose} />
+        <h2 className="min-w-0 flex-1 text-sm font-semibold truncate">
           {agentName} · generations
         </h2>
         <div className="flex items-center gap-1">

@@ -93,6 +93,90 @@ def test_per_instance_env_fallback(monkeypatch):
     monkeypatch.delenv("TRUEFORGE_API_KEY")
 
 
+# --- #460: the *reported* env var for a named instance ----------------------
+#
+# The kind default (``api_key: "${TRUEFORGE_API_KEY}"``) used to short-circuit
+# the env-name chain, so an instance reported the kind's variable. The value
+# resolved correctly, which is what made this silent.
+
+
+def test_instance_env_name_when_only_the_kind_var_supplies_the_value(monkeypatch):
+    cfg = _cfg()
+    monkeypatch.delenv("TRUEFORGE_2_API_KEY", raising=False)
+    monkeypatch.setenv("TRUEFORGE_API_KEY", "k-kind")
+
+    spec = remotes.load_remote("trueforge-2", cfg)
+
+    # The value falls back to the kind var...
+    assert spec.api_key == "k-kind"
+    # ...but the variable the operator is told to set is the instance's own.
+    assert spec.api_key_env == "TRUEFORGE_2_API_KEY"
+
+
+def test_instance_env_name_for_underscore_slug(monkeypatch):
+    cfg = _cfg()
+    monkeypatch.setenv("TRUEFORGE_LAB_API_KEY", "k-lab")
+
+    spec = remotes.load_remote("trueforge_lab", cfg)
+
+    assert spec.api_key_env == "TRUEFORGE_LAB_API_KEY"
+    assert spec.api_key == "k-lab"
+
+
+def test_explicit_api_key_env_in_config_is_not_overridden(monkeypatch):
+    cfg = _cfg(
+        **{
+            "trueforge-2": {
+                "base_url": "http://tf-a.example.test:8791",
+                "api_key_env": "MY_OWN_KEY",
+            }
+        }
+    )
+    monkeypatch.setenv("MY_OWN_KEY", "k-mine")
+
+    spec = remotes.load_remote("trueforge-2", cfg)
+
+    assert spec.api_key_env == "MY_OWN_KEY"
+    assert spec.api_key == "k-mine"
+
+
+def test_custom_placeholder_is_not_treated_as_a_kind_default(monkeypatch):
+    """Only a placeholder equal to the kind env name is a 'default', not a choice."""
+    cfg = _cfg(
+        **{
+            "trueforge-2": {
+                "base_url": "http://tf-a.example.test:8791",
+                "api_key": "${MY_CUSTOM_KEY}",
+            }
+        }
+    )
+    monkeypatch.setenv("MY_CUSTOM_KEY", "k-custom")
+
+    spec = remotes.load_remote("trueforge-2", cfg)
+
+    assert spec.api_key_env == "MY_CUSTOM_KEY"
+
+
+def test_bare_kind_env_name_is_unchanged(monkeypatch):
+    cfg = _cfg()
+    monkeypatch.setenv("TRUEFORGE_API_KEY", "k-kind")
+
+    spec = remotes.load_remote("trueforge", cfg)
+
+    assert spec.api_key_env == "TRUEFORGE_API_KEY"
+
+
+def test_provenance_names_the_instance_var(monkeypatch):
+    """The honesty badge must not point at the kind's variable either."""
+    cfg = _cfg()
+    monkeypatch.setenv("TRUEFORGE_2_API_KEY", "k-two")
+
+    spec = remotes.load_remote("trueforge-2", cfg)
+
+    assert spec.provenance["api_key"]["env_var"] == "TRUEFORGE_2_API_KEY"
+    assert spec.provenance["api_key"]["set"] is True
+
+
 def test_per_instance_base_url_env(monkeypatch):
     # Env bootstrap applies when nothing is persisted (ADR-002: persisted > env).
     monkeypatch.setenv("TRUEFORGE_KNOWN_BASE_URL", "http://from-env:2")

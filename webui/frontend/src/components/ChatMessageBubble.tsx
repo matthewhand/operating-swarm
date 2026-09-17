@@ -4,19 +4,26 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type MouseEvent,
   type ReactNode,
 } from 'react'
-import { FoldVertical, Pencil } from 'lucide-react'
 import { Textarea, LoadingDots } from './DaisyUI'
 import { renderSafeMarkdown } from '../lib/markdown'
+import { renderMarkdownSafe } from '../lib/markdownSafe'
 import { setupCodeFenceControls } from '../lib/codeFences'
+import { handleSettingsLinkClick } from '../lib/settingsLinks'
 import { parseSupportNlBlueprintFence } from '../lib/supportNlBlueprint'
 import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
 import SupportCreatedBlueprintCard from './SupportCreatedBlueprintCard'
 import { splitSkillRefs, type SkillInfo } from '../lib/skills'
-import { formatBubbleTime } from '../lib/bubbleTheme'
+import {
+  getBubbleTheme,
+  loadBubbleTheme,
+  renderStreamingAffordance,
+  streamingAffordanceClass,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
+import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/streamReplies'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -24,38 +31,27 @@ export interface ChatMessageBubbleProps {
   text: string
   streaming: boolean
   edited?: boolean
-  canEdit: boolean
   editing: boolean
-  onStartEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: (text: string) => void
-  onCompressToHere?: () => void
-  canCompress?: boolean
-  contextStrategy?: 'compress' | 'cull'
   children?: ReactNode
   isSystemPreload?: boolean
   skillCatalog?: SkillInfo[]
   onOpenSkill?: (name: string) => void
   /** REQ-213: view-only hide for compacted system pills. */
   onRemoveCard?: () => void
-  /** ISO timestamp for feed-theme meta; omitted when unknown. */
+  /** ISO timestamp for theme-owned chrome; omitted when unknown. */
   ts?: string
+  /** Active bubble theme; defaults to speech so isolated renders stay pixel-parity. */
+  theme?: BubbleTheme
   avatar?: ReactNode
-}
-
-function selectionIsActive(): boolean {
-  try {
-    const sel = window.getSelection()
-    return Boolean(sel && !sel.isCollapsed)
-  } catch {
-    return false
-  }
+  /** Seat id for the per-seat stream-replies override (#220). */
+  seatId?: string
 }
 
 /**
- * One chat bubble. On API-agent threads, hover reveals Edit and clicking
- * the bubble (or the control) enters in-place edit. CLI/remote pass
- * ``canEdit={false}`` so neither control nor click-to-edit is offered.
+ * One chat bubble. Inline edit is entered from MessageRowActions (REQ-869);
+ * the bubble itself never starts edit on click (REQ-867).
  */
 export const ChatBubbleBody = memo(
   function ChatBubbleBody({
@@ -63,15 +59,33 @@ export const ChatBubbleBody = memo(
     streaming,
     skillCatalog,
     onOpenSkill,
+    theme,
+    seatId,
   }: {
     text: string
     streaming: boolean
     skillCatalog?: SkillInfo[]
     onOpenSkill?: (name: string) => void
+    theme?: BubbleTheme
+    seatId?: string
   }) {
     const mdRef = useRef<HTMLDivElement | null>(null)
     const expandedIndicesRef = useRef<Set<number>>(new Set())
-    const { prose, card } = parseSupportNlBlueprintFence(text)
+    const [, setStreamEpoch] = useState(0)
+    useEffect(() => {
+      const onChange = () => setStreamEpoch((n) => n + 1)
+      window.addEventListener(STREAM_REPLIES_CHANGED_EVENT, onChange)
+      return () => window.removeEventListener(STREAM_REPLIES_CHANGED_EVENT, onChange)
+    }, [])
+    const activeTheme = theme ?? loadBubbleTheme()
+    const allowPartial = streamingPartialEnabled({ theme: activeTheme, seatId })
+    const displayText =
+      streaming && !allowPartial ? '' : streaming ? renderMarkdownSafe(text) : text
+    const affordanceClass =
+      streaming && allowPartial && renderStreamingAffordance(activeTheme) !== 'none'
+        ? streamingAffordanceClass(activeTheme)
+        : ''
+    const { prose, card } = parseSupportNlBlueprintFence(displayText)
     const segments = splitSkillRefs(prose)
 
     useEffect(() => {
@@ -79,9 +93,14 @@ export const ChatBubbleBody = memo(
       if (!root) return
       // Set up code-copy and collapsible code fence controls (REQ-127, REQ-117)
       setupCodeFenceControls(root, expandedIndicesRef.current)
-    }, [text])
+      const onClick = (event: globalThis.MouseEvent) => {
+        handleSettingsLinkClick(event)
+      }
+      root.addEventListener('click', onClick)
+      return () => root.removeEventListener('click', onClick)
+    }, [displayText])
 
-    if (text.length === 0) {
+    if (displayText.length === 0) {
       return streaming ? (
         <LoadingDots size="sm" />
       ) : (
@@ -97,11 +116,17 @@ export const ChatBubbleBody = memo(
         <div
           ref={mdRef}
           data-testid="chat-md"
+          data-streaming-partial={streaming && allowPartial ? 'true' : undefined}
           className={mdClass}
           dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(prose) }}
         />
       ) : (
-        <div ref={mdRef} data-testid="chat-md" className={mdClass}>
+        <div
+          ref={mdRef}
+          data-testid="chat-md"
+          data-streaming-partial={streaming && allowPartial ? 'true' : undefined}
+          className={mdClass}
+        >
           {segments.map((segment, index) => {
             if (segment.type === 'text') {
               return (
@@ -127,13 +152,26 @@ export const ChatBubbleBody = memo(
         </div>
       )
 
+    const body = (
+      <>
+        {markdown}
+        {affordanceClass ? (
+          <span
+            className={affordanceClass}
+            data-testid="stream-affordance"
+            aria-hidden="true"
+          />
+        ) : null}
+      </>
+    )
+
     if (!card) {
-      return markdown
+      return body
     }
 
     return (
       <div data-testid="chat-md-with-nl-card">
-        {markdown}
+        {body}
         <SupportCreatedBlueprintCard card={card} />
       </div>
     )
@@ -142,7 +180,9 @@ export const ChatBubbleBody = memo(
     prev.text === next.text &&
     prev.streaming === next.streaming &&
     prev.skillCatalog === next.skillCatalog &&
-    prev.onOpenSkill === next.onOpenSkill,
+    prev.onOpenSkill === next.onOpenSkill &&
+    prev.theme === next.theme &&
+    prev.seatId === next.seatId,
 )
 
 export function ChatMessageBubble({
@@ -151,14 +191,9 @@ export function ChatMessageBubble({
   text,
   streaming,
   edited,
-  canEdit,
   editing,
-  onStartEdit,
   onCancelEdit,
   onSaveEdit,
-  onCompressToHere,
-  canCompress,
-  contextStrategy = 'compress',
   children,
   isSystemPreload,
   skillCatalog,
@@ -166,9 +201,9 @@ export function ChatMessageBubble({
   onRemoveCard,
   ts,
   avatar,
+  theme,
+  seatId,
 }: ChatMessageBubbleProps) {
-  const startFromHere = contextStrategy === 'cull'
-  const contextActionLabel = startFromHere ? 'Start context from here' : 'Compress to here'
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -189,14 +224,6 @@ export function ChatMessageBubble({
     )
   }
 
-  const handleBubbleClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!canEdit || streaming || editing) return
-    const target = event.target as HTMLElement | null
-    if (target?.closest('a, button, textarea, input')) return
-    if (selectionIsActive()) return
-    onStartEdit()
-  }
-
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -211,7 +238,14 @@ export function ChatMessageBubble({
   }
 
   const speaker = role === 'user' ? 'You' : agentName
-  const timeLabel = formatBubbleTime(ts)
+  const themeDef = getBubbleTheme(theme)
+  const timeLabel = themeDef.formatTimestamp(ts)
+  const timeEl = timeLabel ? (
+    <time className="os-bubble-time" dateTime={ts} data-testid="bubble-time">
+      {timeLabel}
+    </time>
+  ) : null
+  const placement = themeDef.timestampPlacement
 
   return (
     <div
@@ -219,6 +253,8 @@ export function ChatMessageBubble({
       data-message-role={role}
       data-speaker={speaker}
       data-ts={ts || undefined}
+      data-message-layout={themeDef.messageLayout}
+      data-timestamp-placement={placement}
       aria-label={`${speaker} message`}
     >
       {avatar ? (
@@ -226,12 +262,17 @@ export function ChatMessageBubble({
           {avatar}
         </div>
       ) : null}
-      <div className="chat-header os-bubble-meta text-xs opacity-60" data-speaker={speaker}>
-        {timeLabel ? (
-          <time className="os-bubble-time" dateTime={ts} data-testid="bubble-time">
-            {timeLabel}
-          </time>
-        ) : null}
+      {placement === 'inline' && timeEl ? (
+        <span className="os-bubble-time-inline" data-testid="bubble-time-slot">
+          {timeEl}
+        </span>
+      ) : null}
+      <div
+        className="chat-header os-bubble-meta text-xs opacity-60"
+        data-speaker={speaker}
+        data-testid={placement === 'above' ? 'bubble-time-slot' : undefined}
+      >
+        {placement === 'above' ? timeEl : null}
         {edited ? (
           <span className="font-normal opacity-70" data-testid="edited-hint">
             edited
@@ -268,43 +309,21 @@ export function ChatMessageBubble({
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
           }`}
           data-testid="chat-bubble"
-          onClick={handleBubbleClick}
         >
           <ChatBubbleBody
             text={text}
             streaming={streaming}
             skillCatalog={skillCatalog}
             onOpenSkill={onOpenSkill}
+            theme={theme}
+            seatId={seatId}
           />
           {children}
         </div>
       )}
-      {(!streaming && !editing && (canEdit || (canCompress && onCompressToHere))) ? (
-        <div className="mt-0.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-          {canEdit ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs gap-1"
-              aria-label="Edit message"
-              onClick={onStartEdit}
-            >
-              <Pencil className="h-3 w-3" aria-hidden="true" />
-              Edit
-            </button>
-          ) : null}
-          {canCompress && onCompressToHere ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs gap-1"
-              aria-label={contextActionLabel}
-              title={startFromHere ? 'Start context from here.' : 'Compress to here'}
-              data-testid={startFromHere ? 'start-context-from-here' : 'compress-to-here'}
-              onClick={onCompressToHere}
-            >
-              <FoldVertical className="h-3 w-3" aria-hidden="true" />
-              {contextActionLabel}
-            </button>
-          ) : null}
+      {placement === 'below' && timeEl ? (
+        <div className="chat-footer os-bubble-time-below" data-testid="bubble-time-slot">
+          {timeEl}
         </div>
       ) : null}
     </div>

@@ -216,8 +216,24 @@ async def test_hydrate_transport_failure_first_miss_is_error_state():
     async with TuiApp(_seats(), getter=getter).run_test() as pilot:
         body = await _pump_until(pilot, pilot.app, "could not load")
         assert "API unreachable" in body
+        # Transport failure is not login-gated; Wave 3b is skipped.
+        assert "login-gated" not in body
+        assert "Wave 3b" not in body
         # No fail-open empty: the error is explicit.
         assert "No messages yet" not in body
+
+
+async def test_hydrate_401_is_auth_failure_not_login_gated():
+    def getter(url: str, _headers: dict[str, str]) -> httpx.Response:
+        agent = url.split("agent=", 1)[1]
+        return _thread_response([], agent=agent, status=401)
+
+    async with TuiApp(_seats(), getter=getter).run_test() as pilot:
+        body = await _pump_until(pilot, pilot.app, "could not load")
+        assert "401" in body
+        assert "API auth" in body
+        assert "login-gated" not in body
+        assert "Wave 3b" not in body
 
 
 async def test_hydrate_session_gated_error_is_named():
@@ -228,6 +244,9 @@ async def test_hydrate_session_gated_error_is_named():
     async with TuiApp(_seats(), getter=getter).run_test() as pilot:
         body = await _pump_until(pilot, pilot.app, "login-gated")
         assert "session cookie" in body
+        assert "no cookie jar" in body
+        assert "Wave 3b skipped" in body
+        assert "lands in Wave 3b" not in body
 
 
 async def test_reloading_loaded_seat_serves_cache_without_refetch():

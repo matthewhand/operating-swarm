@@ -346,10 +346,21 @@ body.os-login button[type="submit"]:focus-visible {
   @media (max-width:640px){ .se-head{ flex-direction:column; align-items:flex-start; } }
 
 /* === settings_dashboard.html === */
+.settings-page,
 .settings-dashboard {
   background: transparent;
   min-height: auto;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
   padding-bottom: 2rem;
+  color: var(--os-text);
+}
+
+.settings-spa-banner {
+  border: 1px solid var(--os-border);
+  background: var(--os-panel-2);
+  color: var(--os-text-strong);
 }
 
 .dashboard-header-card {
@@ -383,6 +394,7 @@ body.os-login button[type="submit"]:focus-visible {
 
 .settings-stats {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   justify-content: flex-end;
 }
@@ -394,6 +406,7 @@ body.os-login button[type="submit"]:focus-visible {
   padding: 1rem 1.25rem;
   text-align: center;
   min-width: 110px;
+  color: var(--os-text);
 }
 
 .stat-number {
@@ -414,6 +427,7 @@ body.os-login button[type="submit"]:focus-visible {
   border: 1px solid var(--os-border);
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
+  color: var(--os-text);
 }
 
 .os-avatar-theme-select {
@@ -454,11 +468,14 @@ body.os-login button[type="submit"]:focus-visible {
   border-radius: 10px;
   height: 10px;
   overflow: hidden;
+  width: 100%;
 }
 
 .config-progress-fill {
+  display: block;
   background: var(--os-accent);
   height: 100%;
+  min-height: 10px;
   border-radius: 10px;
   transition: width 0.3s ease;
 }

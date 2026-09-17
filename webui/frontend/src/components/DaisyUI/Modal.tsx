@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useRef, useId, useState } from 'react';
-import FocusTrap from 'focus-trap-react';
 import { Alert } from './Alert';
 import { LoadingButton } from './Loading';
+import { SidepaneConcealButton } from '../SidepaneConceal';
 
 /**
  * Modal component using DaisyUI classes.
@@ -96,17 +96,9 @@ export const Modal = ({
 
   const placementClass = placement === 'middle' ? '' : `modal-${placement}`;
 
-  // Keep FocusTrap mounted and toggle `active` so DaisyUI open/close
-  // transitions are not interrupted by remounting the dialog tree.
+  // Native <dialog>.showModal() already traps focus on the top layer.
+  // Wrapping it in focus-trap-react races the UA trap (#313).
   return (
-    <FocusTrap
-      active={isOpen}
-      focusTrapOptions={{
-        allowOutsideClick: true,
-        escapeDeactivates: false,
-        fallbackFocus: () => dialogRef.current || document.body,
-      }}
-    >
       <dialog
         ref={dialogRef}
         className={`modal ${placementClass} ${isOpen ? 'modal-open' : ''}`.replace(/\s+/g, ' ').trim()}
@@ -120,8 +112,13 @@ export const Modal = ({
           data-testid="os-overlay-chrome"
           onClick={(e) => e.stopPropagation()}
         >
-          {title && (
-            <h3 id={titleId} className="font-bold text-lg mb-4">{title}</h3>
+          {(title || placement === 'end') && (
+            <div className={`flex items-center gap-2 ${title ? 'mb-4' : 'mb-2'}`}>
+              {placement === 'end' ? <SidepaneConcealButton onClick={onClose} /> : null}
+              {title ? (
+                <h3 id={titleId} className="font-bold text-lg min-w-0 flex-1">{title}</h3>
+              ) : null}
+            </div>
           )}
           <div className="modal-content">
             {children}
@@ -150,7 +147,6 @@ export const Modal = ({
           </button>
         </form>
       </dialog>
-    </FocusTrap>
   );
 };
 

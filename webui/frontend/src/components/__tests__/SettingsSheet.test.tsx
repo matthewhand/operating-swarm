@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import SettingsSheet from '../SettingsSheet'
+import SettingsSheet, { settingsDetailFromQuery } from '../SettingsSheet'
 import { ToastProvider } from '../DaisyUI'
 import {
   BUMP_COMPLETED_KEY,
@@ -44,6 +44,18 @@ function renderSheet({
   return { ...view, onClose, client }
 }
 
+describe('settingsDetailFromQuery (#254)', () => {
+  it('maps the Django dump banner and named sections onto the SPA sheet', () => {
+    expect(settingsDetailFromQuery(null)).toBeNull()
+    expect(settingsDetailFromQuery('')).toBeNull()
+    expect(settingsDetailFromQuery('true')).toEqual({})
+    expect(settingsDetailFromQuery('1')).toEqual({})
+    expect(settingsDetailFromQuery('cli-agents')).toEqual({ section: 'cli-agents' })
+    expect(settingsDetailFromQuery('llm-profiles')).toEqual({ section: 'llm-profiles' })
+    expect(settingsDetailFromQuery('not-a-section')).toEqual({})
+  })
+})
+
 describe('SettingsSheet', () => {
   afterEach(() => {
     localStorage.removeItem(HOSTNAME_OVERRIDE_KEY)
@@ -62,6 +74,7 @@ describe('SettingsSheet', () => {
     expect(dialog).toHaveClass('modal-end')
     expect(dialog).not.toHaveClass('drawer')
     expect(dialog.className).not.toMatch(/btn-group/)
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
 
     const remotesToggle = screen.getByRole('button', { name: 'Remotes' })
     expect(remotesToggle).not.toHaveClass('menu-dropdown-toggle')
@@ -82,6 +95,8 @@ describe('SettingsSheet', () => {
     expect(screen.getByRole('button', { name: 'Speech' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Plugins' })).toBeInTheDocument()
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
+    expect(screen.queryByText('Open Swarm')).not.toBeInTheDocument()
   })
 
   it('defaults the rail bump toggle on and persists off', () => {
@@ -312,7 +327,10 @@ describe('SettingsSheet', () => {
       vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
         const url = String(input)
         const method = (init?.method || 'GET').toUpperCase()
-        if (url.includes('/v1/remotes/') && method === 'POST') {
+        // Only the create call is the subject here. #453 added a target list on
+        // pane mount, which POSTs to /v1/remotes/<id>/operate/ once a remote is
+        // added — treating that as a create would push a duplicate entry.
+        if (url.includes('/v1/remotes/') && !url.includes('/operate/') && method === 'POST') {
           const body = JSON.parse(String(init?.body || '{}')) as { kind?: string }
           const created = {
             id: body.kind || 'omb',
@@ -447,6 +465,88 @@ describe('SettingsSheet', () => {
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
   })
 
+  it('reloads the pane when the Remote picker changes, so one remote never keeps another\'s targets (#453)', async () => {
+    const configured = [
+      {
+        id: 'omb',
+        kind: 'omb',
+        label: 'OpenMousBot',
+        title: 'OpenMousBot',
+        host_label: '',
+        base_url: 'http://127.0.0.1:8802',
+        source: 'config',
+      },
+      {
+        id: 'herdr',
+        kind: 'herdr',
+        label: 'Herdr',
+        title: 'Herdr',
+        host_label: '',
+        base_url: '',
+        source: 'builtin',
+      },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/operate/') && method === 'POST') {
+          if (url.includes('/herdr/operate/')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                remote: 'herdr',
+                op: 'list',
+                ok: true,
+                detail: 'Herdr listed 1 member(s) via local herdr (no SSH)',
+                data: { members: [{ kind: 'herdr', name: 'w2:pG', object: 'herdr.member' }] },
+              }),
+            } as Response
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              remote: 'omb',
+              op: 'list',
+              ok: true,
+              detail: 'OpenMousBot listed 1 bot(s)',
+              data: { bots: [{ id: '3a383904-ec73-444c-ba8b-9805a05d18e3', name: 'hide-qa-beta' }] },
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'list',
+            kinds: [
+              { id: 'omb', label: 'OpenMousBot' },
+              { id: 'herdr', label: 'Herdr' },
+            ],
+            configured,
+            data: configured,
+          }),
+        } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
+
+    expect(await screen.findByRole('heading', { name: 'OpenMousBot' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Bot id')).toHaveValue('3a383904-ec73-444c-ba8b-9805a05d18e3'),
+    )
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Remote' }), { target: { value: 'herdr' } })
+
+    expect(await screen.findByRole('heading', { name: 'Herdr' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('CLI / pane')).toHaveValue('w2:pG'))
+    expect(screen.queryByText(/hide-qa-beta/)).not.toBeInTheDocument()
+  })
+
   it('shows honest retention pane linking to server dashboard without placebo save button (REQ-188B-1)', async () => {
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Retention' }))
@@ -463,6 +563,29 @@ describe('SettingsSheet', () => {
       dispatchedHost = (event as CustomEvent<{ hostname: string }>).detail?.hostname ?? ''
     }
     window.addEventListener(HOSTNAME_CHANGED_EVENT, onHostChanged)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method === 'PATCH') {
+          const body = JSON.parse(String(init?.body || '{}'))
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: false,
+              favourites: [],
+              hidden_agents: [],
+              hostname_override: body.hostname_override,
+              values: {},
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
 
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
@@ -475,6 +598,70 @@ describe('SettingsSheet', () => {
     expect(dispatchedHost).toBe('swarm.example.com')
 
     window.removeEventListener(HOSTNAME_CHANGED_EVENT, onHostChanged)
+  })
+
+  it('does not toast Hostname saved when the account PATCH fails (#329)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method === 'PATCH') {
+          return { ok: false, status: 500, json: async () => ({ error: 'nope' }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Hostname override' }), {
+      target: { value: 'swarm.example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save hostname' }))
+    expect(await screen.findByText('Hostname not saved')).toBeInTheDocument()
+    expect(screen.queryByText('Hostname saved')).not.toBeInTheDocument()
+  })
+
+  it('does not clobber an in-progress hostname edit when a slow prefs GET lands (#329)', async () => {
+    let releaseGet: () => void = () => {}
+    const delayedGet = new Promise<void>((resolve) => {
+      releaseGet = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method !== 'PATCH') {
+          await delayedGet
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: false,
+              favourites: [],
+              hidden_agents: [],
+              hostname_override: 'from-server.example.com',
+              values: {},
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Hostname override' }), {
+      target: { value: 'typed.example.com' },
+    })
+    await act(async () => {
+      releaseGet()
+      await delayedGet
+    })
+    expect(screen.getByRole('textbox', { name: 'Hostname override' })).toHaveValue(
+      'typed.example.com',
+    )
   })
 
   it('lists configured profiles and persists the Default picker', async () => {
@@ -1117,6 +1304,17 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
       expect(localStorage.getItem('swarm_theme')).toBe('dark')
     })
 
+    it('opts in Stream replies and persists the user toggle (#220)', () => {
+      renderSheet()
+      fireEvent.click(screen.getByRole('button', { name: 'General' }))
+
+      const toggle = screen.getByRole('checkbox', { name: 'Stream replies' })
+      expect(toggle).not.toBeChecked()
+      fireEvent.click(toggle)
+      expect(toggle).toBeChecked()
+      expect(localStorage.getItem('os.streamReplies')).toBe('1')
+    })
+
     it('toggles navbar theme control visibility and persists flag', () => {
       renderSheet()
       fireEvent.click(screen.getByRole('button', { name: 'General' }))
@@ -1289,6 +1487,15 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
       upsert: { filesystem: { command: 'npx' } },
     })
     expect(JSON.stringify(patchCall?.[1]?.body)).not.toMatch(/sk-/)
+  })
+
+  it('renders a top-left >> conceal button that closes the sheet', () => {
+    const { onClose } = renderSheet()
+    const conceal = screen.getByRole('button', { name: 'Conceal sidepane' })
+    expect(conceal).toHaveAttribute('title', 'Conceal sidepane')
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
+    fireEvent.click(conceal)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 

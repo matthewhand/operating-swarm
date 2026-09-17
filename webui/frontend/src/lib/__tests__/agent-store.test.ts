@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useAgentStore } from '../agent-store'
 import { STARTER_API_ID, STARTER_CLI_ID, STARTER_REMOTE_ID, STARTER_SUPPORT_ID } from '../starter-agents'
-import { AVATAR_THEME_STORAGE_KEY, dispatchAvatarTheme } from '../avatarTheme'
+import {
+  AVATAR_THEME_STORAGE_KEY,
+  dispatchAvatarTheme,
+  saveEnabledAvatarThemes,
+} from '../avatarTheme'
 import type { Agent } from '../../types/agent'
 
 const mockAgents: Agent[] = [
@@ -61,12 +65,27 @@ describe('useAgentStore avatar themes', () => {
     expect(useAgentStore.getState().avatarThemeByAgent.coder).toBeUndefined()
   })
 
-  it('assigns unique looks when the roster is loaded', () => {
+  it('assigns unique looks from the installed set when the roster fits the deck (#128)', () => {
+    // The deck is the installed set × eye styles now, so install a second family
+    // to cover the fixture roster (6 eye styles per family).
+    saveEnabledAvatarThemes(['blobs', 'bee'])
     useAgentStore.getState().setAgents([...mockAgents])
     const { avatarThemeByAgent, avatarEyesByAgent, agents } = useAgentStore.getState()
     const pairs = agents.map((a) => `${avatarThemeByAgent[a.agent_id]}:${avatarEyesByAgent[a.agent_id]}`)
     expect(pairs.every((p) => !p.includes('undefined'))).toBe(true)
     expect(new Set(pairs).size).toBe(agents.length)
+    // …and never a pack the operator did not install.
+    expect(pairs.every((p) => p.startsWith('blobs:') || p.startsWith('bee:'))).toBe(true)
+  })
+
+  it('repeats looks only after the installed deck is exhausted (#128)', () => {
+    saveEnabledAvatarThemes(['blobs'])
+    useAgentStore.getState().setAgents([...mockAgents])
+    const { avatarThemeByAgent, agents } = useAgentStore.getState()
+    const themes = agents.map((a) => avatarThemeByAgent[a.agent_id])
+    // Only Blobs is installed: every agent is Blobs, and the roster is longer than
+    // the 6-style deck, so looks repeat rather than borrowing a disabled pack.
+    expect(themes.every((theme) => theme === 'blobs')).toBe(true)
   })
 
   it('persists googly eye style', () => {

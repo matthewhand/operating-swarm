@@ -338,7 +338,7 @@ only** (free-tier always-on ~day 17). Short guide:
 | `DATABASE_URL` | Wins. Postgres DSN (`postgres://` / `postgresql://`). Compose sets `postgres://swarm:swarm@postgres:5432/swarm` (local placeholder, not a secret). | compose: local `postgres` service; else unset → SQLite |
 | `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Discrete knobs when `DATABASE_URL` is empty. | compose: `postgres` / `5432` / `swarm` / `swarm` / `swarm` |
 | `DJANGO_DATABASE` | If `postgres` / `postgresql` without URL/host, startup **fails fast** (exit 78). `sqlite` is documentary. | unset |
-| `DJANGO_DB_NAME` / `SQLITE_DB_PATH` | SQLite file when Postgres is not configured (pytest, desktop, tiny native demos). | `/tmp/db.sqlite3` |
+| `DJANGO_DB_NAME` / `SQLITE_DB_PATH` | SQLite file when Postgres is not configured (desktop, tiny native demos). | `<user data dir>/db.sqlite3` via `get_user_data_dir_for_swarm()` (never `/tmp`). Pytest uses an isolated temp file. |
 | `SWARM_SKIP_DB_HEALTH` | Skip the startup Postgres connect check. Emergency only. | unset (check on) |
 
 Unreachable Postgres or a Neon quota/compute error **exits 78** with a

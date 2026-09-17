@@ -75,6 +75,142 @@ async def test_send_params(bp):
     op.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_send_params_pass_omb_bot_target(bp):
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.operate",
+        return_value=OperateResult(remote="omb", op="send", ok=True, detail="started"),
+    ) as op:
+        out = await _ask(
+            bp,
+            "",
+            params={
+                "op": "send",
+                "name": "omb",
+                "prompt": "hello desk",
+                "target": "desk-1",
+            },
+        )
+    assert "OK" in out
+    op.assert_called_once_with("omb", "send", prompt="hello desk", target="desk-1")
+
+
+@pytest.mark.asyncio
+async def test_send_params_session_is_omb_target(bp):
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.operate",
+        return_value=OperateResult(remote="omb", op="send", ok=True, detail="started"),
+    ) as op:
+        out = await _ask(
+            bp,
+            "",
+            params={"op": "send", "name": "omb", "prompt": "hi", "session": "bot-uuid"},
+        )
+    assert "OK" in out
+    op.assert_called_once_with("omb", "send", prompt="hi", target="bot-uuid")
+
+
+def test_render_operate_omb_reply_is_plain_text_not_uuid_ack():
+    result = OperateResult(
+        remote="omb",
+        op="send",
+        ok=True,
+        detail="OpenMousBot reply",
+        data={
+            "bot_id": "79b5852c-9ae8-4972-a662-80054be9ea5f",
+            "text": "Hailo-8L is still blocked until the ribbon arrives.",
+        },
+    )
+    out = _render_operate(result)
+    assert out == "Hailo-8L is still blocked until the ribbon arrives."
+    assert "79b5852c" not in out
+    assert "accepted the turn" not in out
+
+
+def test_render_operate_omb_timeout_is_named_error_not_uuid_ack():
+    result = OperateResult(
+        remote="omb",
+        op="send",
+        ok=False,
+        detail="OpenMousBot reply timed out",
+        data={"bot_id": "79b5852c-9ae8-4972-a662-80054be9ea5f"},
+        gap="omb_reply_timeout",
+    )
+    out = _render_operate(result)
+    assert "timed out" in out
+    assert "accepted the turn" not in out
+    assert "79b5852c" not in out
+
+
+@pytest.mark.asyncio
+async def test_send_passes_session_id(bp):
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.operate",
+        return_value=OperateResult(remote="hermes", op="send", ok=True, detail="resumed"),
+    ) as op:
+        out = await _ask(
+            bp,
+            "",
+            params={
+                "op": "send",
+                "name": "hermes",
+                "prompt": "hi",
+                "session_id": "sess-99",
+            },
+        )
+    assert "OK" in out
+    assert op.call_args.kwargs.get("session_id") == "sess-99"
+
+
+@pytest.mark.asyncio
+async def test_anythingllm_send_streams_deltas(bp):
+    def _fake_iter(*_args, **_kwargs):
+        yield ("Hel", False, None)
+        yield ("lo", True, None)
+
+    bp.set_params(
+        {
+            "op": "send",
+            "name": "anythingllm",
+            "prompt": "hi",
+            "session_id": "docs:t1",
+        }
+    )
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.kind_of_instance",
+        return_value="anythingllm",
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.load_remote",
+        return_value=object(),
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.iter_anythingllm_chat",
+        side_effect=lambda *a, **k: _fake_iter(),
+    ):
+        chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
+    texts = []
+    for chunk in chunks:
+        msgs = chunk.get("messages") if isinstance(chunk, dict) else None
+        if msgs and msgs[0].get("content"):
+            texts.append(msgs[0]["content"])
+    assert "Hel" in texts
+    assert texts[-1] == "Hello"
+    assert chunks[-1].get("final") is True
+
+
+@pytest.mark.asyncio
+async def test_as_tool_anythingllm_when_placed():
+    bp = RemoteHarnessBlueprint(
+        config={"llm": {}, "agent_team": {"members": ["anythingllm"]}}
+    )
+    agents = bp._build_agents()
+    assert "anythingllm" in agents
+    names = []
+    for tool in getattr(agents["coordinator"], "tools", []) or []:
+        names.append(getattr(tool, "name", None) or getattr(tool, "__name__", ""))
+    joined = " ".join(str(n) for n in names)
+    assert "consult_anythingllm" in joined
+
+
 def test_render_operate_not_added_is_natural_sentence(monkeypatch):
     monkeypatch.delenv("HERMES_BASE_URL", raising=False)
     monkeypatch.delenv("HERMES_API_KEY", raising=False)
@@ -190,3 +326,87 @@ async def test_as_tool_swarm_when_placed():
         names.append(getattr(tool, "name", None) or getattr(tool, "__name__", ""))
     joined = " ".join(str(n) for n in names)
     assert "consult_swarm" in joined
+
+
+@pytest.mark.asyncio
+async def test_letta_send_streams_deltas(bp):
+    def _fake_iter(*_args, **_kwargs):
+        yield ("Hel", False, None)
+        yield ("lo", True, None)
+
+    bp.set_params(
+        {
+            "op": "send",
+            "name": "letta",
+            "prompt": "hi",
+            "session_id": "agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        }
+    )
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.kind_of_instance",
+        return_value="letta",
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.load_remote",
+        return_value=object(),
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.iter_letta_chat",
+        side_effect=lambda *a, **k: _fake_iter(),
+    ):
+        chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
+    texts = []
+    for chunk in chunks:
+        msgs = chunk.get("messages") if isinstance(chunk, dict) else None
+        if msgs and msgs[0].get("content"):
+            texts.append(msgs[0]["content"])
+    assert "Hel" in texts
+    assert texts[-1] == "Hello"
+    assert chunks[-1].get("final") is True
+
+
+@pytest.mark.asyncio
+async def test_flowise_send_streams_deltas(bp):
+    def _fake_iter(*_args, **_kwargs):
+        yield ("Hel", False, None)
+        yield ("lo", True, None)
+
+    bp.set_params(
+        {
+            "op": "send",
+            "name": "flowise",
+            "prompt": "hi",
+            "session_id": "support-bot",
+        }
+    )
+    with patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.kind_of_instance",
+        return_value="flowise",
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.load_remote",
+        return_value=object(),
+    ), patch(
+        "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.iter_flowise_chat",
+        side_effect=lambda *a, **k: _fake_iter(),
+    ):
+        chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
+    texts = []
+    for chunk in chunks:
+        msgs = chunk.get("messages") if isinstance(chunk, dict) else None
+        if msgs and msgs[0].get("content"):
+            texts.append(msgs[0]["content"])
+    assert "Hel" in texts
+    assert texts[-1] == "Hello"
+    assert chunks[-1].get("final") is True
+
+
+@pytest.mark.asyncio
+async def test_as_tool_letta_when_placed():
+    bp = RemoteHarnessBlueprint(
+        config={"llm": {}, "agent_team": {"members": ["letta"]}}
+    )
+    agents = bp._build_agents()
+    assert "letta" in agents
+    names = []
+    for tool in getattr(agents["coordinator"], "tools", []) or []:
+        names.append(getattr(tool, "name", None) or getattr(tool, "__name__", ""))
+    joined = " ".join(str(n) for n in names)
+    assert "consult_letta" in joined

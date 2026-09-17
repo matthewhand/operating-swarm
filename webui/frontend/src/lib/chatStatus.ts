@@ -31,6 +31,7 @@ export const MANAGE_SENTINELS = new Set([
   '__manage__',
   '__manage_cli__',
   '__manage_model__',
+  '__manage_api__',
 ])
 
 export const MANAGE_CLI_VALUE = '__manage_cli__'

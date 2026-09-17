@@ -40,6 +40,13 @@
       "orchestration": "default",
       "auxiliary": "local",
       "delegation": "default"
+    },
+    "product_modes": {
+      "cli": true,
+      "api": false,
+      "blueprint": false,
+      "team": false,
+      "remote": false
     }
   },
   "mcpServers": {

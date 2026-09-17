@@ -99,7 +99,10 @@ async def test_all_workers_fail():
 
 async def test_no_workers_configured():
     bp = CliMapBlueprint(config={})
-    assert "No worker CLIs are configured" in _final(await _collect(bp.run([{"role": "user", "content": "t"}])))
+    final = _final(await _collect(bp.run([{"role": "user", "content": "t"}])))
+    assert "No worker CLIs are configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
 
 
 async def test_planner_empty_subtasks():

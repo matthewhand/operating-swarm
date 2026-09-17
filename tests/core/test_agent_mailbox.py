@@ -8,6 +8,7 @@ from swarm.core.agent_mailbox import (
     ERROR_KIND_FILTER,
     ERROR_KIND_MISMATCH,
     ERROR_NOT_DISCOVERABLE,
+    ERROR_SECTION_LOCKED,
     ERROR_TARGET_ARCHIVED,
     ERROR_TARGET_HIDDEN,
     ERROR_UNKNOWN_ID,
@@ -18,8 +19,10 @@ from swarm.core.agent_mailbox import (
     MailboxContext,
     Peer,
     attach_to_agent,
+    context_from_runtime,
     install_mailbox_on_blueprint,
 )
+from swarm.core.section_talk import parse_section_talk_state
 from swarm.core.transcript_roles import reconstruct_display
 
 OFFICE = {
@@ -247,6 +250,66 @@ def test_send_message_enforces_whitelist():
     blocked = _ctx("pat", acl=acl).send("cos", "secret")
     assert blocked["ok"] is False
     assert blocked["error"] == ERROR_NOT_DISCOVERABLE
+
+
+LOCKED_OFFICE = parse_section_talk_state(
+    {
+        "sections": [{"id": "sec_office", "name": "office", "internalOnly": True}],
+        "membership": {"pat": "sec_office", "cos": "sec_office"},
+    }
+)
+
+
+def test_section_lock_limits_list_and_send():
+    listed = _ctx("pat", section_talk=LOCKED_OFFICE).list_peers()
+    assert {row["id"] for row in listed["agents"]} == {"cos"}
+    ok = _ctx("pat", section_talk=LOCKED_OFFICE).send("cos", "hi")
+    assert ok["ok"] is True
+    blocked = _ctx("pat", section_talk=LOCKED_OFFICE).send("support", "hi")
+    assert blocked["ok"] is False
+    assert blocked["error"] == ERROR_SECTION_LOCKED
+
+
+def test_section_lock_team_of_one_and_unlock():
+    solo = parse_section_talk_state(
+        {
+            "sections": [{"id": "sec_solo", "name": "solo", "internalOnly": True}],
+            "membership": {"pat": "sec_solo"},
+        }
+    )
+    assert _ctx("pat", section_talk=solo).list_peers()["agents"] == []
+    denied = _ctx("pat", section_talk=solo).send("cos", "hi")
+    assert denied["ok"] is False
+    assert denied["error"] == ERROR_SECTION_LOCKED
+    unlocked = parse_section_talk_state(
+        {
+            "sections": [{"id": "sec_solo", "name": "solo", "internalOnly": False}],
+            "membership": {"pat": "sec_solo"},
+        }
+    )
+    ids = {row["id"] for row in _ctx("pat", section_talk=unlocked).list_peers()["agents"]}
+    assert ids == {"cos", "support"}
+
+
+def test_section_lock_blocks_inbound_from_outsiders():
+    inbound = _ctx("support", section_talk=LOCKED_OFFICE).send("pat", "hi")
+    assert inbound["ok"] is False
+    assert inbound["error"] == ERROR_SECTION_LOCKED
+
+
+def test_context_from_runtime_reads_rail_sections():
+    ctx = context_from_runtime(
+        caller_id="pat",
+        params={
+            "kind": "api",
+            "rail_sections": {
+                "sections": [{"id": "sec_office", "name": "office", "internalOnly": True}],
+                "membership": {"pat": "sec_office"},
+            },
+        },
+        rosters=OFFICE,
+    )
+    assert ctx.list_peers()["agents"] == []
 
 
 def test_send_redacts_secrets_in_store_and_logs(tmp_path, caplog):

@@ -1,6 +1,7 @@
 import type { AgentRole, Blueprint, BlueprintWorkflow } from './api'
 import { loadAgentEdit, saveAgentEdit, type AgentEdit } from './agentEdits'
 import { SUPPORT_AGENT_ID, SYNTHETIC_SUPPORT, isSupportAgent } from './supportAgent'
+import { findCustomRole } from './customRoles'
 
 /** Example roles that demonstrate blueprint design (REQ-25). */
 export const EXAMPLE_ROLES = ['support', 'gate', 'skeptic'] as const
@@ -139,7 +140,10 @@ export function normalizeAgentRole(value: unknown): AgentRole {
   if (value == null) return 'default'
   const key = String(value).trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_')
   if (!key) return 'default'
-  return ROLE_ALIASES[key] ?? 'default'
+  if (ROLE_ALIASES[key]) return ROLE_ALIASES[key]
+  const custom = findCustomRole(key)
+  if (custom) return custom.name
+  return 'default'
 }
 
 export function agentRole(agent: {
@@ -202,7 +206,11 @@ export function isChiefOfStaff(role: unknown): boolean {
 }
 
 export function roleBadgeLabel(role: unknown): string {
-  return ROLE_BADGE_LABELS[normalizeAgentRole(role)]
+  const norm = normalizeAgentRole(role)
+  if (ROLE_BADGE_LABELS[norm]) return ROLE_BADGE_LABELS[norm]
+  const custom = findCustomRole(norm)
+  if (custom) return custom.label || custom.name.charAt(0).toUpperCase() + custom.name.slice(1)
+  return ''
 }
 
 export function roleFromAgent(agent: {
@@ -236,7 +244,10 @@ export function showsBlueprintEdit(agent: {
 }
 
 export function roleCssClass(role: AgentRole | string): string {
-  return `os-agent-role-${normalizeAgentRole(role)}`
+  const norm = normalizeAgentRole(role)
+  const custom = findCustomRole(norm)
+  if (custom && custom.css_class) return custom.css_class
+  return `os-agent-role-${norm}`
 }
 
 export function isExampleRoleAgent(agent: {

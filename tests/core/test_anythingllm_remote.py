@@ -34,7 +34,10 @@ class _Router(BaseHTTPRequestHandler):
         status, body = self.routes.get(key, (404, {"error": "no route"}))
         payload = json.dumps(body).encode("utf-8") if not isinstance(body, str) else body.encode()
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        ctype = "application/json"
+        if isinstance(body, str) and body.lstrip().startswith("data:"):
+            ctype = "text/event-stream"
+        self.send_header("Content-Type", ctype)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -171,17 +174,16 @@ def test_list_threads_as_sessions(http_router):
     assert result.http_status == 200
     sessions = sessions_from_operate(result)
     ids = [s.id for s in sessions]
-    assert ids == [
-        "teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130",
-        "teamstinky:aaa11111-0000-0000-0000-000000000000",
-    ]
-    first = sessions[0]
-    assert first.title == "latest hacker news?"
-    assert first.source == "anythingllm"
-    assert first.channel == "TeamStinky"
-    assert first.thread_ts == "f8c17211-9d11-4fc7-879a-42c19975b130"
-    # Empty workspaces produce no sessions.
-    assert len(sessions) == 2
+    assert "teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130" in ids
+    assert "teamstinky:aaa11111-0000-0000-0000-000000000000" in ids
+    assert "teamstinky" in ids
+    assert "empty-ws" in ids
+    thread = next(s for s in sessions if s.id.endswith("f8c17211-9d11-4fc7-879a-42c19975b130"))
+    assert thread.title == "latest hacker news?"
+    assert thread.source == "anythingllm"
+    assert thread.channel == "TeamStinky"
+    assert thread.thread_ts == "f8c17211-9d11-4fc7-879a-42c19975b130"
+    assert len(sessions) == 4
 
 
 def test_list_auth_required_is_honest(http_router):
@@ -202,12 +204,47 @@ def test_send_requires_existing_thread(http_router):
     assert result.ok is False
     assert result.gap == "anythingllm_thread_required"
     assert "does not mint new" in result.detail
-    # Malformed id (no colon) is the same gap, not a 404 request.
     result2 = remotes_core.operate(
-        "anythingllm", "send", prompt="hi", config=_cfg(host, port), session_id="teamstinky"
+        "anythingllm", "send", prompt="hi", config=_cfg(host, port), session_id=""
     )
     assert result2.ok is False
     assert result2.gap == "anythingllm_thread_required"
+
+
+def test_send_via_target_hits_thread_chat(http_router):
+    host, port, router = http_router
+    key = ("POST", "/api/v1/workspace/teamstinky/thread/f8c17211-9d11-4fc7-879a-42c19975b130/chat")
+    router.routes[key] = (200, {"textResponse": "PONG from target", "sources": []})
+    result = remotes_core.operate(
+        "anythingllm",
+        "send",
+        prompt="say pong",
+        target="teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130",
+        config=_cfg(host, port),
+    )
+    assert result.ok is True
+    assert result.data["response"] == "PONG from target"
+    assert result.data["thread"] == "teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130"
+
+
+def test_list_sessions_are_searchable(http_router):
+    host, port, router = http_router
+    router.routes[("GET", "/api/v1/workspaces")] = (200, _WORKSPACES)
+    listed = remotes_core.operate("anythingllm", "list", config=_cfg(host, port))
+    from swarm.core.remotes import filter_anythingllm_sessions
+
+    filtered = filter_anythingllm_sessions(listed.data["sessions"], "onboarding")
+    assert [row["id"] for row in filtered] == [
+        "teamstinky:aaa11111-0000-0000-0000-000000000000",
+    ]
+    result = remotes_core.operate(
+        "anythingllm", "list", config=_cfg(host, port), query="hacker"
+    )
+    assert result.ok is True
+    sessions = sessions_from_operate(result)
+    assert [s.id for s in sessions] == [
+        "teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130",
+    ]
 
 
 def test_send_into_existing_thread(http_router):
@@ -264,7 +301,9 @@ def test_harness_registered_and_callable(http_router):
     )
     result = harness.list(spec, timeout=3)
     assert result.ok is True
-    assert sessions_from_operate(result)[0].id.startswith("teamstinky:")
+    ids = [s.id for s in sessions_from_operate(result)]
+    assert any(sid.startswith("teamstinky:") for sid in ids)
+    assert "teamstinky" in ids
     # Health is config-aware (see test_req203_remote_harness patterns): the
     # harness resolves the target from config, so pass the same config used
     # for the list call above.
@@ -279,3 +318,60 @@ def test_session_id_passes_sanitize():
 
     sid = "teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130"
     assert sanitize_cli_session_id(sid) == sid
+    assert sanitize_cli_session_id("teamstinky") == "teamstinky"
+
+
+def test_send_into_workspace_main_chat(http_router):
+    host, port, router = http_router
+    router.routes[("POST", "/api/v1/workspace/teamstinky/chat")] = (
+        200,
+        {"textResponse": "workspace pong", "sources": []},
+    )
+    result = remotes_core.operate(
+        "anythingllm",
+        "send",
+        prompt="say pong",
+        config=_cfg(host, port),
+        session_id="teamstinky",
+    )
+    assert result.ok is True
+    assert result.data["response"] == "workspace pong"
+    assert result.data["thread"] == "teamstinky"
+
+
+def test_stream_chat_yields_deltas(http_router):
+    host, port, router = http_router
+    sse = (
+        'data: {"textResponse": "Hel", "close": false}\n\n'
+        'data: {"textResponse": "Hello", "close": true}\n\n'
+    )
+    key = (
+        "POST",
+        "/api/v1/workspace/teamstinky/thread/f8c17211-9d11-4fc7-879a-42c19975b130/stream-chat",
+    )
+    router.routes[key] = (200, sse)
+    result = remotes_core.operate(
+        "anythingllm",
+        "send",
+        prompt="hi",
+        config=_cfg(host, port),
+        session_id="teamstinky:f8c17211-9d11-4fc7-879a-42c19975b130",
+    )
+    assert result.ok is True
+    assert result.data["response"] == "Hello"
+
+
+def test_list_fetches_threads_when_nested_missing(http_router):
+    host, port, router = http_router
+    router.routes[("GET", "/api/v1/workspaces")] = (
+        200,
+        {"workspaces": [{"slug": "docs", "name": "Docs"}]},
+    )
+    router.routes[("GET", "/api/v1/workspace/docs/threads")] = (
+        200,
+        {"threads": [{"slug": "t1", "name": "intro"}]},
+    )
+    result = remotes_core.operate("anythingllm", "list", config=_cfg(host, port))
+    ids = [s.id for s in sessions_from_operate(result)]
+    assert "docs" in ids
+    assert "docs:t1" in ids

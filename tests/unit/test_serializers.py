@@ -95,6 +95,29 @@ def test_validate_messages_null_content_is_allowed():
     # if 'content' in raw_msg and content is not None and not isinstance(content, str):
     assert serializer.is_valid(), serializer.errors
 
+def test_validate_messages_accepts_image_url_parts():
+    data = {
+        "model": "api_agent",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "what is in this image?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,abc"},
+                    },
+                ],
+            }
+        ],
+    }
+    serializer = ChatCompletionRequestSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    content = serializer.validated_data["messages"][0]["content"]
+    assert isinstance(content, list)
+    assert content[1]["type"] == "image_url"
+
+
 def test_validate_model_must_be_string():
     data = {
         "model": 123,

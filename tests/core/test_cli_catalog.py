@@ -9,7 +9,7 @@ from swarm.core.cli_adapter import CliAdapter
 def test_catalog_names_are_sorted_and_known():
     names = cli_catalog.catalog_names()
     assert names == sorted(names)
-    assert {"claude", "gemini", "codex", "opencode", "omp", "grok", "agy", "pi"} <= set(names)
+    assert {"claude", "gemini", "codex", "opencode", "kilocode", "omp", "grok", "agy", "pi"} <= set(names)
 
 
 def test_every_catalog_cli_documents_session_resume():
@@ -161,11 +161,17 @@ def test_listed_cli_specs_are_first_class_sidebar_agents():
 
 def test_rail_cli_rows_use_named_kind_ids():
     rows = {r["id"]: r for r in cli_catalog.rail_cli_rows()}
-    assert set(rows) == {"cli_agent", "api_agent"}
+    assert "cli_agent" in rows
+    assert "api_agent" not in rows
     assert rows["cli_agent"]["kind"] == "cli"
     assert rows["cli_agent"]["name"] == "cli_agent"
-    assert rows["api_agent"]["kind"] == "api"
-    assert rows["api_agent"]["name"] == "api_agent"
+    enabled = {
+        r["id"]: r
+        for r in cli_catalog.rail_cli_rows({"settings": {"product_modes": {"api": True}}})
+    }
+    assert set(enabled) == {"cli_agent", "api_agent"}
+    assert enabled["api_agent"]["kind"] == "api"
+    assert enabled["api_agent"]["name"] == "api_agent"
     assert cli_catalog.cli_from_rail_id("grok_agent") == "grok"
     assert cli_catalog.cli_from_rail_id("agy") == "agy"
     assert cli_catalog.cli_from_rail_id("grok") == "grok"
@@ -231,6 +237,8 @@ def test_build_starter_config_empty_host_still_valid():
     assert cfg["cli_agents"] == {}
     assert "llm" in cfg
     assert "cli_fusion" not in cfg  # nothing to wire
+    assert cfg["settings"]["product_modes"]["cli"] is True
+    assert cfg["settings"]["product_modes"]["api"] is False
 
 
 def test_build_starter_config_round_trips_through_registry():

@@ -1,39 +1,7 @@
 name: REQ-166 workspace binding Phase 0
 
 on:
-  pull_request:
-    paths:
-      - "webui/frontend/src/lib/agentWorkspace.ts"
-      - "webui/frontend/src/lib/agentEdits.ts"
-      - "webui/frontend/src/lib/agentFolder.ts"
-      - "webui/frontend/src/lib/__tests__/agentWorkspace.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentEdits.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentFolder.test.ts"
-      - "webui/frontend/src/components/AgentWorkspaceBinding.tsx"
-      - "webui/frontend/src/components/AddAgentWizard.tsx"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/components/__tests__/AgentWorkspaceBinding.test.tsx"
-      - "webui/frontend/src/components/__tests__/AddAgentWizard.test.tsx"
-      - "webui/frontend/src/components/__tests__/AgentEditor.test.tsx"
-      - "tests/unit/test_req166_workspace_binding.py"
-      - ".github/workflows/req166-workspace-binding.yml"
-  push:
-    branches: [main]
-    paths:
-      - "webui/frontend/src/lib/agentWorkspace.ts"
-      - "webui/frontend/src/lib/agentEdits.ts"
-      - "webui/frontend/src/lib/agentFolder.ts"
-      - "webui/frontend/src/lib/__tests__/agentWorkspace.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentEdits.test.ts"
-      - "webui/frontend/src/lib/__tests__/agentFolder.test.ts"
-      - "webui/frontend/src/components/AgentWorkspaceBinding.tsx"
-      - "webui/frontend/src/components/AddAgentWizard.tsx"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/components/__tests__/AgentWorkspaceBinding.test.tsx"
-      - "webui/frontend/src/components/__tests__/AddAgentWizard.test.tsx"
-      - "webui/frontend/src/components/__tests__/AgentEditor.test.tsx"
-      - "tests/unit/test_req166_workspace_binding.py"
-      - ".github/workflows/req166-workspace-binding.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

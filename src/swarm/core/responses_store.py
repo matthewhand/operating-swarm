@@ -86,8 +86,8 @@ def owner_allows(record: dict[str, Any] | None, principal: str | None) -> bool:
     """Whether ``principal`` may access ``record`` under ownership rules.
 
     Fail-closed: unowned (legacy) records are not readable by any principal.
-    Views skip this check entirely when ``ENABLE_API_AUTH`` is off, so open
-    deployments still allow access without an owner stamp.
+    Views still run this check when a record has an ``owner`` stamp even if
+    ``ENABLE_API_AUTH`` is off; unowned records stay open only in that mode.
 
     - No record → False (caller should 404 separately if desired)
     - No owner on record → False (legacy / missing stamp; deny when auth on)

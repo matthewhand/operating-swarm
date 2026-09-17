@@ -69,6 +69,8 @@ def test_get_swarm_log_level():
     with patch.dict(os.environ, {"SWARM_LOG_LEVEL": "INFO"}):
         assert get_swarm_log_level() == "INFO"
     with patch.dict(os.environ, {}, clear=True):
+        assert get_swarm_log_level() == "INFO"
+    with patch.dict(os.environ, {"DJANGO_DEBUG": "true"}, clear=True):
         assert get_swarm_log_level() == "DEBUG"
 
 

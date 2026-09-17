@@ -12,7 +12,11 @@ Related: [SKILLS_AND_CONSENSUS_WALKTHROUGH](./SKILLS_AND_CONSENSUS_WALKTHROUGH.m
 
 ## Discovery path
 
-Default root: `<project_root>/skills`.
+Default roots: `<project_root>/skills` (bundled) and
+`get_user_data_dir_for_swarm()/skills` (installed packs, overlay).
+
+Marketplace browse/install (REQ-887) uses this same Agent Skills format —
+see [MARKETPLACE.md](./MARKETPLACE.md). Do not invent a parallel schema.
 
 A skill is **any directory** that holds a `SKILL.md`. The walker is
 `swarm.core.skills.discover_skills()` (`src/swarm/core/skills.py`):

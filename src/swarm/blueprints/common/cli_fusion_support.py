@@ -22,14 +22,34 @@ PARAM_JUDGE = "judge"        # fusion: judge adapter/profile
 PARAM_TIMEOUT = "timeout"    # override adapter timeout (seconds)
 PARAM_MODEL = "model"        # pin CLI model flag (Chat send / apply_model)
 PARAM_CLI_MODEL = "cli_model"  # Agent Router alias of model
+# Issue #180: box id or host:port for serve attach
+PARAM_CLI_REMOTE = "cli_remote"
 PARAM_WORKDIR = "workdir"    # working directory for the CLI(s)
 PARAM_CWD = "cwd"            # alias for workdir (MoA / hybrid twins)
 PARAM_ISOLATE = "isolate"    # fusion: per-panelist workdir isolation (bool)
 PARAM_FALLBACK = "fallback"  # single-CLI: explicit ordered failover list
-PARAM_FAILOVER = "failover"  # single-CLI: enable auto-failover (default True)
+PARAM_FAILOVER = "failover"  # single-CLI: auto-failover (off when params.cli is set)
 PARAM_CONSENSUS = "consensus"  # single-CLI: per-request consensus override (bool/int/list/dict)
 PARAM_SKILL = "skill"        # apply a named skill's instructions to the prompt
 PARAM_PROFILE = "profile"    # desired inference traits {intelligence,speed,cost} 0..1
+
+# REQ-868: in-app Manage CLI pointer (Settings → CLI Agents).
+MANAGE_CLI_HREF = "/chat?settings=cli-agents"
+MANAGE_CLI_LINK = f"[Manage CLI]({MANAGE_CLI_HREF})"
+MANAGE_CLI_HINT = (
+    f"Configure your installed CLIs in {MANAGE_CLI_LINK} (Settings → CLI Agents)."
+)
+UNCONFIGURED_CLI_AGENTS_MESSAGE = f"No CLI agents are configured. {MANAGE_CLI_HINT}"
+
+
+def unconfigured_cli_message(lead: str | None = None) -> str:
+    """Chat error when a CLI blueprint has no adapter to run (REQ-868 / #258)."""
+    text = (lead or "").strip()
+    if not text:
+        return UNCONFIGURED_CLI_AGENTS_MESSAGE
+    if not text.endswith("."):
+        text += "."
+    return f"{text} {MANAGE_CLI_HINT}"
 
 
 def resolve_workdir(
@@ -295,16 +315,20 @@ def resolve_failover_chain(
 ) -> list[str]:
     """Ordered adapter names the single-CLI blueprint should try, in order.
 
-    The primary is :func:`select_single_cli`. Then, unless failover is disabled:
+    The primary is :func:`select_single_cli`. Then:
 
     * an explicit ``params['fallback']`` list is appended in order, **or**
-    * if no explicit list and ``params['failover']`` isn't ``False``, every other
-      *installed* adapter is appended (auto-failover) so a missing/broken primary
-      degrades to whatever the host actually has.
+    * if ``params['failover']`` is true, every other *installed* adapter is
+      appended (opt-in auto-failover).
+
+    An explicit ``params['cli']`` (dropdown / request) is **strict**: other
+    installed CLIs are not appended unless the caller passed ``failover: true``
+    or a ``fallback`` list. With no ``cli`` param, auto-failover remains the
+    default so a missing/broken ``default_cli`` still degrades to whatever the
+    host actually has.
 
     Names are deduped (order preserved) and filtered to configured adapters.
-    Returns ``[]`` when nothing is configured. Set ``failover: False`` for strict
-    single-CLI behaviour (never silently switch to a different model).
+    Returns ``[]`` when nothing is configured.
     """
     params = params or {}
     primary = select_single_cli(config, params, registry)
@@ -314,8 +338,10 @@ def resolve_failover_chain(
     fallback = params.get(PARAM_FALLBACK)
     if isinstance(fallback, list):
         chain.extend(str(n) for n in fallback)
-    elif params.get(PARAM_FAILOVER, True):
-        chain.extend(n for n in registry.available() if n not in chain)
+    else:
+        explicit_cli = bool(params.get(PARAM_CLI))
+        if params.get(PARAM_FAILOVER, not explicit_cli):
+            chain.extend(n for n in registry.available() if n not in chain)
 
     known = set(registry.names())
     seen: set[str] = set()
@@ -400,15 +426,19 @@ def requested_cli_model(params: dict[str, Any] | None) -> str | None:
 
 
 def apply_overrides(
-    registry: CliAdapterRegistry, params: dict[str, Any] | None
+    registry: CliAdapterRegistry,
+    params: dict[str, Any] | None,
+    config: dict[str, Any] | None = None,
 ) -> CliAdapterRegistry:
-    """Apply per-request adapter overrides (timeout + model pin) to a registry."""
+    """Apply per-request timeout, model pin, and remote attach overrides."""
     params = params or {}
     timeout = params.get(PARAM_TIMEOUT)
     model = requested_cli_model(params)
-    if timeout is None and not model:
+    remote_hint = params.get(PARAM_CLI_REMOTE) or params.get("remote")
+    if timeout is None and not model and not remote_hint:
         return registry
     from swarm.core import cli_catalog
+    from swarm.core.cli_remote import resolve_cli_remote
 
     names = list(registry.names())
     requested = params.get(PARAM_CLI)
@@ -429,6 +459,10 @@ def apply_overrides(
             pinned_cmd = pinned.get("cmd")
             if isinstance(pinned_cmd, list) and pinned_cmd:
                 entry["cmd"] = pinned_cmd
+        if remote_hint and name in model_targets:
+            endpoint = resolve_cli_remote(name, config=config, params=params)
+            if endpoint:
+                entry["remote"] = endpoint
         if entry:
             patch[name] = entry
     return registry.with_overrides(patch) if patch else registry
@@ -461,6 +495,15 @@ def backend_meta(backends: list[str], judge: str | None = None) -> dict[str, Any
     return meta
 
 
+def fatal_config_meta(meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Mark a chunk as a terminal CLI/config failure (#274)."""
+    from swarm.core.cli_session_error import FATAL_CONFIG_ERROR_KEY
+
+    out = dict(meta or {})
+    out[FATAL_CONFIG_ERROR_KEY] = True
+    return out
+
+
 #: Chunk ``type`` for fusion progress side-channel events.
 PROGRESS_TYPE = "fusion_progress"
 #: Honest CLI session line (new vs resumed). Not a chat bubble.
@@ -478,16 +521,22 @@ def progress_chunk(content: str) -> dict:
     return {"type": PROGRESS_TYPE, "content": content}
 
 
-def session_notice_chunk(cli_name: str, *, resumed: bool) -> dict:
+def session_notice_chunk(
+    cli_name: str, *, resumed: bool, host: str | None = None
+) -> dict:
     """Bubble-less session line. ``resumed`` only when the stored id was used."""
     from swarm.core.cli_sessions import session_notice_text
 
-    return {
+    label = str(host or "").strip() or None
+    chunk = {
         "type": SESSION_NOTICE_TYPE,
-        "content": session_notice_text(cli_name, resumed=resumed),
+        "content": session_notice_text(cli_name, resumed=resumed, host=label),
         "resumed": resumed,
         "session_notice": True,
     }
+    if label:
+        chunk["host"] = label
+    return chunk
 
 
 def terminated_notice_chunk() -> dict:

@@ -1,5 +1,5 @@
 $ # 31 bundled blueprints ship with the repo
-$ SWARM_TEST_MODE=1 uv run swarm-cli list
+$ SWARM_TEST_MODE=1 uv run os-cli list
 --- Bundled Blueprints (available from package) ---
 - fs_introspect (entry: blueprint_fs_introspect.py)
 - hybrid_swarm (entry: blueprint_hybrid_swarm.py)

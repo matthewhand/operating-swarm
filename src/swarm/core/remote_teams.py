@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 FRAMEWORKS: dict[str, dict[str, Any]] = {
     "hermes": {
@@ -75,6 +75,14 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "default_base_url": "http://127.0.0.1:3080/v1",
         "launch": "ollama launch dsh",
     },
+    "letta": {
+        "name": "Letta",
+        "specialty": "Remote Letta agent team",
+        "description": "Letta (formerly MemGPT) memory and workflow agents.",
+        "color": "#9333ea",
+        "icon": "🧠",
+        "transport": "http",
+    },
 }
 
 _ALIASES = {
@@ -89,6 +97,7 @@ _ALIASES = {
     "deepseekharness": "dsh",
     "deepseek_harness": "dsh",
     "deepseek": "dsh",
+    "memgpt": "letta",
 }
 
 _ENV_URLS = {
@@ -96,6 +105,7 @@ _ENV_URLS = {
     "openmausbot": ("OPENMAUSBOT_BASE_URL", "OMB_BASE_URL"),
     "rakazo": ("RAKAZO_BASE_URL", "RAKEZO_BASE_URL"),
     "dsh": ("DSH_BASE_URL", "DEEPSEEK_HARNESS_BASE_URL"),
+    "letta": ("LETTA_BASE_URL",),
 }
 _ENV_TARGETS = {
     "herdr": ("HERDR_TARGET", "HERDR_PANE"),
@@ -172,6 +182,75 @@ def resolve_remote_api_key(
     return token.strip() if token else None
 
 
+def chat_letta(
+    base_url: str,
+    messages: list[dict[str, Any]] | str,
+    *,
+    agent_id: str = "",
+    timeout: float = 60.0,
+    api_key: str | None = None,
+) -> str:
+    """POST to Letta /v1/agents/{id}/messages with resolved agent ID."""
+    resolved_id = (agent_id or "").strip()
+    if not resolved_id or resolved_id.lower() == "default":
+        raise RuntimeError("letta agent id is required (Open Swarm does not mint new agents)")
+
+    base = _safe_http_url(base_url)
+    if base.endswith("/v1"):
+        endpoint = f"{base}/agents/{quote(resolved_id, safe='')}/messages"
+    else:
+        endpoint = f"{base}/v1/agents/{quote(resolved_id, safe='')}/messages"
+
+    if isinstance(messages, str):
+        prompt = messages
+    elif isinstance(messages, list):
+        user_msgs = [
+            m.get("content", "")
+            for m in messages
+            if isinstance(m, dict) and m.get("role") == "user"
+        ]
+        if user_msgs:
+            prompt = str(user_msgs[-1])
+        elif messages and isinstance(messages[-1], dict):
+            prompt = str(messages[-1].get("content") or "")
+        else:
+            prompt = str(messages)
+    else:
+        prompt = str(messages)
+
+    if not prompt.strip():
+        raise RuntimeError("prompt is required")
+
+    payload = json.dumps({"messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    token = api_key or resolve_remote_api_key("letta")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+        headers["X-API-Key"] = token
+
+    req = urllib.request.Request(endpoint, data=payload, headers=headers, method="POST")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:400]
+        raise RuntimeError(f"remote team HTTP {exc.code}: {detail}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError(f"remote team unreachable: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"remote team returned non-JSON: {exc}") from exc
+
+    from swarm.core.remotes import _letta_assistant_text
+
+    content = _letta_assistant_text(body)
+    if not content:
+        if isinstance(body, dict) and (body.get("error") or body.get("detail")):
+            raise RuntimeError(f"Letta upstream error: {body.get('error') or body.get('detail')}")
+        raise RuntimeError("remote team response had no message content")
+    return str(content)
+
+
 def chat_remote(
     base_url: str,
     messages: list[dict[str, Any]],
@@ -182,6 +261,23 @@ def chat_remote(
     framework: str | None = None,
 ) -> str:
     """POST OpenAI-style chat completions to a remote agentic team."""
+    fid = normalize_framework(framework) or (framework or "").strip().lower()
+    if fid in ("letta", "memgpt"):
+        return chat_letta(
+            base_url,
+            messages,
+            agent_id=model,
+            timeout=timeout,
+            api_key=api_key or resolve_remote_api_key(framework),
+        )
+    if fid == "herdr":
+        prompt = ""
+        if isinstance(messages, str):
+            prompt = messages
+        elif isinstance(messages, list) and messages:
+            prompt = str(messages[-1].get("content") or "")
+        return chat_herdr(prompt, target=model, timeout_ms=int(timeout * 1000))
+
     endpoint = completions_url(base_url)
     payload = json.dumps({"model": model or "default", "messages": messages}).encode("utf-8")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -433,10 +529,11 @@ _DISCOVERY_CAP = 32
 _DISCOVERY_PATHS: dict[str, tuple[str, ...]] = {
     "hermes": ("/v1/models", "/v1/agents/", "/api/sessions"),
     "rakazo": ("/api/bots", "/api/agents", "/v1/agents/", "/v1/models"),
-    "openmousbot": ("/api/bots", "/v1/agents/", "/v1/models"),
-    "omb": ("/api/bots", "/v1/agents/", "/v1/models"),
-    "openmausbot": ("/api/bots", "/v1/agents/", "/v1/models"),
+    "openmousbot": ("/api/bots?messages=0", "/v1/agents/", "/v1/models"),
+    "omb": ("/api/bots?messages=0", "/v1/agents/", "/v1/models"),
+    "openmausbot": ("/api/bots?messages=0", "/v1/agents/", "/v1/models"),
     "dsh": ("/v1/models", "/v1/agents/", "/api/tags"),
+    "letta": ("/v1/agents/", "/v1/agents"),
 }
 _DISCOVERY_PATHS_DEFAULT = ("/v1/agents/", "/api/bots", "/api/agents", "/v1/models")
 
@@ -772,10 +869,12 @@ def chat_herdr(
 ) -> str:
     """Submit *prompt* via ``HerdrClient.from_remote_config`` and read recent text.
 
-    Uses ``check_blocked=True`` and a single ``--until idle`` (herdr rejects
-    two ``--until`` flags). Sidebar and Settings share this client.
+    Uses ``check_blocked=True`` and the stopped-state wait set
+    (``idle`` | ``done`` | ``blocked``). An earlier single ``--until idle`` never
+    matched a turn that settles in ``done``, so every herdr handoff could only
+    expire (#470). Sidebar and Settings share this client.
     """
-    from swarm.herdr.client import HerdrBlockedError, HerdrCLIError
+    from swarm.herdr.client import WAIT_UNTIL_STOPPED, HerdrBlockedError, HerdrCLIError
 
     if not target:
         raise RuntimeError("herdr target (pane id) is required")
@@ -785,7 +884,7 @@ def chat_herdr(
             target,
             prompt,
             wait=True,
-            until="idle",
+            until=WAIT_UNTIL_STOPPED,
             timeout_ms=int(timeout_ms),
             check_blocked=True,
         )

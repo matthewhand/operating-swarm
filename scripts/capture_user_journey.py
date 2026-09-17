@@ -131,9 +131,29 @@ SERVER_ENV = {
     "SWARM_TEST_MODE": "1",
     "SWARM_RESPONSES_DIR": str(CAPTURE_RESPONSES_DIR),
     "SWARM_USER_DATA_DIR": str(CAPTURE_USER_DATA_DIR),
+    "DJANGO_DB_NAME": str(CAPTURE_USER_DATA_DIR / "capture.sqlite3"),
     # Uncomment to exercise token auth instead of open dev access:
     # "API_AUTH_TOKEN": "local-journey-token",
 }
+
+# Host DATABASE_URL / POSTGRES_* would otherwise bind capture to a down
+# Postgres and hang the 60s ready wait.
+_CAPTURE_DB_POP = (
+    "DATABASE_URL",
+    "POSTGRES_HOST",
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_DB",
+    "DJANGO_DATABASE",
+)
+
+
+def capture_env() -> dict[str, str]:
+    CAPTURE_USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, **SERVER_ENV}
+    for key in _CAPTURE_DB_POP:
+        env.pop(key, None)
+    return env
 
 
 def require_frontend_dist() -> None:
@@ -164,25 +184,35 @@ def assert_pages_adr001_contract() -> None:
 
 
 def start_server() -> subprocess.Popen:
-    env = {**os.environ, **SERVER_ENV}
+    env = capture_env()
+    log_path = Path(tempfile.gettempdir()) / f"open-swarm-capture-server-{PORT}.log"
+    log_f = open(log_path, "wb")
     proc = subprocess.Popen(
         [PYTHON, "manage.py", "runserver", str(PORT), "--noreload"],
         cwd=REPO_ROOT,
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_f,
+        stderr=subprocess.STDOUT,
     )
     deadline = time.time() + 60
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"Django server exited early (rc={proc.returncode})")
+            log_f.close()
+            tail = log_path.read_text(errors="replace")[-2000:]
+            raise RuntimeError(
+                f"Django server exited early (rc={proc.returncode}); log {log_path}:\n{tail}"
+            )
         try:
             urllib.request.urlopen(BASE_URL + "/v1/models", timeout=2)
             return proc
         except Exception:
             time.sleep(0.5)
     proc.terminate()
-    raise RuntimeError("Django server did not become ready within 60s")
+    log_f.close()
+    tail = log_path.read_text(errors="replace")[-2000:]
+    raise RuntimeError(
+        f"Django server did not become ready within 60s; log {log_path}:\n{tail}"
+    )
 
 
 def ensure_superuser() -> None:
@@ -195,7 +225,7 @@ def ensure_superuser() -> None:
         f"u.set_password('{ADMIN_PASS}'); u.save(); "
         "print('superuser ready')"
     )
-    env = {**os.environ, **SERVER_ENV}
+    env = capture_env()
     # Fresh checkouts/dbs have no tables yet — make auth_user exist first.
     subprocess.run(
         [PYTHON, "manage.py", "migrate", "-v", "0"],
@@ -292,7 +322,7 @@ responses_store.save({{
 }})
 print("seeded", rid)
 """
-    env = {**os.environ, **SERVER_ENV}
+    env = capture_env()
     subprocess.run(
         [PYTHON, "manage.py", "shell", "-c", code],
         cwd=REPO_ROOT, env=env, check=True,
@@ -556,6 +586,8 @@ def main() -> int:
     screenshot_dir.mkdir(parents=True, exist_ok=True)
     reset_capture_responses_dir()
     reset_capture_user_data_dir()
+    # Isolated sqlite has no tables until migrate; /v1/models 500s otherwise.
+    ensure_superuser()
     print(f"Starting Django dev server on port {PORT} ...")
     print(f"  [store    ] SWARM_RESPONSES_DIR={CAPTURE_RESPONSES_DIR}")
     print(f"  [userdata ] SWARM_USER_DATA_DIR={CAPTURE_USER_DATA_DIR}")

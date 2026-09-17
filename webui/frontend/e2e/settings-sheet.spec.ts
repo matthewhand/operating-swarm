@@ -189,3 +189,26 @@ test('gear opens a DaisyUI modal-end settings sheet over chat', async ({ page })
 
   expect(jsErrors, `uncaught JS errors: ${jsErrors.join(' | ')}`).toHaveLength(0)
 })
+
+test('settings sheet traps Tab inside the native dialog', async ({ page }) => {
+  await stubApis(page)
+  await page.goto('/chat')
+  const gear = page.getByRole('button', { name: 'Open settings' })
+  await gear.click()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab')
+    const inside = await page.evaluate(() => {
+      const el = document.querySelector('dialog.modal-open')
+      const active = document.activeElement
+      return Boolean(el && active && el.contains(active))
+    })
+    expect(inside, `Tab ${i + 1} left the Settings dialog`).toBe(true)
+  }
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(gear).toBeFocused()
+})

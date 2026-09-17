@@ -33,7 +33,15 @@ def test_team_composer_roster_and_agents_are_capped():
     tsx = TEAM_COMPOSER_TSX.read_text(encoding="utf-8")
     assert 'aria-label="Roster members"' in tsx
     assert 'os-scrollable-picker-list' in tsx
-    assert 'max-h-40 overflow-y-auto' in tsx
+    assert 'aria-label="Available agents list"' in tsx
+    assert "max-h-[22rem]" in tsx
+    assert "overflow-y-auto" in tsx
+    # Issue #100: kind groups share the pane scroller; no inner overflow-y.
+    available = tsx.split('aria-label="Available agents list"', 1)[1]
+    available = available.split("</section>", 1)[0]
+    assert "os-scrollable-picker-list" not in available
+    assert "overflow-y-auto" not in available.split(">", 1)[1]
+    assert "max-h-40" not in available
 
 
 def test_remotes_settings_bots_list_is_capped():

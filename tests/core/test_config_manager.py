@@ -251,6 +251,18 @@ class TestLoadConfig:
 
         assert result["llm"]["default"]["api_key"] == "test_key_12345"
 
+    def test_load_config_does_not_log_api_keys(self, config_file, monkeypatch, caplog):
+        """Resolved secrets must not appear in DEBUG logs (#326)."""
+        import logging
+
+        secret = "sk-live-secret-value-12345"
+        monkeypatch.setenv("OPENAI_API_KEY", secret)
+        with caplog.at_level(logging.DEBUG, logger="swarm.core.config_manager"):
+            load_config(config_file)
+        blob = caplog.text
+        assert secret not in blob
+        assert "sk-live-secret-value" not in blob
+
     def test_load_config_missing_file_exits(self, tmp_path, capsys):
         """Test that missing config file causes system exit."""
         missing_path = str(tmp_path / "missing_config.json")

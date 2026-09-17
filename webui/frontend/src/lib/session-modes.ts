@@ -1,4 +1,4 @@
-/** Operator session modes. Always-approve is Open Swarm's CLI catalog flags, not a cycle stop. */
+/** Operator session modes. Always-approve is Operating Swarm's CLI catalog flags, not a cycle stop. */
 
 export const SESSION_MODES = ['default', 'plan', 'auto-edit'] as const
 export type SessionMode = (typeof SESSION_MODES)[number]

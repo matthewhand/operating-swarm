@@ -30,14 +30,22 @@ def test_operate_send_calls_from_remote_config():
     _no_secrets(send)
 
 
-def test_chat_herdr_delegates_to_client_single_until():
+def test_chat_herdr_delegates_to_client_stopped_until():
+    """#470 reversed the earlier single ``--until idle`` pin.
+
+    Herdr accepts repeated ``--until`` (``herdr agent wait --help``: "State to
+    match; repeat for more than one state"), and a turn that finishes settles in
+    ``done`` — proven live: ``--until idle`` returned
+    ``{"error":{"code":"timeout"}}`` on a pane whose status was ``done``, while
+    ``--until idle --until done --until blocked`` matched it immediately.
+    """
     text = TEAMS.read_text(encoding="utf-8")
     start = text.index("def chat_herdr")
     block = text[start : start + 1600]
     assert "from_remote_config" in block
     assert "check_blocked=True" in block
-    assert 'until="idle"' in block
-    assert '"--until", "done"' not in block
+    assert "until=WAIT_UNTIL_STOPPED" in block
+    assert 'until="idle"' not in block
     assert ":8001" not in block
     _no_secrets(block)
 

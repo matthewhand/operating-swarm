@@ -38,10 +38,13 @@ def _restore_app_config():
     ("raw", "expected_cls"),
     [
         ({"backend_type": "none"}, DisabledSandbox),
+        ({"provider": "none"}, DisabledSandbox),
         ({"backend_type": "mock"}, __import__("swarm.core.sandbox", fromlist=["MockSandbox"]).MockSandbox),
         ({"backend_type": "local"}, LocalSubprocessSandbox),
         ({"backend_type": "bare_metal"}, LocalSubprocessSandbox),  # alias
+        ({"provider": "bare_metal"}, LocalSubprocessSandbox),
         ({"backend_type": "daytona"}, DaytonaSandbox),
+        ({"provider": "daytona"}, DaytonaSandbox),
         ({}, LocalSubprocessSandbox),  # legacy default
     ],
 )
@@ -152,6 +155,8 @@ def test_settings_put_bare_metal_requires_confirm(tmp_path, monkeypatch):
     )
     assert block["provider"] == "bare_metal"
     assert block["dangerous_confirmed"] is True
+    assert block["enable_sandbox_tools"] is True
+    assert block["inherit_env"] is True
     # Switching away clears the confirmation.
     block2, _ = persist_sandbox_settings(provider="none", config_path=str(cfg))
     assert block2["dangerous_confirmed"] is False
@@ -197,6 +202,23 @@ def test_settings_put_round_trip(tmp_path):
     assert saved["daytona_api_key_env"] == "DAYTONA_API_KEY"
     assert "token" not in json.dumps(saved)  # no secrets on disk
     assert saved["timeout_seconds"] == 45
+
+
+def test_settings_put_daytona_lifecycle_options(tmp_path):
+    from swarm.views.sandbox_settings_api import persist_sandbox_settings
+
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text('{"llm": {}, "settings": {}}', encoding="utf-8")
+    block, _ = persist_sandbox_settings(
+        provider="daytona",
+        auto_stop_interval=15,
+        sync_workspace=True,
+        config_path=str(cfg),
+    )
+    assert block["provider"] == "daytona"
+    assert block["enable_sandbox_tools"] is True
+    assert block["auto_stop_interval"] == 15
+    assert block["sync_workspace"] is True
 
 
 # --- test-probe endpoint -----------------------------------------------------

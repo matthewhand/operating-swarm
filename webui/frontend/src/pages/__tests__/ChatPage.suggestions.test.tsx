@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useSearchParams } from 'react-router-dom'
 import ChatPage from '../ChatPage'
 import { ToastProvider } from '../../components/DaisyUI'
 import { resetConversationThreads } from '../../lib/chatMeter'
@@ -252,5 +252,110 @@ describe('ChatPage REQ-85 suggestion chips', () => {
     stubFetch()
     await openChat('/chat?blueprint=remote_harness')
     expect(await screen.findByTestId('suggestion-chips')).toBeInTheDocument()
+  })
+
+  it('does not apply the previous seat settings after a switch (#333)', async () => {
+    let releaseCodey: (value?: unknown) => void = () => {}
+    const codeyGate = new Promise((resolve) => {
+      releaseCodey = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/agents/codey/settings/')) {
+          await codeyGate
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              agent_id: 'codey',
+              new_chat_per_task: true,
+              use_suggestions: true,
+            }),
+          } as Response
+        }
+        if (url.includes('/settings/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              agent_id: 'api_agent',
+              new_chat_per_task: false,
+              use_suggestions: false,
+            }),
+          } as Response
+        }
+        if (url.includes('/suggestions/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'suggestions',
+              suggestions: KICKSTART,
+            }),
+          } as Response
+        }
+        if (url.includes('/chat/thread/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              agent_id: url.includes('api_agent') ? 'api_agent' : 'codey',
+              conversation_id: 'conv-1',
+              messages: [],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 'codey', name: 'Codey', description: 'Coder' },
+              { id: 'api_agent', name: 'API', description: 'API seat', tags: ['api'] },
+            ],
+          }),
+        } as Response
+      }),
+    )
+
+    function Switcher() {
+      const [, setParams] = useSearchParams()
+      return (
+        <button type="button" onClick={() => setParams({ blueprint: 'api_agent' })}>
+          switch-api
+        </button>
+      )
+    }
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=codey']}>
+            <Switcher />
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'switch-api' }))
+    await act(async () => {
+      MockWebSocket.instances.at(-1)?.open()
+    })
+    await act(async () => {
+      releaseCodey()
+      await codeyGate
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.queryByTestId('suggestion-chips')).not.toBeInTheDocument()
   })
 })

@@ -77,7 +77,7 @@ const REAL_CLI_AGENTS = {
   ],
 }
 
-function stubChat(models: { models: string[]; warning?: string }) {
+function stubChat(models: { models: string[]; warning?: string }, cli = 'grok') {
   MockWebSocket.instances = []
   Element.prototype.scrollIntoView = vi.fn()
   vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
@@ -89,7 +89,7 @@ function stubChat(models: { models: string[]; warning?: string }) {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ cli: 'grok', ...models }),
+          json: async () => ({ cli, ...models }),
         } as Response
       }
       if (url.includes('/v1/cli-agents')) {
@@ -153,6 +153,31 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
       message: 'pin the next run',
       blueprint: 'cli_agent',
       params: { cli: 'grok', model: 'grok-4.5' },
+    })
+  })
+
+  it('pi model pick pins provider/model on params.model (#103)', async () => {
+    stubChat(
+      { models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-6'] },
+      'pi',
+    )
+    renderChat('/chat?blueprint=cli_agent&mode=cli&cli=pi')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const modelPill = await screen.findByTestId('routing-pill-model')
+    fireEvent.click(modelPill)
+    expect(screen.queryByRole('menuitem', { name: 'openai' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'default' })).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'openai/gpt-4o' }))
+    const composer = screen.getByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(composer, { target: { value: 'pin pi' } })
+    fireEvent.submit(composer.closest('form')!)
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(JSON.parse(ws.send.mock.calls[0][0] as string)).toMatchObject({
+      message: 'pin pi',
+      blueprint: 'cli_agent',
+      params: { cli: 'pi', model: 'openai/gpt-4o' },
     })
   })
 })

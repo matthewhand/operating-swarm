@@ -131,9 +131,9 @@ class CliRoundtableBlueprint(CliKindBase):
         debaters, moderator = self._resolve(params, registry)
         if not debaters:
             yield support.message_chunk(
-                "No debater CLIs are configured for the roundtable. Add a "
-                "'cli_roundtable' block (or a 'cli_fusion' preset) to your swarm "
-                "config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message(
+                    "No debater CLIs are configured for the roundtable"
+                ),
                 final=True,
             )
             return

@@ -240,6 +240,52 @@ class RemoteHealthView(APIView):
         return self.post(request, remote_id)
 
 
+class RemoteProbeCandidateView(APIView):
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    @extend_schema(
+        operation_id="v1_remotes_probe_candidate",
+        summary="Pre-save connectivity test for remote harness parameters",
+        request=inline_serializer(
+            name="RemoteProbeCandidateRequest",
+            fields={
+                "kind": serializers.CharField(required=True),
+                "id": serializers.CharField(required=False),
+                "base_url": serializers.CharField(required=False, allow_blank=True),
+                "api_key": serializers.CharField(required=False, allow_blank=True),
+                "api_key_env": serializers.CharField(required=False, allow_blank=True),
+                "herdr_mode": serializers.CharField(required=False, allow_blank=True),
+                "ssh_host": serializers.CharField(required=False, allow_blank=True),
+                "ssh_user": serializers.CharField(required=False, allow_blank=True),
+                "ssh_port": serializers.CharField(required=False, allow_blank=True),
+                "ssh_identity_env": serializers.CharField(required=False, allow_blank=True),
+                "ssh_agent": serializers.BooleanField(required=False),
+            },
+        ),
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, *_args, **_kwargs):
+        body = request.data if isinstance(request.data, dict) else {}
+        kind = str(body.get("kind") or "").strip()
+        if not kind:
+            return Response({"error": "kind is required"}, status=status.HTTP_400_BAD_REQUEST)
+        result = remotes_core.probe_candidate_remote(
+            kind=kind,
+            remote_id=body.get("id") or body.get("remote_id"),
+            base_url=body.get("base_url"),
+            api_key=body.get("api_key"),
+            api_key_env=body.get("api_key_env"),
+            herdr_mode=body.get("herdr_mode"),
+            ssh_host=body.get("ssh_host"),
+            ssh_user=body.get("ssh_user"),
+            ssh_port=body.get("ssh_port"),
+            ssh_identity_env=body.get("ssh_identity_env"),
+            ssh_agent=body.get("ssh_agent"),
+        )
+        return Response(result.as_dict(), status=status.HTTP_200_OK)
+
+
 class RemoteOperateView(APIView):
     def get_permissions(self):
         return [perm() for perm in api_permission_classes()]
@@ -255,7 +301,21 @@ class RemoteOperateView(APIView):
                 "target": serializers.CharField(
                     required=False,
                     allow_blank=True,
-                    help_text="OpenMousBot/Rakazo bot id, or Herdr pane/CLI id",
+                    help_text="OpenMousBot/Rakazo bot id, Herdr pane/CLI id, AnythingLLM workspace:thread, Letta agent id, Open WebUI chat id, Flowise flow id, or n8n workflow id",
+                ),
+                "session_id": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text="Resume key (Letta agent id, AnythingLLM workspace/thread, Open WebUI chat id, Flowise flow id, or n8n workflow id)",
+                ),
+                "timeout": serializers.FloatField(
+                    required=False,
+                    help_text="Operate timeout in seconds. List stays short; send may be longer.",
+                ),
+                "query": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text="Optional session search filter for list",
                 ),
             },
         ),
@@ -267,11 +327,27 @@ class RemoteOperateView(APIView):
         except remotes_core.RemoteError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
         body = request.data if isinstance(request.data, dict) else {}
+        session_id = str(body.get("session_id") or "").strip() or None
+        target = str(body.get("target") or body.get("bot_id") or session_id or "")
+        raw_timeout = body.get("timeout")
+        timeout: float | None = None
+        if raw_timeout not in (None, ""):
+            try:
+                timeout = float(raw_timeout)
+            except (TypeError, ValueError):
+                timeout = None
+        kwargs: dict = {
+            "prompt": str(body.get("prompt") or ""),
+            "target": target,
+            "session_id": session_id,
+            "query": str(body.get("query") or ""),
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         result = remotes_core.operate(
             remote_id,
             str(body.get("op") or "list"),
-            prompt=str(body.get("prompt") or ""),
-            target=str(body.get("target") or body.get("bot_id") or ""),
+            **kwargs,
         )
         return Response(result.as_dict(), status=status.HTTP_200_OK)
 

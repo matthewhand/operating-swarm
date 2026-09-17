@@ -119,12 +119,14 @@ __all__ = [
     "ROLE_ALLOW_ALL",
     "role_aliases_for",
     "get_canonical_role_descriptors",
+    "get_all_role_descriptors",
     "normalize_agent_role",
     "normalize_workflow",
     "is_webui_blueprint",
     "apply_blueprint_role",
     "is_chief_of_staff",
     "can_manage_agent_lifecycle",
+    "can_manage_topology",
     "role_css_class",
     "role_badge_label",
     "role_from_agent",
@@ -162,8 +164,19 @@ def get_canonical_role_descriptors() -> list[dict[str, Any]]:
     ]
 
 
+def get_all_role_descriptors() -> list[dict[str, Any]]:
+    """Return serialized descriptors for all registered roles (canonical + custom)."""
+    descriptors = get_canonical_role_descriptors()
+    seen = {d["name"] for d in descriptors}
+    for role_id, role in ROLE_REGISTRY.items():
+        if role_id not in seen:
+            descriptors.append(role.describe())
+            seen.add(role_id)
+    return descriptors
+
+
 def normalize_agent_role(value: Any) -> str:
-    """Map a free-text / alias role to a canonical visual/wiring role.
+    """Map a free-text / alias role to a canonical or registered custom visual/wiring role.
 
     Unknown values become ``default`` so they never accidentally enable
     gate, skeptic, or chief-of-staff wiring. ``none`` is an alias of
@@ -174,7 +187,11 @@ def normalize_agent_role(value: Any) -> str:
     key = str(value).strip().lower().replace(" ", "_").replace("-", "_")
     if not key:
         return ROLE_DEFAULT
-    return ROLE_ALIASES.get(key, ROLE_DEFAULT)
+    if key in ROLE_ALIASES:
+        return ROLE_ALIASES[key]
+    if key in ROLE_REGISTRY:
+        return key
+    return ROLE_DEFAULT
 
 
 def normalize_workflow(value: Any) -> str | None:
@@ -235,14 +252,31 @@ def can_manage_agent_lifecycle(role: Any) -> bool:
     return canonical == ROLE_SUPPORT or canonical == ROLE_CHIEF_OF_STAFF or is_chief_of_staff(role)
 
 
+def can_manage_topology(role: Any) -> bool:
+    """True for CoS only — section/talk-ACL tools (Issue #219). Support stays lifecycle-only."""
+    return is_chief_of_staff(role)
+
+
 def role_css_class(role: Any) -> str:
     """Return ``os-agent-role-<canonical>`` for a role value."""
-    return ROLE_CSS_CLASSES[normalize_agent_role(role)]
+    norm = normalize_agent_role(role)
+    if norm in ROLE_CSS_CLASSES:
+        return ROLE_CSS_CLASSES[norm]
+    role_obj = ROLE_REGISTRY.get(norm)
+    if role_obj and getattr(role_obj, "css_class", None):
+        return role_obj.css_class
+    return f"{ROLE_CSS_CLASS_PREFIX}{norm}"
 
 
 def role_badge_label(role: Any) -> str:
     """Short chip label (``CoS``, ``Gate``, …). Empty for ``default``."""
-    return ROLE_BADGE_LABELS.get(normalize_agent_role(role), "")
+    norm = normalize_agent_role(role)
+    if norm in ROLE_BADGE_LABELS:
+        return ROLE_BADGE_LABELS[norm]
+    role_obj = ROLE_REGISTRY.get(norm)
+    if role_obj:
+        return getattr(role_obj, "badge", None) or getattr(role_obj, "label", None) or norm.capitalize()
+    return ""
 
 
 def role_from_agent(agent: Any) -> str:

@@ -4,33 +4,7 @@ name: Plugins popup (#805)
 # per-chat allowlist helper. Not the full Python matrix.
 
 on:
-  pull_request:
-    paths:
-      - "webui/frontend/src/lib/chatPluginTools.ts"
-      - "webui/frontend/src/lib/chatScope.ts"
-      - "webui/frontend/src/lib/mcpServers.ts"
-      - "webui/frontend/src/lib/__tests__/chatPluginTools.test.ts"
-      - "webui/frontend/src/lib/__tests__/chatScope.test.ts"
-      - "webui/frontend/src/lib/__tests__/mcpServers.test.ts"
-      - "webui/frontend/src/components/PluginsPopup.tsx"
-      - "webui/frontend/src/components/__tests__/PluginsPopup.test.tsx"
-      - "src/swarm/core/chat_plugin_tools.py"
-      - "tests/core/test_chat_plugin_tools.py"
-      - ".github/workflows/plugins-popup.yml"
-  push:
-    branches: [main]
-    paths:
-      - "webui/frontend/src/lib/chatPluginTools.ts"
-      - "webui/frontend/src/lib/chatScope.ts"
-      - "webui/frontend/src/lib/mcpServers.ts"
-      - "webui/frontend/src/lib/__tests__/chatPluginTools.test.ts"
-      - "webui/frontend/src/lib/__tests__/chatScope.test.ts"
-      - "webui/frontend/src/lib/__tests__/mcpServers.test.ts"
-      - "webui/frontend/src/components/PluginsPopup.tsx"
-      - "webui/frontend/src/components/__tests__/PluginsPopup.test.tsx"
-      - "src/swarm/core/chat_plugin_tools.py"
-      - "tests/core/test_chat_plugin_tools.py"
-      - ".github/workflows/plugins-popup.yml"
+  workflow_dispatch:
 
 jobs:
   frontend:

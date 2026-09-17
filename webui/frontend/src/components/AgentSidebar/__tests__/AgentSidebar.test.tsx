@@ -113,9 +113,24 @@ describe('AgentAvatar', () => {
       )
       const wrap = screen.getByRole('img', { name: /Coder/i }).parentElement
       expect(wrap?.getAttribute('data-avatar-theme')).toBe(pack.id)
+      expect(wrap?.getAttribute('data-eye-state')).toBe('idle')
+      expect(wrap?.querySelector('[data-googly="true"]')).not.toBeNull()
+      expect(wrap?.querySelector('.os-robot-pupils')).not.toBeNull()
       unmount()
     }
     expect(AVATAR_THEMES.length).toBeGreaterThanOrEqual(10)
+  })
+
+  it('animates pack eyes when the agent is working', () => {
+    for (const pack of AVATAR_THEMES) {
+      const { unmount } = render(
+        <AgentAvatar agent={mockAgent} size={40} theme={pack.id} status="working" />,
+      )
+      const wrap = screen.getByRole('img', { name: /Coder/i }).parentElement
+      expect(wrap?.getAttribute('data-eye-state')).toBe('active')
+      expect(wrap?.querySelector('[data-googly="true"]')).not.toBeNull()
+      unmount()
+    }
   })
 
   it('renders googly eyes on the mascot', () => {
@@ -139,7 +154,19 @@ describe('AgentAvatar', () => {
     expect(noSvg).toBeNull()
     const fallback = screen.getByTitle('Coder')
     expect(fallback).toHaveAttribute('data-avatar-theme', 'bland')
+    expect(fallback).toHaveAttribute('data-eye-state', 'idle')
+    expect(fallback.querySelectorAll('.os-bland-eyes circle')).toHaveLength(2)
     localStorage.removeItem(AVATAR_THEME_STORAGE_KEY)
+  })
+
+  it('glances bland two-dot eyes when the agent is working', () => {
+    const { container } = render(
+      <AgentAvatar agent={mockAgent} size={40} theme="bland" status="working" />,
+    )
+    const fallback = screen.getByTitle('Coder')
+    expect(fallback).toHaveAttribute('data-eye-state', 'active')
+    expect(container.querySelector('.os-bland-avatar')).toHaveAttribute('data-eye-state', 'active')
+    expect(fallback.querySelectorAll('.os-bland-eyes circle')).toHaveLength(2)
   })
 })
 
@@ -549,6 +576,22 @@ describe('SidebarHeader', () => {
     )
     const toggleBtn = screen.getByTitle('Toggle sidebar (Ctrl+B)')
     fireEvent.click(toggleBtn)
+    expect(handleToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders a mono logo conceal button that toggles the expanded sidebar', () => {
+    const handleToggle = vi.fn()
+    render(
+      <SidebarHeader
+        density="comfortable"
+        isOpen={true}
+        onToggleOpen={handleToggle}
+        onSelectDensity={vi.fn()}
+      />,
+    )
+    const conceal = screen.getByRole('button', { name: 'Collapse sidebar' })
+    expect(conceal).toHaveAttribute('title', 'Collapse sidebar')
+    fireEvent.click(conceal)
     expect(handleToggle).toHaveBeenCalledTimes(1)
   })
 

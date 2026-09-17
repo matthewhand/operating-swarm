@@ -129,6 +129,7 @@ def swarm_allow_anonymous(
     """Auth-free preview: explicit env, or DEBUG + LAN/loopback (not pytest).
 
     ``SWARM_ALLOW_ANONYMOUS=1`` forces on (any IP). ``=0``/false forces off.
+    ``SWARM_DEMO_MODE=1`` also forces on (public demo, REQ-882).
     Otherwise, ``DJANGO_DEBUG=true`` auto-logs LAN and loopback clients so a
     phone on the same network can use the operator UI and websockets without
     a password. Production (DEBUG=False) and the pytest suite stay gated.
@@ -137,6 +138,10 @@ def swarm_allow_anonymous(
     if raw in {"0", "false", "no", "n", "off"}:
         return False
     if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    from swarm.demo.mode import is_demo_mode
+
+    if is_demo_mode():
         return True
     if testing is None:
         testing = bool(os.environ.get("PYTEST_CURRENT_TEST"))

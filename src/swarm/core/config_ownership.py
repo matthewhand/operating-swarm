@@ -42,6 +42,7 @@ WEBUI_SECTIONS: tuple[str, ...] = (
     "mcpServers",
     "remotes",
     "cli_agents",
+    "cli_remote_boxes",
     "cli_fusion",
     "cli_map",
     "cli_orchestrator",
@@ -60,6 +61,7 @@ SETTINGS_PANES: dict[str, str] = {
     "mcpServers": "plugins",
     "remotes": "remotes",
     "cli_agents": "cli-agents",
+    "cli_remote_boxes": "cli-agents",
     "agent_team": "remotes",
     "speech": "speech",
 }
@@ -275,6 +277,21 @@ _INVENTORY: tuple[dict[str, Any], ...] = (
         "notes": "Boolean; no env twin.",
     },
     {
+        "key": "settings.product_modes",
+        "partition": "webui",
+        "sot": "swarm_config.json",
+        "write_api": "/v1/config/sections/settings/",
+        "settings_section": "rail",
+        "ui": "pane",
+        "secret_fields": [],
+        "env_twins": {},
+        "notes": (
+            "CLI-first product modes (#151 / #149). Default CLI on; API / Blueprint / "
+            "Team / Remote off until Settings → Rail enables them. Disabled modes stay "
+            "out of the default rail/navbar. Rail/picker start from discovered host CLIs."
+        ),
+    },
+    {
         "key": "settings.task_llm_profiles",
         "partition": "webui",
         "sot": "swarm_config.json",
@@ -329,6 +346,20 @@ _INVENTORY: tuple[dict[str, Any], ...] = (
             "Opt-in catalog (REQ-157). Empty until + Add. PATH discovery seeds suggestions "
             "only — never auth-check or store CLI secrets. Optional user-defined rate_limits "
             "on the catalog row (empty = unlimited; no baked vendor quotas)."
+        ),
+    },
+    {
+        "key": "cli_remote_boxes",
+        "partition": "webui",
+        "sot": "swarm_config.json",
+        "write_api": "/v1/config/sections/cli_remote_boxes/",
+        "settings_section": "cli-agents",
+        "ui": "pane",
+        "secret_fields": ["password"],
+        "env_twins": {},
+        "notes": (
+            "Named fleet boxes for remote-capable CLIs (opencode / kilocode serve). "
+            "Host, port, username, password_env (env-var name only)."
         ),
     },
     {

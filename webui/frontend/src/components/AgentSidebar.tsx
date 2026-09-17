@@ -45,6 +45,7 @@ import {
   loadDynamicSubagents,
   type DynamicSubagent,
 } from '../lib/dynamicSubagents'
+import { resolveProductModes } from '../lib/productModes'
 import { useOptionalToast } from './DaisyUI'
 import {
   CLI_PROCESS_STOPPED_TOAST,
@@ -53,6 +54,12 @@ import {
   notifyCliTerminated,
   peekCliRunning,
 } from '../lib/cliRunState'
+import {
+  AGENT_ATTENTION_EVENT,
+  NEEDS_APPROVAL_LABEL,
+  approvalWaitFromEvent,
+  peekApprovalWait,
+} from '../lib/agentAttention'
 import AgentAvatar from './AgentAvatar'
 import {
   agentRole,
@@ -131,6 +138,7 @@ import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId, type TeamRoster } from '../lib/teamRosters'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId, type RemoteEntry } from '../lib/remotesCatalog'
+import { fetchRemoteThreadSessions, remoteListsSessions } from '../lib/remoteSessions'
 import { configuredRemotes } from '../lib/remotes'
 import RemoteSessionsPopup from './RemoteSessionsPopup'
 import UpdateChrome from './UpdateChrome'
@@ -139,7 +147,7 @@ import {
   getChatConnection,
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
-import {teamSidepaneStack } from '../lib/avatarStack'
+import { markStackWorking, teamSidepaneStack } from '../lib/avatarStack'
 import {
   defaultSessionForRemote,
   defaultSessionForTeam,
@@ -188,6 +196,7 @@ import {
   renameSection,
   sectionIdForAgent,
   toggleSectionCollapsed,
+  toggleSectionInternalOnly,
   UNASSIGNED_SECTION_ID,
   type RailSectionsState,
 } from '../lib/railSections'
@@ -205,6 +214,7 @@ import {
   loadAgentEdit,
   saveAgentEdit,
 } from '../lib/agentEdits'
+import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { declaredRosterForTeam } from '../lib/declaredRoster'
 import { openTeamEditor } from './TeamEditor'
@@ -240,7 +250,9 @@ import {
   isAvatarOnlyWidth,
   MIN_RAIL_WIDTH,
   MAX_RAIL_WIDTH,
+  DEFAULT_RAIL_WIDTH,
 } from '../lib/railResize'
+import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
 
 const EMPTY_BLUEPRINTS: Blueprint[] = []
 
@@ -436,6 +448,7 @@ export default function AgentSidebar({
   const [remotesPopupOpen, setRemotesPopupOpen] = useState(false)
   const [localWsStatus, setLocalWsStatus] = useState<ChatConnectionStatus>(() => getChatConnection())
   const [cliRunningIds, setCliRunningIds] = useState<Set<string>>(() => new Set())
+  const [approvalWaitIds, setApprovalWaitIds] = useState<Set<string>>(() => new Set())
   const toast = useOptionalToast()
 
   useEffect(() => {
@@ -457,6 +470,25 @@ export default function AgentSidebar({
     }
     window.addEventListener(CLI_RUN_STATE_EVENT, onRunState)
     return () => window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
+  }, [])
+
+  useEffect(() => {
+    const onAttention = (event: Event) => {
+      const detail = approvalWaitFromEvent(event)
+      if (!detail) return
+      setApprovalWaitIds((current) => {
+        // Plain tool_status frames emit `waiting: false` for tools that never
+        // waited, and they arrive continuously — bail out so the rail is not
+        // re-rendered on every one of them.
+        if (current.has(detail.agentId) === detail.waiting) return current
+        const next = new Set(current)
+        if (detail.waiting) next.add(detail.agentId)
+        else next.delete(detail.agentId)
+        return next
+      })
+    }
+    window.addEventListener(AGENT_ATTENTION_EVENT, onAttention)
+    return () => window.removeEventListener(AGENT_ATTENTION_EVENT, onAttention)
   }, [])
 
   useEffect(() => {
@@ -580,6 +612,20 @@ export default function AgentSidebar({
   const [railWidth, setRailWidth] = useState(() => loadRailWidth())
   const [isResizing, setIsResizing] = useState(false)
   const isAvatarOnly = !narrow && isAvatarOnlyWidth(railWidth)
+
+  const concealSidebar = useCallback(() => {
+    if (narrow) {
+      onClose?.()
+      return
+    }
+    setRailWidth(MIN_RAIL_WIDTH)
+    saveRailWidth(MIN_RAIL_WIDTH)
+  }, [narrow, onClose])
+
+  const expandSidebar = useCallback(() => {
+    setRailWidth(DEFAULT_RAIL_WIDTH)
+    saveRailWidth(DEFAULT_RAIL_WIDTH)
+  }, [])
 
   const startDragXRef = useRef(0)
   const startWidthRef = useRef(railWidth)
@@ -1002,12 +1048,22 @@ export default function AgentSidebar({
   const visibleCount = visibleAgents.length + visibleTeams.length + visibleRemotes.length
   const loadingList = !propBlueprints && blueprintsQuery.isPending && teamsQuery.isPending
   const loadFailed = blueprintsQuery.isError && teamsQuery.isError && visibleCount === 0
-  const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
-  const cliAgents = visibleAgents.filter((agent) => isCliRailAgent(agent))
-  const apiAgents = visibleAgents.filter((agent) => isApiRailAgent(agent))
-  const otherAgents = visibleAgents.filter(
-    (agent) => !isSupportAgent(agent) && !isCliRailAgent(agent) && !isApiRailAgent(agent),
+  const productModes = useMemo(
+    () => resolveProductModes(cliQuery.data),
+    [cliQuery.data],
   )
+  const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
+  const cliAgents = productModes.cli
+    ? visibleAgents.filter((agent) => isCliRailAgent(agent))
+    : []
+  const apiAgents = productModes.api
+    ? visibleAgents.filter((agent) => isApiRailAgent(agent))
+    : []
+  const otherAgents = visibleAgents.filter((agent) => {
+    if (isSupportAgent(agent) || isCliRailAgent(agent) || isApiRailAgent(agent)) return false
+    if (isHerdrAgent(agent)) return productModes.remote
+    return productModes.blueprint
+  })
   const catalogRows = useMemo<RailRow[]>(() => {
     const supportRows: RailRow[] = supportAgents.map((agent) => ({
       kind: 'agent',
@@ -1024,16 +1080,20 @@ export default function AgentSidebar({
       id: agent.id,
       agent,
     }))
-    const teamRows: RailRow[] = visibleRootTeams.map((team) => ({
-      kind: 'team',
-      id: teamHideId(team.id),
-      team,
-    }))
-    const remoteRows: RailRow[] = visibleRemotes.map((remote) => ({
-      kind: 'remote',
-      id: remoteHideId(remote.id),
-      remote,
-    }))
+    const teamRows: RailRow[] = productModes.team
+      ? visibleRootTeams.map((team) => ({
+          kind: 'team',
+          id: teamHideId(team.id),
+          team,
+        }))
+      : []
+    const remoteRows: RailRow[] = productModes.remote
+      ? visibleRemotes.map((remote) => ({
+          kind: 'remote',
+          id: remoteHideId(remote.id),
+          remote,
+        }))
+      : []
     const otherRows: RailRow[] = otherAgents.map((agent) => ({
       kind: 'agent',
       id: agent.id,
@@ -1043,7 +1103,7 @@ export default function AgentSidebar({
       [...supportRows, ...cliRows, ...apiRows, ...teamRows, ...remoteRows, ...otherRows],
       pins,
     )
-  }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins])
+  }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins, productModes])
   const orderedRows = useMemo(
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],
@@ -1207,6 +1267,11 @@ export default function AgentSidebar({
         startSectionRename(sectionId, sectionName)
         return
       }
+      if (id === 'section-talk-lock') {
+        setSectionState((current) => toggleSectionInternalOnly(current, sectionId))
+        closeMenu()
+        return
+      }
       if (id === 'section-move-up') {
         setSectionState((current) => moveSection(current, sectionId, 'up'))
         closeMenu()
@@ -1281,6 +1346,21 @@ export default function AgentSidebar({
     setPicker({ title, sessions })
   }, [])
 
+  const openRemoteThreadPicker = useCallback(
+    async (remote: RemoteEntry) => {
+      try {
+        const sessions = await fetchRemoteThreadSessions(remote)
+        openGroupPicker(remote.title, sessions)
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message ? err.message : 'Could not list remote sessions'
+        toast?.error('Could not list remote sessions', message)
+        openGroupPicker(remote.title, [])
+      }
+    },
+    [openGroupPicker, toast],
+  )
+
   const closePicker = useCallback(() => setPicker(null), [])
 
   const openCliSessionPicker = useCallback(
@@ -1354,7 +1434,10 @@ export default function AgentSidebar({
         })
         const resultFolder = (result.folder || '').trim()
         const effectiveFolder = resultFolder || sessionFolder
-        if (effectiveFolder) saveAgentEdit(opts.agentId, { folder: effectiveFolder })
+        persistSessionWorkspace(opts.agentId, {
+          folder: effectiveFolder,
+          gitBranch: result.git_branch,
+        })
         dispatchCliSessionSwitched({
           agentId: opts.agentId,
           conversationId: result.conversation_id,
@@ -2113,6 +2196,27 @@ export default function AgentSidebar({
 
   const handleMenuSelect = (id: RailMenuItemId) => {
     if (!menu) return
+    if (id === 'select-agent' && menu.kind === 'remote') {
+      const remote =
+        remotesQuery.data?.find((row) => row.id === menu.entityId) ||
+        configuredRemotesList.find((row) => row.id === menu.entityId)
+      closeMenu()
+      if (remote && remoteListsSessions(remote)) {
+        void openRemoteThreadPicker({
+          id: remote.id,
+          kind: remote.kind || remote.id,
+          title: remoteDisplayName(remote),
+          configured: true,
+          agents: [],
+          capabilities: remote.capabilities,
+        })
+        return
+      }
+      if (menu.sessions && menu.sessions.length > 0) {
+        openGroupPicker(menu.agentName, menu.sessions)
+      }
+      return
+    }
     if (id === 'select-agent' && menu.sessions && menu.sessions.length > 0) {
       const title = menu.agentName
       const sessions = menu.sessions
@@ -2238,6 +2342,10 @@ export default function AgentSidebar({
         canMoveDown:
           sectionState.sections.findIndex((section) => section.id === sectionMenu.sectionId) <
           sectionState.sections.length - 1,
+        internalOnly: Boolean(
+          sectionState.sections.find((section) => section.id === sectionMenu.sectionId)
+            ?.internalOnly,
+        ),
       })
     : []
 
@@ -2266,6 +2374,7 @@ export default function AgentSidebar({
     )
     const timestampLabel = formatRailTimestamp(timestamp)
     const unread = unreadIds.includes(agent.id)
+    const needsApproval = approvalWaitIds.has(agent.id) || peekApprovalWait(agent.id)
     const mark = (
       scaleOut ? (
         // Teams/remotes (#398) must not be stacked here — import AvatarStack there.
@@ -2285,9 +2394,6 @@ export default function AgentSidebar({
         className={`os-agent-role-badge shrink-0 ${roleCssClass(role)}`}
         data-role={role}
         data-definition-id={agent.id}
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${role} settings`}
         style={{
           fontSize: '0.55rem',
           padding: '0 0.25rem',
@@ -2295,18 +2401,6 @@ export default function AgentSidebar({
           height: '0.9rem',
           boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
           whiteSpace: 'nowrap',
-        }}
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          openDefinition('role', agent.id, { blueprintId: agent.id })
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            openDefinition('role', agent.id, { blueprintId: agent.id })
-          }
         }}
       >
         {badge}
@@ -2318,8 +2412,8 @@ export default function AgentSidebar({
           {mark}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2353,8 +2447,11 @@ export default function AgentSidebar({
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {snippet || agent.description}
+            <span
+              className={`block truncate min-w-0 flex-1${needsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={needsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {needsApproval ? NEEDS_APPROVAL_LABEL : snippet || agent.description}
             </span>
             {taskCount > 1 ? (
               <span
@@ -2382,7 +2479,11 @@ export default function AgentSidebar({
           onDragEnd={finishDrag}
           onDragOver={(event) => allowRowDrop(event, agent.id)}
           onDrop={(event) => dropReorder(event, agent.id)}
-          onClick={pickOrClose}
+          onClick={(event) => {
+            pickOrClose?.()
+            event.currentTarget.blur()
+          }}
+          onMouseLeave={(event) => event.currentTarget.blur()}
           {...rowMenuHandlers(agent.id, name, hidden, isHerdrAgent(agent) ? 'remote' : 'api')}
         >
           {body}
@@ -2395,6 +2496,9 @@ export default function AgentSidebar({
       onDragEnd: finishDrag,
       onDragOver: (event: ReactDragEvent) => allowRowDrop(event, agent.id),
       onDrop: (event: ReactDragEvent) => dropReorder(event, agent.id),
+      onMouseLeave: (event: ReactMouseEvent<HTMLElement>) => {
+        event.currentTarget.blur()
+      },
       ...rowMenuHandlers(
         agent.id,
         name,
@@ -2421,8 +2525,9 @@ export default function AgentSidebar({
             aria-current={active ? 'page' : undefined}
             aria-label={`${name}, ${sessions.length} sessions`}
             {...dragHandlers}
-            onClick={() => {
+            onClick={(event) => {
               setSessionPicker({ agentId: agent.id, agentName: name, sessions })
+              event.currentTarget.blur()
             }}
           >
             {body}
@@ -2444,7 +2549,10 @@ export default function AgentSidebar({
           data-hotkey={spillSlot}
           aria-current={active ? 'page' : undefined}
           {...dragHandlers}
-          onClick={pickOrClose}
+          onClick={(event) => {
+            pickOrClose?.()
+            event.currentTarget.blur()
+          }}
         >
           {body}
         </Link>
@@ -2471,6 +2579,10 @@ export default function AgentSidebar({
     const singleFace = stacked.faces[0]
     const dragging = draggingId === hideId
     const dropping = dropTargetId === hideId
+    const teamNeedsApproval =
+      approvalWaitIds.has(teamHideId(team.id)) ||
+      peekApprovalWait(teamHideId(team.id)) ||
+      stacked.faces.some((face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id))
     const { snippet: teamSnippet, timestamp: teamTime } = getRowLastMessage(
       teamHideId(team.id),
       sessions as any,
@@ -2573,8 +2685,8 @@ export default function AgentSidebar({
           )}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2608,8 +2720,11 @@ export default function AgentSidebar({
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {teamSnippet || team.description}
+            <span
+              className={`block truncate min-w-0 flex-1${teamNeedsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={teamNeedsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {teamNeedsApproval ? NEEDS_APPROVAL_LABEL : teamSnippet || team.description}
             </span>
           </span>
         </span>
@@ -2627,6 +2742,10 @@ export default function AgentSidebar({
     const totalMembers = remote.agents ? remote.agents.length : (stacked.faces.length + (stacked.remainder || 0))
     const singleMember = totalMembers === 1
     const singleFace = stacked.faces[0]
+    const remoteNeedsApproval =
+      approvalWaitIds.has(hideId) ||
+      peekApprovalWait(hideId) ||
+      stacked.faces.some((face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id))
     const { snippet: remoteSnippet, timestamp: remoteTime } = getRowLastMessage(
       hideId,
       sessions as any,
@@ -2683,6 +2802,10 @@ export default function AgentSidebar({
         onDrop={dropOnSelf}
         onClick={(event) => {
           event.preventDefault()
+          if (remoteListsSessions(remote)) {
+            void openRemoteThreadPicker(remote)
+            return
+          }
           const def = defaultSessionForRemote(remote)
           if (def) {
             navigate(def.href)
@@ -2718,8 +2841,8 @@ export default function AgentSidebar({
           )}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2753,8 +2876,13 @@ export default function AgentSidebar({
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {remoteSnippet || (remote as any).description || 'Remote team'}
+            <span
+              className={`block truncate min-w-0 flex-1${remoteNeedsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={remoteNeedsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {remoteNeedsApproval
+                ? NEEDS_APPROVAL_LABEL
+                : remoteSnippet || (remote as any).description || 'Remote team'}
             </span>
           </span>
         </span>
@@ -2878,10 +3006,15 @@ export default function AgentSidebar({
             onKeyDown={handleResizeKeyDown}
           />
         ) : null}
-        <div className="flex items-center justify-end px-3 pt-3 lg:hidden">
+        <div className="flex items-center justify-between gap-2 px-3 pt-3">
+          {isAvatarOnly ? (
+            <SidebarExpandButton onClick={expandSidebar} />
+          ) : (
+            <SidebarConcealButton onClick={concealSidebar} />
+          )}
           <button
             type="button"
-            className="btn btn-ghost btn-xs btn-circle"
+            className="btn btn-ghost btn-xs btn-circle lg:hidden"
             aria-label="Close agents sidebar"
             onClick={onClose}
           >
@@ -2890,14 +3023,10 @@ export default function AgentSidebar({
         </div>
 
         <div className="os-rail-search-row flex items-center gap-1.5 px-3 pb-2 pt-3">
-          <label className="sr-only" htmlFor="os-rail-search">
-            Search
-          </label>
-          <div
+          <button
+            type="button"
             className="os-rail-search min-w-0 flex-1 cursor-pointer"
             data-testid="rail-search-trigger"
-            role="button"
-            tabIndex={0}
             aria-label="Search"
             onClick={openPalette}
             onKeyDown={(event) => {
@@ -2908,33 +3037,13 @@ export default function AgentSidebar({
             }}
           >
             <Search
-              className="h-3.5 w-3.5 shrink-0 text-base-content/40 cursor-pointer"
+              className="h-3.5 w-3.5 shrink-0 text-base-content/40"
               aria-hidden="true"
               data-testid="rail-search-icon"
-              onClick={(event) => {
-                event.stopPropagation()
-                openPalette()
-              }}
             />
-            <input
-              id="os-rail-search"
-              type="search"
-              className="os-rail-search__input"
-              placeholder="Search"
-              readOnly
-              tabIndex={isAvatarOnly ? -1 : 0}
-              autoComplete="off"
-              onFocus={(event) => {
-                event.currentTarget.blur()
-                openPalette()
-              }}
-              onClick={(event) => {
-                event.stopPropagation()
-                openPalette()
-              }}
-            />
+            <span className="os-rail-search__input os-rail-search__placeholder">Search</span>
             <kbd className="os-rail-search__kbd kbd kbd-xs">{searchShortcut}</kbd>
-          </div>
+          </button>
           <button
             type="button"
             className="os-search-add-btn"
@@ -2986,13 +3095,46 @@ export default function AgentSidebar({
             const badge = live ? roleBadgeLabel(role) : ''
             const pinActive = Boolean(selectedId && selectedId === pin.id)
             const pinUnread = unreadIds.includes(pin.id)
+            const pinTeam = pin.id.startsWith('team:')
+              ? teams.find((item) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
+              : undefined
+            const pinTeamPlan = pinTeam
+              ? (() => {
+                  const stacked = teamSidepaneStack(stackFacesForTeam(pinTeam))
+                  const marked = markStackWorking(
+                    stacked.faces,
+                    (id) => cliRunningIds.has(id) || peekCliRunning(id),
+                  )
+                  return { ...marked, remainder: stacked.remainder }
+                })()
+              : null
+            const pinWorkerBusy = Boolean(
+              pinTeamPlan?.anyWorking ||
+                cliRunningIds.has(pin.id) ||
+                peekCliRunning(pin.id),
+            )
+            const pinNeedsApproval = Boolean(
+              approvalWaitIds.has(pin.id) ||
+                peekApprovalWait(pin.id) ||
+                pinTeamPlan?.faces.some(
+                  (face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id),
+                ),
+            )
             const pinClass = `os-fav-tile group/tile ${
               draggingId === pin.id ? 'os-fav-tile--dragging' : ''
             } ${dropTargetId === pin.id ? 'os-fav-tile--drop' : ''} ${
               pinActive ? 'os-fav-tile--active' : ''
-            }`
+            } ${pinWorkerBusy ? 'os-fav-tile--working-stack' : ''}`
             const pinFace = (
               <>
+                {pinNeedsApproval ? (
+                  <span
+                    className="os-fav-tile__attention"
+                    data-testid="pin-needs-approval"
+                  >
+                    {NEEDS_APPROVAL_LABEL}
+                  </span>
+                ) : null}
                 {pinUnread && (
                   <span
                     className="os-rail-unread-dot absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-sky-500 z-10 group-hover/tile:hidden"
@@ -3024,12 +3166,23 @@ export default function AgentSidebar({
                     {badge}
                   </span>
                 ) : null}
+                {pinTeamPlan && pinTeamPlan.faces.length >= 2 ? (
+                  <AvatarStack
+                    faces={pinTeamPlan.faces}
+                    remainder={pinTeamPlan.remainder}
+                    animate={pinWorkerBusy}
+                    label={`${pinName} members`}
+                  />
+                ) : (
                 <AgentAvatar
                   src={live?.avatar_path}
                   agentId={pin.id}
                   size="lg"
                   className="os-fav-tile__avatar"
+                  status={pinWorkerBusy ? 'working' : 'idle'}
+                  active={pinWorkerBusy}
                 />
+                )}
                 <span className="os-fav-tile__name">{pinName}</span>
                 {pinIdx < 9 && (
                   <span
@@ -3052,11 +3205,15 @@ export default function AgentSidebar({
               onClick: (event: ReactMouseEvent<HTMLElement>) => {
                 if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
                   pickOrClose?.()
+                  event.currentTarget.blur()
                   return
                 }
                 event.preventDefault()
                 navigate(agentChatHref(pin.id))
                 pickOrClose?.()
+                event.currentTarget.blur()
+              },
+              onMouseLeave: (event: ReactMouseEvent<HTMLElement>) => {
                 event.currentTarget.blur()
               },
               ...rowMenuHandlers(
@@ -3104,7 +3261,8 @@ export default function AgentSidebar({
           <nav
             ref={navScrollRef}
             onScroll={updateCanScroll}
-            className="min-h-0 flex-1 overflow-y-auto px-2 pb-3"
+            className="min-h-0 flex-1 overflow-y-auto px-2 pb-16"
+            data-testid="rail-agent-scroller"
             aria-label="Agent list"
             onContextMenu={(event) => {
               const target = event.target as HTMLElement
@@ -3147,6 +3305,7 @@ export default function AgentSidebar({
                         data-section-id={block.id}
                         data-section-custom={block.custom ? 'true' : 'false'}
                         data-collapsed={block.collapsed ? 'true' : 'false'}
+                        data-internal-only={block.internalOnly ? 'true' : 'false'}
                       >
                         {isAvatarOnly ? null : (
                           <RailSectionHeader
@@ -3155,6 +3314,7 @@ export default function AgentSidebar({
                             count={block.rows.length}
                             collapsed={block.collapsed}
                             custom={block.custom}
+                            internalOnly={Boolean(block.internalOnly)}
                             editing={editingSectionId === block.id}
                             editValue={editingSectionId === block.id ? editingSectionName : block.name}
                             dropActive={sectionDropId === block.id}
@@ -3165,6 +3325,14 @@ export default function AgentSidebar({
                                 setSectionState((current) => toggleSectionCollapsed(current, block.id))
                               }
                             }}
+                            onToggleTalkLock={
+                              block.custom
+                                ? () =>
+                                    setSectionState((current) =>
+                                      toggleSectionInternalOnly(current, block.id),
+                                    )
+                                : undefined
+                            }
                             onContextMenu={
                               block.custom
                                 ? ({ clientX, clientY }) =>
@@ -3322,7 +3490,7 @@ export default function AgentSidebar({
               }}
             >
               <Trash2 className="h-5 w-5 shrink-0" aria-hidden="true" />
-              <span className="text-xs font-semibold uppercase tracking-wider">Delete</span>
+              <span className="os-bin-label text-xs font-semibold uppercase tracking-wider">Delete</span>
             </div>
           ) : (
             <>
@@ -3379,6 +3547,8 @@ export default function AgentSidebar({
                     />
                   )}
                 </button>
+                {!isAvatarOnly ? (
+                  <>
                 <label className="sr-only" htmlFor="os-rail-hostname">
                   Hostname
                 </label>
@@ -3408,6 +3578,8 @@ export default function AgentSidebar({
                   }}
                 />
                 <UpdateChrome />
+                  </>
+                ) : null}
                 {remotesPopupOpen && (
                   <RemoteSessionsPopup
                     isOpen={remotesPopupOpen}

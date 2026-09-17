@@ -24,6 +24,7 @@ agent may call the same tools via ``as_tool()`` specialists.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any, ClassVar
@@ -70,27 +71,142 @@ def _list_tool(name: str = "") -> str:
     return _render_operate(result)
 
 
-def _send_tool(name: str, prompt: str, target: str = "") -> str:
+def _send_tool(
+    name: str,
+    prompt: str,
+    target: str = "",
+    context: dict[str, Any] | None = None,
+    session_id: str = "",
+) -> str:
     """Send a job/turn to a remote harness's real API (not a local seat clone)."""
-    result = remotes_core.operate(name, "send", prompt=prompt, target=target)
+    kind = remotes_core.kind_of_instance(name)
+    kwargs: dict[str, Any] = {
+        "prompt": prompt,
+        "target": target,
+    }
+    if session_id:
+        kwargs["session_id"] = session_id
+    if kind == "anythingllm":
+        kwargs["timeout"] = remotes_core._ANYTHINGLLM_SEND_TIMEOUT_S
+    elif kind == "letta":
+        kwargs["timeout"] = remotes_core._LETTA_SEND_TIMEOUT_S
+    elif kind == "flowise":
+        kwargs["timeout"] = remotes_core._FLOWISE_SEND_TIMEOUT_S
+    elif kind == "n8n":
+        kwargs["timeout"] = remotes_core._N8N_SEND_TIMEOUT_S
+    elif kind == "openwebui":
+        from swarm.core.openwebui_remote import send_timeout
+
+        kwargs["timeout"] = send_timeout(remotes_core._OPERATE_TIMEOUT_S)
+    result = remotes_core.operate(name, "send", **kwargs)
+    _arm_omb_followup(result, name, context)
     return _render_operate(result)
 
 
+def _arm_omb_followup(
+    result: remotes_core.OperateResult,
+    name: str,
+    context: dict[str, Any] | None,
+) -> None:
+    """Keep listening for later OpenMousBot bot texts on this thread (#125)."""
+    ctx = context if isinstance(context, dict) else {}
+    user_key = str(ctx.get("user_key") or "").strip()
+    conversation_id = str(ctx.get("conversation_id") or "").strip()
+    if not user_key or not conversation_id:
+        return
+    try:
+        from swarm.core import omb_session_watch
+
+        spec = None
+        try:
+            spec = remotes_core.load_remote(name or "omb")
+        except Exception:
+            spec = None
+        omb_session_watch.watch_from_operate(
+            result,
+            user_key=user_key,
+            agent_id=str(ctx.get("agent_id") or ctx.get("agent") or "remote_harness"),
+            conversation_id=conversation_id,
+            spec=spec,
+        )
+    except Exception:
+        logger.debug("omb follow-up watch skipped", exc_info=True)
+
+
+# Internal gap codes -> the one action that fixes them. ``result.detail``
+# already names the cause, so these are imperatives that read naturally after
+# "Fix: ". A raw snake_case code must never reach the user (REQ-890 / #449).
+_GAP_HINTS: dict[str, str] = {
+    "anythingllm_thread_required": "pick a workspace thread for this remote first.",
+    "computer_not_supported": "use this remote's chat instead — it exposes no computer surface.",
+    "computer_operate_unwired": "use this remote's chat instead — computer control is not wired for it yet.",
+    "flowise_session_required": "pick a chatflow first.",
+    "herdr_reply_empty": "check that pane is still alive in herdr, then retry.",
+    "herdr_reply_timeout": "check that pane in herdr — it may be busy or blocked — then retry.",
+    "hermes_reply_timeout": "retry in a moment — the run may still be going.",
+    "hermes_run_id_missing": "check the Hermes gateway returns a run id after accepting a send.",
+    "letta_agent_required": "pick a Letta agent first.",
+    "n8n_workflow_required": "pick a workflow first.",
+    "omb_reply_timeout": "wait for the bot's follow-up, or retry — it may still be working.",
+    "openwebui_auth": "set OPENWEBUI_API_KEY (or sign in to Open WebUI), then retry.",
+    "openwebui_chat_required": "pick a chat first.",
+    "rakazo_rpc_requires_better_auth_session": (
+        "set RAKAZO_SESSION_COOKIE (Better Auth session cookie) or RAKAZO_API_KEY, "
+        "then retry — /health stays public but /rpc/* needs a session."
+    ),
+    "rakazo_rpc_unusable": "point base_url at the Rakazo API (:3100), not the Vite UI (:5173).",
+    "slack_thread_required": "pick a Slack thread first.",
+}
+
+
+def _gap_line(gap: str) -> str:
+    """One actionable line for an internal gap code — never the raw code."""
+    code = str(gap or "").strip()
+    if not code:
+        return ""
+    hint = _GAP_HINTS.get(code)
+    if hint:
+        return f"\nFix: {hint}"
+    # A gap raised without a hint (new code, map not updated) still must not
+    # leak the identifier. De-uglify and point at the settings that own it.
+    return f"\nFix: check this remote in Settings → Remotes ({code.replace('_', ' ')})."
+
+
 def _render_operate(result: remotes_core.OperateResult) -> str:
+    if result.ok and result.op == "send" and isinstance(result.data, dict):
+        text = str(result.data.get("text") or result.data.get("response") or "").strip()
+        if text:
+            return text
     if not result.ok and remotes_core.NOT_ADDED_MARKER in result.detail:
         # Never-added catalog seat: the detail is already a complete, actionable
         # sentence — do not wrap it in "{remote} {op}: FAIL —" (issue #129).
         return result.detail
-    gap = f"\nGAP: {result.gap}" if result.gap else ""
+    if not result.ok:
+        # Failures are a sentence plus a fix. Never paste the upstream body: it
+        # can be a 42 KB HTML error page or the auth envelope the user cannot
+        # act on (REQ-890 / #449). ``detail`` already names the cause.
+        logger.debug(
+            "remote %s %s failed (gap=%s, http=%s): %r",
+            result.remote,
+            result.op,
+            result.gap,
+            result.http_status,
+            result.data,
+        )
+        return (
+            f"{result.remote} {result.op}: FAIL — {result.detail}"
+            f"{_gap_line(result.gap)}"
+        )
+    gap = _gap_line(result.gap)
     data = ""
-    if result.data is not None:
+    if result.data not in (None, "", {}, []):
         try:
             import json
 
             data = "\n" + json.dumps(result.data, indent=2, default=str)[:4000]
         except Exception:
             data = f"\n{result.data!r}"[:4000]
-    return f"{result.remote} {result.op}: {'OK' if result.ok else 'FAIL'} — {result.detail}{gap}{data}"
+    return f"{result.remote} {result.op}: OK — {result.detail}{gap}{data}"
 
 
 from swarm.core.kind_bases import RemoteKindBase
@@ -110,7 +226,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "n8n", "slack", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -124,6 +240,18 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "SWARM_REMOTE_API_KEY",
             "TRUEFORGE_BASE_URL",
             "TRUEFORGE_API_KEY",
+            "ANYTHINGLLM_BASE_URL",
+            "ANYTHINGLLM_API_KEY",
+            "LETTA_BASE_URL",
+            "LETTA_API_KEY",
+            "OPENWEBUI_BASE_URL",
+            "OPENWEBUI_API_KEY",
+            "FLOWISE_BASE_URL",
+            "FLOWISE_API_KEY",
+            "N8N_BASE_URL",
+            "N8N_API_KEY",
+            "SLACK_BASE_URL",
+            "SLACK_BOT_TOKEN",
         ],
     }
 
@@ -158,7 +286,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         @function_tool
         def remote_send(name: str, prompt: str, target: str = "") -> str:
             """Send a job via the remote's real API. name=hermes|omb|rakazo|swarm."""
-            return _send_tool(name, prompt, target)
+            return _send_tool(name, prompt, target, context=getattr(self, "_params", None))
 
         shared = [remote_health, remote_list, remote_send]
 
@@ -218,6 +346,65 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_trueforge",
                 "Hand off to the TrueForge remote operator (health/list/send).",
+            ),
+            "anythingllm": (
+                "AnythingllmRemote",
+                (
+                    "You operate remote AnythingLLM via tools. List workspaces/"
+                    "threads as sessions and send into an existing thread. "
+                    "Never mint a new AnythingLLM thread."
+                ),
+                "consult_anythingllm",
+                "Hand off to the AnythingLLM remote operator (health/list/send).",
+            ),
+            "letta": (
+                "LettaRemote",
+                (
+                    "You operate remote Letta via tools. List memory agents as "
+                    "sessions and send into an existing agent. Never mint a "
+                    "new Letta agent."
+                ),
+                "consult_letta",
+                "Hand off to the Letta remote operator (health/list/send).",
+            ),
+            "slack": (
+                "SlackRemote",
+                (
+                    "You operate Slack via the bot API. List threads as sessions "
+                    "and send into an existing channel/thread. Never mint a new "
+                    "Slack app."
+                ),
+                "consult_slack",
+                "Hand off to the Slack remote operator (health/list/send).",
+            ),
+            "n8n": (
+                "N8nRemote",
+                (
+                    "You operate remote n8n via tools. List chat/webhook workflows "
+                    "as sessions and send into an existing webhook. Never mint a "
+                    "new n8n workflow."
+                ),
+                "consult_n8n",
+                "Hand off to the n8n remote operator (health/list/send).",
+            ),
+            "openwebui": (
+                "OpenwebuiRemote",
+                (
+                    "You operate a remote Open WebUI instance via tools. List chats "
+                    "as sessions and send into an existing chat. Never mint a new "
+                    "Open WebUI chat. This is not Operating Swarm's own WebUI."
+                ),
+                "consult_openwebui",
+                "Hand off to the Open WebUI remote operator (health/list/send).",
+            ),
+            "herdr": (
+                "HerdrRemote",
+                (
+                    "You operate remote Herdr via tools (local or SSH hop). "
+                    "Never clone a Herdr pane locally."
+                ),
+                "consult_herdr",
+                "Hand off to the Herdr remote operator (health/list/send/interrogate).",
             ),
         }
 
@@ -279,7 +466,13 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         params = dict(self._params)
         name = str(params.get("name") or params.get("remote") or "").strip()
         op = str(params.get("op") or "").strip().lower()
-        target = str(params.get("target") or params.get("bot_id") or "").strip()
+        target = str(
+            params.get("target")
+            or params.get("bot_id")
+            or params.get("session")
+            or params.get("session_id")
+            or ""
+        ).strip()
         last_text = self._last_user_text(messages)
         prompt = str(params.get("prompt") or last_text or "").strip()
 
@@ -307,6 +500,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         # Always build the as_tool graph so discovery/tools endpoints see it.
         agents = self._build_agents()
         op, name, prompt, target = self._parse(messages)
+        params = dict(self._params)
         text = self._last_user_text(messages)
         test_mode = os.environ.get("SWARM_TEST_MODE", "").lower() in ("1", "true", "yes")
         deterministic = op in ("health", "list", "send") and (
@@ -325,9 +519,73 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge> <prompt>"
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta|openwebui|flowise|n8n> <prompt>"
+                elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta", "openwebui", "flowise"}:
+                    stream_kind = remotes_core.kind_of_instance(name)
+                    session_id = str(params.get("session_id") or target or "").strip()
+                    assembled = ""
+                    try:
+                        spec = remotes_core.load_remote(name)
+                    except remotes_core.RemoteError as exc:
+                        yield support.message_chunk(str(exc), final=True)
+                        return
+                    if stream_kind == "letta":
+                        iterator = remotes_core.iter_letta_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
+                    elif stream_kind == "openwebui":
+                        from swarm.core.openwebui_remote import iter_openwebui_chat
+
+                        iterator = iter_openwebui_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
+                    elif stream_kind == "flowise":
+                        iterator = remotes_core.iter_flowise_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
+                    else:
+                        iterator = remotes_core.iter_anythingllm_chat(
+                            spec, prompt, session_id=session_id, target=target
+                        )
+                    sentinel = object()
+                    while True:
+                        item = await asyncio.to_thread(next, iterator, sentinel)
+                        if item is sentinel:
+                            break
+                        delta, done, err = item
+                        if err:
+                            yield support.message_chunk(err, final=True)
+                            return
+                        if delta:
+                            assembled += delta
+                            yield support.message_chunk(delta)
+                        if done:
+                            break
+                    if not assembled:
+                        empty = (
+                            "Letta returned an empty reply. Pick an agent "
+                            "session and try again."
+                            if stream_kind == "letta"
+                            else "Open WebUI returned an empty reply. Pick a chat session and try again."
+                            if stream_kind == "openwebui"
+                            else "Flowise returned an empty reply. Pick a chatflow session and try again."
+                            if stream_kind == "flowise"
+                            else "AnythingLLM returned an empty reply. Pick a "
+                            "workspace or thread session and try again."
+                        )
+                        yield support.message_chunk(empty, final=True)
+                        return
+                    yield support.message_chunk(
+                        assembled,
+                        final=True,
+                        meta=support.backend_meta(["remote_harness", stream_kind, name]),
+                    )
+                    return
                 else:
-                    body = _send_tool(name, prompt, target)
+                    session_id = str(params.get("session_id") or "").strip()
+                    body = _send_tool(
+                        name, prompt, target, context=self._params, session_id=session_id
+                    )
             yield support.message_chunk(
                 body,
                 final=True,

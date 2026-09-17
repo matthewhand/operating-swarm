@@ -55,4 +55,52 @@ def test_list_roles_no_slash_endpoint(api_client):
     assert response.status_code == 200
     body = response.json()
     assert body["object"] == "list"
-    assert len(body["data"]) == len(CANONICAL_ROLES)
+    assert len(body["data"]) >= len(CANONICAL_ROLES)
+
+
+def test_create_and_delete_custom_role(api_client):
+    role_payload = {
+        "name": "qa_inspector",
+        "label": "QA Inspector",
+        "aliases": ["qa", "tester"],
+        "mechanism": "parse",
+        "mechanism_detail": "Validates test outcomes and inspects code diffs.",
+        "allow_all": False,
+    }
+    # Create role
+    create_res = api_client.post("/v1/roles/", role_payload, format="json")
+    assert create_res.status_code == 201
+    created_data = create_res.json()
+    assert created_data["name"] == "qa_inspector"
+    assert created_data["label"] == "QA Inspector"
+    assert "qa" in created_data["aliases"]
+    assert created_data["mechanism"] == "parse"
+    assert created_data["custom"] is True
+
+    # Check that it appears in list
+    list_res = api_client.get("/v1/roles/")
+    assert list_res.status_code == 200
+    names = [r["name"] for r in list_res.json()["data"]]
+    assert "qa_inspector" in names
+
+    # Delete role
+    del_res = api_client.delete("/v1/roles/qa_inspector/")
+    assert del_res.status_code == 204
+
+    # Check it no longer appears in list
+    list_res_after = api_client.get("/v1/roles/")
+    names_after = [r["name"] for r in list_res_after.json()["data"]]
+    assert "qa_inspector" not in names_after
+
+
+def test_reject_create_canonical_role(api_client):
+    res = api_client.post("/v1/roles/", {"name": "support", "label": "Fake Support"}, format="json")
+    assert res.status_code == 400
+    assert "reserved canonical role" in res.json()["error"]
+
+
+def test_reject_delete_canonical_role(api_client):
+    res = api_client.delete("/v1/roles/gate/")
+    assert res.status_code == 400
+    assert "Cannot delete canonical role" in res.json()["error"]
+

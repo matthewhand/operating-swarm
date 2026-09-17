@@ -1,7 +1,8 @@
 """REQ-158: Support builds a blueprint/team from natural language.
 
-Happy path: the user asks Support in plain language. Support persists a
-rail-visible custom blueprint. The user does **not** write Python.
+Happy path: underspecified asks get one Socratic question; specified asks
+draft an ``ApiKindBase`` card. Persist happens when the user clicks
+**Add as agent** or **Save as blueprint**. They do **not** write Python.
 
 Under the hood the seat is still an ``ApiKindBase`` Python class (ADR-005).
 Code stays hidden unless they ask to view / edit it.
@@ -20,11 +21,21 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from swarm.core.decision_question import format_decision_question
+
 logger = logging.getLogger(__name__)
 
 SUPPORT_NL_FIXTURE = "SUPPORT_NL_BLUEPRINT_NO_USER_PYTHON"
 SUPPORT_NL_SOURCE = "support-nl"
 SUPPORT_NL_FENCE = "swarm-nl-blueprint"
+TEAM_PURPOSE_QUESTION_ID = "team-purpose"
+ADD_AS_AGENT_LABEL = "Add as agent"
+SAVE_AS_BLUEPRINT_LABEL = "Save as blueprint"
+TEAM_PURPOSE_CHOICES = [
+    "Software delivery (BA → Engineer → Tester)",
+    "Review loop with a skeptic",
+    "Coordinator + specialist",
+]
 
 TEMPLATE_PIPELINE = "pipeline"
 TEMPLATE_SKEPTIC = "skeptic_loop"
@@ -71,6 +82,7 @@ class CreatedNlBlueprint:
             "id": self.spec.blueprint_id,
             "title": self.spec.title,
             "usable": self.usable,
+            "persisted": self.persisted,
             "chatHref": self.chat_href,
             "graphLabel": self.spec.graph_label,
             "edges": [list(edge) for edge in self.spec.edges],
@@ -78,16 +90,32 @@ class CreatedNlBlueprint:
             "source": SUPPORT_NL_SOURCE,
             "fixture": SUPPORT_NL_FIXTURE,
             "userWrotePython": False,
+            "description": self.spec.description,
+            "kind": "api",
             "code": self.code,
         }
 
     def user_reply(self, *, include_code_fence: bool = False) -> str:
-        """Transcript copy: usable team first; Python hidden unless asked."""
+        """Transcript copy: draft first; Python hidden unless asked."""
+        if self.persisted:
+            lead = (
+                f"Created **{self.spec.title}**. The team is usable in chat — "
+                "you did not write Python."
+            )
+            cta = f"Open: {self.chat_href}"
+        else:
+            lead = (
+                f"Drafted **{self.spec.title}** from your answers and our team "
+                "docs (ADR-005 `ApiKindBase`). You did not write Python."
+            )
+            cta = (
+                f"**{ADD_AS_AGENT_LABEL}** puts it on the rail. "
+                f"**{SAVE_AS_BLUEPRINT_LABEL}** keeps it in the library."
+            )
         lines = [
-            f"Created **{self.spec.title}**. The team is usable in chat — "
-            "you did not write Python.",
+            lead,
             "",
-            f"Open: {self.chat_href}",
+            cta,
             f"Graph: {self.spec.graph_label}",
             "",
             "Under the hood this is a Python `ApiKindBase` blueprint class. "
@@ -285,11 +313,11 @@ def persist_custom_item(item: dict[str, Any], *, disk: bool | None = None) -> di
     return stamped
 
 
-def create_nl_blueprint(prompt: str, *, persist: bool = True) -> CreatedNlBlueprint:
-    """Create a usable team/workflow from NL. Does not require user-written Python."""
+def create_nl_blueprint(prompt: str, *, persist: bool = False) -> CreatedNlBlueprint:
+    """Draft (default) or persist a team/workflow from NL. No user-written Python."""
     template = interpret_nl(prompt)
     draft = _spec_for_template(template)
-    blueprint_id = unique_blueprint_id(draft.blueprint_id) if persist else draft.blueprint_id
+    blueprint_id = unique_blueprint_id(draft.blueprint_id)
     spec = _spec_for_template(template, blueprint_id=blueprint_id)
     code = render_apikind_python(spec)
     item = {
@@ -314,7 +342,7 @@ def create_nl_blueprint(prompt: str, *, persist: bool = True) -> CreatedNlBluepr
     return CreatedNlBlueprint(
         spec=spec,
         code=code,
-        usable=True,
+        usable=persisted,
         chat_href=f"/chat?blueprint={spec.blueprint_id}",
         persisted=persisted,
         item=stored,
@@ -366,6 +394,90 @@ def wants_code_reveal(user_text: str) -> bool:
             "python",
         )
     )
+
+
+def nl_design_is_specified(user_text: str) -> bool:
+    """True when the ask already names a topology we can draft."""
+    text = (user_text or "").strip().lower()
+    if not text:
+        return False
+    if any(word in text for word in ("skeptic", "circular", "punt-back", "punt back")):
+        return True
+    if any(
+        word in text
+        for word in ("ba", "engineer", "tester", "handoff", "sdlc", "pipeline")
+    ):
+        return True
+    if "coordinator" in text and "specialist" in text:
+        return True
+    return False
+
+
+def socratic_team_design_question() -> str:
+    """One purpose/shape question. Docs-informed design happens after the answer."""
+    prose = (
+        "A local team is an `ApiKindBase` roster (ADR-005). "
+        "I will use our team docs to pick the graph — one question first."
+    )
+    question = format_decision_question(
+        ask="What should this team do?",
+        choices=list(TEAM_PURPOSE_CHOICES),
+        other="Describe the team",
+        question_id=TEAM_PURPOSE_QUESTION_ID,
+    )
+    return f"{prose}\n\n{question}"
+
+
+def map_team_purpose_answer(answer: str) -> str | None:
+    """Map a Socratic purpose choice to an NL create prompt."""
+    lowered = (answer or "").strip().lower()
+    if not lowered:
+        return None
+    if lowered.startswith("software delivery"):
+        return "Create a BA → Engineer → Tester workflow"
+    if lowered.startswith("review loop"):
+        return "Create a BA engineer tester skeptic workflow"
+    if lowered.startswith("coordinator"):
+        return "Create a first team"
+    return None
+
+
+def _assistant_asked_team_purpose(messages: list[dict[str, Any]] | None) -> bool:
+    """True only if the immediately preceding assistant turn asked for team purpose."""
+    for msg in reversed(messages or []):
+        if str(msg.get("role") or "").lower() == "assistant":
+            return TEAM_PURPOSE_QUESTION_ID in str(msg.get("content") or "")
+    return False
+
+
+def nl_create_or_socratic(
+    user_text: str,
+    messages: list[dict[str, Any]] | None = None,
+    *,
+    include_code_fence: bool = False,
+) -> str | None:
+    """Socratic first; draft card when specified. None if this turn is not team-create."""
+    text = (user_text or "").strip()
+    if not text:
+        return None
+    if wants_code_reveal(text) and not wants_nl_create(text):
+        return None
+    mapped = map_team_purpose_answer(text)
+    if mapped:
+        return create_nl_blueprint(mapped, persist=False).user_reply(
+            include_code_fence=include_code_fence
+        )
+    if _assistant_asked_team_purpose(messages):
+        return create_nl_blueprint(text, persist=False).user_reply(
+            include_code_fence=include_code_fence
+        )
+    if wants_nl_create(text):
+        if nl_design_is_specified(text):
+            return create_nl_blueprint(text, persist=False).user_reply(
+                include_code_fence=include_code_fence
+            )
+        return socratic_team_design_question()
+    return None
 
 
 _PIPELINE_CLASS_BODY = '''\

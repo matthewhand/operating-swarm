@@ -29,6 +29,32 @@ from swarm.core.thread_load import load_thread
 from swarm.core.thread_load import public_messages as _public_messages
 from swarm.models import ChatAttachment, ChatMessage, ConversationSummary
 
+
+def _usage_payload(*, user, agent: str, conversation_id: str, turns=None, model_id: str | None = None):
+    """#215: read-only usage snapshot. Failures stay off the main action path."""
+    from swarm.core.context_usage import usage_snapshot
+
+    cid = (conversation_id or "").strip()
+    agent_id = chat_store.normalize_agent_id(agent)
+    rows = turns
+    if rows is None:
+        loaded = load_thread(
+            user,
+            agent_id,
+            requested_cid=cid,
+            session_id=cid,
+            default_cid=cid,
+            fresh_task=False,
+        )
+        rows = loaded.turns
+    return usage_snapshot(
+        conversation_id=cid,
+        agent_id=agent_id,
+        turns=rows,
+        model_id=model_id,
+    )
+
+
 logger = logging.getLogger(__name__)
 
 _ALLOWED_ACTIONS = frozenset({"archive", "archive_all", "restore", "empty_trash"})
@@ -106,6 +132,8 @@ def _sync_django_and_memory(
                 row["ts"] = ts
             if item.get("edited"):
                 row["edited"] = True
+            if item.get("fatal_config_error") is True:
+                row["fatal_config_error"] = True
             mem_rows.append(row)
         IN_MEMORY_CONVERSATIONS[_conversation_cache_key(user, cid)] = mem_rows
         try:
@@ -231,6 +259,37 @@ def chat_thread(request):
 
     if request.method == "POST":
         body = _json_body(request)
+        if str(body.get("action") or "").strip().lower() == "clear":
+            try:
+                chat_store.save(
+                    user_key,
+                    agent,
+                    [],
+                    conversation_id=conversation_id,
+                    session_id=conversation_id if conversation_id != default_cid else "",
+                    ui_events=[],
+                    cli_sessions={},
+                    cli_hop=None,
+                    active_cli="",
+                )
+            except OSError:
+                logger.exception("Failed to clear chat JSON for %s/%s", user_key, agent)
+            _sync_django_and_memory(
+                request.user,
+                [],
+                [conversation_id],
+                agent_id=agent,
+            )
+            try:
+                from swarm.consumers import IN_MEMORY_UI_EVENTS, _conversation_cache_key
+
+                IN_MEMORY_UI_EVENTS[_conversation_cache_key(request.user, conversation_id)] = []
+            except Exception:
+                logger.debug("in-memory ui_events clear skipped", exc_info=True)
+            payload["messages"] = []
+            payload["turns"] = []
+            payload["ui_events"] = []
+            return JsonResponse(payload)
         msg = body.get("message")
         if isinstance(msg, dict) and msg.get("content"):
             from swarm.core.transcript_roles import (
@@ -428,6 +487,38 @@ def chat_raw_context(request):
     )
 
 
+@login_required
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def chat_context_usage(request):
+    """#215: per-seat context-window usage — read-only estimate.
+
+    Tokens of current model context (messages + spliced summaries +
+    system/instructions + tool-schema overhead) against the seat's declared
+    window. ``estimate: true`` until a per-provider tokenizer is wired.
+    """
+    agent = chat_store.normalize_agent_id(request.GET.get("agent"))
+    requested_cid = (request.GET.get("conversation_id") or "").strip()
+    if not requested_cid:
+        return JsonResponse({"error": "conversation_id required"}, status=400)
+    model_id = (
+        (request.GET.get("model") or request.GET.get("llm_profile") or "")
+        .strip()
+        or None
+    )
+    try:
+        payload = _usage_payload(
+            user=request.user,
+            agent=agent,
+            conversation_id=requested_cid,
+            model_id=model_id,
+        )
+    except Exception:
+        logger.exception("context usage snapshot failed")
+        return JsonResponse({"error": "Could not estimate context usage."}, status=500)
+    return JsonResponse(payload)
+
+
 @require_http_methods(["POST"])
 def chat_attachment_upload(request):
     """Store one composer file and return its id (REQ-38).
@@ -548,14 +639,22 @@ def chat_compact(request):
     except Exception:
         logger.debug("compress last-event stamp skipped", exc_info=True)
 
-    return JsonResponse(
-        {
-            "summary": summary_to_dict(row),
-            "summaries": summaries,
-            "context": build_model_context(raw, list_summaries(conversation_id)),
-            "raw_count": len(raw),
-        }
-    )
+    payload = {
+        "summary": summary_to_dict(row),
+        "summaries": summaries,
+        "context": build_model_context(raw, list_summaries(conversation_id)),
+        "raw_count": len(raw),
+    }
+    try:
+        payload["usage"] = _usage_payload(
+            user=request.user,
+            agent=agent,
+            conversation_id=conversation_id,
+            turns=raw,
+        )
+    except Exception:
+        logger.debug("compact usage snapshot skipped", exc_info=True)
+    return JsonResponse(payload)
 
 
 @login_required
@@ -584,7 +683,17 @@ def chat_summary_toggle_context(request):
         return JsonResponse({"error": "Not your conversation."}, status=403)
     row.include_in_context = include
     row.save(update_fields=["include_in_context"])
-    return JsonResponse({"summary": summary_to_dict(row)})
+    body = {"summary": summary_to_dict(row)}
+    try:
+        conversation = row.conversation
+        body["usage"] = _usage_payload(
+            user=request.user,
+            agent=getattr(conversation, "agent_id", "") or "",
+            conversation_id=row.conversation_id,
+        )
+    except Exception:
+        logger.debug("toggle usage snapshot skipped", exc_info=True)
+    return JsonResponse(body)
 
 
 @login_required
@@ -667,11 +776,21 @@ def chat_context_start(request):
 def chat_retention_action(request):
     """Archive / restore / empty-trash for the signed-in user's JSON threads."""
     action = (request.POST.get("action") or "").strip()
+    raw_agent = request.POST.get("agent_id")
+    if not action and request.body:
+        try:
+            body_data = json.loads(request.body)
+            if isinstance(body_data, dict):
+                action = (body_data.get("action") or "").strip()
+                raw_agent = body_data.get("agent_id")
+        except (ValueError, TypeError):
+            pass
+
     if action not in _ALLOWED_ACTIONS:
         return JsonResponse({"success": False, "error": "Unknown action."}, status=400)
 
     user_key = _user_key(request.user)
-    agent = chat_store.normalize_agent_id(request.POST.get("agent_id"))
+    agent = chat_store.normalize_agent_id(raw_agent)
 
     try:
         if action == "archive":

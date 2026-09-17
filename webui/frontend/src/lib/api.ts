@@ -1,5 +1,5 @@
 /**
- * Minimal typed fetch wrapper for the Open Swarm backend API.
+ * Minimal typed fetch wrapper for the Operating Swarm backend API.
  *
  * In dev, requests to /v1/* are proxied to the Django backend by Vite
  * (see vite.config.ts). An optional bearer token is read from localStorage
@@ -217,6 +217,7 @@ export type AgentRole =
   | 'chief_of_staff'
   | 'engineer'
   | 'suggestions'
+  | (string & {})
 
 /** Optional openai-agents workflow hint on a blueprint (REQ-75). */
 export type BlueprintWorkflow = 'handoff' | 'as_tool'
@@ -448,6 +449,34 @@ export function putLlmProfile(
   return apiPut<LlmProfilesSettings>('/v1/llm-profiles/', body)
 }
 
+export type LlmProfileProbeAction = 'test' | 'list_models'
+
+export interface LlmProfileProbeRequest {
+  base_url: string
+  api_key_env?: string
+  api_key_ref?: string
+  model?: string
+  action?: LlmProfileProbeAction
+}
+
+export interface LlmProfileProbeResult {
+  object?: 'llm_profile_probe'
+  ok: boolean
+  latency_ms: number
+  error_class: string | null
+  hint?: string
+  state?: 'ok' | 'warn' | 'error'
+  action?: string
+  models?: string[]
+}
+
+/** POST /v1/llm-profiles/test — live key/model probe. Never persists. */
+export function testLlmProfile(
+  body: LlmProfileProbeRequest,
+): Promise<LlmProfileProbeResult> {
+  return apiPost<LlmProfileProbeResult>('/v1/llm-profiles/test/', body)
+}
+
 /** GET/PATCH /v1/rate-limits/ — user-defined provider caps (local config, not Neon). */
 export type RateLimitRuleKey =
   | 'messages_per_minute'
@@ -511,6 +540,11 @@ export interface TeamRosterRecord {
     team_id?: string
   }>
   wires: { handoff: boolean; as_tool: boolean }
+  tools?: Array<
+    | { type: 'handoff'; to: string; from?: string }
+    | { type: 'as_tool'; agent: string }
+    | { type: 'mcp'; server: string; agents: string[] }
+  >
   blueprint_id?: string
   persona_count?: number
   personas?: Array<{ name: string }>
@@ -526,10 +560,29 @@ export interface RoleDescriptor {
   mechanism: string
   mechanism_detail: string
   css_class: string
+  custom?: boolean
+}
+
+export interface CreateRoleRequest {
+  name: string
+  label?: string
+  aliases?: string[]
+  allow_all?: boolean
+  mechanism?: string
+  mechanism_detail?: string
+  css_class?: string
 }
 
 export async function fetchRoles(): Promise<{ object: string; data: RoleDescriptor[] }> {
   return apiGet<{ object: string; data: RoleDescriptor[] }>('/v1/roles/')
+}
+
+export async function createRole(request: CreateRoleRequest): Promise<RoleDescriptor> {
+  return apiPost<RoleDescriptor>('/v1/roles/', request)
+}
+
+export async function deleteRole(roleName: string): Promise<void> {
+  return apiDelete(`/v1/roles/${encodeURIComponent(roleName)}/`)
 }
 
 export function fetchTeamRosters(): Promise<ListResponse<TeamRosterRecord>> {
@@ -540,6 +593,7 @@ export interface CreateTeamRosterRequest {
   name: string
   members?: TeamRosterRecord['members']
   wires?: TeamRosterRecord['wires']
+  tools?: TeamRosterRecord['tools']
   blueprint_id?: string
   chief_of_staff_id?: string | null
   chief_of_staff_instructions?: string
@@ -615,6 +669,11 @@ export function removeFromLibrary(name: string): Promise<void> {
 export type RemoteKindId =
   | 'hermes'
   | 'anythingllm'
+  | 'letta'
+  | 'openwebui'
+  | 'flowise'
+  | 'n8n'
+  | 'slack'
   | 'omb'
   | 'rakazo'
   | 'herdr'
@@ -646,6 +705,7 @@ export interface RemoteCapabilities {
   operate?: boolean
   interrogate?: boolean
   routines?: boolean
+  sessions?: boolean
   transport?: string
 }
 
@@ -753,20 +813,52 @@ export function probeRemoteHealth(remoteId: string): Promise<RemoteHealthResult>
   )
 }
 
+export interface TestRemoteCandidateParams {
+  kind: string
+  id?: string
+  base_url?: string
+  api_key?: string
+  api_key_env?: string
+  herdr_mode?: string
+  ssh_host?: string
+  ssh_user?: string
+  ssh_port?: string
+  ssh_identity_env?: string
+  ssh_agent?: boolean
+}
+
+export function testRemoteCandidate(params: TestRemoteCandidateParams): Promise<RemoteHealthResult> {
+  return apiPost<RemoteHealthResult>('/v1/remotes/test/', params)
+}
+
 export interface OperateRemoteOptions {
   timeoutMs?: number
 }
 
+/** Catalog list abort. Slim OMB `?messages=0` must finish well under this. */
+export const OPERATE_LIST_TIMEOUT_MS = 12_000
+/** Send / poll-for-reply abort. Must survive a real remote turn (#302). */
+export const OPERATE_SEND_TIMEOUT_MS = 180_000
+
 /**
- * REQ-131: Operate remote (list/send) with bounded timeout (<=10-15s).
- * Prevents endless spinner if remote hangs or is unresponsive.
+ * REQ-131 / #302: Operate remote (list/send) with an op-aware abort.
+ * List stays short; send waits for the remote turn and names a timeout
+ * instead of calling the server slow or hung.
  */
 export async function operateRemote(
   remoteId: string,
-  body: { op: 'list' | 'send' | 'interrogate' | 'routines'; prompt?: string; target?: string },
+  body: {
+    op: 'list' | 'send' | 'interrogate' | 'routines'
+    prompt?: string
+    target?: string
+    session_id?: string
+    query?: string
+  },
   options?: OperateRemoteOptions,
 ): Promise<RemoteOperateResult> {
-  const timeoutMs = options?.timeoutMs ?? 12000
+  const isSend = body.op === 'send'
+  const timeoutMs =
+    options?.timeoutMs ?? (isSend ? OPERATE_SEND_TIMEOUT_MS : OPERATE_LIST_TIMEOUT_MS)
   const controller = new AbortController()
   const timer = setTimeout(() => {
     controller.abort()
@@ -787,8 +879,12 @@ export async function operateRemote(
     return (await response.json()) as RemoteOperateResult
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') {
+      const seconds = Math.round(timeoutMs / 1000)
+      if (isSend) {
+        throw new Error(`Remote operate send timed out after ${seconds}s.`)
+      }
       throw new Error(
-        `Remote operate operation timed out after ${Math.round(timeoutMs / 1000)}s. Remote server is slow or hung.`,
+        `Remote operate operation timed out after ${seconds}s. Remote server is slow or hung.`,
       )
     }
     throw err
@@ -978,9 +1074,18 @@ export interface CustomBlueprint {
   cli?: string
   rail?: boolean
   source?: string
+  /** Issue #180: optional remote serve endpoint for opencode/kilocode. */
+  remote?: {
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }
 }
 
 export interface CreateCustomBlueprintRequest {
+  id?: string
   name: string
   description?: string
   code?: string
@@ -990,6 +1095,13 @@ export interface CreateCustomBlueprintRequest {
   command?: string
   rail?: boolean
   source?: string
+  remote?: {
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }
 }
 
 export function fetchCustomBlueprints(): Promise<ListResponse<CustomBlueprint>> {
@@ -1202,17 +1314,38 @@ export function patchSpeechSettings(body: SpeechPatchRequest): Promise<SpeechSet
   return apiPatch<SpeechSettings>('/v1/speech/', body)
 }
 
-export function transcribeSpeechAudio(file: Blob, filename = 'audio.webm'): Promise<SpeechTranscription> {
+export function transcribeSpeechAudio(
+  file: Blob,
+  filename = 'audio.webm',
+  opts?: { agentId?: string },
+): Promise<SpeechTranscription> {
   const form = new FormData()
   form.append('file', file, filename)
+  const agentId = (opts?.agentId || '').trim()
+  if (agentId) form.append('agent_id', agentId)
   return apiPostForm<SpeechTranscription>('/v1/speech/transcribe/', form)
 }
 
-export async function speakSpeechText(text: string, voice = ''): Promise<Blob> {
+export type SpeakSpeechOpts = {
+  voice?: string
+  instruction?: string
+  agentId?: string
+}
+
+export async function speakSpeechText(
+  text: string,
+  voiceOrOpts: string | SpeakSpeechOpts = '',
+): Promise<Blob> {
+  const opts: SpeakSpeechOpts =
+    typeof voiceOrOpts === 'string' ? { voice: voiceOrOpts } : voiceOrOpts || {}
+  const body: Record<string, string> = { text }
+  if (opts.voice) body.voice = opts.voice
+  if (opts.instruction) body.instruction = opts.instruction
+  if (opts.agentId) body.agent_id = opts.agentId
   const response = await fetch('/v1/speech/speak/', {
     method: 'POST',
     headers: buildHeaders(true),
-    body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
+    body: JSON.stringify(body),
     credentials: 'include',
   })
   if (!response.ok) {
@@ -1288,17 +1421,116 @@ export interface CliAgentsInfo {
   /** Discovered-minus-configured catalog entries for one-click add. */
   suggestions?: Record<string, Record<string, unknown>>
   default_cli?: string
+  /** CLI-first product modes (#151). Missing → client treats as legacy all-on. */
+  modes?: {
+    cli?: boolean
+    api?: boolean
+    blueprint?: boolean
+    team?: boolean
+    remote?: boolean
+  }
+  mode_limitations?: Record<string, string>
   native_consensus: Record<string, string[]>
   catalog: Record<string, Record<string, unknown>>
   rail?: CliRailAgent[]
   /** Argv table for list-models probes — not live model ids. */
   list_models?: Record<string, string[]>
   list_sessions?: Record<string, unknown>
+  /** Issue #180: per-CLI remote/headless capability (serve / ssh / api / none). */
+  remote?: Record<string, {
+    capability?: string
+    how?: string
+    serve_cmd?: string[] | null
+    attach_flag?: string | null
+    default_port?: number | null
+    default_hostname?: string | null
+    auth?: string | null
+    notes?: string
+  }>
+  remote_boxes?: Array<{
+    id?: string
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }>
 }
 
 export function fetchCliAgents(): Promise<CliAgentsInfo> {
   return apiGet<CliAgentsInfo>('/v1/cli-agents/')
 }
+
+export interface CliCandidatesResult {
+  name: string
+  candidates: string[]
+}
+
+export function fetchCliCandidates(name: string): Promise<CliCandidatesResult> {
+  const q = new URLSearchParams({ name })
+  return apiGet<CliCandidatesResult>(`/v1/cli-agents/candidates?${q.toString()}`)
+}
+
+export interface CliProbeResult {
+  ok: boolean
+  version?: string
+  message?: string
+}
+
+export function testCliBinary(cli: string): Promise<CliProbeResult> {
+  return apiPost<CliProbeResult>('/v1/cli-agents/test/', { cli })
+}
+
+export interface CliDriverDescriptor {
+  name: string
+  display_name: string
+  default_binary: string
+  list_capability: string
+  candidates: string[]
+}
+
+export function fetchCliDrivers(): Promise<{ drivers: CliDriverDescriptor[] }> {
+  return apiGet<{ drivers: CliDriverDescriptor[] }>('/v1/cli-agents/drivers/')
+}
+
+export interface ChatRetentionChatRow {
+  agent_id: string
+  message_count: number
+  updated_at: string
+}
+
+export interface ChatRetentionTrashRow {
+  agent_id: string
+  message_count: number
+  filename: string
+}
+
+export interface ChatRetentionStats {
+  store_dir: string
+  format: string
+  active_count: number
+  trash_count: number
+  bytes_used: number
+  bytes_label: string
+  max_age_days: number
+  auto_archive_enabled: boolean
+  chats: ChatRetentionChatRow[]
+  trash: ChatRetentionTrashRow[]
+  env_dir?: string
+  env_max_age?: string
+}
+
+export function fetchChatRetentionStats(): Promise<ChatRetentionStats> {
+  return apiGet<ChatRetentionStats>('/v1/chat/retention/stats/')
+}
+
+export function triggerChatRetentionAction(
+  action: 'archive' | 'archive_all' | 'restore' | 'empty_trash',
+  agentId?: string,
+): Promise<{ success: boolean; error?: string; archived?: unknown; restored?: unknown; removed?: unknown }> {
+  return apiPost('/v1/chat/retention/action/', { action, agent_id: agentId })
+}
+
 
 /** One designer-created agent (Agent Router design, router_designs.json). */
 export interface RouterDesign {
@@ -1533,4 +1765,81 @@ export function discoverMcpPluginTools(
   body: Record<string, unknown>,
 ): Promise<McpPluginDiscoverPayload> {
   return apiPost<McpPluginDiscoverPayload>('/v1/mcp-plugins/discover/', body)
+}
+
+export type MarketplaceCatalogKind = 'teams' | 'plugins' | 'skills'
+
+export interface MarketplaceCatalogItem {
+  id: string
+  kind: MarketplaceCatalogKind
+  name: string
+  summary: string
+  source: string
+  source_label: string
+  external: boolean
+  installable: boolean
+  installed: boolean
+  install_hint?: string
+  html_url?: string
+  stars?: number
+  topics?: string[]
+  required_env?: string[]
+  tools_provided?: string[]
+  danger_notes?: string[]
+  plugin?: {
+    name?: string
+    kind?: 'local' | 'remote'
+    command?: string
+    args?: string[]
+    url?: string
+    env?: Record<string, string>
+  }
+  skill?: Record<string, unknown>
+  team?: Record<string, unknown>
+}
+
+export interface MarketplaceCatalogResponse {
+  object: 'marketplace_catalog'
+  kind: MarketplaceCatalogKind
+  sources: string[]
+  external: boolean
+  items: MarketplaceCatalogItem[]
+  warnings: string[]
+}
+
+export interface MarketplaceInstallResponse {
+  object: 'marketplace_install'
+  kind: MarketplaceCatalogKind
+  id: string
+  installed: boolean
+  already_installed?: boolean
+  health?: 'up' | 'down' | 'unknown'
+  message?: string
+  required_env?: string[]
+  tools?: { name: string; description?: string }[]
+  skill?: { name: string; assets?: string[] }
+  roster?: Record<string, unknown>
+  needs_configuration?: { id: string; reason: string }[]
+}
+
+export function fetchMarketplaceCatalog(
+  kind: MarketplaceCatalogKind,
+): Promise<MarketplaceCatalogResponse> {
+  return apiGet<MarketplaceCatalogResponse>(`/v1/marketplace/catalog/?kind=${kind}`)
+}
+
+export function previewMarketplaceItem(
+  kind: MarketplaceCatalogKind,
+  id: string,
+): Promise<Record<string, unknown>> {
+  return apiGet<Record<string, unknown>>(
+    `/v1/marketplace/preview/?kind=${kind}&id=${encodeURIComponent(id)}`,
+  )
+}
+
+export function installMarketplaceItem(
+  kind: MarketplaceCatalogKind,
+  id: string,
+): Promise<MarketplaceInstallResponse> {
+  return apiPost<MarketplaceInstallResponse>('/v1/marketplace/install/', { kind, id })
 }

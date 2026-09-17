@@ -292,8 +292,6 @@ class ResponsesView(APIView):
         previous_response_id = continue_api_previous_response(model_name, previous_response_id)
         if previous_response_id:
             prior = await sync_to_async(responses_store.load)(str(previous_response_id))
-            if prior is None:
-                raise NotFound(f"Previous response '{previous_response_id}' not found.")
             _assert_owner_access(request, prior)
             messages = list(prior.get("messages") or []) + messages
 
@@ -569,18 +567,28 @@ def _persist(
     responses_store.save(record)
 
 
-def _assert_owner_access(request: Request, record: dict[str, Any] | None) -> None:
-    """Refuse access when API auth is on and the principal is not the owner.
+_RESPONSE_NOT_FOUND = "Response not found."
 
-    Fail-closed: legacy records without an ``owner`` stamp are also denied
-    (see :func:`responses_store.owner_allows`). Skipped entirely when API auth
-    is off (open local-dev mode).
+
+def _assert_owner_access(request: Request, record: dict[str, Any] | None) -> None:
+    """Refuse access when the principal is not the owner.
+
+    Owner checks run whenever a record has an ``owner`` stamp, even if
+    ``ENABLE_API_AUTH`` is off (``SWARM_ALLOW_NO_AUTH`` disables authentication
+    only — not per-principal IDOR). Unowned records stay reachable only when
+    API auth is off (explicit open-dev). Foreign and missing ids both raise
+    :class:`NotFound` so existence is not leaked.
     """
-    if not bool(getattr(settings, "ENABLE_API_AUTH", False)):
+    if record is None:
+        raise NotFound(_RESPONSE_NOT_FOUND)
+    owner = record.get("owner")
+    if not owner:
+        if bool(getattr(settings, "ENABLE_API_AUTH", False)):
+            raise NotFound(_RESPONSE_NOT_FOUND)
         return
     principal = request_principal(request)
     if not responses_store.owner_allows(record, principal):
-        raise PermissionDenied("You do not have access to this response.")
+        raise NotFound(_RESPONSE_NOT_FOUND)
 
 
 # --- Cancellation registry -------------------------------------------------- #
@@ -895,15 +903,11 @@ class ResponsesDetailView(APIView):
 
     async def get(self, request: Request, response_id: str, *_a: Any, **_k: Any) -> Response:
         record = await sync_to_async(responses_store.load)(response_id)
-        if record is None:
-            raise NotFound(f"Response '{response_id}' not found.")
         _assert_owner_access(request, record)
         return Response(record.get("response") or record, status=status.HTTP_200_OK)
 
     async def delete(self, request: Request, response_id: str, *_a: Any, **_k: Any) -> Response:
         record = await sync_to_async(responses_store.load)(response_id)
-        if record is None:
-            raise NotFound(f"Response '{response_id}' not found.")
         _assert_owner_access(request, record)
         deleted = await sync_to_async(responses_store.delete)(response_id)
         if not deleted:
@@ -925,8 +929,6 @@ class ResponsesCancelView(APIView):
     )
     async def post(self, request: Request, response_id: str, *_a: Any, **_k: Any) -> Response:
         record = await sync_to_async(responses_store.load)(response_id)
-        if record is None:
-            raise NotFound(f"Response '{response_id}' not found.")
         _assert_owner_access(request, record)
         payload = record.get("response") or {}
         current = payload.get("status")

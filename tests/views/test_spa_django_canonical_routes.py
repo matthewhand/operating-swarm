@@ -6,8 +6,13 @@ via the Django test client — not a reimplementation of the map.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from django.urls import reverse
+
+REPO = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
@@ -29,6 +34,10 @@ class TestSpaToDjangoCanonicalRedirects:
             ("/blueprints", "/blueprint-library/"),
             ("/settings", "/settings/"),
             ("/agent-creator", "/agent-creator/"),
+            ("/sessions", "/sessions/"),
+            ("/login", "/login/"),
+            ("/blueprint-library", "/blueprint-library/"),
+            ("/profiles", "/profiles/"),
         ],
     )
     def test_bare_spa_path_redirects_to_django(self, client, path, expected_location):
@@ -49,6 +58,10 @@ class TestSpaToDjangoCanonicalRedirects:
         assert reverse("spa_blueprints_to_django") == "/blueprints"
         assert reverse("spa_settings_to_django") == "/settings"
         assert reverse("spa_agent_creator_to_django") == "/agent-creator"
+        assert reverse("spa_sessions_to_django") == "/sessions"
+        assert reverse("spa_login_to_django") == "/login"
+        assert reverse("spa_blueprint_library_to_django") == "/blueprint-library"
+        assert reverse("spa_profiles_to_django") == "/profiles"
         assert reverse("spa_agents") == "/agents"
         assert reverse("spa_chat") == "/chat"
 
@@ -270,6 +283,36 @@ class TestUxShellTemplateContracts:
         assert "se-list-scroll" in html
         assert "session_explorer.js" in html
         assert "<script>\n(function(){" not in html
+        assert "os-launch-btn" in html
+        assert reverse("teams_launch") == "/teams/launch/"
+
+    def test_session_explorer_empty_paths_include_launch_cta(self):
+        template = (REPO / "src" / "swarm" / "templates" / "session_explorer.html").read_text(
+            encoding="utf-8"
+        )
+        js = (REPO / "src" / "swarm" / "static" / "js" / "session_explorer.js").read_text(
+            encoding="utf-8"
+        )
+        assert "{% url 'teams_launch' %}" in template
+        assert "os-launch-btn" in template
+        assert "Launch a team" in template
+        assert "/teams/launch/" in js
+        assert "os-launch-btn" in js
+        assert "Launch a team" in js
+
+    def test_chrome_teams_labels_share_one_href(self):
+        html = (REPO / "src" / "swarm" / "templates" / "base.html").read_text(encoding="utf-8")
+        anchors = re.findall(
+            r"<a\b([^>]*)>\s*(?:<i\b[^>]*>\s*</i>\s*)?Teams\s*</a>",
+            html,
+        )
+        hrefs = []
+        for attrs in anchors:
+            match = re.search(r'href="([^"]+)"', attrs)
+            assert match, attrs
+            hrefs.append(match.group(1))
+        assert hrefs, "expected Teams links in operator chrome"
+        assert set(hrefs) == {"/teams/launch/"}, hrefs
 
     def test_agent_creator_progressive_disclosure(self, client):
         from django.contrib.auth.models import User
@@ -288,6 +331,45 @@ class TestUxShellTemplateContracts:
         assert 'id="acc-identity" class="accordion-collapse collapse show"' in html
         assert "Blueprint interface spec" in html
         assert "class MyTeamBlueprint" in html
+
+    def test_issue406_library_my_library_counts_custom(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxlib", password="ux-lib-pass")
+        client.force_login(user)
+        html = client.get("/blueprint-library/").content.decode()
+        assert "Installed and custom blueprints (" not in html
+        assert "Installed " in html and " · custom " in html
+
+    def test_issue405_library_card_title_uses_id_not_truncate_class(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxcard", password="ux-card-pass")
+        client.force_login(user)
+        html = client.get("/blueprint-library/").content.decode()
+        assert "remote_harness" in html
+        assert "card-title mb-0 text-truncate" not in html
+
+    def test_issue407_herdr_location_option_fully_visible(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxherd", password="ux-herd-pass")
+        client.force_login(user)
+        html = client.get("/settings/").content.decode()
+        assert ">Local (no SSH)</option>" in html
+        assert 'placeholder="http://127.0.0.1"' in html
+        assert "only if you chose localhost" not in html
+
+    def test_issue409_save_hidden_until_code_exists(self, client):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="uxsave", password="ux-save-pass")
+        client.force_login(user)
+        html = client.get("/agent-creator/").content.decode()
+        save_bit = html.split('id="saveBtn"', 1)[1][:200]
+        pre = html.split('id="saveBtn"', 1)[0][-120:]
+        assert "d-none" in pre + save_bit
+        assert "btn-success" not in pre + save_bit
 
     def test_agent_creator_uses_data_action_not_onclick(self, client):
         """Static creator actions bind via data-action delegation (no inline onclick)."""
@@ -389,7 +471,7 @@ class TestUxShellTemplateContracts:
         response = client.get("/settings/")
         assert response.status_code == 200
         html = response.content.decode()
-        assert "Validate Config (not available)" in html
+        assert "Validate Config (not available)" not in html
         assert "Export (not available)" in html
         assert "(soon)" not in html
         assert "btn-check-path" not in html

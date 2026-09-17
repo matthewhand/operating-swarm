@@ -14,10 +14,10 @@ import type { CliAgentsInfo, CliModelsResponse, LlmProfile } from './api'
 import { KNOWN_CLI_NAMES } from './cliAgents'
 import { isHiddenRoutingLabel } from './routingPath'
 
-/** Last native-select item — navigates to the existing CLI manage path. */
+/** Footer sentinel — Chat opens the in-app CLI agents settings pane. */
 export const MANAGE_CLI_VALUE = '__manage_cli__'
 
-/** Settings is the operator config surface (Builder SPA was deleted, ADR-001). */
+/** Django operator dump. Chat "Manage CLI" uses openSettingsSheet, not this href. */
 export const MANAGE_CLI_HREF = '/settings/'
 
 /** True for `cli_agent`, `cli_*` family (`cli_fusion`, `cli_map`, …), and known CLI names (`grok`, `agy`, …). */
@@ -52,12 +52,12 @@ export function isApiBlueprintId(id: string | null | undefined): boolean {
 }
 
 /**
- * CLIs the chat dropdown should list (REQ-157 / #565).
+ * CLIs the chat dropdown should list (#149 / REQ-157).
  *
- * Only **configured** names (Settings / + add). Discovered PATH binaries stay
- * off the dropdown until the user adds them — same opt-in as remotes.
- * Always include the selected / running CLI so a mid-chat switch stays visible.
- * Do not fall back to the static catalog (that was surprise clutter).
+ * Starting set is **discovered** host CLIs (PATH seed). Configured names that
+ * are not on PATH still appear after the user adds them. Always include the
+ * selected / running CLI so a mid-chat switch stays visible.
+ * Do not fall back to the static catalog (`known` / `clis`) — pi absent stays absent.
  */
 export function discoverChatClis(
   info: CliAgentsInfo | null | undefined,
@@ -77,6 +77,9 @@ export function discoverChatClis(
     if (!trimmed || trimmed === MANAGE_CLI_VALUE || seen.has(trimmed)) return
     seen.add(trimmed)
     out.push(trimmed)
+  }
+  for (const name of info?.discovered ?? info?.installed ?? []) {
+    push(name)
   }
   for (const name of info?.configured ?? []) {
     push(name)

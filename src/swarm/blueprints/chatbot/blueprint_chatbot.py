@@ -235,6 +235,12 @@ Use them responsibly when the user asks for file or system operations.
             ),
             mcp_servers=mcp_servers # Pass along, though likely unused
         )
+        try:
+            from swarm.core.sandbox import attach_sandbox_tools_to_agent
+
+            attach_sandbox_tools_to_agent(chatbot_agent, config=self.config)
+        except Exception:
+            logger.debug("Sandbox tool attachment skipped for chatbot", exc_info=True)
 
         logger.debug("Chatbot agent created.")
         return chatbot_agent
@@ -243,13 +249,25 @@ Use them responsibly when the user asks for file or system operations.
         """Main execution entry point for the Chatbot blueprint."""
         logger.info("ChatbotBlueprint run method called.")
         raw = messages[-1].get("content", "") if messages else ""
-        instruction = raw.strip() if isinstance(raw, str) else raw
+        from swarm.core.chat_attachments import display_text_from_content, to_runner_input
+
+        if isinstance(raw, list):
+            if os.environ.get("SWARM_TEST_MODE"):
+                user_text = display_text_from_content(raw)
+                yield {
+                    "messages": [{"role": "assistant", "content": f"You said: {user_text}"}],
+                    "final": True,
+                }
+                return
+            instruction = to_runner_input(raw)
+        else:
+            instruction = raw.strip() if isinstance(raw, str) else raw
         if not instruction:
             yield {"messages": [{"role": "assistant", "content": "Hello! How can I help you?"}], "final": True}
             return
         if os.environ.get('SWARM_TEST_MODE'):
             user_text = instruction if isinstance(instruction, str) else (
-                next((m.get("content", "") for m in reversed(instruction) if m.get("role") == "user"), "")
+                display_text_from_content(instruction)
                 if isinstance(instruction, list) else str(instruction)
             )
             yield {"messages": [{"role": "assistant", "content": f"You said: {user_text}"}], "final": True}
@@ -287,7 +305,7 @@ Use them responsibly when the user asks for file or system operations.
             yield chunk
         logger.info("ChatbotBlueprint run method finished.")
 
-    async def _run_non_interactive(self, instruction: str, **kwargs) -> Any:
+    async def _run_non_interactive(self, instruction: Any, **kwargs) -> Any:
         mcp_servers = kwargs.get("mcp_servers", [])
         agent = self.create_starting_agent(mcp_servers=mcp_servers)
 
@@ -302,12 +320,15 @@ Use them responsibly when the user asks for file or system operations.
             yield {"messages": [{"role": "assistant", "content": response}], "final": True}
         except asyncio.TimeoutError:
             logger.error("Chatbot/api_agent LLM run timed out after %.1fs", timeout)
+            from swarm.core.chat_attachments import display_text_from_content
+
+            asked = display_text_from_content(instruction)[:120]
             yield {
                 "messages": [{
                     "role": "assistant",
                     "content": (
                         f"PONG {self.blueprint_id} — LLM timed out after {timeout:.0f}s. "
-                        f"Asked: {str(instruction)[:120]!r}"
+                        f"Asked: {asked!r}"
                     ),
                 }],
                 "final": True,

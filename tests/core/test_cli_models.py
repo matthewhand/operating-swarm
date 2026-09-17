@@ -11,8 +11,11 @@ from pathlib import Path
 
 from swarm.core import cli_catalog
 from swarm.core.cli_models import (
+    PROBE_TIMEOUT_S,
     ListModelsResult,
+    clear_probe_cache,
     list_models,
+    list_models_many,
     parse_models_stdout,
     probe_list_models,
 )
@@ -20,7 +23,7 @@ from swarm.core.cli_models import (
 FIXTURES = Path(__file__).parent / "fixtures" / "cli_models"
 PY = sys.executable
 
-REQUIRED_CLIS = ("grok", "claude", "gemini", "codex", "opencode")
+REQUIRED_CLIS = ("grok", "claude", "gemini", "codex", "opencode", "pi")
 
 
 def _fixture(name: str) -> str:
@@ -69,6 +72,28 @@ def test_parse_codex_models_wrapper_and_slug():
     assert parse_models_stdout(raw) == ["gpt-5.6-terra", "gpt-5.4-mini"]
 
 
+def test_parse_pi_list_models_table_fixture():
+    # pi --list-models: whitespace table. First-token-only would list provider
+    # names (the Aliyun 401 / two-opaque-ids bug). Join provider/model.
+    models = parse_models_stdout(_fixture("pi_list_models.txt"))
+    assert models == [
+        "anthropic/claude-sonnet-4-6",
+        "openai/gpt-4o",
+        "bailian-coding-plan/glm-4.7",
+        "github-models/openai/gpt-4.1",
+    ]
+    assert "anthropic" not in models
+    assert "openai" not in models
+    assert "default" not in models
+
+
+def test_parse_pi_table_does_not_invent_default_on_empty():
+    raw = (
+        "provider             model                   context  max-out  thinking  images\n"
+    )
+    assert parse_models_stdout(raw) == []
+
+
 def test_parse_agy_models_fixture():
     # agy models: tab-separated ``id<TAB>label`` lines; parser takes the first
     # token. The "Fetching available models..." spinner banner goes to stderr
@@ -106,11 +131,31 @@ async def test_probe_uses_opencode_fixture_stdout(monkeypatch):
         return 0, stdout, ""
 
     monkeypatch.setattr(
-        "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/opencode"
+        "swarm.core.cli_models._resolve_executable",
+        lambda *_a, **_k: "/usr/bin/opencode",
     )
     result = await probe_list_models("opencode", run_exec=fake_run)
     assert result.cli == "opencode"
     assert "opencode/big-pickle" in result.models
+    assert result.warning is None
+
+
+async def test_probe_uses_pi_table_fixture_stdout(monkeypatch):
+    stdout = _fixture("pi_list_models.txt")
+
+    async def fake_run(argv, timeout):
+        assert argv[0].endswith("pi") or argv[0] == "/usr/bin/pi"
+        assert argv[1:] == ["--list-models"]
+        return 0, stdout, ""
+
+    monkeypatch.setattr(
+        "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/pi"
+    )
+    result = await probe_list_models("pi", run_exec=fake_run)
+    assert result.cli == "pi"
+    assert result.models[0] == "anthropic/claude-sonnet-4-6"
+    assert "openai/gpt-4o" in result.models
+    assert "openai" not in result.models
     assert result.warning is None
 
 
@@ -142,10 +187,10 @@ def test_unknown_cli_warns_empty_list():
     assert "unknown CLI" in result.as_dict()["warning"]
 
 
-def test_missing_cli_warns_empty_list(monkeypatch):
+def test_missing_cli_falls_back_to_catalog_presets(monkeypatch):
     monkeypatch.setattr("swarm.core.cli_catalog.which_cli", lambda exe: None)
     result = list_models("claude")
-    assert result.models == []
+    assert result.models == list(cli_catalog.CLI_MODELS["claude"])
     assert "not installed" in (result.warning or "")
 
 
@@ -179,19 +224,19 @@ def test_stripped_path_probe_finds_user_local_grok(tmp_path, monkeypatch):
 
 
 def test_timeout_does_not_hang(monkeypatch):
-    # Real sleeper subprocess — must return quickly with empty + warning.
+    # Real sleeper subprocess — must return quickly with presets + warning.
     monkeypatch.setitem(
         cli_catalog.LIST_MODELS, "grok", [PY, "-c", "import time; time.sleep(30)"]
     )
     t0 = time.monotonic()
     result = list_models("grok", timeout=0.4)
     elapsed = time.monotonic() - t0
-    assert result.models == []
+    assert result.models == list(cli_catalog.CLI_MODELS["grok"])
     assert "timed out" in (result.warning or "").lower()
     assert elapsed < 8.0  # TERM_GRACE + buffer; must not wait the full 30s
 
 
-def test_failed_probe_empty_list_no_secrets_in_warning(monkeypatch):
+def test_failed_probe_falls_back_no_secrets_in_warning(monkeypatch):
     async def fake_run(argv, timeout):
         return 2, "", "auth failed sk-thisisafakekeybutlongenough"
 
@@ -199,7 +244,7 @@ def test_failed_probe_empty_list_no_secrets_in_warning(monkeypatch):
         "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/claude"
     )
     result = asyncio_run_probe("claude", fake_run)
-    assert result.models == []
+    assert result.models == list(cli_catalog.CLI_MODELS["claude"])
     assert "sk-thisisafakekeybutlongenough" not in (result.warning or "")
     assert "[REDACTED]" in (result.warning or "")
     assert "failed" in (result.warning or "").lower()
@@ -216,3 +261,134 @@ def test_result_omits_warning_key_when_ok():
         "cli": "grok",
         "models": ["grok-4"],
     }
+
+
+PRESET_CLIS = ("qwen", "omp", "claude", "codex", "gemini", "opencode", "agy", "grok")
+
+
+def test_catalog_presets_cover_all_dropdown_clis():
+    for name in PRESET_CLIS:
+        presets = cli_catalog.CLI_MODELS.get(name) or []
+        assert presets, f"{name} must list catalog model presets"
+    assert cli_catalog.CLI_MODELS["qwen"] == [
+        "qwen2.5-coder:32b",
+        "qwen2.5-coder:7b",
+        "qwen2.5:72b",
+    ]
+    assert cli_catalog.CLI_MODELS["omp"] == [
+        "litellm/orchestration",
+        "gemini-2.5-flash",
+        "claude-3-5-sonnet",
+    ]
+
+
+def test_qwen_falls_back_to_catalog_presets_without_probe():
+    result = list_models("qwen")
+    assert result.models == list(cli_catalog.CLI_MODELS["qwen"])
+    assert "catalog presets" in (result.warning or "")
+
+
+def test_omp_falls_back_to_catalog_presets_without_probe():
+    result = list_models("omp")
+    assert result.models == list(cli_catalog.CLI_MODELS["omp"])
+    assert "catalog presets" in (result.warning or "")
+
+
+async def test_probe_falls_back_to_presets_when_stdout_empty(monkeypatch):
+    async def fake_run(argv, timeout):
+        return 0, "", ""
+
+    monkeypatch.setattr(
+        "swarm.core.cli_models._resolve_executable", lambda *_a, **_k: "/usr/bin/grok"
+    )
+    result = await probe_list_models("grok", run_exec=fake_run)
+    assert result.models == list(cli_catalog.CLI_MODELS["grok"])
+    assert "no model ids" in (result.warning or "")
+
+
+def test_default_probe_timeout_is_bounded():
+    assert PROBE_TIMEOUT_S <= 1.5
+    assert cli_catalog.LIST_MODELS_TIMEOUT <= 1.5
+
+
+def test_concurrent_hanging_clis_do_not_stack_timeouts(monkeypatch):
+    # Two real sleepers through the shipped _run_exec path. Concurrent + short
+    # probe grace must finish in ~one timeout, not two sequential 30s hangs.
+    sleeper = [PY, "-c", "import time; time.sleep(30)"]
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", sleeper)
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "claude", list(sleeper))
+    clear_probe_cache()
+    t0 = time.monotonic()
+    rows = list_models_many(["grok", "claude"], timeout=0.4)
+    elapsed = time.monotonic() - t0
+    assert {row.cli for row in rows} == {"grok", "claude"}
+    assert all(row.models == [] for row in rows)
+    assert all("timed out" in (row.warning or "").lower() for row in rows)
+    assert elapsed < 3.0
+
+
+def test_cache_skips_second_shipped_probe(monkeypatch, tmp_path):
+    count = tmp_path / "count"
+    count.write_text("0")
+    script = tmp_path / "probe.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        f"p = Path({str(count)!r})\n"
+        "p.write_text(str(int(p.read_text() or '0') + 1))\n"
+        "print('cached-model')\n"
+    )
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    first = list_models_many(["grok"])
+    second = list_models_many(["grok"])
+    assert first[0].models == ["cached-model"]
+    assert second[0].models == ["cached-model"]
+    assert first[0].warning is None
+    assert count.read_text().strip() == "1"
+
+
+def test_expired_cache_returns_immediately_without_waiting(monkeypatch, tmp_path):
+    script = tmp_path / "probe.py"
+    script.write_text("print('stale-model')\n")
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    first = list_models_many(["grok"])
+    assert first[0].models == ["stale-model"]
+    from swarm.core import cli_models as cm
+
+    with cm._CACHE_LOCK:
+        cm._RESULT_CACHE["grok"].ts = time.monotonic() - cm.PROBE_CACHE_TTL_S - 1
+    monkeypatch.setitem(
+        cli_catalog.LIST_MODELS, "grok", [PY, "-c", "import time; time.sleep(30)"]
+    )
+    t0 = time.monotonic()
+    second = list_models_many(["grok"])
+    elapsed = time.monotonic() - t0
+    assert second[0].models == ["stale-model"]
+    assert elapsed < 0.5
+
+
+def test_failed_refresh_keeps_last_good_models(monkeypatch, tmp_path):
+    mode = tmp_path / "mode"
+    mode.write_text("ok")
+    script = tmp_path / "probe.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        f"mode = Path({str(mode)!r}).read_text().strip()\n"
+        "if mode == 'ok':\n"
+        "    print('keep-me')\n"
+        "else:\n"
+        "    raise SystemExit('auth expired')\n"
+    )
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    ok = list_models_many(["grok"])
+    assert ok[0].models == ["keep-me"]
+    mode.write_text("fail")
+    from swarm.core import cli_models as cm
+
+    cm._refresh_names(["grok"], timeout=2.0)
+    served = list_models_many(["grok"])
+    assert served[0].models == ["keep-me"]
+    assert "failed" in (served[0].warning or "").lower()
+

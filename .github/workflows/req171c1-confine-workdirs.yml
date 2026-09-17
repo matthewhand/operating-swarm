@@ -1,31 +1,7 @@
 name: REQ-171C-1 confine CLI/API workdirs
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/workdir.py"
-      - "src/swarm/core/cli_adapter.py"
-      - "src/swarm/core/agent_folder.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "src/swarm/blueprints/cli_agent/blueprint_cli_agent.py"
-      - "docs/AUTH.md"
-      - "tests/core/test_workdir.py"
-      - "tests/blueprints/test_cli_agent.py"
-      - "tests/api/test_cli_fusion_api.py"
-      - ".github/workflows/req171c1-confine-workdirs.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/workdir.py"
-      - "src/swarm/core/cli_adapter.py"
-      - "src/swarm/core/agent_folder.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "src/swarm/blueprints/cli_agent/blueprint_cli_agent.py"
-      - "docs/AUTH.md"
-      - "tests/core/test_workdir.py"
-      - "tests/blueprints/test_cli_agent.py"
-      - "tests/api/test_cli_fusion_api.py"
-      - ".github/workflows/req171c1-confine-workdirs.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

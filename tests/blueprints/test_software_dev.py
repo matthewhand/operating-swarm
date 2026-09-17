@@ -89,6 +89,18 @@ def _tool_names(agent) -> str:
     return " ".join(names)
 
 
+def _handoff_names(agent) -> set[str]:
+    names: set[str] = set()
+    for item in getattr(agent, "handoffs", None) or []:
+        name = getattr(item, "agent_name", None)
+        if not name:
+            inner = getattr(item, "agent", None)
+            name = getattr(inner, "name", None)
+        if name:
+            names.add(str(name))
+    return names
+
+
 def test_software_dev_is_discoverable():
     found = discover_blueprints("src/swarm/blueprints")
     assert "software_dev" in found
@@ -170,6 +182,20 @@ def test_as_tool_specialists_wired(bp):
     assert "quoted Issue" in ENGINEER_INSTRUCTIONS
     assert "do NOT implement" in SKEPTIC_INSTRUCTIONS.lower() or "do not implement" in SKEPTIC_INSTRUCTIONS.lower()
     assert "submit_skeptic_verdict" in SKEPTIC_INSTRUCTIONS
+
+
+def test_cos_as_tool_and_handoff_both_wired(bp):
+    """Issue #147: CoS reaches engineer + skeptic via as_tool AND handoff."""
+    agents = bp._build_agents()
+    assert {SEAT_COS, SEAT_ENGINEER, SEAT_SKEPTIC} <= set(agents)
+    cos = agents[SEAT_COS]
+    joined = _tool_names(cos)
+    for required in ("consult_engineer", "engineer", "consult_skeptic", "skeptic"):
+        assert required in joined, joined
+    names = _handoff_names(cos)
+    assert "engineer" in names, names
+    assert "skeptic" in names, names
+    assert len(getattr(cos, "handoffs", None) or []) >= 2
 
 
 def test_seats_are_isolated_objects_and_prompts(bp):
@@ -272,6 +298,7 @@ async def test_cos_status_lists_as_tool_wiring(bp):
     assert "consult_skeptic" in out
     assert "not extra Grok" in out
     assert "quoted Issue" in out
+    assert "handoffs: 2" in out
 
 
 @pytest.mark.asyncio

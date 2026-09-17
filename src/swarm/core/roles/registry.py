@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from swarm.core.roles.base import Role
 
-__all__ = ["ROLE_REGISTRY", "register_role", "get_role", "all_roles"]
+__all__ = ["ROLE_REGISTRY", "register_role", "unregister_role", "get_role", "all_roles"]
 
 ROLE_REGISTRY: dict[str, Role] = {}
 
@@ -31,6 +31,11 @@ def register_role[RoleT: (Role, type[Role])](role_cls: RoleT) -> RoleT:
         raise ValueError("Role subclass must set id")
     ROLE_REGISTRY[instance.id] = instance
     return role_cls
+
+
+def unregister_role(role_id: str) -> Role | None:
+    """Unregister a role by *role_id*, returning the removed Role or None."""
+    return ROLE_REGISTRY.pop(role_id, None)
 
 
 def get_role(role_id: str) -> Role | None:

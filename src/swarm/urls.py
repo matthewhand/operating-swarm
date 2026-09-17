@@ -26,7 +26,11 @@ from swarm.views.api_views import (
     BlueprintPersonasView,
     BlueprintSourceView,
     BlueprintToolsView,
+    ChatRetentionStatsView,
+    CliAgentCandidatesView,
+    CliAgentDriversView,
     CliAgentModelsView,
+    CliAgentTestView,
     CliAgentsView,
     ConfigOptionsView,
     SkillDetailView,
@@ -84,7 +88,7 @@ from swarm.views.mcp_plugins_api import (
     McpPluginDiscoverView,
     McpPluginsView,
 )
-from swarm.views.llm_profiles_api import LlmProfilesView
+from swarm.views.llm_profiles_api import LlmProfilesTestView, LlmProfilesView
 from swarm.views.sandbox_settings_api import SandboxSettingsTestView, SandboxSettingsView
 from swarm.views.rate_limits_api import RateLimitsView
 from swarm.views.preferences_api import UserPreferencesView
@@ -103,6 +107,7 @@ from swarm.views.chat_persist_views import (
     chat_attachment_upload,
     chat_compact,
     chat_context_start,
+    chat_context_usage,
     chat_raw_context,
     chat_retention_action,
     chat_summary_toggle_context,
@@ -119,10 +124,17 @@ from swarm.views.remotes_api import (
     RemoteDetailView,
     RemoteHealthView,
     RemoteOperateView,
+    RemoteProbeCandidateView,
     RemoteRoutinesView,
     RemotesListView,
 )
 from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
+from swarm.views.agent_mcp_api import (
+    AgentMcpAPIView,
+    AgentMcpToolDetailAPIView,
+    AgentMcpToolExecuteAPIView,
+    AgentMcpToolsAPIView,
+)
 from swarm.views.mailbox_acl_api import (
     MailboxAclAgentAPIView,
     MailboxAclRoleAPIView,
@@ -131,9 +143,18 @@ from swarm.views.mailbox_acl_api import (
 from swarm.views.routines_api import (
     AgentRoutineDetailAPIView,
     AgentRoutinesAPIView,
+    AgentRoutineRunNowAPIView,
     AgentRoutineTestRunAPIView,
     AllRoutinesAPIView,
+    GithubRoutineEventsAPIView,
     GithubRoutineMergeAPIView,
+    MailboxRoutineMessageAPIView,
+)
+from swarm.views.test_schedules_api import (
+    TestScheduleDetailAPIView,
+    TestScheduleRunNowAPIView,
+    TestSchedulesAPIView,
+    TestScheduleStatusAPIView,
 )
 from swarm.views.cli_runs_api import CliRunStatusAPIView, CliRunTerminateAPIView
 from swarm.views.cli_sessions_api import CliSessionListAPIView, CliSessionSelectAPIView
@@ -148,7 +169,12 @@ from swarm.views.team_rosters_api import (
 )
 from swarm.views.roles_api import RolesAPIView
 from swarm.views.teams_api import TeamDetailAPIView, TeamsAPIView
-from swarm.views.marketplace_api import MarketplaceScanView
+from swarm.views.marketplace_api import (
+    MarketplaceCatalogView,
+    MarketplaceInstallView,
+    MarketplacePreviewView,
+    MarketplaceScanView,
+)
 from swarm.views.web_views import (
     asgi_file_response,
     brand_root_file,
@@ -241,6 +267,16 @@ urlpatterns = [
     ),
     path("v1/cli-agents", CliAgentsView.as_view(), name="cli-agents-api-no-slash"),
     path("v1/cli-agents/", CliAgentsView.as_view(), name="cli-agents-api"),
+    path("v1/cli-agents/candidates", CliAgentCandidatesView.as_view(), name="cli-candidates-no-slash"),
+    path("v1/cli-agents/candidates/", CliAgentCandidatesView.as_view(), name="cli-candidates"),
+    path("v1/cli-agents/test", CliAgentTestView.as_view(), name="cli-test-no-slash"),
+    path("v1/cli-agents/test/", CliAgentTestView.as_view(), name="cli-test"),
+    path("v1/cli-agents/drivers", CliAgentDriversView.as_view(), name="cli-drivers-no-slash"),
+    path("v1/cli-agents/drivers/", CliAgentDriversView.as_view(), name="cli-drivers"),
+    path("v1/chat/retention/stats", ChatRetentionStatsView.as_view(), name="chat-retention-stats-no-slash"),
+    path("v1/chat/retention/stats/", ChatRetentionStatsView.as_view(), name="chat-retention-stats"),
+    path("v1/chat/retention/action", chat_retention_action, name="chat-retention-action-v1-no-slash"),
+    path("v1/chat/retention/action/", chat_retention_action, name="chat-retention-action-v1"),
     path("v1/cli-agents/runs", CliRunStatusAPIView.as_view(), name="cli-runs-status-no-slash"),
     path("v1/cli-agents/runs/", CliRunStatusAPIView.as_view(), name="cli-runs-status"),
     path(
@@ -259,6 +295,8 @@ urlpatterns = [
     path("v1/cli-sessions/select/", CliSessionSelectAPIView.as_view(), name="cli-sessions-select"),
     path("v1/cli-sessions/hop", CliSessionHopAPIView.as_view(), name="cli-sessions-hop-no-slash"),
     path("v1/cli-sessions/hop/", CliSessionHopAPIView.as_view(), name="cli-sessions-hop"),
+    path("v1/llm-profiles/test", LlmProfilesTestView.as_view(), name="llm-profiles-test-no-slash"),
+    path("v1/llm-profiles/test/", LlmProfilesTestView.as_view(), name="llm-profiles-test"),
     path("v1/llm-profiles", LlmProfilesView.as_view(), name="llm-profiles-api-no-slash"),
     path("v1/llm-profiles/", LlmProfilesView.as_view(), name="llm-profiles-api"),
     path("v1/settings/sandbox", SandboxSettingsView.as_view(), name="sandbox-settings-no-slash"),
@@ -267,6 +305,36 @@ urlpatterns = [
     path("v1/settings/sandbox/test/", SandboxSettingsTestView.as_view(), name="sandbox-settings-test"),
     path("v1/marketplace", MarketplaceScanView.as_view(), name="marketplace-api-no-slash"),
     path("v1/marketplace/", MarketplaceScanView.as_view(), name="marketplace-api"),
+    path(
+        "v1/marketplace/catalog",
+        MarketplaceCatalogView.as_view(),
+        name="marketplace-catalog-no-slash",
+    ),
+    path(
+        "v1/marketplace/catalog/",
+        MarketplaceCatalogView.as_view(),
+        name="marketplace-catalog",
+    ),
+    path(
+        "v1/marketplace/preview",
+        MarketplacePreviewView.as_view(),
+        name="marketplace-preview-no-slash",
+    ),
+    path(
+        "v1/marketplace/preview/",
+        MarketplacePreviewView.as_view(),
+        name="marketplace-preview",
+    ),
+    path(
+        "v1/marketplace/install",
+        MarketplaceInstallView.as_view(),
+        name="marketplace-install-no-slash",
+    ),
+    path(
+        "v1/marketplace/install/",
+        MarketplaceInstallView.as_view(),
+        name="marketplace-install",
+    ),
     path("v1/rate-limits", RateLimitsView.as_view(), name="rate-limits-api-no-slash"),
     path("v1/rate-limits/", RateLimitsView.as_view(), name="rate-limits-api"),
     path("v1/config-ownership", ConfigOwnershipView.as_view(), name="config-ownership-api-no-slash"),
@@ -364,9 +432,13 @@ urlpatterns = [
     path("v1/team-agents/", TeamAgentsAPIView.as_view(), name="team-agents-api"),
     path("v1/roles", RolesAPIView.as_view(), name="roles-api-no-slash"),
     path("v1/roles/", RolesAPIView.as_view(), name="roles-api"),
+    path("v1/roles/<str:role_id>", RolesAPIView.as_view(), name="roles-api-detail-no-slash"),
+    path("v1/roles/<str:role_id>/", RolesAPIView.as_view(), name="roles-api-detail"),
     # Remote harnesses (Hermes / OpenMausBot / Rakazo) — config + health + operate
     path("v1/remotes", RemotesListView.as_view(), name="remotes-list-no-slash"),
     path("v1/remotes/", RemotesListView.as_view(), name="remotes-list"),
+    path("v1/remotes/test", RemoteProbeCandidateView.as_view(), name="remotes-test-candidate-no-slash"),
+    path("v1/remotes/test/", RemoteProbeCandidateView.as_view(), name="remotes-test-candidate"),
     path("v1/remotes/<str:remote_id>", RemoteDetailView.as_view(), name="remotes-detail-no-slash"),
     path("v1/remotes/<str:remote_id>/", RemoteDetailView.as_view(), name="remotes-detail"),
     path("v1/remotes/<str:remote_id>/health", RemoteHealthView.as_view(), name="remotes-health-no-slash"),
@@ -434,6 +506,30 @@ urlpatterns = [
     # REQ-65: agent-scoped settings (new chat per task). Not global Settings.
     path("v1/agents/<str:agent_id>/settings", AgentSettingsAPIView.as_view(), name="agent-settings-api-no-slash"),
     path("v1/agents/<str:agent_id>/settings/", AgentSettingsAPIView.as_view(), name="agent-settings-api"),
+    path("v1/agents/<str:agent_id>/mcp", AgentMcpAPIView.as_view(), name="agent-mcp-api-no-slash"),
+    path("v1/agents/<str:agent_id>/mcp/", AgentMcpAPIView.as_view(), name="agent-mcp-api"),
+    path("v1/agents/<str:agent_id>/mcp/tools", AgentMcpToolsAPIView.as_view(), name="agent-mcp-tools-api-no-slash"),
+    path("v1/agents/<str:agent_id>/mcp/tools/", AgentMcpToolsAPIView.as_view(), name="agent-mcp-tools-api"),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>",
+        AgentMcpToolDetailAPIView.as_view(),
+        name="agent-mcp-tool-detail-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>/",
+        AgentMcpToolDetailAPIView.as_view(),
+        name="agent-mcp-tool-detail-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>/execute",
+        AgentMcpToolExecuteAPIView.as_view(),
+        name="agent-mcp-tool-execute-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/mcp/tools/<str:tool_name>/execute/",
+        AgentMcpToolExecuteAPIView.as_view(),
+        name="agent-mcp-tool-execute-api",
+    ),
     path("v1/agents/<str:agent_id>/suggestions", AgentSuggestionsAPIView.as_view(), name="agent-suggestions-api-no-slash"),
     path("v1/agents/<str:agent_id>/suggestions/", AgentSuggestionsAPIView.as_view(), name="agent-suggestions-api"),
     path("v1/agents/<str:agent_id>/sessions", AgentTaskSessionAPIView.as_view(), name="agent-task-session-api-no-slash"),
@@ -461,10 +557,64 @@ urlpatterns = [
         AgentRoutineTestRunAPIView.as_view(),
         name="agent-routine-test-run-api",
     ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/run-now",
+        AgentRoutineRunNowAPIView.as_view(),
+        name="agent-routine-run-now-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/run-now/",
+        AgentRoutineRunNowAPIView.as_view(),
+        name="agent-routine-run-now-api",
+    ),
     path("v1/routines", AllRoutinesAPIView.as_view(), name="routines-list-all-no-slash"),
     path("v1/routines/", AllRoutinesAPIView.as_view(), name="routines-list-all"),
     path("v1/routines/github-merge", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api-no-slash"),
     path("v1/routines/github-merge/", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api"),
+    path(
+        "v1/routines/events/github",
+        csrf_exempt(GithubRoutineEventsAPIView.as_view()),
+        name="routines-github-events-api-no-slash",
+    ),
+    path(
+        "v1/routines/events/github/",
+        csrf_exempt(GithubRoutineEventsAPIView.as_view()),
+        name="routines-github-events-api",
+    ),
+    path(
+        "v1/routines/mailbox-message",
+        MailboxRoutineMessageAPIView.as_view(),
+        name="routines-mailbox-message-api-no-slash",
+    ),
+    path(
+        "v1/routines/mailbox-message/",
+        MailboxRoutineMessageAPIView.as_view(),
+        name="routines-mailbox-message-api",
+    ),
+    path("v1/test-schedules/status", TestScheduleStatusAPIView.as_view(), name="test-schedules-status-no-slash"),
+    path("v1/test-schedules/status/", TestScheduleStatusAPIView.as_view(), name="test-schedules-status"),
+    path("v1/test-schedules", TestSchedulesAPIView.as_view(), name="test-schedules-api-no-slash"),
+    path("v1/test-schedules/", TestSchedulesAPIView.as_view(), name="test-schedules-api"),
+    path(
+        "v1/test-schedules/<str:schedule_id>/run-now",
+        TestScheduleRunNowAPIView.as_view(),
+        name="test-schedule-run-now-api-no-slash",
+    ),
+    path(
+        "v1/test-schedules/<str:schedule_id>/run-now/",
+        TestScheduleRunNowAPIView.as_view(),
+        name="test-schedule-run-now-api",
+    ),
+    path(
+        "v1/test-schedules/<str:schedule_id>",
+        TestScheduleDetailAPIView.as_view(),
+        name="test-schedule-detail-api-no-slash",
+    ),
+    path(
+        "v1/test-schedules/<str:schedule_id>/",
+        TestScheduleDetailAPIView.as_view(),
+        name="test-schedule-detail-api",
+    ),
     path(
         "v1/agents/<str:agent_id>/avatar/generate",
         AgentAvatarGenerateView.as_view(),
@@ -514,6 +664,8 @@ urlpatterns = [
     path("chat/thread/", chat_thread, name="chat_thread"),
     # #224: read-only "what the model sees" payload for the generations panel.
     path("chat/raw-context/", chat_raw_context, name="chat_raw_context"),
+    # #215: per-seat context-window usage (messages + summaries + overhead).
+    path("chat/context-usage/", chat_context_usage, name="chat_context_usage"),
     # REQ-38: composer file upload (sqlite metadata + local bytes).
     path("v1/chat/attachments", chat_attachment_upload, name="chat-attachments-no-slash"),
     path("v1/chat/attachments/", chat_attachment_upload, name="chat-attachments"),
@@ -595,6 +747,26 @@ urlpatterns += [
         "agent-creator",
         RedirectView.as_view(url="/agent-creator/", permanent=False, query_string=True),
         name="spa_agent_creator_to_django",
+    ),
+    path(
+        "sessions",
+        RedirectView.as_view(url="/sessions/", permanent=False, query_string=True),
+        name="spa_sessions_to_django",
+    ),
+    path(
+        "login",
+        RedirectView.as_view(url="/login/", permanent=False, query_string=True),
+        name="spa_login_to_django",
+    ),
+    path(
+        "blueprint-library",
+        RedirectView.as_view(url="/blueprint-library/", permanent=False, query_string=True),
+        name="spa_blueprint_library_to_django",
+    ),
+    path(
+        "profiles",
+        RedirectView.as_view(url="/profiles/", permanent=False, query_string=True),
+        name="spa_profiles_to_django",
     ),
 ]
 

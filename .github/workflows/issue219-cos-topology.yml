@@ -1,0 +1,34 @@
+name: Issue #219 CoS topology
+
+on:
+  workflow_dispatch:
+
+jobs:
+  own-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install Python deps
+        run: uv sync --all-extras
+
+      - name: Issue #219 pytest (own-diff)
+        run: |
+          uv run pytest \
+            tests/core/test_cos_topology.py \
+            tests/core/test_agent_sections.py \
+            tests/core/test_agent_roles.py \
+            tests/core/test_roles_registry.py \
+            tests/core/test_agent_mailbox.py \
+            tests/core/test_agent_mailbox_acl.py \
+            tests/views/test_mailbox_acl_api.py \
+            tests/unit/test_issue219_cos_topology.py
+        env:
+          DJANGO_ALLOW_ASYNC_UNSAFE: "true"

@@ -34,6 +34,15 @@ describe('PluginsPopup', () => {
     localStorage.removeItem(MCP_SERVERS_KEY)
   })
 
+  it('#402 list padding clears the sticky footer so the last row is not clipped', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+    const block = src.split('.os-search-palette__list')[1]?.split('}')[0] ?? ''
+    expect(block).toMatch(/3\.25rem/)
+    expect(block).toMatch(/scroll-padding-bottom/)
+  })
+
   it('lists fixture tools with visible Off toggles and fixture degrade copy', async () => {
     renderPopup()
     const dialog = screen.getByRole('dialog', { name: 'Plugins' })
@@ -45,7 +54,7 @@ describe('PluginsPopup', () => {
     expect(within(dialog).getAllByText('Off').length).toBeGreaterThan(0)
   })
 
-  it('filters the catalog by search without dropping enabled-first sort', async () => {
+  it('filters matches in the frozen open-order, not by live enabled state (#278)', async () => {
     renderPopup()
     await screen.findByRole('switch', { name: /Write File Off/i })
     fireEvent.click(screen.getByRole('switch', { name: /Write File Off/i }))
@@ -53,11 +62,59 @@ describe('PluginsPopup', () => {
       target: { value: 'file' },
     })
     const options = screen.getAllByRole('option')
-    expect(options[0]).toHaveAttribute('data-tool-id', 'write_file')
-    expect(options.map((row) => row.getAttribute('data-tool-id'))).toEqual(
-      expect.arrayContaining(['write_file', 'read_file']),
+    expect(options.map((row) => row.getAttribute('data-tool-id'))).toEqual([
+      'list_directory',
+      'read_file',
+      'write_file',
+    ])
+    expect(options[options.length - 1]).toHaveAttribute('data-tool-id', 'write_file')
+    expect(options[options.length - 1].getAttribute('data-enabled')).toBe('true')
+    expect(options[0].getAttribute('data-enabled')).toBe('false')
+  })
+
+  it('does not reorder rows when a tool is toggled while the popup stays open (#278)', async () => {
+    renderPopup()
+    await screen.findByRole('switch', { name: /Web Search Off/i })
+    const before = screen.getAllByRole('option').map((row) => row.getAttribute('data-tool-id'))
+    expect(before[0]).not.toBe('web_search')
+    fireEvent.click(screen.getByRole('switch', { name: /Web Search Off/i }))
+    const after = screen.getAllByRole('option')
+    expect(after.map((row) => row.getAttribute('data-tool-id'))).toEqual(before)
+    expect(after.find((row) => row.getAttribute('data-tool-id') === 'web_search')).toHaveAttribute(
+      'data-enabled',
+      'true',
     )
-    expect(options[0].getAttribute('data-enabled')).toBe('true')
+    expect(screen.getByRole('switch', { name: /Web Search On/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+  })
+
+  it('re-sorts enabled-first when the popup is closed and opened again (#278)', async () => {
+    const onClose = vi.fn()
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/chat?blueprint=codey']}>
+        <PluginsPopup open onClose={onClose} />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('switch', { name: /Web Search Off/i })
+    fireEvent.click(screen.getByRole('switch', { name: /Web Search Off/i }))
+    expect(screen.getAllByRole('option')[0]).not.toHaveAttribute('data-tool-id', 'web_search')
+
+    rerender(
+      <MemoryRouter initialEntries={['/chat?blueprint=codey']}>
+        <PluginsPopup open={false} onClose={onClose} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('dialog', { name: 'Plugins' })).not.toBeInTheDocument()
+
+    rerender(
+      <MemoryRouter initialEntries={['/chat?blueprint=codey']}>
+        <PluginsPopup open onClose={onClose} />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('switch', { name: /Web Search On/i })
+    expect(screen.getAllByRole('option')[0]).toHaveAttribute('data-tool-id', 'web_search')
   })
 
   it('persists a toggle across remount of the same chat', async () => {
@@ -114,9 +171,9 @@ describe('PluginsPopup marketplace entry (#179)', () => {
             ok: true,
             status: 200,
             json: async () => ({
-              object: 'marketplace_scan',
-              kind: 'plugins',
-              topics: [],
+              object: 'marketplace_catalog',
+              kind: url.includes('skills') ? 'skills' : 'plugins',
+              sources: ['mcp_registry', 'github'],
               external: true,
               items: [],
               warnings: ['No community packages found for these tags yet.'],
@@ -133,13 +190,21 @@ describe('PluginsPopup marketplace entry (#179)', () => {
     localStorage.removeItem(CURRENT_CHAT_SCOPE_KEY)
   })
 
-  it('exposes "Get more from GitHub" that scans when expanded', async () => {
+  it('Add tools catalog scans GitHub and labels community content', async () => {
     renderPopup()
     await screen.findByRole('switch', { name: /Write File Off/i })
-    const toggle = screen.getByTestId('marketplace-toggle')
-    expect(toggle).toHaveTextContent('Get more from GitHub')
-    fireEvent.click(toggle)
-    expect(await screen.findByTestId('marketplace-results')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent(/No community packages/i)
+    fireEvent.click(screen.getByRole('tab', { name: 'Add tools' }))
+    const catalog = await screen.findByTestId('os-install-catalog')
+    expect(catalog).toHaveAttribute('data-surface', 'tools')
+    expect(await screen.findByText(/No community packages/i)).toBeInTheDocument()
+  })
+
+  it('Add skills is an honest empty catalog', async () => {
+    renderPopup()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Add skills' }))
+    const empty = await screen.findByTestId('os-install-empty')
+    expect(empty).toHaveTextContent(/No skill packs to install yet/)
+    expect(empty).toHaveTextContent(/honest/i)
+    expect(screen.queryByTestId('os-install-card')).toBeNull()
   })
 })

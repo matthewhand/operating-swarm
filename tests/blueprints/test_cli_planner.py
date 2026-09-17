@@ -111,7 +111,10 @@ async def test_synthesis_fallback_calls_planner_synth():
 async def test_no_planner_configured():
     cfg = {"cli_agents": {"w": _worker("W")}}
     bp = CliPlannerBlueprint(config=cfg)
-    assert "No planner CLI is configured" in _final(await _collect(bp.run([{"role": "user", "content": "g"}])))
+    final = _final(await _collect(bp.run([{"role": "user", "content": "g"}])))
+    assert "No planner CLI is configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
 
 
 async def test_planner_no_subtasks():

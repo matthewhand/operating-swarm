@@ -108,7 +108,7 @@ def find_config_file(
             return p.resolve()
         logger.warning(
             f"Specified config path does not exist: {specific_path} | "
-            + _hint("Create a default config with: swarm-cli config init --path "
+            + _hint("Create a default config with: os-cli config init --config "
                     f"{specific_path}")
         )
         # Fall through
@@ -174,15 +174,15 @@ def load_config(config_path: Path) -> dict[str, Any]:
     except FileNotFoundError:
         logger.error(
             f"Config not found: {config_path} | "
-            + _hint("Initialize a default config with: swarm-cli config init"
-                    f"{' --path ' + str(config_path) if config_path else ''}")
+            + _hint("Initialize a default config with: os-cli config init"
+                    f"{' --config ' + str(config_path) if config_path else ''}")
         )
         raise
     except json.JSONDecodeError as e:
         logger.error(
             f"Invalid JSON in {config_path}: {e} | "
             + _hint("Fix the file or recreate it: mv "
-                    f"{config_path} {config_path}.bak && swarm-cli config init")
+                    f"{config_path} {config_path}.bak && os-cli config init")
         )
         raise ValueError(f"Invalid JSON: {config_path}") from e
     except Exception as e:
@@ -205,7 +205,7 @@ def validate_config(config: dict[str, Any]):
     if "llm" not in config or not isinstance(config["llm"], dict):
         raise ValueError(
             "Config 'llm' section missing/malformed. "
-            + _hint("Use: swarm-cli config add --section llm --name default --json "
+            + _hint("Use: os-cli config add --section llm --name default --json "
                     "'{\"provider\":\"openai\",\"model\":\"gpt-4o\",\"api_key\":\"${OPENAI_API_KEY}\"}'")
         )
     for name, prof in config.get("llm", {}).items():
@@ -218,8 +218,8 @@ def get_profile_from_config(config: dict[str, Any], profile_name: str) -> dict[s
     if profile_data is None:
         raise ValueError(
             f"LLM profile '{profile_name}' not found. "
-            + _hint("List profiles or add one: swarm-cli config list; "
-                    "swarm-cli config add --section llm --name default --json '{...}'")
+            + _hint("List profiles or add one: os-cli config list; "
+                    "os-cli config add --section llm --name default --json '{...}'")
         )
     if not isinstance(profile_data, dict):
         raise ValueError(f"LLM profile '{profile_name}' not dict.")
@@ -574,7 +574,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
         validate_config(config)
         return _substitute_env_vars(config)
     except FileNotFoundError:
-        logger.error(f"Config not found: {config_path} | " + _hint("swarm-cli config init"))
+        logger.error(f"Config not found: {config_path} | " + _hint("os-cli config init"))
         raise
     except Exception as e:
         logger.error(f"Load error {config_path}: {e}", exc_info=True)
@@ -590,14 +590,14 @@ def save_config(config: dict[str, Any], config_path: Path):
 
 def validate_config(config: dict[str, Any]):
     if "llm" not in config or not isinstance(config.get("llm"), dict):
-        raise ValueError("Config 'llm' section missing/malformed. " + _hint("swarm-cli config add --section llm ..."))
+        raise ValueError("Config 'llm' section missing/malformed. " + _hint("os-cli config add --section llm ..."))
     logger.debug("Config structure OK.")
 
 
 def get_profile_from_config(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
     prof = config.get("llm", {}).get(profile_name)
     if not prof:
-        raise ValueError(f"LLM profile '{profile_name}' not found. " + _hint("swarm-cli config list"))
+        raise ValueError(f"LLM profile '{profile_name}' not found. " + _hint("os-cli config list"))
     return _substitute_env_vars(prof)
 
 

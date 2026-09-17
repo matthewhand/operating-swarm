@@ -1,5 +1,5 @@
 $ # Cross-harness team: Chief of Staff coordinates CLI, API, and Remote seats
-$ SWARM_TEST_MODE=1 uv run swarm-cli launch demo-bridge --message "Coordinate release checks"
+$ SWARM_TEST_MODE=1 uv run os-cli launch demo-bridge --message "Coordinate release checks"
 [Demo Bridge] Initializing multi-harness team via openai-agents handoffs...
 [Chief of Staff (Blueprint)] Planning workflow across 4 seats:
   -> Handoff to [Antigravity CLI (cli)]: Executing local test suite... [PASSED]

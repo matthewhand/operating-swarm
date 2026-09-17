@@ -1,12 +1,16 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { filterRemoteSessionRows, sessionsFromOperateResult } from '../lib/remoteSessions'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, Plus, Server } from 'lucide-react'
 import { Alert, Button, Input, Select, Textarea, useToast } from './DaisyUI'
 import {
   addRemote,
   fetchRemoteRoutines,
+  OPERATE_LIST_TIMEOUT_MS,
+  OPERATE_SEND_TIMEOUT_MS,
   operateRemote,
   probeRemoteHealth,
+  testRemoteCandidate,
   type RemoteConnection,
   type RemoteHealthResult,
   type RemoteKind,
@@ -107,6 +111,45 @@ export function AddRemoteForm({
       error('Could not add remote', err.message)
     },
   })
+
+  const [testResult, setTestResult] = useState<RemoteHealthResult | null>(null)
+  const [isTesting, setIsTesting] = useState(false)
+
+  const handleTestConnection = async () => {
+    setIsTesting(true)
+    setTestResult(null)
+    try {
+      const res = await testRemoteCandidate({
+        kind,
+        id: remoteId.trim() || undefined,
+        base_url: baseUrl.trim() || undefined,
+        api_key_env: apiKeyEnv.trim() || undefined,
+        herdr_mode: herdr ? herdrMode : undefined,
+        ssh_host: herdr && herdrMode === 'ssh' ? sshHost.trim() : undefined,
+        ssh_user: herdr && herdrMode === 'ssh' ? sshUser.trim() : undefined,
+        ssh_port: herdr && herdrMode === 'ssh' && sshPort.trim() ? sshPort.trim() : undefined,
+        ssh_identity_env: herdr && herdrMode === 'ssh' && sshIdentityEnv.trim() ? sshIdentityEnv.trim() : undefined,
+        ssh_agent: herdr && herdrMode === 'ssh' ? sshAgent : undefined,
+      })
+      setTestResult(res)
+      if (res.ok) {
+        success('Connection test passed', res.detail || `${res.latency_ms ?? 0}ms latency`)
+      } else {
+        error('Connection test failed', res.detail || 'Endpoint unreachable')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setTestResult({
+        remote: remoteId.trim() || kind,
+        ok: false,
+        state: 'DOWN',
+        detail: msg,
+      })
+      error('Connection test error', msg)
+    } finally {
+      setIsTesting(false)
+    }
+  }
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -242,15 +285,46 @@ export function AddRemoteForm({
           />
         </>
       )}
-      <Button type="submit" variant="primary" size="sm" loading={addMutation.isPending}>
-        Add remote
-      </Button>
+      {testResult && (
+        <Alert
+          type={testResult.ok ? 'success' : 'warning'}
+          icon={<AlertCircle className="h-5 w-5" />}
+          className="text-xs"
+        >
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold">
+              {testResult.state || (testResult.ok ? 'UP' : 'DOWN')}
+              {typeof testResult.latency_ms === 'number' ? ` (${testResult.latency_ms}ms)` : ''}
+            </span>
+            <span>{testResult.detail}</span>
+          </div>
+        </Alert>
+      )}
+      <div className="flex items-center gap-2 pt-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          loading={isTesting}
+          disabled={isTesting || addMutation.isPending}
+          onClick={handleTestConnection}
+        >
+          Test connection
+        </Button>
+        <Button type="submit" variant="primary" size="sm" loading={addMutation.isPending}>
+          Add remote
+        </Button>
+      </div>
     </form>
   )
 }
 
-function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: string; name?: string }> {
+export function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: string; name?: string }> {
   if (!result?.data) return []
+  const sessions = sessionsFromOperateResult(result)
+  if (sessions.length > 0) {
+    return sessions.map((row) => ({ id: row.id, name: row.title }))
+  }
   const raw = result.data
   let list: unknown = raw
   if (raw && typeof raw === 'object') {
@@ -260,12 +334,16 @@ function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: s
       list = (raw as { members: unknown }).members
     } else if ('agents' in raw) {
       list = (raw as { agents: unknown }).agents
+    } else if ('sessions' in raw) {
+      list = (raw as { sessions: unknown }).sessions
     } else if ('data' in raw) {
       const d = (raw as { data: unknown }).data
       if (Array.isArray(d)) {
         list = d
       } else if (d && typeof d === 'object' && 'bots' in d) {
         list = (d as { bots: unknown }).bots
+      } else if (d && typeof d === 'object' && 'sessions' in d) {
+        list = (d as { sessions: unknown }).sessions
       }
     }
   }
@@ -274,10 +352,12 @@ function botsFromOperate(result: RemoteOperateResult | undefined): Array<{ id: s
     .map((item) => {
       if (typeof item === 'string') return { id: item }
       if (item && typeof item === 'object') {
-        const rec = item as { id?: unknown; name?: unknown }
-        const id = rec.id != null ? String(rec.id) : rec.name != null ? String(rec.name) : ''
+        const rec = item as { id?: unknown; name?: unknown; title?: unknown }
+        const label =
+          rec.name != null ? String(rec.name) : rec.title != null ? String(rec.title) : undefined
+        const id = rec.id != null ? String(rec.id) : label || ''
         if (!id) return null
-        return { id, name: rec.name != null ? String(rec.name) : undefined }
+        return { id, name: label }
       }
       return null
     })
@@ -327,6 +407,19 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   const label = remoteKindLabel(remote.id, remote.label || remote.title)
   const isOmb = isOpenMousBotKind(remote.id)
   const isHerdr = isHerdrKind(remote.id)
+  // Herdr's send hard-requires a target (src/swarm/core/remotes.py), so Send
+  // mirrors the Interrogate CLI guard beside it. Other kinds keep Send enabled:
+  // an empty target is legal for them (e.g. OMB creates a bot when none exist).
+  const requiresTarget = isHerdr
+  // #453 follow-up, browser-verified on the LAN app: switching the Remote
+  // picker reused this component instance (same element type, same position),
+  // so `listed`, `botId`, and the target adopted from them survived the switch.
+  // The Herdr pane inherited OpenMousBot's 20 bots and auto-filled its target
+  // with an OMB bot UUID — a target no Herdr pane can accept. SettingsSheet now
+  // keys the pane by remote id, and these checks keep a late or mismatched
+  // response out of the pane regardless: a target list from one remote is never
+  // a valid target for another.
+  const belongsHere = (result: { remote?: string }) => result.remote === remote.id
   const hasRoutines = Boolean(remote.capabilities?.routines)
   const [health, setHealth] = useState<RemoteHealthResult | null>(null)
   const [listed, setListed] = useState<RemoteOperateResult | null>(null)
@@ -334,6 +427,7 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   const [interrogated, setInterrogated] = useState<RemoteOperateResult | null>(null)
   const [botId, setBotId] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [sessionQuery, setSessionQuery] = useState('')
 
   const routinesQuery = useQuery({
     queryKey: ['remote-routines', remote.id],
@@ -344,7 +438,9 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
 
   const healthMutation = useMutation({
     mutationFn: () => probeRemoteHealth(remote.id),
-    onSuccess: (result) => setHealth(result),
+    onSuccess: (result) => {
+      if (belongsHere(result)) setHealth(result)
+    },
     onError: (err: Error) => {
       setHealth({
         remote: remote.id,
@@ -356,8 +452,9 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   })
 
   const listMutation = useMutation({
-    mutationFn: () => operateRemote(remote.id, { op: 'list' }, { timeoutMs: 12000 }),
+    mutationFn: () => operateRemote(remote.id, { op: 'list' }, { timeoutMs: OPERATE_LIST_TIMEOUT_MS }),
     onSuccess: (result) => {
+      if (!belongsHere(result)) return
       setListed(result)
       const bots = botsFromOperate(result)
       if (!botId && bots[0]?.id) setBotId(bots[0].id)
@@ -372,10 +469,27 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
     },
   })
 
+  // #453: the pane used to open with no target, and `botId` was only ever filled
+  // by an explicit List — so the first Send could never succeed and the operator
+  // got "target is required" after a round trip. List once on mount so the pane
+  // starts from the real target set. A remote with an empty list leaves Send
+  // disabled below rather than failing later.
+  const autoListedRef = useRef(false)
+  useEffect(() => {
+    if (autoListedRef.current) return
+    autoListedRef.current = true
+    listMutation.mutate()
+    // Mount-only. Depending on the mutation identity would re-list on every
+    // render, and the ref already makes this idempotent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const interrogateMutation = useMutation({
     mutationFn: () =>
       operateRemote(remote.id, { op: 'interrogate', target: botId.trim() }, { timeoutMs: 12000 }),
-    onSuccess: (result) => setInterrogated(result),
+    onSuccess: (result) => {
+      if (belongsHere(result)) setInterrogated(result)
+    },
     onError: (err: Error) => {
       setInterrogated({
         remote: remote.id,
@@ -388,8 +502,19 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
 
   const sendMutation = useMutation({
     mutationFn: () =>
-      operateRemote(remote.id, { op: 'send', prompt: prompt.trim(), target: botId.trim() }),
-    onSuccess: (result) => setSent(result),
+      operateRemote(
+        remote.id,
+        {
+          op: 'send',
+          prompt: prompt.trim(),
+          target: botId.trim(),
+          session_id: botId.trim() || undefined,
+        },
+        { timeoutMs: OPERATE_SEND_TIMEOUT_MS },
+      ),
+    onSuccess: (result) => {
+      if (belongsHere(result)) setSent(result)
+    },
     onError: (err: Error) => {
       error('Send failed', err.message)
       setSent({
@@ -402,6 +527,15 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   })
 
   const bots = useMemo(() => botsFromOperate(listed ?? undefined), [listed])
+  const visibleBots = useMemo(
+    () =>
+      filterRemoteSessionRows(
+        bots.map((bot) => ({ id: bot.id, title: bot.name || bot.id })),
+        sessionQuery,
+      ).map((row) => ({ id: row.id, name: row.title !== row.id ? row.title : undefined })),
+    [bots, sessionQuery],
+  )
+  const isSessionsRemote = Boolean(remote.capabilities?.sessions) || ['anythingllm', 'letta', 'openwebui', 'flowise', 'n8n'].includes(remote.id)
   const healthTone =
     health?.state === 'UP' ? 'success' : health?.state === 'DOWN' ? 'warning' : health ? 'info' : undefined
 
@@ -472,16 +606,43 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
 
       {listed && (
         <div className="space-y-2">
-          <p className="text-sm font-medium">{isOmb ? 'Bots' : isHerdr ? 'CLIs / panes' : 'List'}</p>
-          {listed.ok && bots.length > 0 ? (
+          <p className="text-sm font-medium">
+            {isOmb ? 'Bots' : isHerdr ? 'CLIs / panes' : isSessionsRemote ? 'Sessions' : 'List'}
+          </p>
+          {listed.ok && bots.length > 5 ? (
+            <Input
+              label="Search sessions"
+              name="remote-session-search"
+              value={sessionQuery}
+              onChange={(event) => setSessionQuery(event.target.value)}
+              placeholder="Filter by name or id"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          ) : null}
+          {listed.ok && visibleBots.length > 0 ? (
             <ul className="space-y-1 text-sm os-scrollable-picker-list pr-1">
-              {bots.map((bot) => (
-                <li key={bot.id} className="rounded-lg border border-base-300 bg-base-200/60 px-3 py-2 font-mono">
-                  {bot.id}
-                  {bot.name ? ` · ${bot.name}` : ''}
+              {visibleBots.map((bot) => (
+                <li key={bot.id}>
+                  <button
+                    type="button"
+                    className={`w-full rounded-lg border px-3 py-2 font-mono text-left ${
+                      botId === bot.id
+                        ? 'border-primary bg-primary/10'
+                        : 'border-base-300 bg-base-200/60'
+                    }`}
+                    onClick={() => setBotId(bot.id)}
+                  >
+                    {bot.id}
+                    {bot.name ? ` · ${bot.name}` : ''}
+                  </button>
                 </li>
               ))}
             </ul>
+          ) : listed.ok && bots.length > 0 && visibleBots.length === 0 ? (
+            <Alert type="info" icon={<AlertCircle className="h-5 w-5" />}>
+              <span className="text-sm">No sessions match “{sessionQuery}”.</span>
+            </Alert>
           ) : (
             <Alert type={listed.ok ? 'info' : 'warning'} icon={<AlertCircle className="h-5 w-5" />}>
               <span className="text-sm">{listed.detail}</span>
@@ -515,7 +676,13 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
           rows={3}
           required
         />
-        <Button type="submit" variant="primary" size="sm" loading={sendMutation.isPending}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="sm"
+          loading={sendMutation.isPending}
+          disabled={requiresTarget && !botId.trim()}
+        >
           Send
         </Button>
       </form>

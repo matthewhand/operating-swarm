@@ -31,9 +31,15 @@ def test_user_facing_kind_is_always_remote():
     assert user_facing_kind("hermes") == "remote"
     assert user_facing_kind("trueforge") == "remote"
     assert user_facing_kind("anythingllm") == "remote"
+    assert user_facing_kind("openwebui") == "remote"
     assert set(REMOTE_IMPL_IDS) == {
         "hermes",
         "anythingllm",
+        "letta",
+        "openwebui",
+        "flowise",
+        "n8n",
+        "slack",
         "omb",
         "rakazo",
         "herdr",
@@ -66,13 +72,20 @@ def test_capabilities_computer_only_on_omb_and_rakazo():
     assert capabilities_for("rakazo").operate is True
     assert capabilities_for("hermes").operate is False
     assert capabilities_for("anythingllm").operate is False
+    assert capabilities_for("letta").operate is False
     assert capabilities_for("herdr").operate is False
     assert capabilities_for("herdr").interrogate is True
     assert capabilities_for("herdr").transport == "cli"
     assert capabilities_for("hermes").transport == "http"
     assert capabilities_for("anythingllm").transport == "http"
+    assert capabilities_for("letta").transport == "http"
     assert capabilities_for("hermes").sessions is True
     assert capabilities_for("anythingllm").sessions is True
+    assert capabilities_for("letta").sessions is True
+    assert capabilities_for("openwebui").sessions is True
+    assert capabilities_for("flowise").sessions is True
+    assert capabilities_for("n8n").sessions is True
+    assert capabilities_for("slack").sessions is True
     assert capabilities_for("omb").sessions is False
 
 
@@ -129,6 +142,12 @@ def test_herdr_is_remote_impl_not_fifth_kind():
     assert classify_agent_kind("herdr:w3:p1") == "remote"
     assert classify_agent_kind("hermes") == "remote"
     assert classify_agent_kind("anythingllm") == "remote"
+    assert classify_agent_kind("letta") == "remote"
+    assert classify_agent_kind("openwebui") == "remote"
+    assert classify_agent_kind("open-webui") == "remote"
+    assert classify_agent_kind("flowise") == "remote"
+    assert classify_agent_kind("n8n") == "remote"
+    assert classify_agent_kind("slack") == "remote"
     assert classify_agent_kind("omb") == "remote"
     assert classify_agent_kind("rakazo") == "remote"
     assert classify_agent_kind("trueforge") == "remote"

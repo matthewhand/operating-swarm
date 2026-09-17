@@ -79,7 +79,10 @@ async def test_escalate_without_panel_falls_back_to_router_answer():
 async def test_no_router_configured_reports_cleanly():
     bp = CliOrchestratorBlueprint(config={})
     chunks = await _collect(bp.run([{"role": "user", "content": "q"}]))
-    assert "No router CLI is configured" in _final(chunks)
+    final = _final(chunks)
+    assert "No router CLI is configured" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
 
 
 async def test_empty_prompt():

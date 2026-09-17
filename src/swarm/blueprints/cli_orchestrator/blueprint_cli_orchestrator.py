@@ -101,8 +101,7 @@ class CliOrchestratorBlueprint(CliKindBase):
         router, panel_names, judge_name = self._resolve(params, registry)
         if not router:
             yield support.message_chunk(
-                "No router CLI is configured. Add a 'cli_orchestrator' block (or a "
-                "'cli_fusion.default_cli') to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No router CLI is configured"),
                 final=True,
             )
             return

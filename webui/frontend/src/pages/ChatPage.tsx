@@ -7,19 +7,20 @@ import {
   useState,
   type CSSProperties,
   type ChangeEvent,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, FoldVertical, Layers, Mic, PanelLeft, Pencil, Plus, Reply, Settings, Square, Users } from 'lucide-react'
+import { ArrowUp, Check, ChevronRight, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plus, Reply, Settings, Square } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
-import { OPEN_SETTINGS_EVENT, openSettingsSheet } from '../components/SettingsSheet'
+import { OPEN_SETTINGS_EVENT, openSettingsSheet, settingsDetailFromQuery } from '../components/SettingsSheet'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
 import { isRateLimitWait, type RateLimitWait } from '../lib/providerRateLimits'
-import { OPEN_TEAM_COMPOSER_EVENT } from '../components/TeamComposer'
+
 import {
   AGENT_DROPDOWNS_CHANGED_EVENT,
   AGENT_SETTINGS_CHANGED_EVENT,
@@ -30,10 +31,22 @@ import {
   openAgentEditor,
   type AgentSettingsChangedDetail,
 } from '../lib/agentSettings'
+import {
+  EMPTY_VOICE_BIND,
+  applyVoiceBindToSpeechSettings,
+  nextAutoSpeakText,
+  parseVoiceBind,
+  type AgentVoiceBind,
+} from '../lib/agentVoiceBind'
 import { openTeamEditor } from '../components/TeamEditor'
 import PersonaRoster from '../components/PersonaRoster'
 import { declaredRosterForTeam } from '../lib/declaredRoster'
-import { fetchUserPrefs, persistAgentDropdownChoice } from '../lib/userPrefs'
+import {
+  fetchUserPrefs,
+  persistAgentDropdownChoice,
+  USER_PREFS_CHANGED_EVENT,
+  type UserPrefs,
+} from '../lib/userPrefs'
 import {
   DEFAULT_CONTEXT_STRATEGY,
   DEFAULT_CULL_TRIGGER_PCT,
@@ -50,13 +63,42 @@ import { useRailChrome } from '../components/RailChrome'
 import { ComputerControlStub } from '../components/ComputerControlStub'
 import { NavbarRoutingPicker, type RoutingPathChange } from '../components/NavbarRoutingPicker'
 import { ChatMessageBubble } from '../components/ChatMessageBubble'
+import {
+  BUBBLE_THEME_LABELS,
+  BUBBLE_THEMES,
+  getBubbleTheme,
+  loadBubbleTheme,
+  saveBubbleTheme,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
 import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
+import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
+import SessionPicker from '../components/SessionPicker'
+import {
+  fetchRemoteThreadSessions,
+  remoteAgentsFromOperate,
+  remoteChatTurnParams,
+  remoteListsSessions,
+} from '../lib/remoteSessions'
+import type { MemberSession } from '../lib/sessionPicker'
 import { SystemPreloadPill } from '../components/SystemPreloadPill'
 import { CompactSummaryCard } from '../components/CompactSummaryCard'
 import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
+import ComposerAttachChips from '../components/ComposerAttachChips'
+import {
+  attachmentCaption,
+  composerFileAttachSupported,
+  createPendingAttachment,
+  filesFromList,
+  imageFilesFromClipboard,
+  readyAttachmentIds,
+  revokePreviewUrl,
+  uploadChatAttachment,
+  type PendingAttachment,
+} from '../lib/chatAttachments'
 import {
   type SlashItem,
   buildSlashCatalog,
@@ -75,12 +117,16 @@ import {
   fetchLlmProfiles,
   fetchRemotes,
   fetchSpeechSettings,
+  operateRemote,
 } from '../lib/api'
 import {
   appendTranscript,
   listenSystemStt,
   recordMicrophoneAudio,
   resolveSttPath,
+  resolveTtsPath,
+  speakCustom,
+  speakSystem,
   sttUnavailableMessage,
   transcribeCustomBlob,
   type SpeechPath,
@@ -90,6 +136,7 @@ import {
   AGENT_CONVERSATION_EVENT,
   agentIdFromBlueprint,
   appendAgentMessage,
+  clearAgentThread,
   compactAgentThread,
   conversationIdForAgent,
   conversationIdForTask,
@@ -121,15 +168,36 @@ import {
   buildChatWsEditFrame,
   buildChatWsFrame,
   buildChatWsUrl,
+  buildQuestionAnswerFrame,
   buildToolDecisionFrame,
+  newConversationId,
+  cliAgentChatParams,
+  mergeChatSendParams,
   parseChatWsMessage,
+  summarizeUnknownWsFrame,
   type ChatWsEvent,
 } from '../lib/chatWs'
+import { ContextUsageBadge } from '../components/ContextUsageBadge'
+import {
+  fetchContextUsage,
+  publishContextUsage,
+  type ContextUsage,
+} from '../lib/contextUsage'
+import { QuestionCard } from '../components/QuestionCard'
+import {
+  parseDecisionQuestion,
+  stripDecisionQuestion,
+  type DecisionQuestion,
+} from '../lib/decisionQuestion'
+import { loadElicitQuestions } from '../lib/elicitQuestions'
 import { ToolCallPopup } from '../components/ToolCallPopup'
 import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsPanel'
 import { PrOpenedCard } from '../components/PrOpenedCard'
 import { TeammateTaskCard } from '../components/TeammateTaskCard'
 import { SuggestionChips } from '../components/SuggestionChips'
+import { DemoTourBanner } from '../components/DemoTourBanner'
+import { isDemoMode } from '../lib/demo/mode'
+import { demoSuggestionChips } from '../lib/demo/scenarios'
 import {
   openerChatSearch,
   parsePrOpened,
@@ -154,20 +222,30 @@ import {
   cliTerminatedFromEvent,
   notifyCliRunState,
 } from '../lib/cliRunState'
+import { notifyApprovalWait } from '../lib/agentAttention'
 import { publishExpectedSpaVersion } from '../lib/spaHello'
 import { maybeNotifyAgentTurn } from '../lib/agentNotifications'
 import {
+  ALL_MEMBERS_PARAM,
   ALL_MEMBERS_TARGET,
   MANAGE_TEAMS_HREF,
   MANAGE_TEAMS_VALUE,
   applyTeamMemberSessionParam,
   fetchTeamRosters,
+  isAllMembersChoice,
   parseTeamRosters,
   memberOptionLabel,
   teamHideId,
   teamThreadId,
 } from '../lib/teamRosters'
 import { defaultSessionForTeam } from '../lib/sessionPicker'
+import {
+  OMB_BOT_REQUIRED_GAP,
+  OMB_NO_AGENTS_WARNING,
+  OMB_SELECT_AGENT_WARNING,
+  ombSendTarget,
+} from '../lib/ombBots'
+import { isOpenMousBotKind } from '../lib/remoteKinds'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId } from '../lib/remotesCatalog'
 import {
   ADD_REMOTE_VALUE,
@@ -177,6 +255,7 @@ import {
   remoteSelectPlaceholder,
 } from '../lib/remotes'
 import { enabledToolsParam } from '../lib/chatPluginTools'
+import { railSectionsParam } from '../lib/railSections'
 import { publishCurrentChatScope } from '../lib/chatScope'
 import {
   AGENT_REMOTE_BINDINGS_CHANGED_EVENT,
@@ -207,6 +286,8 @@ import { isExperimentalEnabled } from '../experimental/flags'
 import { ChatMessageActions } from '../experimental/ChatMessageActions'
 import { RoleAgentTip } from '../components/RoleAgentTip'
 import { DefaultLlmTip } from '../components/DefaultLlmTip'
+import { CliSessionRecoveryBanner } from '../components/CliSessionRecoveryBanner'
+import { lastTurnNeedsRecovery } from '../lib/cliSessionRecovery'
 import {
   hydrateRoleAgentTipDismissed,
   persistRoleAgentTipDismissed,
@@ -229,8 +310,10 @@ import {
   roleCssClass,
 } from '../lib/agentRoles'
 import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit, loadInferenceList } from '../lib/agentEdits'
+import { isRemoteCapableCli, remoteEndpointLabel } from '../lib/cliRemote'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
 import { chatFolderParams } from '../lib/agentFolder'
+import { navbarWorkspaceSubtitle } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { nextInferenceIndex, serializeInferenceList } from '../lib/inferenceList'
 import {
@@ -292,8 +375,8 @@ import {
   isCliBlueprintId,
   preferredChatCli,
   MANAGE_CLI_VALUE,
-  MANAGE_CLI_HREF,
 } from '../lib/cliAgentContext'
+import { resolveProductModes } from '../lib/productModes'
 import { isHiddenRoutingLabel } from '../lib/routingPath'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
@@ -309,6 +392,10 @@ interface ChatMessage {
   /** True while the assistant message is still streaming. */
   streaming: boolean
   tools?: ToolCallState[]
+  /** Blocking ``ask_user`` card or a non-blocking ```question fence. */
+  question?: DecisionQuestion
+  questionBlocking?: boolean
+  questionAnswered?: boolean
   edited?: boolean
   /** REQ-71 chrome — structured PR-opened tool result, not markdown. */
   prOpened?: PrOpenedEvent
@@ -321,6 +408,8 @@ interface ChatMessage {
   ts?: string
   /** REQ-88 — provider queue wait; click opens that provider's rate-limit fields. */
   rateLimit?: RateLimitWait
+  /** Terminal CLI/config failure — recovery banner (#274). */
+  fatalConfigError?: boolean
 }
 
 function chatMessageFromThreadRow(
@@ -331,6 +420,7 @@ function chatMessageFromThreadRow(
     kind?: string
     ts?: string
     rate_limit?: RateLimitWait
+    fatal_config_error?: boolean
   },
   index: number,
 ): ChatMessage {
@@ -350,6 +440,7 @@ function chatMessageFromThreadRow(
     kind: prior ? 'prior_history' : undefined,
     ts: message.ts,
     rateLimit: isRateLimitWait(message.rate_limit) ? message.rate_limit : undefined,
+    fatalConfigError: message.fatal_config_error === true,
   }
 }
 
@@ -382,6 +473,11 @@ interface MessageContextMenuState {
   message: ChatMessage
 }
 
+function warnStatusPersistFailure(err: unknown): void {
+  const reason = err instanceof Error ? err.message : String(err)
+  console.warn('Could not persist status line', reason)
+}
+
 const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const { addToast, dismissByKind } = useToast()
@@ -389,6 +485,23 @@ const ChatPage = () => {
   const teamFromUrl = searchParams.get('team') ?? ''
   const remoteFromUrl = searchParams.get('remote') ?? ''
   const sessionFromUrl = searchParams.get('session') ?? ''
+  // #288: an explicit "All members" pick rides `?members=all` so a reload keeps it
+  // instead of re-defaulting to the team's nominated seat.
+  const allMembersFromUrl = isAllMembersChoice(searchParams.get(ALL_MEMBERS_PARAM))
+  const settingsQuery = searchParams.get('settings')
+  const settingsQueryOpenedRef = useRef(false)
+  useEffect(() => {
+    if (settingsQueryOpenedRef.current) return
+    const detail = settingsDetailFromQuery(settingsQuery)
+    if (detail == null) return
+    settingsQueryOpenedRef.current = true
+    openSettingsSheet(detail)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('settings')
+      return next
+    }, { replace: true })
+  }, [settingsQuery, setSearchParams])
   const selectedBlueprint = teamFromUrl || remoteFromUrl
     ? ''
     : defaultBlueprintId(searchParams.get('blueprint'))
@@ -407,6 +520,7 @@ const ChatPage = () => {
   const [useSuggestions, setUseSuggestions] = useState(() =>
     teamFromUrl ? false : loadLocalUseSuggestions(defaultBlueprintId(searchParams.get('blueprint'))),
   )
+  const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
   const [suggestionChips, setSuggestionChips] = useState<string[]>([])
   const [threadReady, setThreadReady] = useState(false)
   /** Honest hydrate miss — not a blank new chat (REQ-171A-4 / #604). */
@@ -420,17 +534,23 @@ const ChatPage = () => {
   const [contextStrategy, setContextStrategy] = useState<ContextStrategy>(DEFAULT_CONTEXT_STRATEGY)
   const [cullTriggerPct, setCullTriggerPct] = useState(DEFAULT_CULL_TRIGGER_PCT)
   const [contextMeta, setContextMeta] = useState<ContextMeta>({ start_offset: 0, last_event: null })
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null)
   const [startFromHereWarning, setStartFromHereWarning] = useState<{
     message: ChatMessage
     copy: string
     startOffset: number
   } | null>(null)
   const [input, setInput] = useState('')
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sttListening, setSttListening] = useState(false)
   const [sttPathUsed, setSttPathUsed] = useState<SpeechPath | null>(null)
   const sttStopRef = useRef<(() => void) | null>(null)
+  const spokenReplyKeysRef = useRef<Set<string>>(new Set())
+  const autoSpeakHydratedRef = useRef(false)
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
+  const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
+  const [bubbleThemeMenuOpen, setBubbleThemeMenuOpen] = useState(false)
   /** REQ-213: view-only hide. Raw transcript / summary tree on disk stay. */
   const [hiddenSummaryIds, setHiddenSummaryIds] = useState<number[]>([])
   const [hiddenMessageKeys, setHiddenMessageKeys] = useState<string[]>([])
@@ -447,6 +567,7 @@ const ChatPage = () => {
   const [connectAttempt, setConnectAttempt] = useState(0)
   const [authRejected, setAuthRejected] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [agentKind, setAgentKind] = useState<AgentKind>(() =>
     classifyAgentKind(searchParams.get('remote') ? `remote:${searchParams.get('remote')}` : searchParams.get('blueprint')),
@@ -459,6 +580,7 @@ const ChatPage = () => {
   const [, setEditsTick] = useState(0)
   const [dropdownTick, setDropdownTick] = useState(0)
   const [selectedRemoteId, setSelectedRemoteId] = useState('')
+  const [remoteThreadPicker, setRemoteThreadPicker] = useState<MemberSession[] | null>(null)
   const [conversationId, setConversationId] = useState(() =>
     teamFromUrl
       ? teamThreadId(teamFromUrl)
@@ -526,12 +648,29 @@ const ChatPage = () => {
         ),
       }))
       try {
-        await toggleSummaryInContext({ summaryId, includeInContext: include })
+        const result = await toggleSummaryInContext({ summaryId, includeInContext: include })
+        if (result.usage) {
+          publishContextUsage(result.usage)
+          setContextUsage(result.usage)
+        }
       } catch {
         setSummariesByThread((prev) => ({ ...prev, [threadKey]: threadSummaries }))
       }
     },
     [summariesByThread, threadKey],
+  )
+
+  const handleSaveSummary = useCallback(
+    (summaryId: number, nextText: string) => {
+      if (!messagesEditable) return
+      setSummariesByThread((prev) => ({
+        ...prev,
+        [threadKey]: (prev[threadKey] ?? []).map((row) =>
+          row.id === summaryId ? { ...row, body: nextText } : row,
+        ),
+      }))
+    },
+    [messagesEditable, threadKey],
   )
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -632,7 +771,10 @@ const ChatPage = () => {
   }, [threadKey])
 
   useEffect(() => {
-    if (!contextMenu) return
+    if (!contextMenu) {
+      setBubbleThemeMenuOpen(false)
+      return
+    }
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') {
         setContextMenu(null)
@@ -721,6 +863,8 @@ const ChatPage = () => {
               id: selectedBlueprint,
               name: fallbackAgentName,
             })
+  const workspaceSubtitle =
+    teamFromUrl || remoteFromUrl ? '' : navbarWorkspaceSubtitle(selectedBlueprint)
   // #69: the top bar shows the agent NAME; an assigned role rides beside it as
   // its own badge so a role seat can never look like it renamed the agent.
   const headerRole = agentRole({
@@ -799,7 +943,13 @@ const ChatPage = () => {
     tags: (selectedAgent as { tags?: string[] })?.tags,
   }) || Boolean(selectedRemote)
 
-  const showRemotesControl = isRemoteAgent || isRemoteBackedTeam
+  const productModes = useMemo(
+    () => resolveProductModes(cliQuery.data),
+    [cliQuery.data],
+  )
+  const showRemotesControl =
+    Boolean(remoteFromUrl) ||
+    (productModes.remote && (isRemoteAgent || isRemoteBackedTeam))
   const bindingAgentId = remoteFromUrl || (showRemotesControl ? selectedBlueprint : '')
   const persistedRemote = bindingAgentId ? loadAgentRemoteBinding(bindingAgentId) : null
   const remotesCatalog = remotesListForSelect(
@@ -817,6 +967,34 @@ const ChatPage = () => {
   const remotesCatalogReady = !remotesListQuery.isPending && !remotesQuery.isPending
   const showEmptyRemoteChrome =
     showRemotesControl && remotesCatalogReady && configuredRemoteRows.length === 0
+  const ombRemoteId = isOpenMousBotKind(selectedRemoteId)
+    ? selectedRemoteId
+    : isOpenMousBotKind(remoteFromUrl)
+      ? remoteFromUrl
+      : ''
+  const activeRemoteId = (selectedRemoteId || remoteFromUrl || '').trim()
+  const remoteAgentsQuery = useQuery({
+    queryKey: ['remote-operate-list', activeRemoteId],
+    queryFn: () => operateRemote(activeRemoteId, { op: 'list' }, { timeoutMs: 12000 }),
+    enabled: showRemotesControl && Boolean(activeRemoteId),
+    retry: 1,
+  })
+  const remoteNavbarAgents = useMemo(
+    () => (activeRemoteId ? remoteAgentsFromOperate(remoteAgentsQuery.data?.data) : []),
+    [activeRemoteId, remoteAgentsQuery.data],
+  )
+  const remoteAgentWarning = !activeRemoteId
+    ? null
+    : remoteAgentsQuery.isError
+      ? remoteAgentsQuery.error instanceof Error
+        ? remoteAgentsQuery.error.message
+        : 'Remote agent list failed'
+      : remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
+        ? remoteAgentsQuery.data.detail || 'No agents listed on this remote'
+        : remoteAgentsQuery.isSuccess && remoteNavbarAgents.length === 0 && ombRemoteId
+          ? OMB_NO_AGENTS_WARNING
+          : null
+  const ombSelectedBotId = ombSendTarget(sessionFromUrl, ombRemoteId || remoteFromUrl)
 
   const isCliAgent = Boolean(
     !teamFromUrl &&
@@ -832,6 +1010,10 @@ const ChatPage = () => {
           searchParams,
         })),
   )
+  const attachFilesOk = composerFileAttachSupported({
+    isCli: isCliAgent,
+    isRemote: isRemoteAgent || isRemoteBackedTeam,
+  })
 
   const supportSelected = Boolean(
     !teamFromUrl &&
@@ -850,6 +1032,29 @@ const ChatPage = () => {
       !isRemoteAgent &&
       !isCliAgent,
   )
+  const showContextUsage = isApiAgent || agentKind === 'blueprint'
+
+  useEffect(() => {
+    if (!showContextUsage || !conversationId) {
+      setContextUsage(null)
+      return
+    }
+    let cancelled = false
+    const agent = teamFromUrl || agentIdFromBlueprint(selectedBlueprint)
+    const modelId = (searchParams.get('model') ?? '').trim() || undefined
+    void fetchContextUsage({ agentId: agent, conversationId, modelId })
+      .then((usage) => {
+        if (cancelled) return
+        publishContextUsage(usage)
+        setContextUsage(usage)
+      })
+      .catch(() => {
+        if (!cancelled) setContextUsage(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showContextUsage, conversationId, teamFromUrl, selectedBlueprint, searchParams])
 
   const dropdownAgentId = teamFromUrl
     ? `team-${teamFromUrl}`
@@ -895,6 +1100,7 @@ const ChatPage = () => {
   }, [cliModelProbe.models, persistedDropdown.model])
   const cliModelWarning = useMemo(() => {
     if (availableCliModels.length > 0) return cliModelProbe.warning
+    if (cliModelsQuery.isFetching || cliModelsQuery.isLoading) return null
     if (cliModelProbe.warning) return cliModelProbe.warning
     if (cliModelsQuery.isError) return 'Model probe failed'
     if (cliModelsQuery.isFetched && currentCli) return 'No models discovered'
@@ -904,6 +1110,8 @@ const ChatPage = () => {
     cliModelProbe.warning,
     cliModelsQuery.isError,
     cliModelsQuery.isFetched,
+    cliModelsQuery.isFetching,
+    cliModelsQuery.isLoading,
     currentCli,
   ])
 
@@ -938,7 +1146,7 @@ const ChatPage = () => {
         agent,
         { role: 'status', content: statusText },
         conversationIdRef.current || undefined,
-      ).catch(() => {})
+      ).catch(warnStatusPersistFailure)
     },
     [threadKey, teamFromUrl, remoteFromUrl, selectedBlueprint],
   )
@@ -961,7 +1169,6 @@ const ChatPage = () => {
           },
           { replace: true },
         )
-        recordDropdownChange('cli', next.previous.agent, next.agent)
         const fromCli = (next.previous.agent || '').trim()
         const toCli = (next.agent || '').trim()
         if (fromCli && toCli && fromCli !== toCli) {
@@ -994,9 +1201,30 @@ const ChatPage = () => {
                 agent,
                 { role: 'status', content: hop.status },
                 conversationIdRef.current || undefined,
-              ).catch(() => {})
+              ).catch(warnStatusPersistFailure)
             })
-            .catch(() => {})
+            .catch((err: unknown) => {
+              const reason = err instanceof Error ? err.message : 'Request failed'
+              addToast({
+                type: 'error',
+                title: 'Could not hop CLI session',
+                message: reason,
+              })
+              const statusText = `Could not hop CLI session: ${reason}`
+              const statusMsg: ChatMessage = {
+                key: `hop-fail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                role: 'status',
+                text: statusText,
+                streaming: false,
+                ts: new Date().toISOString(),
+              }
+              setThreads((prev) => ({
+                ...prev,
+                [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
+              }))
+            })
+        } else {
+          recordDropdownChange('cli', next.previous.agent, next.agent)
         }
         return
       }
@@ -1018,7 +1246,7 @@ const ChatPage = () => {
       }
       recordDropdownChange('model', next.previous.modelBase || next.previous.model, next.modelBase || next.model)
     },
-    [dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
+    [addToast, dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
   )
 
   // #108: API seats route via LLM profiles. A pick lands in the same
@@ -1049,11 +1277,20 @@ const ChatPage = () => {
 
   useEffect(() => {
     // REQ-28: a selected composition team uses ?team=; do not clobber it
-    // with the Support default (REQ-23 owns send-to-all).
-    if (searchParams.get('team') || searchParams.get('remote')) return
-    if (!searchParams.get('blueprint')) {
-      setSearchParams({ blueprint: SUPPORT_AGENT_ID }, { replace: true })
+    // with the Support default (REQ-23 owns send-to-all). Merge blueprint
+    // onto the existing query so ?cli= / ?model= / ?session= survive.
+    if (searchParams.get('team') || searchParams.get('remote') || searchParams.get('blueprint')) {
+      return
     }
+    setSearchParams(
+      (prev) => {
+        if (prev.get('team') || prev.get('remote') || prev.get('blueprint')) return prev
+        const next = new URLSearchParams(prev)
+        next.set('blueprint', SUPPORT_AGENT_ID)
+        return next
+      },
+      { replace: true },
+    )
   }, [searchParams, setSearchParams])
 
   // #169: remember which team already got the seat default, so roster
@@ -1075,10 +1312,16 @@ const ChatPage = () => {
     // configured Chief of Staff, else the first roster member ("First") — the
     // same REQ-130 policy the sidebar picker uses. An explicit pick wins.
     if (teamDefaultedRef.current === teamFromUrl) return
+    // An explicit All members pick outranks the nominated-seat default (#288).
+    if (allMembersFromUrl) {
+      teamDefaultedRef.current = teamFromUrl
+      setMemberTarget(ALL_MEMBERS_TARGET)
+      return
+    }
     if (!selectedTeam) return
     teamDefaultedRef.current = teamFromUrl
     setMemberTarget(defaultSessionForTeam(selectedTeam)?.memberId ?? ALL_MEMBERS_TARGET)
-  }, [teamFromUrl, sessionFromUrl, selectedTeam])
+  }, [teamFromUrl, sessionFromUrl, allMembersFromUrl, selectedTeam])
 
   // #794: persist the selected swarm conversation (CLI or Django) so remount
   // and rail browse-back restore the same id — not the prior default.
@@ -1157,6 +1400,33 @@ const ChatPage = () => {
   ])
 
   useEffect(() => {
+    if (!remoteFromUrl) {
+      setRemoteThreadPicker(null)
+      return
+    }
+    if (sessionFromUrl) {
+      setRemoteThreadPicker(null)
+      return
+    }
+    if (!remoteListsSessions({ id: remoteFromUrl, kind: remoteFromUrl })) return
+    let cancelled = false
+    void fetchRemoteThreadSessions({
+      id: remoteFromUrl,
+      kind: remoteFromUrl,
+      title: remoteFromUrl,
+    })
+      .then((sessions) => {
+        if (!cancelled) setRemoteThreadPicker(sessions)
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteThreadPicker([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [remoteFromUrl, sessionFromUrl])
+
+  useEffect(() => {
     if (!showEmptyRemoteChrome) return
     const key = bindingAgentId || selectedBlueprint
     if (!key || emptyRemoteOpenedForRef.current === key) return
@@ -1168,6 +1438,7 @@ const ChatPage = () => {
     if (teamFromUrl) {
       setNewChatPerTask(false)
       setUseSuggestions(false)
+      setVoiceBind(EMPTY_VOICE_BIND)
       return
     }
     const agent = agentIdFromBlueprint(selectedBlueprint)
@@ -1182,22 +1453,95 @@ const ChatPage = () => {
         if (typeof detail.use_suggestions === 'boolean') {
           setUseSuggestions(detail.use_suggestions)
         }
+        setVoiceBind((prev) => parseVoiceBind({ ...prev, ...detail }))
       }
     }
     window.addEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    let cancelled = false
     void fetchAgentSettings(agent).then((settings) => {
+      if (cancelled) return
+      if (settings.agent_id && settings.agent_id !== agent) return
       setNewChatPerTask(settings.new_chat_per_task)
       setUseSuggestions(settings.use_suggestions)
+      setVoiceBind(parseVoiceBind(settings))
     })
-    return () => window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    return () => {
+      cancelled = true
+      window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    }
   }, [selectedBlueprint, teamFromUrl])
 
   useEffect(() => {
-    void fetchUserPrefs().then((server) => {
-      if (!server) return
+    spokenReplyKeysRef.current = new Set()
+    autoSpeakHydratedRef.current = false
+  }, [activeChatAgentId, conversationId])
+
+  useEffect(() => {
+    if (!autoSpeakHydratedRef.current) {
+      for (const message of messages) {
+        if (message.role === 'assistant' && !message.streaming) {
+          spokenReplyKeysRef.current.add(message.key)
+        }
+      }
+      if (threadReady) autoSpeakHydratedRef.current = true
+      return
+    }
+    const next = nextAutoSpeakText({
+      autoSpeak: voiceBind.auto_speak_replies,
+      messages,
+      alreadySpoken: spokenReplyKeysRef.current,
+      hydrated: true,
+    })
+    if (!next) return
+    spokenReplyKeysRef.current.add(next.key)
+    const seatSpeech = applyVoiceBindToSpeechSettings(
+      parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
+      voiceBind,
+    )
+    const path = resolveTtsPath(seatSpeech)
+    if (!path) return
+    void (async () => {
+      try {
+        if (path === 'system') {
+          speakSystem(next.text)
+          return
+        }
+        await speakCustom(next.text, {
+          voice: voiceBind.speech_mode === 'inherit' ? undefined : voiceBind.tts_voice || undefined,
+          instruction:
+            voiceBind.speech_mode === 'inherit'
+              ? undefined
+              : voiceBind.tts_voice_instruction || undefined,
+          agentId: activeChatAgentId,
+        })
+      } catch {
+        /* auto-speak is best-effort */
+      }
+    })()
+  }, [
+    messages,
+    voiceBind,
+    threadReady,
+    speechQuery.data,
+    activeChatAgentId,
+  ])
+
+  useEffect(() => {
+    let cancelled = false
+    const applyPrefs = (server: UserPrefs | null | undefined) => {
+      if (cancelled || !server) return
       setContextStrategy(parseContextStrategy(server.context_strategy))
       setCullTriggerPct(parseCullTriggerPct(server.context_cull_trigger_pct))
-    })
+    }
+    void fetchUserPrefs().then(applyPrefs)
+    const onPrefs = (event: Event) => {
+      applyPrefs((event as CustomEvent<UserPrefs>).detail)
+    }
+    window.addEventListener(USER_PREFS_CHANGED_EVENT, onPrefs)
+    return () => {
+      cancelled = true
+      window.removeEventListener(USER_PREFS_CHANGED_EVENT, onPrefs)
+    }
   }, [])
 
   useEffect(() => {
@@ -1425,6 +1769,8 @@ const ChatPage = () => {
 
   const attachToolToThread = useCallback(
     (tool: ToolCallState) => {
+      const waitAgent = tool.agentId || selectedBlueprint || threadKey
+      notifyApprovalWait(waitAgent, tool.id, Boolean(tool.needsApproval))
       setThreads((prev) => {
         const current = prev[threadKey] ?? []
         const targetIndex = [...current]
@@ -1452,7 +1798,7 @@ const ChatPage = () => {
         return { ...prev, [threadKey]: next }
       })
     },
-    [threadKey],
+    [selectedBlueprint, threadKey],
   )
 
   const sendToolDecision = useCallback((id: string, decision: 'allow' | 'always' | 'deny') => {
@@ -1460,6 +1806,49 @@ const ChatPage = () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     ws.send(buildToolDecisionFrame(id, decision))
   }, [])
+
+  const sendQuestionAnswer = useCallback((id: string, answer: string) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(buildQuestionAnswerFrame(id, answer))
+  }, [])
+
+  const attachQuestionToThread = useCallback(
+    (question: DecisionQuestion, blocking: boolean) => {
+      setThreads((prev) => {
+        const current = prev[threadKey] ?? []
+        const targetIndex = [...current]
+          .reverse()
+          .findIndex((message) => message.role === 'assistant')
+        const index = targetIndex === -1 ? -1 : current.length - 1 - targetIndex
+        const patch = {
+          question,
+          questionBlocking: blocking,
+          questionAnswered: false,
+        }
+        if (index === -1) {
+          return {
+            ...prev,
+            [threadKey]: [
+              ...current,
+              {
+                key: `question-host-${question.id}`,
+                role: 'assistant' as const,
+                text: '',
+                streaming: true,
+                ...patch,
+              },
+            ],
+          }
+        }
+        const next = [...current]
+        const host = next[index]!
+        next[index] = { ...host, ...patch }
+        return { ...prev, [threadKey]: next }
+      })
+    },
+    [threadKey],
+  )
 
   const jumpToPrOpener = useCallback(
     (opener: PrOpenedOpener) => {
@@ -1471,11 +1860,16 @@ const ChatPage = () => {
   const handleWsEvent = useCallback(
     (event: ChatWsEvent) => {
       if (event.kind === 'unknown') {
-        console.warn('Unrecognised chat websocket frame:', event.raw)
+        console.warn('Unrecognised chat websocket frame:', summarizeUnknownWsFrame(event.raw))
         return
       }
       if (event.kind === 'spa_hello') {
         publishExpectedSpaVersion(event.spaVersion)
+        return
+      }
+      if (event.kind === 'context_usage') {
+        publishContextUsage(event.usage)
+        setContextUsage(event.usage)
         return
       }
       if (event.kind === 'tool_status') {
@@ -1486,6 +1880,10 @@ const ChatPage = () => {
           agentId: event.agentId,
           needsApproval: false,
         })
+        return
+      }
+      if (event.kind === 'user_question') {
+        attachQuestionToThread(event.question, true)
         return
       }
       if (event.kind === 'suggestions') {
@@ -1614,9 +2012,17 @@ const ChatPage = () => {
             )
             break
           case 'assistant_final':
-            next = current.map((m) =>
-              m.key === event.id ? { ...m, text: event.text, streaming: false } : m,
-            )
+            next = current.map((m) => {
+              if (m.key !== event.id) return m
+              const fence = parseDecisionQuestion(event.text)
+              return {
+                ...m,
+                text: fence ? stripDecisionQuestion(event.text) : event.text,
+                streaming: false,
+                question: m.question ?? fence ?? undefined,
+                questionBlocking: m.questionBlocking ?? false,
+              }
+            })
             break
           case 'status':
             if (
@@ -1663,7 +2069,15 @@ const ChatPage = () => {
         }
       }
     },
-    [activeChatAgentId, attachToolToThread, sendToolDecision, threadKey, useSuggestions, seatUnread],
+    [
+      activeChatAgentId,
+      attachQuestionToThread,
+      attachToolToThread,
+      sendToolDecision,
+      threadKey,
+      useSuggestions,
+      seatUnread,
+    ],
   )
 
   useEffect(() => {
@@ -1696,7 +2110,12 @@ const ChatPage = () => {
           setConnectAttempt((n) => n + 1)
         }, delay)
       }
-      return
+      return () => {
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current)
+          reconnectTimerRef.current = null
+        }
+      }
     }
     wsRef.current = ws
 
@@ -1916,35 +2335,128 @@ const ChatPage = () => {
     })
   }, [status, authRejected, signInHref, addToast, dismissByKind, reconnect])
 
-  const hasSendableDraft = input.trim().length > 0
+  const readyAttachIds = readyAttachmentIds(pendingAttachments)
+  const hasSendableDraft =
+    !pendingAttachments.some((item) => item.status === 'uploading') &&
+    (input.trim().length > 0 || readyAttachIds.length > 0)
+
+  const enqueueComposerFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return
+    const room = Math.max(0, 8 - pendingAttachments.length)
+    const incoming = files.slice(0, room).map(createPendingAttachment)
+    if (incoming.length === 0) return
+    setPendingAttachments((prev) => [...prev, ...incoming])
+    incoming.forEach((item) => {
+      void uploadChatAttachment(item.file)
+        .then((record) => {
+          setPendingAttachments((prev) =>
+            prev.map((row) =>
+              row.localId === item.localId
+                ? { ...row, uploadId: record.id, status: 'ready' }
+                : row,
+            ),
+          )
+        })
+        .catch(() => {
+          setPendingAttachments((prev) =>
+            prev.map((row) =>
+              row.localId === item.localId ? { ...row, status: 'error' } : row,
+            ),
+          )
+        })
+    })
+  }, [pendingAttachments.length])
+
+  const handleComposerPaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = imageFilesFromClipboard(event.clipboardData)
+      if (files.length === 0) return
+      event.preventDefault()
+      enqueueComposerFiles(files)
+    },
+    [enqueueComposerFiles],
+  )
+
+  const clearPendingAttachments = useCallback(() => {
+    setPendingAttachments((prev) => {
+      prev.forEach((item) => revokePreviewUrl(item.previewUrl))
+      return []
+    })
+  }, [])
 
   const sendText = useCallback(
     (text: string): boolean => {
       const ws = wsRef.current
-      const trimmed = text.trim()
+      const attachIds = readyAttachmentIds(pendingAttachments)
+      const trimmed =
+        text.trim() ||
+        (attachIds.length > 0
+          ? attachmentCaption(pendingAttachments.map((item) => item.name))
+          : '')
       if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return false
       lastUserTextRef.current = trimmed
       // Team compose adds params { team, target: "all" | memberId }.
       const pluginParams = enabledToolsParam(conversationIdRef.current)
+      const sectionParams = railSectionsParam()
+      const attachArg = attachIds.length > 0 ? attachIds : undefined
       if (teamFromUrl) {
         ws.send(
           buildChatWsFrame(trimmed, undefined, {
             team: teamFromUrl,
             target: memberTarget || ALL_MEMBERS_TARGET,
             ...pluginParams,
-          }),
+            ...sectionParams,
+          }, attachArg),
         )
+        clearPendingAttachments()
         return true
       }
       if (remoteFromUrl) {
+        if (isOpenMousBotKind(remoteFromUrl)) {
+          const target = ombSendTarget(sessionFromUrl, remoteFromUrl)
+          if (!target) {
+            addToast({
+              type: 'warning',
+              title: 'Select an OpenMousBot agent',
+              message: `${OMB_SELECT_AGENT_WARNING} gap=${OMB_BOT_REQUIRED_GAP}`,
+            })
+            return false
+          }
+          ws.send(
+            buildChatWsFrame(trimmed, 'remote_harness', {
+              remote: remoteFromUrl,
+              name: remoteFromUrl,
+              op: 'send',
+              target,
+              ...pluginParams,
+              ...sectionParams,
+            }),
+          )
+          return true
+        }
+        if (remoteListsSessions({ id: remoteFromUrl, kind: remoteFromUrl }) && !sessionFromUrl) {
+          void fetchRemoteThreadSessions({
+            id: remoteFromUrl,
+            kind: remoteFromUrl,
+            title: remoteFromUrl,
+          })
+            .then((sessions) => setRemoteThreadPicker(sessions))
+            .catch(() => setRemoteThreadPicker([]))
+          addToast({
+            type: 'info',
+            title: 'Pick a session',
+            message: 'Choose a remote session to resume, then send.',
+          })
+          return false
+        }
         ws.send(
           buildChatWsFrame(trimmed, 'remote_harness', {
-            remote: remoteFromUrl,
-            name: remoteFromUrl,
-            op: 'send',
+            ...remoteChatTurnParams(remoteFromUrl, sessionFromUrl),
             ...pluginParams,
-          }),
+            ...sectionParams,
+          }, attachArg),
         )
+        clearPendingAttachments()
         return true
       }
       const supportParams = isSupportAgent({
@@ -1973,15 +2485,23 @@ const ChatPage = () => {
         ...persistedSkills,
         ...parseComposerSkillNames(trimmed),
       ])
+      const seatRemote = loadAgentEdit(agentIdForInference).remote
+      const sessionRemote =
+        (searchParams.get('cli_remote') ?? '').trim() ||
+        (seatRemote?.box || remoteEndpointLabel(seatRemote) || '')
+      const elicitParams =
+        isApiAgent && loadElicitQuestions(agentIdForInference)
+          ? { elicit_questions: true }
+          : undefined
       const cliParams = isCliAgent
         ? {
-            cli: currentCli,
-            ...(selectedModelParam && selectedModelParam !== 'default' ? { model: selectedModelParam } : {}),
+            ...cliAgentChatParams(currentCli, selectedModelParam),
+            ...(sessionRemote ? { cli_remote: sessionRemote } : {}),
           }
         : isApiAgent && selectedModelParam && selectedModelParam !== 'default'
           ? { model: selectedModelParam }
           : selectedCli
-            ? { cli: selectedCli.cli }
+            ? { cli: selectedCli.cli, failover: false }
             : newChatPerTask
               ? { new_session: messages.length === 0 }
               : undefined
@@ -2010,22 +2530,20 @@ const ChatPage = () => {
         buildChatWsFrame(
           trimmed,
           runtimeBlueprint || selectedBlueprint || undefined,
-          supportParams ||
-          cliParams ||
-          inferenceParams ||
-          pluginParams ||
-          folderParams ||
-          Object.keys(skillParams).length              ? {
-                  ...cliParams,
-                  ...inferenceParams,
-                  ...supportParams,
-                  ...pluginParams,
-                  ...folderParams,
-                  ...skillParams,
-                }
-            : undefined,
+          mergeChatSendParams(
+            inferenceParams,
+            supportParams,
+            pluginParams,
+            folderParams,
+            skillParams,
+            sectionParams,
+            elicitParams,
+            cliParams,
+          ),
+          attachArg,
         ),
       )
+      clearPendingAttachments()
       return true
     },
     [
@@ -2044,13 +2562,18 @@ const ChatPage = () => {
       memberTarget,
       newChatPerTask,
       messages.length,
+      remoteFromUrl,
+      sessionFromUrl,
+      addToast,
+      pendingAttachments,
+      clearPendingAttachments,
     ],
   )
 
   const submitUserText = useCallback(
     (text: string) => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      if (!trimmed && readyAttachmentIds(pendingAttachments).length === 0) return
       // REQ-845 / #167: never drop a typed message on a closed/connecting socket. Keep
       // it in the per-conversation queue; the drain effect sends it on reopen.
       if (status !== 'open') {
@@ -2072,8 +2595,37 @@ const ChatPage = () => {
       setAwaitingAssistant(true)
       if (!sendText(trimmed)) setAwaitingAssistant(false)
     },
-    [addToast, awaitingAssistant, messages, queued, sendText, status],
+    [addToast, awaitingAssistant, messages, pendingAttachments, queued, sendText, status],
   )
+
+  const startFreshCliSession = useCallback(() => {
+    const agent = agentIdFromBlueprint(selectedBlueprint)
+    const minted = newConversationId()
+    setConversationIdForAgent(agent, minted)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (agent && agent !== DEFAULT_AGENT_ID) next.set('blueprint', agent)
+      next.set('session', minted)
+      return next
+    })
+  }, [selectedBlueprint, setSearchParams])
+
+  const retryCliSession = useCallback(() => {
+    const lastUser = [...messages].reverse().find((row) => row.role === 'user')
+    const text = (lastUserTextRef.current || lastUser?.text || '').trim()
+    if (text) submitUserText(text)
+  }, [messages, submitUserText])
+
+  const clearCliSessionHistory = useCallback(() => {
+    const agent = agentIdFromBlueprint(selectedBlueprint)
+    const previousId = conversationId
+    setThreads((prev) => ({ ...prev, [threadKey]: [] }))
+    void clearAgentThread(agent, previousId).catch(() => undefined)
+    startFreshCliSession()
+  }, [conversationId, selectedBlueprint, startFreshCliSession, threadKey])
+
+  const showCliSessionRecovery =
+    threadReady && !awaitingAssistant && lastTurnNeedsRecovery(messages)
 
   /**
    * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
@@ -2218,7 +2770,10 @@ const ChatPage = () => {
     setInput(val)
   }
 
-  const speechSettings = parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH)
+  const speechSettings = applyVoiceBindToSpeechSettings(
+    parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
+    voiceBind,
+  )
 
   const handleMic = () => {
     if (sttListening) {
@@ -2274,7 +2829,9 @@ const ChatPage = () => {
           void (async () => {
             try {
               const blob = await session.stop()
-              const spoken = await transcribeCustomBlob(blob)
+              const spoken = await transcribeCustomBlob(blob, 'audio.webm', {
+                agentId: activeChatAgentId,
+              })
               if (spoken) setInput((prev) => appendTranscript(prev, spoken))
             } catch (err) {
               addToast({
@@ -2314,8 +2871,18 @@ const ChatPage = () => {
         setPlusOpen(false)
       }
     }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setPlusOpen(false)
+      }
+    }
     window.addEventListener('mousedown', onPointer)
-    return () => window.removeEventListener('mousedown', onPointer)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onPointer)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [plusOpen])
 
   const streamingMessage = messages.find((message) => message.streaming)
@@ -2333,10 +2900,14 @@ const ChatPage = () => {
     [conversationId, selectedAgentName],
   )
   const chipsDisabled = status !== 'open'
+  const demoMode = isDemoMode()
+  const demoChips = demoMode ? demoSuggestionChips() : []
   const supportJourneyChips =
     supportSelected && messages.length === 0 ? supportJourneyKickstart() : []
-  const showSupportJourneyChips = supportJourneyChips.length > 0
+  const showSupportJourneyChips = !demoMode && supportJourneyChips.length > 0
+  const showDemoChips = demoMode && demoChips.length > 0
   const showSuggestionChips =
+    !demoMode &&
     !showSupportJourneyChips &&
     shouldShowSuggestionChips({
       enabled: useSuggestions,
@@ -2471,6 +3042,10 @@ const ChatPage = () => {
           })),
       })
       setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
+      if (result.usage) {
+        publishContextUsage(result.usage)
+        setContextUsage(result.usage)
+      }
     } catch (err) {
       const detail = err instanceof Error ? err.message.trim() : ''
       addToast({
@@ -2509,6 +3084,10 @@ const ChatPage = () => {
           spanEnd,
         })
         setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
+        if (result.usage) {
+          publishContextUsage(result.usage)
+          setContextUsage(result.usage)
+        }
       } catch (err) {
         const detail = err instanceof Error ? err.message.trim() : ''
         addToast({
@@ -2645,6 +3224,11 @@ const ChatPage = () => {
     }
 
     if (event.key === 'Escape') {
+      if (plusOpen) {
+        event.preventDefault()
+        setPlusOpen(false)
+        return
+      }
       if (replyTarget) {
         event.preventDefault()
         setReplyTarget(null)
@@ -2663,7 +3247,7 @@ const ChatPage = () => {
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      if (input.trim().length > 0) {
+      if (input.trim().length > 0 || readyAttachmentIds(pendingAttachments).length > 0) {
         const quotePrefix = replyTarget ? (replyTarget.speaker ? `> **${replyTarget.speaker}**: ` : `> `) : ''
         const textToSend = replyTarget
           ? `${quotePrefix}${replyTarget.text.replace(/\r\n/g, '\n').split('\n').join('\n> ')}\n\n${input}`
@@ -2740,8 +3324,16 @@ const ChatPage = () => {
 
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
-      <header className="os-chat-header">
-        <div className="os-chat-header__identity flex min-w-0 items-center gap-2 group">
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      <header className="os-chat-header gap-1.5 sm:gap-3">
+        <div className="os-chat-header__identity flex min-w-0 flex-1 items-center gap-2 group">
           {narrow ? (
             <button
               type="button"
@@ -2754,66 +3346,15 @@ const ChatPage = () => {
             </button>
           ) : null}
           <div
-            className="os-navbar-identity-card flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10 cursor-pointer"
+            className="os-navbar-identity-card flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10"
             data-testid="selected-agent-header"
-            role="button"
-            tabIndex={0}
-            aria-label={`Agent identity: ${selectedAgentName}`}
-            onClick={() => {
-              if (!teamFromUrl && selectedBlueprint) {
-                openAgentEditor({
-                  agentId: selectedBlueprint,
-                })
-                return
-              }
-              if (teamFromUrl) {
-                openTeamEditor({
-                  teamId: teamFromUrl,
-                  teamName: selectedTeam?.name || teamFromUrl,
-                })
-                return
-              }
-              const role = agentRole({
-                id: selectedBlueprint,
-                name: selectedAgentName,
-                role: selectedAgent?.role,
-              })
-              openSettingsSheet({
-                section: 'definition',
-                definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
-                definitionId: selectedBlueprint,
-                blueprintId: selectedBlueprint,
-              })
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                if (!teamFromUrl && selectedBlueprint) {
-                  openAgentEditor({
-                    agentId: selectedBlueprint,
-                  })
-                  return
-                }
-                if (teamFromUrl) {
-                  openTeamEditor({
-                    teamId: teamFromUrl,
-                    teamName: selectedTeam?.name || teamFromUrl,
-                  })
-                  return
-                }
-                const role = agentRole({
-                  id: selectedBlueprint,
-                  name: selectedAgentName,
-                  role: selectedAgent?.role,
-                })
-                openSettingsSheet({
-                  section: 'definition',
-                  definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
-                  definitionId: selectedBlueprint,
-                  blueprintId: selectedBlueprint,
-                })
-              }
-            }}
+            role="group"
+            aria-label={
+              workspaceSubtitle
+                ? `Agent identity: ${selectedAgentName}. ${workspaceSubtitle}`
+                : `Agent identity: ${selectedAgentName}`
+            }
+
           >
             {teamFromUrl && teamDeclaredRoster ? (
               <PersonaRoster
@@ -2830,7 +3371,10 @@ const ChatPage = () => {
                 aria-haspopup="dialog"
                 aria-expanded={generationsOpen}
                 data-testid="header-avatar-generations"
-                onClick={() => setGenerationsOpen((prev) => !prev)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setGenerationsOpen((prev) => !prev)
+                }}
               >
                 <AgentAvatar
                   src={selectedAgent?.avatar_path}
@@ -2843,32 +3387,43 @@ const ChatPage = () => {
                 />
               </button>
             ) : null}
-            <h1 className="truncate text-base font-semibold tracking-tight">
-              <button
-                type="button"
-                className="os-identity-btn truncate text-left"
-                aria-label={`Open ${selectedAgentName} definition`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (teamFromUrl) {
-                    openTeamEditor({
-                      teamId: teamFromUrl,
-                      teamName: selectedTeam?.name || teamFromUrl,
+            <div className="os-navbar-identity-text min-w-0 flex-1">
+              <h1 className="os-navbar-identity-label min-w-0 flex-1 text-base font-semibold tracking-tight">
+                <button
+                  type="button"
+                  className="os-identity-btn block w-full text-left"
+                  aria-label={`Open ${selectedAgentName} definition`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (teamFromUrl) {
+                      openTeamEditor({
+                        teamId: teamFromUrl,
+                        teamName: selectedTeam?.name || teamFromUrl,
+                      })
+                      return
+                    }
+                    openSettingsSheet({
+                      section: 'definition',
+                      definitionKind:
+                        isExampleRole(headerRole) || isChiefOfStaff(headerRole) ? 'role' : 'blueprint',
+                      definitionId: selectedBlueprint,
+                      blueprintId: selectedBlueprint,
                     })
-                    return
-                  }
-                  openSettingsSheet({
-                    section: 'definition',
-                    definitionKind:
-                      isExampleRole(headerRole) || isChiefOfStaff(headerRole) ? 'role' : 'blueprint',
-                    definitionId: selectedBlueprint,
-                    blueprintId: selectedBlueprint,
-                  })
-                }}
-              >
-                {selectedAgentName}
-              </button>
-            </h1>
+                  }}
+                >
+                  {selectedAgentName}
+                </button>
+              </h1>
+              {workspaceSubtitle ? (
+                <p
+                  className="os-navbar-identity-subtitle"
+                  data-testid="os-navbar-workspace-subtitle"
+                  title={workspaceSubtitle}
+                >
+                  {workspaceSubtitle}
+                </p>
+              ) : null}
+            </div>
             {showHeaderRole ? (
               <span
                 className={`os-agent-role-badge shrink-0 ${roleCssClass(headerRole)}`}
@@ -2880,7 +3435,7 @@ const ChatPage = () => {
               </span>
             ) : null}
             {teamFromUrl ? (
-              <div className="tooltip tooltip-bottom shrink-0" data-tip="Edit team">
+              <div className="tooltip tooltip-bottom shrink-0 hidden sm:flex" data-tip="Edit team">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-square os-navbar-edit-btn"
@@ -2897,7 +3452,7 @@ const ChatPage = () => {
                 </button>
               </div>
             ) : selectedBlueprint ? (
-              <div className="tooltip tooltip-bottom shrink-0" data-tip="Edit agent">
+              <div className="tooltip tooltip-bottom shrink-0 hidden sm:flex" data-tip="Edit agent">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-square os-navbar-edit-btn"
@@ -2915,13 +3470,13 @@ const ChatPage = () => {
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="os-chat-header__controls flex items-center shrink-0 gap-1 sm:gap-2">
           {/* Token visibility: only when using API agents (swarm owns the numbers).
               For remote, CLI, and non-API agent types, the token counter must not exist in the top navbar. */}
           {isApiAgent && (
             <button
               type="button"
-              className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case shrink-0"
+              className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case hidden sm:flex shrink-0"
               aria-label="Session token usage"
               data-testid="token-meter-button"
               onClick={() => setTokenDiagOpen(true)}
@@ -2960,11 +3515,13 @@ const ChatPage = () => {
                 label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
               }))}
               selectedAgent={selectedRemoteId}
-              models={[]}
-              selectedModel=""
+              models={remoteNavbarAgents.map((row) => row.id)}
+              modelOptions={remoteNavbarAgents}
+              selectedModel={ombSelectedBotId || sessionFromUrl}
+              modelWarning={remoteAgentWarning}
               footerAction={{
                 id: ADD_REMOTE_VALUE,
-                label: 'Add remote',
+                label: 'Manage Remote',
                 onSelect: () => openSettingsSheet({ section: 'remotes' }),
               }}
               onChange={(next) => {
@@ -2981,18 +3538,39 @@ const ChatPage = () => {
                   saveAgentRemoteBinding(bindingAgentId, null)
                   persistAgentDropdownChoice(bindingAgentId, { remote: '' })
                 }
-                if (remoteFromUrl && nextId && nextId !== remoteFromUrl) {
-                  setSearchParams((prev) => {
-                    const params = new URLSearchParams(prev)
-                    params.set('remote', nextId)
+                setSearchParams((prev) => {
+                  const params = new URLSearchParams(prev)
+                  if (nextId) params.set('remote', nextId)
+                  if (next.changed === 'model' && next.model) {
+                    params.set('session', next.model)
+                  } else if (next.changed === 'agent') {
                     params.delete('session')
-                    return params
-                  })
-                }
+                  }
+                  return params
+                })
               }}
             />
           ) : null}
-          {teamFromUrl ? (
+          {showRemotesControl && activeRemoteId ? (
+            <RemoteSessionSwitcher
+              remoteId={activeRemoteId}
+              remoteKind={selectedRemote?.kind || activeRemoteId}
+              remoteTitle={
+                configuredRemoteRows.find((row) => row.id === activeRemoteId)?.title ||
+                selectedRemote?.title ||
+                activeRemoteId
+              }
+              onSelectSession={(sessionId) => {
+                setSearchParams((prev) => {
+                  const params = new URLSearchParams(prev)
+                  params.set('remote', activeRemoteId)
+                  params.set('session', sessionId)
+                  return params
+                }, { replace: true })
+              }}
+            />
+          ) : null}
+          {productModes.team && teamFromUrl ? (
             <select
               className="select select-sm h-8 max-w-[12rem] border border-base-300 bg-base-100"
               value={memberTarget}
@@ -3034,7 +3612,7 @@ const ChatPage = () => {
               <option value={MANAGE_TEAMS_VALUE}>Manage Team</option>
             </select>
           ) : null}
-          {isCliAgent ? (
+          {productModes.cli && isCliAgent ? (
             <NavbarRoutingPicker
               seatKind="cli"
               aria-label="CLI"
@@ -3046,10 +3624,8 @@ const ChatPage = () => {
               preferredEffort={persistedDropdown.effort}
               footerAction={{
                 id: MANAGE_CLI_VALUE,
-                label: 'Manage Cli',
-                onSelect: () => {
-                  window.location.assign(MANAGE_CLI_HREF)
-                },
+                label: 'Manage CLI',
+                onSelect: () => openSettingsSheet({ section: 'cli-agents' }),
               }}
               onChange={applyCliRoutingChange}
             />
@@ -3061,7 +3637,47 @@ const ChatPage = () => {
               agentName={selectedAgentName}
             />
           ) : null}
-          {isApiAgent ? (
+          {isCliAgent && currentCli && isRemoteCapableCli(currentCli, cliQuery.data?.remote) ? (
+            <label className="flex items-center gap-1 min-w-0">
+              <span className="sr-only">CLI remote box</span>
+              <select
+                className="select select-xs select-bordered h-7 min-h-0 max-w-[12rem] font-medium"
+                aria-label="CLI remote box"
+                data-testid="select-cli-session-remote"
+                value={(searchParams.get('cli_remote') ?? '').trim() || loadAgentEdit(selectedBlueprint).remote?.box || ''}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setSearchParams(
+                    (prevParams) => {
+                      const nextParams = new URLSearchParams(prevParams)
+                      if (next) nextParams.set('cli_remote', next)
+                      else nextParams.delete('cli_remote')
+                      return nextParams
+                    },
+                    { replace: true },
+                  )
+                }}
+              >
+                <option value="">Local</option>
+                {(cliQuery.data?.remote_boxes ?? []).map((box) => (
+                  <option key={box.id || box.host} value={box.id || `${box.host}:${box.port}`}>
+                    {box.id || box.host}:{box.port}
+                  </option>
+                ))}
+                {loadAgentEdit(selectedBlueprint).remote?.host ? (
+                  <option
+                    value={
+                      loadAgentEdit(selectedBlueprint).remote?.box ||
+                      remoteEndpointLabel(loadAgentEdit(selectedBlueprint).remote)
+                    }
+                  >
+                    {remoteEndpointLabel(loadAgentEdit(selectedBlueprint).remote)}
+                  </option>
+                ) : null}
+              </select>
+            </label>
+          ) : null}
+          {productModes.api && isApiAgent ? (
             /* #108: API seats route through LLM profiles, not host CLIs. */
             <NavbarRoutingPicker
               seatKind="api"
@@ -3077,11 +3693,17 @@ const ChatPage = () => {
               }
               models={[]}
               selectedModel=""
+              defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
+              footerAction={{
+                id: '__manage_api__',
+                label: 'Manage API',
+                onSelect: () => openSettingsSheet({ section: 'llm-profiles' }),
+              }}
               onChange={applyApiRoutingChange}
             />
           ) : null}
           <div
-            className="flex items-center gap-2"
+            className="flex items-center shrink-0 gap-1 sm:gap-2"
             role="toolbar"
             aria-label="Chat tools"
           >
@@ -3093,7 +3715,7 @@ const ChatPage = () => {
             <ThemeToggle />
             <button
               type="button"
-              className="btn btn-ghost btn-sm btn-square"
+              className="btn btn-ghost btn-sm btn-square shrink-0"
               aria-label="Open settings"
               aria-haspopup="dialog"
               onClick={() => window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT))}
@@ -3127,6 +3749,9 @@ const ChatPage = () => {
         }
         data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
         data-composer-inset={composerInsetPx}
+        data-bubble-theme={bubbleTheme}
+        data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
+        data-timestamp-placement={getBubbleTheme(bubbleTheme).timestampPlacement}
         tabIndex={0}
         onScroll={handleTranscriptScroll}
       >
@@ -3148,7 +3773,9 @@ const ChatPage = () => {
         ) : messages.length === 0 && threadReady ? (
           <div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 text-center text-base-content/45">
             <p className="text-sm">Message {selectedAgentName}</p>
-            {showSupportJourneyChips ? (
+            {demoMode ? (
+              <DemoTourBanner disabled={chipsDisabled} onChoose={chooseSuggestion} />
+            ) : showSupportJourneyChips ? (
               <>
                 <p className="max-w-sm text-xs text-base-content/50">
                   Start with a team, a remote, or a CLI — one pane, no Settings maze.
@@ -3176,6 +3803,8 @@ const ChatPage = () => {
                     setHiddenSummaryIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
                   }
                   onToggleContext={handleToggleSummaryContext}
+                  canEdit={messagesEditable}
+                  onSaveEdit={handleSaveSummary}
                 />
               )
             }
@@ -3293,6 +3922,16 @@ const ChatPage = () => {
               messagesEditable &&
               !message.streaming &&
               (message.role === 'user' || message.role === 'assistant')
+            const canCompressThis =
+              (isApiAgent || agentKind === 'blueprint') &&
+              !message.streaming &&
+              (message.role === 'user' || message.role === 'assistant') &&
+              rawOffsetForMessage(messages, message.key) >= 0
+            const showRowActions =
+              !message.streaming &&
+              editingKey !== message.key &&
+              (message.role === 'user' || message.role === 'assistant') &&
+              (Boolean(message.text.trim()) || retryEnabled || canEditThis || canCompressThis)
             const isStreamingAssistant = message.role === 'assistant' && Boolean(message.streaming)
             const bubbleAvatar =
               message.role === 'assistant' ? (
@@ -3357,11 +3996,14 @@ const ChatPage = () => {
                   </div>
                 ) : null}
                 <ChatMessageBubble
+                  theme={bubbleTheme}
                   role={message.role}
                   agentName={selectedAgentName}
                   text={message.text}
                   streaming={message.streaming}
+                  seatId={activeChatAgentId}
                   edited={message.edited}
+                  ts={message.ts}
                   avatar={bubbleAvatar}
                   skillCatalog={skillCatalog}
                   onOpenSkill={setOpenSkillName}
@@ -3370,22 +4012,10 @@ const ChatPage = () => {
                       prev.includes(message.key) ? prev : [...prev, message.key],
                     )
                   }
-                  canEdit={canEditThis}
-                  canCompress={
-                    (isApiAgent || agentKind === 'blueprint') &&
-                    !message.streaming &&
-                    (message.role === 'user' || message.role === 'assistant') &&
-                    rawOffsetForMessage(messages, message.key) >= 0
-                  }
-                  contextStrategy={contextStrategy}
                   editing={editingKey === message.key}
-                  onStartEdit={() => setEditingKey(message.key)}
                   onCancelEdit={() => setEditingKey(null)}
                   onSaveEdit={(next) => {
                     if (messageIndex >= 0) void saveEditedMessage(messageIndex, next)
-                  }}
-                  onCompressToHere={() => {
-                    handleContextToHere(message)
                   }}
                 >
                   {message.subagentFanOut ? (
@@ -3414,11 +4044,54 @@ const ChatPage = () => {
                       }}
                     />
                   ))}
+                  {message.question ? (
+                    <QuestionCard
+                      question={message.question}
+                      disabled={
+                        message.questionAnswered === true ||
+                        (message.tools ?? []).some((tool) => tool.needsApproval)
+                      }
+                      onChoose={(value) => {
+                        if (message.questionBlocking) {
+                          sendQuestionAnswer(message.question!.id, value)
+                        } else {
+                          sendText(value)
+                        }
+                        setThreads((prev) => {
+                          const current = prev[threadKey] ?? []
+                          return {
+                            ...prev,
+                            [threadKey]: current.map((row) =>
+                              row.key === message.key
+                                ? { ...row, questionAnswered: true }
+                                : row,
+                            ),
+                          }
+                        })
+                      }}
+                    />
+                  ) : null}
                 </ChatMessageBubble>
-                {message.role === 'assistant' && !message.streaming && (message.text.trim() || retryEnabled) ? (
-                  <MessageRowActions text={message.text}>
-                    {message.text.trim() ? <ReadAloudButton text={message.text} /> : null}
-                    {SHOW_MESSAGE_ACTIONS && (
+                {showRowActions ? (
+                  <MessageRowActions
+                    text={message.text}
+                    canEdit={canEditThis}
+                    onStartEdit={() => setEditingKey(message.key)}
+                    canCompress={canCompressThis}
+                    contextStrategy={contextStrategy}
+                    onCompressToHere={() => {
+                      handleContextToHere(message)
+                    }}
+                    className={message.role === 'user' ? 'w-full justify-end' : undefined}
+                  >
+                    {message.role === 'assistant' && message.text.trim() ? (
+                      <ReadAloudButton
+                        text={message.text}
+                        agentId={activeChatAgentId}
+                        bind={voiceBind}
+                      />
+                    ) : null}
+                    {message.role === 'assistant' && SHOW_MESSAGE_ACTIONS && (
                       <ChatMessageActions
                         text={message.text}
                         onRetry={
@@ -3437,6 +4110,13 @@ const ChatPage = () => {
           })}
           </>
         )}
+        {showCliSessionRecovery ? (
+          <CliSessionRecoveryBanner
+            onStartFresh={startFreshCliSession}
+            onRetry={retryCliSession}
+            onClearHistory={clearCliSessionHistory}
+          />
+        ) : null}
         {awaitingAssistant && !streamingMessage && (
           <div
             className="os-chat-message os-chat-message--assistant group/osrow flex flex-col gap-1 items-start my-2"
@@ -3492,7 +4172,13 @@ const ChatPage = () => {
           className="os-chat-bottom-dock sticky bottom-0 z-20 -mx-2 sm:-mx-3 -mb-3 bg-base-100 border-t border-base-content/5"
           data-testid="chat-bottom-dock"
         >
-          {showSuggestionChips ? (
+          {showDemoChips ? (
+            <SuggestionChips
+              chips={demoChips}
+              disabled={chipsDisabled}
+              onChoose={chooseSuggestion}
+            />
+          ) : showSuggestionChips ? (
             <SuggestionChips
               chips={suggestionChips}
               disabled={chipsDisabled}
@@ -3513,6 +4199,21 @@ const ChatPage = () => {
               </span>
             </div>
           ) : null}
+          {showContextUsage && contextUsage ? (
+            <div
+              className="flex justify-end px-3 pt-1.5"
+              data-testid="context-usage-badge-slot"
+            >
+              <ContextUsageBadge
+                usage={contextUsage}
+                onOpenDetail={() =>
+                  openAgentEditor({
+                    agentId: selectedBlueprint || DEFAULT_AGENT_ID,
+                  })
+                }
+              />
+            </div>
+          ) : null}
           <form onSubmit={handleSend} className="os-composer-wrap">
             <div className="relative" ref={composerWrapRef}>
               <ComposerSlashPopup
@@ -3524,7 +4225,7 @@ const ChatPage = () => {
                 onSelectItem={handleSelectSlashItem}
                 recentIds={recentSlashIds}
               />
-              <div className={`os-composer ${replyTarget ? 'os-composer--reply flex-col items-stretch !rounded-2xl !p-2' : ''}`}>
+              <div className={`os-composer ${replyTarget || pendingAttachments.length > 0 ? 'flex-col items-stretch !rounded-2xl !p-2' : ''} ${replyTarget ? 'os-composer--reply' : ''}`}>
                 {replyTarget && (
                   <div
                     className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs text-base-content/70 border-b border-base-content/10 mb-1 w-full"
@@ -3554,8 +4255,31 @@ const ChatPage = () => {
                     </button>
                   </div>
                 )}
+                <ComposerAttachChips
+                  attachments={pendingAttachments}
+                  onRemove={(localId) => {
+                    setPendingAttachments((prev) => {
+                      const gone = prev.find((row) => row.localId === localId)
+                      revokePreviewUrl(gone?.previewUrl)
+                      return prev.filter((row) => row.localId !== localId)
+                    })
+                  }}
+                />
                 <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget ? 'w-full' : 'flex-1'}`}>
                   <div className="relative" ref={plusRef}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      data-testid="composer-file-input"
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      onChange={(event) => {
+                        enqueueComposerFiles(filesFromList(event.target.files))
+                        event.target.value = ''
+                      }}
+                    />
                     <button
                       type="button"
                       className="os-composer__icon"
@@ -3576,13 +4300,30 @@ const ChatPage = () => {
                           <button
                             type="button"
                             role="menuitem"
-                            className="os-plus-menu__item"
+                            aria-disabled={!attachFilesOk}
+                            className={`os-plus-menu__item ${!attachFilesOk ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            title={
+                              attachFilesOk
+                                ? 'Add files to this chat'
+                                : 'File attachments aren’t supported for CLI or remote seats'
+                            }
                             onClick={() => {
-                              void handleCompact()
+                              if (!attachFilesOk) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Add files',
+                                  message:
+                                    'File attachments aren’t supported for CLI or remote seats. Switch to an API agent to attach.',
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
+                              setPlusOpen(false)
+                              fileInputRef.current?.click()
                             }}
                           >
-                            <Layers className="h-4 w-4" aria-hidden="true" />
-                            Compact
+                            <Paperclip className="h-4 w-4" aria-hidden="true" />
+                            Add files
                           </button>
                         </li>
                         <li role="none">
@@ -3591,12 +4332,11 @@ const ChatPage = () => {
                             role="menuitem"
                             className="os-plus-menu__item"
                             onClick={() => {
-                              setPlusOpen(false)
-                              window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))
+                              void handleCompact()
                             }}
                           >
-                            <Users className="h-4 w-4" aria-hidden="true" />
-                            Compose team
+                            <Layers className="h-4 w-4" aria-hidden="true" />
+                            Compact
                           </button>
                         </li>
                       </ul>
@@ -3610,6 +4350,7 @@ const ChatPage = () => {
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleComposerKeyDown}
+                    onPaste={handleComposerPaste}
                     aria-label="Chat message"
                     aria-haspopup="listbox"
                     aria-expanded={isSlashOpen}
@@ -3740,6 +4481,60 @@ const ChatPage = () => {
                 {contextStrategy === 'cull' ? START_CONTEXT_FROM_HERE_LABEL : 'Compress to here'}
               </button>
             ) : null}
+            <div
+              className="os-bubble-theme-item relative"
+              data-testid="context-menu-bubble-theme-item"
+              data-open={bubbleThemeMenuOpen ? 'true' : undefined}
+              onMouseEnter={() => setBubbleThemeMenuOpen(true)}
+              onMouseLeave={() => setBubbleThemeMenuOpen(false)}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                aria-expanded={bubbleThemeMenuOpen}
+                className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
+                data-testid="context-menu-bubble-theme"
+                onClick={() => setBubbleThemeMenuOpen((open) => !open)}
+              >
+                <Palette className="h-4 w-4 opacity-70" aria-hidden="true" />
+                <span className="flex-1">Bubble theme</span>
+                <ChevronRight className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+              </button>
+              {bubbleThemeMenuOpen ? (
+                <ul
+                  role="menu"
+                  aria-label="Bubble theme"
+                  className="os-bubble-theme-submenu"
+                  data-testid="context-menu-bubble-theme-submenu"
+                >
+                  {BUBBLE_THEMES.map((id) => {
+                    const selected = bubbleTheme === id
+                    return (
+                      <li key={id}>
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={selected}
+                          className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
+                          data-testid={`context-menu-bubble-theme-${id}`}
+                          onClick={() => {
+                            setBubbleTheme(saveBubbleTheme(id))
+                            setContextMenu(null)
+                          }}
+                        >
+                          <Check
+                            className={`h-4 w-4 ${selected ? '' : 'opacity-0'}`}
+                            aria-hidden="true"
+                          />
+                          {BUBBLE_THEME_LABELS[id]}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+            </div>
           </div>
         </>
       )}
@@ -3800,6 +4595,27 @@ const ChatPage = () => {
         }}
         toolCalls={seatToolCalls}
       />
+
+      <SessionPicker
+        open={remoteThreadPicker !== null}
+        title={remoteFromUrl || 'Remote'}
+        sessions={remoteThreadPicker ?? []}
+        onClose={() => setRemoteThreadPicker(null)}
+        onSelect={(session) => {
+          const resumeId = String(session.memberId || session.id || '').trim()
+          if (!resumeId || !remoteFromUrl) return
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev)
+              next.set('remote', remoteFromUrl)
+              next.set('session', resumeId)
+              return next
+            },
+            { replace: true },
+          )
+          setRemoteThreadPicker(null)
+        }}
+      />
     </div>
   )
 }
@@ -3811,6 +4627,8 @@ function SummaryBlock({
   hiddenIds = [],
   onHide,
   onToggleContext,
+  canEdit = false,
+  onSaveEdit,
 }: {
   summary: ConversationSummary
   byId: Record<number, ConversationSummary>
@@ -3819,6 +4637,8 @@ function SummaryBlock({
   onHide?: (id: number) => void
   /** #214: persist the include-in-context tick for this summary. */
   onToggleContext?: (id: number, include: boolean) => void
+  canEdit?: boolean
+  onSaveEdit?: (id: number, text: string) => void
 }) {
   const parent =
     summary.parent_summary_id != null ? byId[summary.parent_summary_id] : undefined
@@ -3833,6 +4653,8 @@ function SummaryBlock({
       onRemove={() => onHide?.(summary.id)}
       inContext={summary.include_in_context !== false}
       onToggleContext={(include) => onToggleContext?.(summary.id, include)}
+      canEdit={canEdit}
+      onSaveEdit={(text) => onSaveEdit?.(summary.id, text)}
       nested={
         parent && !hiddenIds.includes(parent.id) ? (
           <SummaryBlock
@@ -3842,6 +4664,8 @@ function SummaryBlock({
             hiddenIds={hiddenIds}
             onHide={onHide}
             onToggleContext={onToggleContext}
+            canEdit={canEdit}
+            onSaveEdit={onSaveEdit}
           />
         ) : null
       }

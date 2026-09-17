@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { ChatMessageBubble } from '../ChatMessageBubble'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, within } from '@testing-library/react'
+import { ChatBubbleBody, ChatMessageBubble } from '../ChatMessageBubble'
+import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
+import { STREAM_REPLIES_STORAGE_KEY } from '../../lib/streamReplies'
+import { BUBBLE_THEME_STORAGE_KEY } from '../../lib/bubbleTheme'
 import * as clipboard from '../../lib/clipboard'
 
 describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse', () => {
@@ -35,9 +38,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={shortCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -58,9 +59,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -85,9 +84,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -109,9 +106,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -136,9 +131,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -156,9 +149,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -183,9 +174,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="Codey"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -209,9 +198,7 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
         agentName="User"
         text={longCode}
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -233,11 +220,9 @@ describe('REQ-121: Start context from here hover action', () => {
         agentName="You"
         text="later turn"
         streaming={false}
-        canEdit={false}
         canCompress={true}
         contextStrategy="cull"
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         onCompressToHere={onStart}
@@ -260,10 +245,8 @@ describe('REQ-87: Compress to here hover action', () => {
         agentName="You"
         text="older turn"
         streaming={false}
-        canEdit={false}
         canCompress={true}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         onCompressToHere={onCompress}
@@ -283,9 +266,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Stewie"
         text="Hello world"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -303,9 +284,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Stewie"
         text="Hello from assistant"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -324,9 +303,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         text="Edited message"
         streaming={false}
         edited={true}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -344,9 +321,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Support"
         text="**Agents**\n- Support · support\n\n**Inference** ready."
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -370,9 +345,7 @@ describe('REQ-122: No You / agent name labels above chat bubbles', () => {
         agentName="Support"
         text="preload body"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
       />,
@@ -395,9 +368,7 @@ describe('REQ-212 inline skill chips', () => {
         agentName="API agent"
         text="See skills/conventional-commit/SKILL.md for the contract."
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         skillCatalog={[
@@ -425,9 +396,7 @@ describe('REQ-212 inline skill chips', () => {
         agentName="You"
         text="/skill nope-not-real please"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         skillCatalog={[]}
@@ -444,9 +413,7 @@ describe('REQ-212 inline skill chips', () => {
         agentName="Codey"
         text="hello"
         streaming={false}
-        canEdit={false}
         editing={false}
-        onStartEdit={() => {}}
         onCancelEdit={() => {}}
         onSaveEdit={() => {}}
         ts="2026-09-03T06:54:00Z"
@@ -456,6 +423,204 @@ describe('REQ-212 inline skill chips', () => {
     expect(row).toHaveAttribute('data-speaker', 'Codey')
     expect(row).toHaveAttribute('data-ts', '2026-09-03T06:54:00Z')
     expect(screen.getByTestId('bubble-time')).toBeInTheDocument()
+  })
+})
+
+describe('REQ-868: settings markdown links open the in-app sheet', () => {
+  const bubbleProps = {
+    role: 'assistant' as const,
+    agentName: 'cli_agent',
+    streaming: false,
+    editing: false,
+    onCancelEdit: () => {},
+    onSaveEdit: () => {},
+  }
+
+  it('clicking Manage CLI opens Settings at cli-agents', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+    window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    render(
+      <ChatMessageBubble
+        {...bubbleProps}
+        text="No CLI agents are configured. Configure your installed CLIs in [Manage CLI](/chat?settings=cli-agents) (Settings → CLI Agents)."
+      />,
+    )
+    const link = screen.getByRole('link', { name: 'Manage CLI' })
+    expect(link).toHaveAttribute('href', '/chat?settings=cli-agents')
+    fireEvent.click(link)
+    expect(opened).toEqual([{ section: 'cli-agents' }])
+    window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+  })
+
+  it('settings:cli-agents protocol also opens the sheet', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+    window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    render(
+      <ChatMessageBubble
+        {...bubbleProps}
+        text="Open [Manage CLI](settings:cli-agents)."
+      />,
+    )
+    fireEvent.click(screen.getByRole('link', { name: 'Manage CLI' }))
+    expect(opened).toEqual([{ section: 'cli-agents' }])
+    window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+  })
+
+  it('ordinary markdown links do not open Settings', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+    window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    render(
+      <ChatMessageBubble
+        {...bubbleProps}
+        text="See [docs](https://example.com/path)."
+      />,
+    )
+    fireEvent.click(screen.getByRole('link', { name: 'docs' }))
+    expect(opened).toEqual([])
+    window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+  })
+})
+
+describe('markdown-safe streaming (#220)', () => {
+  afterEach(() => {
+    localStorage.removeItem(STREAM_REPLIES_STORAGE_KEY)
+    localStorage.removeItem(BUBBLE_THEME_STORAGE_KEY)
+  })
+
+  it('hides partial markdown while streaming when the user toggle is off', () => {
+    const { container } = render(
+      <ChatBubbleBody text="hello **wor" streaming />,
+    )
+    expect(container.querySelector('[data-testid="chat-md"]')).toBeNull()
+    expect(container.textContent).not.toContain('**wor')
+  })
+
+  it('renders only the balanced prefix while streaming when opted in', () => {
+    localStorage.setItem(STREAM_REPLIES_STORAGE_KEY, '1')
+    localStorage.setItem(BUBBLE_THEME_STORAGE_KEY, 'speech')
+    render(<ChatBubbleBody text="hello **wor" streaming />)
+    const md = screen.getByTestId('chat-md')
+    expect(md).toHaveAttribute('data-streaming-partial', 'true')
+    expect(md.innerHTML.toLowerCase()).not.toContain('**')
+    expect(md.textContent).toContain('hello')
+    expect(md.textContent).not.toContain('wor')
+    expect(screen.getByTestId('stream-affordance')).toBeInTheDocument()
+  })
+
+  it('flushes the held tail when streaming ends', () => {
+    localStorage.setItem(STREAM_REPLIES_STORAGE_KEY, '1')
+    render(<ChatBubbleBody text="hello **world**" streaming={false} />)
+    expect(screen.getByTestId('chat-md').innerHTML).toContain('<strong>world</strong>')
+  })
+})
+
+describe('#217: per-theme timestamp placement and message layout', () => {
+  const ts = '2026-09-03T06:54:00Z'
+
+  function renderThemed(
+    theme: 'speech' | 'simple' | 'irc' | 'feed',
+  ) {
+    return render(
+      <ChatMessageBubble
+        theme={theme}
+        role="assistant"
+        agentName="Codey"
+        text="hello"
+        streaming={false}
+        editing={false}
+        onCancelEdit={() => {}}
+        onSaveEdit={() => {}}
+        ts={ts}
+      />,
+    )
+  }
+
+  it('speech keeps the clock above in a bubble row', () => {
+    renderThemed('speech')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'bubble')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'above')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('chat-header')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+
+  it('simple puts the datetimestamp below a bubble', () => {
+    renderThemed('simple')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'bubble')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'below')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('chat-footer')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+
+  it('irc sits the clock inline on a full-width line', () => {
+    renderThemed('irc')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'line')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'inline')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('os-bubble-time-inline')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+
+  it('feed keeps the clock above on a full-width line', () => {
+    renderThemed('feed')
+    const row = screen.getByLabelText('Codey message')
+    expect(row).toHaveAttribute('data-message-layout', 'line')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'above')
+    const slot = screen.getByTestId('bubble-time-slot')
+    expect(slot).toHaveClass('chat-header')
+    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
+  })
+})
+
+describe('REQ-867: bubble click selects text; Edit lives in MessageRowActions', () => {
+  const defaultProps = {
+    role: 'user' as const,
+    agentName: 'You',
+    text: 'Hello world to select',
+    streaming: false,
+    editing: false,
+    onCancelEdit: () => {},
+    onSaveEdit: () => {},
+  }
+
+  it('does not start edit when the bubble is clicked or double-clicked', () => {
+    render(<ChatMessageBubble {...defaultProps} />)
+
+    const bubble = screen.getByTestId('chat-bubble')
+    expect(bubble).toHaveClass('select-text')
+    fireEvent.click(bubble)
+    fireEvent.doubleClick(bubble)
+
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument()
+  })
+
+  it('cancels on Escape and saves on Cmd+Enter while editing', () => {
+    const onCancelEdit = vi.fn()
+    const onSaveEdit = vi.fn()
+    render(
+      <ChatMessageBubble
+        {...defaultProps}
+        editing={true}
+        onCancelEdit={onCancelEdit}
+        onSaveEdit={onSaveEdit}
+      />,
+    )
+
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' })
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    expect(onCancelEdit).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(textarea, { target: { value: 'revised copy' } })
+    fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    expect(onSaveEdit).toHaveBeenCalledWith('revised copy')
   })
 })
 

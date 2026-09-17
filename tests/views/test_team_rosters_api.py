@@ -226,3 +226,50 @@ def test_create_showoff_roster_keeps_kind_clear_names(api_client):
     again = {m["id"]: m["name"] for m in loaded.json()["members"]}
     assert again == names
     assert "OMB" not in again.values()
+
+
+def test_create_roster_persists_tools_and_derived_wires(api_client):
+    response = api_client.post(
+        "/v1/team-rosters/",
+        {
+            "name": "Lab",
+            "members": [{"id": "jeeves", "kind": "api", "role": "default"}],
+            "tools": [
+                {"type": "handoff", "to": "jeeves"},
+                {"type": "mcp", "server": "github", "agents": []},
+            ],
+            "wires": {"handoff": False, "as_tool": True},
+        },
+        format="json",
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["tools"] == [
+        {"type": "handoff", "to": "jeeves"},
+        {"type": "mcp", "server": "github", "agents": []},
+    ]
+    assert body["wires"] == {"handoff": True, "as_tool": False}
+
+    locked = api_client.put(
+        "/v1/team-rosters/lab/",
+        {
+            "name": "Lab",
+            "members": [{"id": "jeeves", "kind": "api", "role": "default"}],
+            "tools": [{"type": "mcp", "server": "github", "agents": ["jeeves"]}],
+        },
+        format="json",
+    )
+    assert locked.status_code == 200
+    assert locked.json()["tools"] == [{"type": "mcp", "server": "github", "agents": ["jeeves"]}]
+    assert locked.json()["wires"] == {"handoff": False, "as_tool": False}
+
+    rejected = api_client.post(
+        "/v1/team-rosters/",
+        {
+            "name": "Nope",
+            "tools": [{"type": "mcp", "server": "github", "env": {"TOKEN": "secret"}}],
+        },
+        format="json",
+    )
+    assert rejected.status_code == 400
+    assert "secret-shaped" in rejected.json()["error"]

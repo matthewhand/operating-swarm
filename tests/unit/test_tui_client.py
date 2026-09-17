@@ -126,8 +126,17 @@ def test_list_rail_agents_merges_and_dedupes():
 
     seats = list_rail_agents(base_url="http://127.0.0.1:8000", token="test-token", getter=getter)
     # research is a child team of office → only the root office roster surfaces.
-    assert [s.id for s in seats] == ["support", "grok", "hermes", "team:office", "herdr:workbox"]
+    assert [s.id for s in seats] == [
+        "support",
+        "grok",
+        "remote:hermes",
+        "team:office",
+        "herdr:workbox",
+    ]
     assert seats[0] == RailSeat(id="support", name="Support", kind="api", source="blueprints")
+    assert seats[2] == RailSeat(
+        id="remote:hermes", name="Hermes", kind="remote", source="remotes"
+    )
     assert seats[2].kind == "remote"
     assert seats[3] == RailSeat(
         id="team:office", name="Office", kind="team", source="team-rosters"
@@ -141,6 +150,56 @@ def test_list_rail_agents_merges_and_dedupes():
     assert "poets" not in {s.id for s in seats}
     assert "rakazo" not in {s.id for s in seats}
     assert "team:research" not in {s.id for s in seats}
+
+
+def test_list_rail_agents_cli_first_modes_hide_disabled_surfaces():
+    def getter(url: str, headers: dict[str, str]) -> httpx.Response:
+        if url.endswith("/v1/blueprints/"):
+            return _response(
+                200,
+                {
+                    "object": "list",
+                    "data": [
+                        {"id": "support", "name": "Support", "rail": True, "kind": "api"},
+                        {"id": "poets", "name": "Poets", "rail": True, "kind": "blueprint"},
+                    ],
+                },
+            )
+        if url.endswith("/v1/cli-agents/"):
+            return _response(
+                200,
+                {
+                    "modes": {
+                        "cli": True,
+                        "api": False,
+                        "blueprint": False,
+                        "team": False,
+                        "remote": False,
+                    },
+                    "rail": [
+                        {"id": "cli_agent", "name": "cli_agent", "kind": "cli"},
+                        {"id": "api_agent", "name": "api_agent", "kind": "api"},
+                    ],
+                },
+            )
+        if url.endswith("/v1/remotes/"):
+            return _response(200, {"configured": [{"id": "hermes", "title": "Hermes"}]})
+        if url.endswith("/v1/team-rosters/"):
+            return _response(
+                200,
+                {"object": "list", "data": [{"id": "office", "name": "Office", "members": []}]},
+            )
+        if url.endswith("/v1/herdr-agents/"):
+            return _response(200, {"object": "list", "data": [{"name": "workbox"}]})
+        raise AssertionError(url)
+
+    seats = list_rail_agents(base_url="http://127.0.0.1:8000", getter=getter)
+    assert [s.id for s in seats] == ["support", "cli_agent"]
+    assert "api_agent" not in {s.id for s in seats}
+    assert "poets" not in {s.id for s in seats}
+    assert "hermes" not in {s.id for s in seats}
+    assert "team:office" not in {s.id for s in seats}
+    assert "herdr:workbox" not in {s.id for s in seats}
 
 
 def test_list_rail_agents_connection_error_is_honest():
@@ -430,15 +489,23 @@ def test_fetch_thread_session_gated_302_html_is_named():
     message = str(exc.value)
     assert "login-gated" in message
     assert "session cookie" in message
-    assert "Wave 3b" in message
+    assert "no cookie jar" in message
+    assert "Wave 3b skipped" in message
+    assert "lands in Wave 3b" not in message
 
 
-def test_fetch_thread_session_gated_401_is_named():
+def test_fetch_thread_401_is_auth_failure_not_login_gated():
     def getter(_url: str, _headers: dict[str, str]) -> httpx.Response:
         return _thread_response(401, {"detail": "nope"})
 
-    with pytest.raises(SwarmApiError, match="session cookie"):
+    with pytest.raises(SwarmApiError) as exc:
         fetch_thread(agent="grok", getter=getter)
+    message = str(exc.value)
+    assert "401" in message
+    assert "API auth" in message
+    assert "login-gated" not in message
+    assert "Wave 3b" not in message
+    assert "session cookie" not in message
 
 
 def test_fetch_thread_transport_error_is_honest():
@@ -453,8 +520,12 @@ def test_fetch_thread_http_error_is_named():
     def getter(_url: str, _headers: dict[str, str]) -> httpx.Response:
         return _thread_response(503, {"detail": "down"})
 
-    with pytest.raises(SwarmApiError, match="503"):
+    with pytest.raises(SwarmApiError) as exc:
         fetch_thread(agent="grok", getter=getter)
+    message = str(exc.value)
+    assert "503" in message
+    assert "login-gated" not in message
+    assert "Wave 3b" not in message
 
 
 # --- Wave 2b: send + stream via POST /v1/chat/completions (REST SSE) --------

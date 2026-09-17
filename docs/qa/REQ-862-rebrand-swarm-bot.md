@@ -188,5 +188,6 @@ The project architecture is structured into seven distinct layers:
 - [ ] Brand touchpoints in WebUI, CLI, templates, and `pyproject.toml` inventoried and aligned to OS naming.
 - [ ] The official brand tagline *"Treat external harnesses and peer instances as one common abstraction."* is featured in the top `README.md` hero header and documentation overview.
 - [ ] The hero architecture diagram `assets/brand/operating-swarm-hero-diagram.svg` is embedded in the top hero section of `README.md`.
+- [x] Source-lock test `tests/unit/test_req862_operating_swarm_rebrand.py` pins metadata, banners, README hero/tagline, and `os-*` architecture names.
 
 

@@ -503,6 +503,16 @@ class ChatCompletionsView(APIView):
         except Exception:
             logger.exception("Failed to install peer mailbox tools")
         try:
+            from swarm.core.agent_mcp import install_mcp_for_runtime
+
+            install_mcp_for_runtime(
+                blueprint_instance,
+                caller_id=str(model_name or ""),
+                params=blueprint_params if isinstance(blueprint_params, dict) else {},
+            )
+        except Exception:
+            logger.exception("Failed to install agent MCP tools")
+        try:
             from swarm.core.agent_lifecycle import install_lifecycle_for_runtime
 
             install_lifecycle_for_runtime(
@@ -513,6 +523,17 @@ class ChatCompletionsView(APIView):
             )
         except Exception:
             logger.exception("Failed to install Support/CoS lifecycle tools")
+        try:
+            from swarm.core.cos_topology import install_topology_for_runtime
+
+            install_topology_for_runtime(
+                blueprint_instance,
+                caller_id=str(model_name or ""),
+                user=getattr(request, "user", None),
+                params=blueprint_params if isinstance(blueprint_params, dict) else {},
+            )
+        except Exception:
+            logger.exception("Failed to install CoS section/topology tools")
 
         # Only after confirming existence, enforce permission check result
         if not access_granted:

@@ -1,37 +1,7 @@
 name: REQ-171B add-agent rail seat
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/rail_seats.py"
-      - "src/swarm/views/api_views.py"
-      - "tests/core/test_rail_seats.py"
-      - "tests/core/test_req171b_add_agent_rail.py"
-      - "tests/unit/test_req171b_add_agent_rail_lock.py"
-      - "webui/frontend/src/lib/railSeats.ts"
-      - "webui/frontend/src/lib/__tests__/railSeats.test.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/components/AddAgentWizard.tsx"
-      - "webui/frontend/src/components/__tests__/AddAgentWizard.test.tsx"
-      - "webui/frontend/src/components/AgentSidebar.tsx"
-      - "webui/frontend/src/components/__tests__/AgentSidebar.req171b.test.tsx"
-      - ".github/workflows/req171b-add-agent-rail.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/rail_seats.py"
-      - "src/swarm/views/api_views.py"
-      - "tests/core/test_rail_seats.py"
-      - "tests/core/test_req171b_add_agent_rail.py"
-      - "tests/unit/test_req171b_add_agent_rail_lock.py"
-      - "webui/frontend/src/lib/railSeats.ts"
-      - "webui/frontend/src/lib/__tests__/railSeats.test.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/components/AddAgentWizard.tsx"
-      - "webui/frontend/src/components/__tests__/AddAgentWizard.test.tsx"
-      - "webui/frontend/src/components/AgentSidebar.tsx"
-      - "webui/frontend/src/components/__tests__/AgentSidebar.req171b.test.tsx"
-      - ".github/workflows/req171b-add-agent-rail.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

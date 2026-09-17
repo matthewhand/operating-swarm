@@ -20,13 +20,29 @@ USER_FACING_KIND = "remote"
 
 # Catalog impl ids. ``swarm`` is the nested open-swarm remote — not the
 # stored fine kind ``swarm`` (persona/swarm *designs*, which stay API).
-REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "anythingllm", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IMPL_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack", "omb", "rakazo", "herdr", "swarm", "trueforge")
 
 # Ids that classifiers treat as Remote (exclude design-kind ``swarm``).
 REMOTE_IMPL_CLASSIFIER_IDS: frozenset[str] = frozenset(
     {
         "hermes",
         "anythingllm",
+        "letta",
+        "memgpt",
+        "openwebui",
+        "open-webui",
+        "open_webui",
+        "owui",
+        "flowise",
+        "flowiseai",
+        "n8n",
+        "n8n-io",
+        "slack",
+        "slackbot",
+        "slack-api",
+        "slack_api",
+        "nemo-slack",
+        "nemo_slack",
         "omb",
         "rakazo",
         "herdr",
@@ -53,11 +69,26 @@ _IMPL_ALIASES: dict[str, str] = {
     "open_swarm": "swarm",
     "true_forge": "trueforge",
     "true-forge": "trueforge",
+    "memgpt": "letta",
+    "open-webui": "openwebui",
+    "open_webui": "openwebui",
+    "owui": "openwebui",
+    "flowiseai": "flowise",
+    "flowise-ai": "flowise",
+    "n8n-io": "n8n",
+    "slackbot": "slack",
+    "slack-api": "slack",
+    "nemo-slack": "slack",
 }
 
 REMOTE_IMPL_LABELS: dict[str, str] = {
     "hermes": "Hermes",
     "anythingllm": "AnythingLLM",
+    "letta": "Letta",
+    "openwebui": "Open WebUI",
+    "flowise": "Flowise",
+    "n8n": "n8n",
+    "slack": "Slack",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
@@ -69,6 +100,11 @@ REMOTE_IMPL_LABELS: dict[str, str] = {
 REMOTE_IMPL_TRANSPORT: dict[str, str] = {
     "hermes": "http",
     "anythingllm": "http",
+    "letta": "http",
+    "openwebui": "http",
+    "flowise": "http",
+    "n8n": "http",
+    "slack": "http",
     "omb": "http",
     "rakazo": "http",
     "herdr": "cli",
@@ -232,7 +268,7 @@ def capabilities_for(impl_id: str) -> RemoteCapabilities:
         operate=computer,
         interrogate=rid == "herdr",
         routines=rid == "trueforge",
-        sessions=rid in {"hermes", "anythingllm"},
+        sessions=rid in {"hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack"},
         transport=REMOTE_IMPL_TRANSPORT.get(rid, "http"),
     )
 

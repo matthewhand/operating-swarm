@@ -14,6 +14,7 @@ on:
       - "docs/requirements/REQ-79.md"
       - "tests/core/test_self_update.py"
       - "tests/unit/test_req79_survival.py"
+      - "tests/unit/test_issue238_ci_honesty.py"
       - "tests/views/test_req79_spa_hydrate.py"
       - "tests/test_consumers.py"
       - "webui/frontend/index.html"
@@ -34,6 +35,7 @@ on:
       - "docs/requirements/REQ-79.md"
       - "tests/core/test_self_update.py"
       - "tests/unit/test_req79_survival.py"
+      - "tests/unit/test_issue238_ci_honesty.py"
       - "tests/views/test_req79_spa_hydrate.py"
       - "tests/test_consumers.py"
       - "webui/frontend/index.html"
@@ -41,8 +43,16 @@ on:
       - "webui/frontend/e2e/smoke.spec.ts"
       - ".github/workflows/req79-survival.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   own-diff:
+    # Job-level note (#250 / #238): Actions currently fails this job before
+    # step 1 with no logs (billing/spend). Local SWARM_TEST_MODE=1 pytest is
+    # the gate. Re-enable when #250 is resolved. Do not delete this workflow.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -62,9 +72,10 @@ jobs:
           uv run pytest \
             tests/core/test_self_update.py \
             tests/unit/test_req79_survival.py \
+            tests/unit/test_issue238_ci_honesty.py \
             tests/views/test_req79_spa_hydrate.py \
             tests/test_consumers.py \
-            -k "self_update or req79 or cli_stdout_github_pr or cli_stdout_without_pr or unused_tools or spa_root or blueprint_session_notice"
+            -k "self_update or req79 or issue238 or cli_stdout_github_pr or cli_stdout_without_pr or unused_tools or spa_root or blueprint_session_notice"
         env:
           DJANGO_ALLOW_ASYNC_UNSAFE: "true"
 

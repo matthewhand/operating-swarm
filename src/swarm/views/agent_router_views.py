@@ -8,13 +8,16 @@ API endpoints for the agent router blueprint that provides:
 """
 
 import json
+import logging
 from typing import Any
 
 from django.http import JsonResponse, StreamingHttpResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from swarm.auth import enforce_api_auth
 from swarm.blueprints.agent_router import AgentRouterBlueprint
+
+logger = logging.getLogger(__name__)
 
 # Initialize the agent router blueprint
 agent_router = AgentRouterBlueprint()
@@ -23,6 +26,57 @@ agent_router = AgentRouterBlueprint()
 def get_agent_router_blueprint():
     """Get or create the agent router blueprint instance."""
     return agent_router
+
+
+def annotate_chat_models(rows: Any) -> Any:
+    """Mark which roster seats are real completions ``model`` ids (#426).
+
+    ``GET /v1/agents/`` is the rail roster, and it reports ``agent_type`` per
+    seat. An ``api`` row reads as "POST this to ``/v1/chat/completions``", but
+    that is only true when the shared recipe (``resolve_chat_blueprint_id`` into
+    the discovered blueprints — the same helper ``consumers.py`` uses for
+    ``/ws/ai-demo/``) resolves it. Seats with no blueprint of their own stay on
+    the rail as chrome and report ``chat_model: None`` instead of 404ing a
+    completion.
+
+    Accepts either the ``{agent_id: row}`` mapping ``get_agent_info()`` returns
+    or the flat list ``list_agents()`` returns.
+    """
+    try:
+        from swarm.views.utils import get_available_blueprints_sync
+
+        available = get_available_blueprints_sync()
+    except Exception:
+        # Discovery is what /v1/models is built from, so a failure here means
+        # nothing resolves. Advertise nothing rather than advertise a 404.
+        logger.warning(
+            "Blueprint discovery failed; the roster reports no chat models",
+            exc_info=True,
+        )
+        available = {}
+    if not isinstance(available, dict):
+        available = {}
+
+    from swarm.core.agent_kind import resolve_chat_blueprint_id
+
+    if isinstance(rows, dict):
+        iterable = list(rows.values())
+    elif isinstance(rows, list):
+        iterable = rows
+    else:
+        return rows
+
+    for row in iterable:
+        if not isinstance(row, dict):
+            continue
+        seat_id = row.get("agent_id")
+        if not isinstance(seat_id, str) or not seat_id.strip():
+            row["chat_model"] = None
+            continue
+        row["chat_model"] = (
+            seat_id if resolve_chat_blueprint_id(seat_id) in available else None
+        )
+    return rows
 
 
 @require_http_methods(["GET"])
@@ -50,7 +104,8 @@ def list_agents(request):
     try:
         blueprint = get_agent_router_blueprint()
         agent_info = blueprint.get_agent_info()
-        
+        annotate_chat_models(agent_info.get("agents"))
+
         return JsonResponse({
             "status": "success",
             "data": agent_info,
@@ -107,7 +162,7 @@ def _run_sync(coro):
         return asyncio.run(coro)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def route_message(request):
     """
@@ -307,7 +362,8 @@ def get_agent_info(request, agent_id):
     try:
         blueprint = get_agent_router_blueprint()
         agents = blueprint.list_agents()
-        
+        annotate_chat_models(agents)
+
         # Find the agent by ID
         agent_info = None
         for agent in agents:
@@ -333,7 +389,7 @@ def get_agent_info(request, agent_id):
         }, status=500)
 
 
-@csrf_exempt  
+@enforce_api_auth  
 @require_http_methods(["POST"])
 def send_to_agent(request, agent_id):
     """
@@ -388,7 +444,15 @@ def send_to_agent(request, agent_id):
             params["context"] = context
             
         blueprint.set_params(params)
-        
+        try:
+            from swarm.core.agent_mcp import apply_mcp_to_agent
+
+            target = getattr(blueprint, "_agents", {}).get(agent_id)
+            if target is not None:
+                apply_mcp_to_agent(target, agent_id)
+        except Exception:
+            logger.debug("Agent MCP attach on send skipped", exc_info=True)
+
         # Prepare messages
         messages = [{"role": "user", "content": message}]
         if context:
@@ -460,7 +524,7 @@ def get_agent_status_view(request, agent_id):
         }, status=500)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def delegate_agent_view(request, agent_id):
     """
@@ -513,7 +577,7 @@ def delegate_agent_view(request, agent_id):
         }, status=500)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["GET", "POST"])
 def agent_conversations_view(request):
     """List or initiate conversations with agents."""
@@ -556,7 +620,7 @@ def agent_conversations_view(request):
         }, status=500)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["GET", "POST"])
 def agent_context_view(request, agent_id):
     """Get or update context for a specific agent."""
@@ -605,7 +669,7 @@ def agent_delegations_view(request):
     })
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def generate_agent_quickstarts(request):
     """Rewrite the four onboarding pills for an agent via the default LLM."""
@@ -629,7 +693,7 @@ def list_remote_catalog(request):
     return JsonResponse({"status": "success", "frameworks": catalog_frameworks()})
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def launch_remote_framework(request):
     """Start a local remote framework (currently DeepSeek Harness via ollama launch dsh)."""
@@ -700,17 +764,22 @@ def list_llm_profiles(request):
 def list_cli_catalog(request):
     """Catalog CLIs the designer can attach to a simple (non-openai-agents) agent."""
     from swarm.core.cli_catalog import CLI_MODELS, CATALOG, MODEL_FLAG, catalog_names, installed_catalog_clis
+    from swarm.core.cli_remote import remote_capability, remote_spec
 
     installed = set(installed_catalog_clis())
     clis = []
     for name in catalog_names():
         exe = CATALOG[name]["cmd"][0]
+        spec = remote_spec(name) or {}
         clis.append({
             "name": name,
             "executable": exe,
             "installed": name in installed,
             "model_flag": MODEL_FLAG.get(name) or "",
             "models": list(CLI_MODELS.get(name) or []),
+            "remote_capability": remote_capability(name),
+            "remote_how": str(spec.get("how") or remote_capability(name)),
+            "remote_default_port": spec.get("default_port"),
         })
     return JsonResponse({"status": "success", "clis": clis})
 
@@ -728,7 +797,7 @@ def list_designed_agents(request):
     return JsonResponse({"object": "list", "data": designs})
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["POST"])
 def create_designed_agent(request):
     """Create a Swarm agent: personality, openai-agents swarm, or CLI."""
@@ -764,7 +833,7 @@ def create_designed_agent(request):
     return JsonResponse({"status": "success", "agent": spec}, status=201)
 
 
-@csrf_exempt
+@enforce_api_auth
 @require_http_methods(["DELETE"])
 def delete_designed_agent(request, agent_id: str):
     """Remove a designer-created agent. Built-in agents cannot be deleted."""

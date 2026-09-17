@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Plug, Search, Settings2, X } from 'lucide-react'
+import { Tabs } from './DaisyUI'
 import { openSettingsSheet } from './SettingsSheet'
+import InstallCatalog from './InstallCatalog'
 import {
   CHAT_PLUGIN_TOOLS_EVENT,
   loadEnabledPluginToolIds,
   loadPluginCatalog,
   setPluginToolEnabled,
-  visiblePluginTools,
+  snapshotPluginToolOrder,
+  visiblePluginToolsFrozen,
   type PluginCatalogSource,
   type PluginTool,
 } from '../lib/chatPluginTools'
@@ -17,7 +20,15 @@ import {
   resolveChatScopeId,
 } from '../lib/chatScope'
 import { notifyOverlayClosed } from '../lib/chromeOverlay'
-import { MarketplaceScanSection } from './MarketplaceScanSection'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
+
+const PLUGIN_PANES = [
+  { key: 'chat', label: 'This chat' },
+  { key: 'tools', label: 'Add tools' },
+  { key: 'skills', label: 'Add skills' },
+] as const
+
+type PluginPane = (typeof PLUGIN_PANES)[number]['key']
 
 export interface PluginsPopupProps {
   open: boolean
@@ -33,6 +44,7 @@ function sourceCopy(source: PluginCatalogSource): string {
 export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
   const [searchParams] = useSearchParams()
   const [query, setQuery] = useState('')
+  const [pane, setPane] = useState<PluginPane>('chat')
   const [activeIdx, setActiveIdx] = useState(0)
   const [chatId, setChatId] = useState(() => resolveChatScopeId(searchParams))
   const [enabledIds, setEnabledIds] = useState<string[]>(() =>
@@ -51,6 +63,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
   useEffect(() => {
     if (!open) return
     setQuery('')
+    setPane('chat')
     setActiveIdx(0)
     refreshScope()
     requestAnimationFrame(() => inputRef.current?.focus())
@@ -88,9 +101,20 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
   }, [chatId, refreshScope, searchParams])
 
   const enabledSet = useMemo(() => new Set(enabledIds), [enabledIds])
+  // Re-sort only when the popup opens, the chat changes, or the catalog loads.
+  // Live On/Off toggles must not move rows (#278 / REQ-881).
+  const orderKey = open ? `${chatId}\0${tools.map((tool) => tool.id).join('\0')}` : ''
+  const freezeRef = useRef<{ key: string; ids: string[] }>({ key: '', ids: [] })
+  if (freezeRef.current.key !== orderKey) {
+    freezeRef.current = {
+      key: orderKey,
+      ids: orderKey ? snapshotPluginToolOrder(tools, enabledSet) : [],
+    }
+  }
+  const orderIds = freezeRef.current.ids
   const visible = useMemo(
-    () => visiblePluginTools(tools, query, enabledSet),
-    [enabledSet, query, tools],
+    () => visiblePluginToolsFrozen(tools, query, orderIds),
+    [orderIds, query, tools],
   )
 
   useEffect(() => {
@@ -129,6 +153,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
         close()
         return
       }
+      if (pane !== 'chat') return
       if (event.key === 'ArrowDown') {
         event.preventDefault()
         setActiveIdx((i) => Math.min(i + 1, Math.max(0, items.length - 1)))
@@ -147,7 +172,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [close, open, toggle])
+  }, [close, open, pane, toggle])
 
   if (!open) return null
 
@@ -155,6 +180,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
   const emptySearch = !emptyCatalog && visible.length === 0
 
   return (
+    <OverlayFocusTrap onClose={close} initialFocus={() => inputRef.current}>
     <div
       className="os-search-overlay os-search-overlay--centered"
       data-testid="os-plugins-overlay"
@@ -167,26 +193,38 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
         aria-modal="true"
         aria-label="Plugins"
         data-testid="os-plugins-popup"
-        className="os-search-palette os-search-palette--centered"
+        className={
+          pane === 'chat'
+            ? 'os-search-palette os-search-palette--centered'
+            : 'os-search-palette os-search-palette--centered os-search-palette--catalog'
+        }
       >
         <div className="os-search-palette__field">
-          <Search className="h-4 w-4 shrink-0 text-base-content/45" aria-hidden="true" />
-          <input
-            ref={inputRef}
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search tools"
-            aria-label="Filter tools"
-            aria-controls="os-plugin-results"
-            aria-activedescendant={
-              visible[activeIdx] ? `os-plugin-row-${visible[activeIdx].id}` : undefined
-            }
-            role="combobox"
-            aria-expanded="true"
-            autoComplete="off"
-            className="os-search-palette__input"
-          />
+          {pane === 'chat' ? (
+            <>
+              <Search className="h-4 w-4 shrink-0 text-base-content/45" aria-hidden="true" />
+              <input
+                ref={inputRef}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search tools"
+                aria-label="Filter tools"
+                aria-controls="os-plugin-results"
+                aria-activedescendant={
+                  visible[activeIdx] ? `os-plugin-row-${visible[activeIdx].id}` : undefined
+                }
+                role="combobox"
+                aria-expanded="true"
+                autoComplete="off"
+                className="os-search-palette__input"
+              />
+            </>
+          ) : (
+            <span className="os-search-palette__input text-sm font-medium">
+              {pane === 'tools' ? 'Add tools' : 'Add skills'}
+            </span>
+          )}
           <button
             type="button"
             className="btn btn-ghost btn-xs btn-circle"
@@ -197,10 +235,24 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
           </button>
         </div>
 
+        <div className="px-4 pb-2">
+          <Tabs
+            tabs={[...PLUGIN_PANES]}
+            activeTab={pane}
+            onChange={(key) => setPane(key as PluginPane)}
+            variant="boxed"
+            size="sm"
+            className="os-plugins-panes"
+          />
+        </div>
+
+        {pane === 'chat' ? (
         <p className="px-4 pb-2 text-[11px] text-base-content/50" data-testid="os-plugins-source">
           {sourceCopy(source)} Toggles apply to this chat only.
         </p>
+        ) : null}
 
+        {pane === 'chat' ? (
         <ul
           id="os-plugin-results"
           role="listbox"
@@ -278,14 +330,26 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
             })
           )}
         </ul>
+        ) : (
+          <InstallCatalog
+            surface={pane === 'skills' ? 'skills' : 'tools'}
+            onManage={() => openManage()}
+          />
+        )}
 
         <div className="os-search-palette__footer" aria-label="Plugins actions">
-          <span className="os-search-tip">
-            <kbd className="kbd kbd-xs">↑↓</kbd> Navigate
-          </span>
-          <span className="os-search-tip">
-            <kbd className="kbd kbd-xs">↵</kbd> Toggle
-          </span>
+          {pane === 'chat' ? (
+            <>
+              <span className="os-search-tip">
+                <kbd className="kbd kbd-xs">↑↓</kbd> Navigate
+              </span>
+              <span className="os-search-tip">
+                <kbd className="kbd kbd-xs">↵</kbd> Toggle
+              </span>
+            </>
+          ) : (
+            <span className="os-search-tip">Browse → detail → install</span>
+          )}
           <button
             type="button"
             className="btn btn-ghost btn-xs ml-auto text-primary"
@@ -295,10 +359,8 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
             Manage servers
           </button>
         </div>
-        <div className="os-search-palette__footer" aria-label="Get more plugins">
-          <MarketplaceScanSection kind="plugins" />
-        </div>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }

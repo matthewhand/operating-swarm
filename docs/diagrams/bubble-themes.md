@@ -1,66 +1,90 @@
-# Bubble themes — message chrome abstraction (REQ-852 / #217 target)
+# Bubble themes — message chrome abstraction (REQ-852 / #217)
 
 > A bubble theme owns **how a message looks**, not what it says. Each theme
 > decides placement of chrome (timestamp, status) and the shape of user vs
-> assistant bubbles. `#217` promotes this to an abstract base with overridable
-> hooks so a 'traditional chat' theme can put the datetimestamp at the bottom
-> of every message while IRC keeps it above/beside — without forking the
-> transcript renderer.
+> assistant bubbles. `#217` is an abstract base with overridable hooks so a
+> 'traditional chat' theme can put the datetimestamp at the bottom of every
+> message while IRC keeps it beside the line — without forking the transcript
+> renderer.
 
 ```mermaid
 classDiagram
     direction TB
 
-    class BubbleThemeTypes {
-        <<module lib/bubbleTheme.ts>>
-        BUBBLE_THEMES : speech simple irc feed
-        DEFAULT_BUBBLE_THEME : speech
-        BUBBLE_THEME_STORAGE_KEY
-        +parseBubbleTheme(raw) BubbleTheme
-        +loadBubbleTheme() BubbleTheme
-        +saveBubbleTheme(value) BubbleTheme
-        +formatBubbleTime(ts) string
-    }
-
-    class BubbleTheme_contract {
-        <<#217 abstract base, target shape>>
+    class BubbleThemeBase {
+        <<abstract lib/bubbleThemes/base.ts>>
         +id: BubbleTheme
-        +renderUserBubble(msg) Node
-        +renderAssistantBubble(msg) Node
-        +chromePlacement() top beside bottom
-        +renderTimestamp(msg) Node
+        +label: string
+        +messageLayout: bubble or line
+        +timestampPlacement: below above inline
+        +formatTimestamp(ts) string
+        +renderRoleBadge() Node
+        +renderAvatar() Node
+        +renderStreamingAffordance() Node
+        +composerChrome() ComposerChrome
+        +describe() dict
     }
 
     class SpeechTheme {
-        user pills, agent flat
+        bubble + timestamp above
     }
     class SimpleTheme {
-        trueforge-style user pills vs agent squares
+        bubble + timestamp below
     }
     class IrcTheme {
-        nick + time above/beside
+        line + timestamp inline
     }
     class FeedTheme {
-        dense event feed
+        line + timestamp above
     }
 
-    BubbleThemeTypes ..> BubbleTheme_contract : themes implement
-    BubbleTheme_contract <|.. SpeechTheme
-    BubbleTheme_contract <|.. SimpleTheme
-    BubbleTheme_contract <|.. IrcTheme
-    BubbleTheme_contract <|.. FeedTheme
+    BubbleThemeBase <|-- SpeechTheme
+    BubbleThemeBase <|-- SimpleTheme
+    BubbleThemeBase <|-- IrcTheme
+    BubbleThemeBase <|-- FeedTheme
+
+    class BUBBLE_THEME_REGISTRY {
+        <<registry lib/bubbleThemes/registry.ts>>
+        id -> BubbleThemeBase instance
+    }
+    BubbleThemeBase ..> BUBBLE_THEME_REGISTRY : registered by
+    BUBBLE_THEME_REGISTRY ..> bubbleTheme_ts : derives BUBBLE_THEMES + labels
+    bubbleTheme_ts ..> ChatMessageBubble : getBubbleTheme
 ```
 
-## Today vs the #217 target
+## Override matrix
 
-| Concern | Today (`lib/bubbleTheme.ts` + `ChatMessageBubble.tsx`) | #217 target |
-|---|---|---|
-| Theme set | `BUBBLE_THEMES = ['speech', 'simple', 'irc', 'feed']` (closed tuple) | Each theme is a class implementing the base interface; registry grows by subclassing |
-| Timestamp chrome | `formatBubbleTime()` shared; placement hard-coded per theme | `chromePlacement()` hook — `top` / `beside` / `bottom` |
-| User vs agent shapes | Theme branches inside `ChatMessageBubble` | `renderUserBubble` / `renderAssistantBubble` overrides |
-| Persistence | `localStorage` via `saveBubbleTheme`, `parseBubbleTheme` guards | unchanged |
+| Theme | `messageLayout` | `timestampPlacement` | Streaming (#220) |
+|---|---|---|---|
+| `speech` | `bubble` | `above` | `supportsStreaming` + caret |
+| `simple` | `bubble` | `below` | `supportsStreaming` + caret |
+| `irc` | `line` | `inline` | `supportsStreaming` + block |
+| `feed` | `line` | `above` | no live prefix |
+
+`formatTimestamp` defaults to `formatBubbleTime()`. `renderRoleBadge`,
+`renderAvatar`, `renderStreamingAffordance`, and `composerChrome` default to
+no-ops so a new theme is id + layout + placement.
+
+Streaming display is opt-in (#220): `BUBBLE_THEME_STREAMING` is the theme gate;
+a user toggle plus per-seat override sit on top. `renderMarkdownSafe` holds
+unclosed `**` / `*` / `` ` `` / fences / links until they balance or the
+stream ends.
+
+Persistence (`os.bubbleTheme`, `parseBubbleTheme` / `loadBubbleTheme` /
+`saveBubbleTheme`) is unchanged. `BUBBLE_THEMES` and `BUBBLE_THEME_LABELS`
+derive from the registry.
+
+## Sources
+
+- `webui/frontend/src/lib/bubbleThemes/base.ts` — `BubbleThemeBase`, `formatBubbleTime`, `formatTimestamp`
+- `webui/frontend/src/lib/bubbleThemes/registry.ts` — `registerBubbleTheme`, `allBubbleThemes`
+- `webui/frontend/src/lib/bubbleThemes/themes.ts` — `SpeechTheme`, `SimpleTheme`, `IrcTheme`, `FeedTheme`
+- `webui/frontend/src/lib/bubbleTheme.ts` — backward-compat facade (`DEFAULT_BUBBLE_THEME`, storage, `BUBBLE_THEME_STREAMING`)
+- `webui/frontend/src/lib/markdownSafe.ts` — `renderMarkdownSafe` (#220)
+- `webui/frontend/src/components/ChatMessageBubble.tsx` — renderer consults `getBubbleTheme`
+- Tests: `webui/frontend/src/lib/__tests__/bubbleTheme.test.ts`
 
 ## Honesty
 
 `tests/core/test_docs_diagrams.py` asserts the modules and exports named here
-exist — the #217 implementation must update this diagram in the same PR.
+exist — change the code, update this diagram in the same PR.

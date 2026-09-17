@@ -93,6 +93,12 @@ class ApiKindBase(KindBase):
             mcp_servers = kwargs.get("mcp_servers", [])
             agent = self.create_starting_agent(mcp_servers)
             try:
+                from swarm.core.sandbox import attach_sandbox_tools_to_agent
+
+                attach_sandbox_tools_to_agent(agent, config=getattr(self, "config", None))
+            except Exception:
+                logger.debug("Sandbox tool attachment skipped", exc_info=True)
+            try:
                 timeout = float(os.getenv("SWARM_AGENT_RUN_TIMEOUT", "30"))
             except (TypeError, ValueError):
                 timeout = 30.0

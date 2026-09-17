@@ -95,6 +95,7 @@ test('Bee theme is opt-in and paints both locked variants', async ({ page }) => 
   await expect(page.locator('svg[data-bee-variant="side-on"]').first()).toBeAttached()
   await expect(page.locator('svg[data-bee-variant="face-only"]').first()).toBeAttached()
   await expect(page.locator('[data-googly="true"]').first()).toBeAttached()
+  await expect(page.locator('svg[data-avatar-theme="bee"]').first()).toHaveAttribute('data-bee-accessory')
   await page.screenshot({
     path: path.join(ARTIFACTS, 'bee_theme_rail_both_variants.png'),
     fullPage: true,

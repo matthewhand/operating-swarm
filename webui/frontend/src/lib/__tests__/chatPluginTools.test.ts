@@ -8,9 +8,11 @@ import {
   resolvePluginCatalog,
   saveEnabledPluginToolIds,
   setPluginToolEnabled,
+  snapshotPluginToolOrder,
   sortPluginTools,
   toolsFromMcpPlugins,
   visiblePluginTools,
+  visiblePluginToolsFrozen,
 } from '../chatPluginTools'
 import { MCP_SERVERS_KEY } from '../mcpServers'
 
@@ -49,6 +51,15 @@ describe('plugin tool sort and search', () => {
       ['zebra_tool'],
     )
     expect(visible.map((tool) => tool.id)).toEqual(['zebra_tool', 'apple_tool', 'mid_tool'])
+  })
+
+  it('freezes snapshot order while filtering even if enablement changes (#278)', () => {
+    const snapshot = snapshotPluginToolOrder([zebra, apple, mid], [])
+    expect(snapshot).toEqual(['apple_tool', 'mid_tool', 'zebra_tool'])
+    const frozen = visiblePluginToolsFrozen([zebra, apple, mid], 'e', snapshot)
+    expect(frozen.map((tool) => tool.id)).toEqual(['apple_tool', 'mid_tool', 'zebra_tool'])
+    const resorted = visiblePluginTools([zebra, apple, mid], 'e', ['zebra_tool'])
+    expect(resorted.map((tool) => tool.id)).toEqual(['zebra_tool', 'apple_tool', 'mid_tool'])
   })
 
   it('filters by name, description, and server', () => {

@@ -54,6 +54,25 @@ export function filesFromList(list: FileList | File[] | null | undefined): File[
   return Array.from(list).filter((file) => file instanceof File && file.size >= 0)
 }
 
+/** Image files from a Ctrl/Cmd+V clipboard DataTransfer (REQ-811). */
+export function imageFilesFromClipboard(
+  data: DataTransfer | { files?: FileList | File[] | null; items?: DataTransferItemList | ArrayLike<DataTransferItem> | null } | null | undefined,
+): File[] {
+  if (!data) return []
+  const fromFiles = filesFromList(data.files).filter(isImageFile)
+  if (fromFiles.length > 0) return fromFiles
+  const items = data.items
+  if (!items) return []
+  const out: File[] = []
+  for (const item of Array.from(items as ArrayLike<DataTransferItem>)) {
+    if (!item || item.kind !== 'file') continue
+    if (!isImageFile({ type: item.type || '' })) continue
+    const file = item.getAsFile?.()
+    if (file) out.push(file)
+  }
+  return out
+}
+
 let localIdCounter = 0
 
 export function nextAttachmentLocalId(): string {
@@ -97,6 +116,14 @@ export async function uploadChatAttachment(file: File): Promise<ChatAttachmentRe
   const body = new FormData()
   body.append('file', file, file.name || 'file')
   return apiPostForm<ChatAttachmentRecord>(CHAT_ATTACHMENTS_PATH, body)
+}
+
+/** API/blueprint/team can consume upload ids. CLI/remote native sessions cannot (#427). */
+export function composerFileAttachSupported(opts: {
+  isCli?: boolean
+  isRemote?: boolean
+}): boolean {
+  return !opts.isCli && !opts.isRemote
 }
 
 export function readyAttachmentIds(items: PendingAttachment[]): string[] {

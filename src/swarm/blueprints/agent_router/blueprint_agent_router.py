@@ -131,9 +131,22 @@ class DesignedAgent:
             "remote_id": spec.get("remote_id") or "",
             "role": spec.get("role") or "",
             "personas": public_personas(spec.get("personas")),
+            "mcp_mode": spec.get("mcp_mode") or "off",
+            "mcp_servers": list(spec.get("mcp_servers") or []),
         }
         for key, value in self.metadata.items():
             setattr(self, key, value)
+        try:
+            from swarm.core.agent_mcp import apply_mcp_to_agent, get_mcp
+
+            mcp = get_mcp(spec["agent_id"], spec=spec)
+            self.metadata["mcp_mode"] = mcp["mode"]
+            self.metadata["mcp_servers"] = list(mcp["mcp_servers"])
+            self.mcp_mode = mcp["mode"]
+            self.mcp_servers = list(mcp["mcp_servers"])
+            apply_mcp_to_agent(self, spec["agent_id"], spec=spec)
+        except Exception:
+            logger.debug("Designed agent MCP attach skipped", exc_info=True)
 
 
 class AgentRouterBlueprint(ApiKindBase):
@@ -605,6 +618,13 @@ Remember to provide a clear, unified response to the user, even when multiple ag
                 logger.warning("Designed personality %s fell back to stub: %s", agent_id, exc)
         if attached is None:
             attached = DesignedAgent(spec)
+        else:
+            try:
+                from swarm.core.agent_mcp import apply_mcp_to_agent
+
+                apply_mcp_to_agent(attached, agent_id, spec=spec)
+            except Exception:
+                logger.debug("Designed personality MCP attach skipped", exc_info=True)
         self._agents[agent_id] = attached
         self._agent_status[agent_id] = "idle"
         self._agent_contexts[agent_id] = {}
@@ -621,6 +641,17 @@ Remember to provide a clear, unified response to the user, even when multiple ag
             personas = public_personas(
                 meta.get("personas") or getattr(agent, "personas", None)
             )
+            try:
+                from swarm.core.agent_mcp import get_mcp
+
+                mcp = get_mcp(agent_id, spec=meta)
+                mcp_mode = mcp["mode"]
+                mcp_servers = list(mcp["mcp_servers"])
+            except Exception:
+                mcp_mode = meta.get("mcp_mode") or getattr(agent, "mcp_mode", "") or "off"
+                mcp_servers = list(
+                    meta.get("mcp_servers") or getattr(agent, "mcp_servers", None) or []
+                )
             agents_info[agent_id] = {
                 "name": agent.name,
                 "specialty": meta.get("specialty", getattr(agent, "specialty", "General")),
@@ -642,6 +673,8 @@ Remember to provide a clear, unified response to the user, even when multiple ag
                 "remote_id": meta.get("remote_id") or "",
                 "role": meta.get("role") or getattr(agent, "role", "") or "",
                 "personas": personas,
+                "mcp_mode": mcp_mode,
+                "mcp_servers": mcp_servers,
             }
             
         return {
@@ -1203,6 +1236,16 @@ Remember to provide a clear, unified response to the user, even when multiple ag
             from swarm.core.cli_catalog import apply_model
 
             entry = apply_model(entry, cli_name, model)
+        from swarm.core.cli_remote import resolve_cli_remote
+
+        endpoint = resolve_cli_remote(
+            cli_name,
+            config=self._config if isinstance(self._config, dict) else None,
+            params=self._params if isinstance(self._params, dict) else None,
+        )
+        if endpoint:
+            entry = dict(entry)
+            entry["remote"] = endpoint
         if cli_name in ("grok", "agy", "claude"):
             mcp = (self._config if isinstance(self._config, dict) else {}) or {}
             servers = mcp.get("mcpServers")

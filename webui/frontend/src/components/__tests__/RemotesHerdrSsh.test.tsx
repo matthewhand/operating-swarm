@@ -29,7 +29,10 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
         const url = String(input)
-        if (url.includes('/v1/remotes/') && init?.method === 'POST') {
+        // Only the create call is the subject here. #453 added a target list on
+        // pane mount, which POSTs to /v1/remotes/<id>/operate/ right after a
+        // save selects the new remote — capturing that would clobber the payload.
+        if (url.includes('/v1/remotes/') && !url.includes('/operate/') && init?.method === 'POST') {
           postPayload = JSON.parse(String(init.body))
           return {
             ok: true,

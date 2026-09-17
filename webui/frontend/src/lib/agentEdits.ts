@@ -31,7 +31,7 @@ const AGENT_ROLES: readonly AgentRole[] = [
 ]
 
 function isAgentRole(value: unknown): value is AgentRole {
-  return typeof value === 'string' && (AGENT_ROLES as readonly string[]).includes(value)
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 export interface AgentEdit {
@@ -48,6 +48,8 @@ export interface AgentEdit {
   workflow?: BlueprintWorkflow
   llmOverride?: string
   folder?: string
+  /** Last known git branch for the bound Folder (navbar subtitle, #65). */
+  gitBranch?: string
   /** REQ-166 Phase 0 — GitHub repo bind (chrome + local persist; no checkout). */
   githubRepo?: string
   /** REQ-166 Phase 0 — worktree scale-out toggle (chrome only; stays off until Phase 3). */
@@ -59,6 +61,14 @@ export interface AgentEdit {
   inferenceList?: string[]
   /** REQ-212 attached SKILL.md names for API / Blueprint-backed seats. */
   skills?: string[]
+  /** Issue #180: optional remote serve endpoint (host/port/auth_env/box). */
+  remote?: {
+    host?: string
+    port?: number
+    username?: string
+    password_env?: string
+    box?: string
+  }
 }
 
 export type AgentEditMap = Record<string, AgentEdit>
@@ -114,8 +124,11 @@ export function saveAgentEdit(agentId: string, patch: AgentEdit): AgentEdit {
     else delete next.name
   }
   if (patch.role !== undefined) {
-    const role = isAgentRole(patch.role) ? patch.role : 'default'
-    if (role !== 'default') next.role = role
+    const role =
+      typeof patch.role === 'string'
+        ? patch.role.trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_')
+        : 'default'
+    if (role && role !== 'default' && role !== 'none') next.role = role
     else delete next.role
   }
   if (patch.roleOverridden !== undefined) {
@@ -139,8 +152,15 @@ export function saveAgentEdit(agentId: string, patch: AgentEdit): AgentEdit {
   }
   if (patch.folder !== undefined) {
     const folder = patch.folder.trim()
+    const prev = (current.folder || '').trim()
     if (folder) next.folder = folder
     else delete next.folder
+    if (folder !== prev && patch.gitBranch === undefined) delete next.gitBranch
+  }
+  if (patch.gitBranch !== undefined) {
+    const gitBranch = patch.gitBranch.trim()
+    if (gitBranch) next.gitBranch = gitBranch
+    else delete next.gitBranch
   }
   if (patch.githubRepo !== undefined) {
     const githubRepo = patch.githubRepo.trim()
@@ -175,6 +195,22 @@ export function saveAgentEdit(agentId: string, patch: AgentEdit): AgentEdit {
     const skills = [...new Set(patch.skills.map((name) => name.trim()).filter(Boolean))]
     if (skills.length) next.skills = skills
     else delete next.skills
+  }
+  if (patch.remote !== undefined) {
+    const remote = patch.remote
+    const host = String(remote?.host || '').trim()
+    const port = Number(remote?.port)
+    if (host && Number.isInteger(port) && port > 0) {
+      next.remote = {
+        host,
+        port,
+        ...(remote?.username ? { username: remote.username } : {}),
+        ...(remote?.password_env ? { password_env: remote.password_env } : {}),
+        ...(remote?.box ? { box: remote.box } : {}),
+      }
+    } else {
+      delete next.remote
+    }
   }
 
   if (Object.keys(next).length === 0) delete map[agentId]

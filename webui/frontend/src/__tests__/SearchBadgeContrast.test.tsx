@@ -28,8 +28,8 @@ describe('REQ-197: Search Ctrl-K badge transparent opacity and contrast', () => 
 
     expect(css).toContain('.os-rail-search__kbd')
     expect(css).toContain('background-color: transparent !important;')
-    expect(css).toContain('.os-rail-search:hover .os-rail-search__kbd')
-    expect(css).toContain('.os-rail-search:focus-within .os-rail-search__kbd')
+    expect(css).toContain('.os-agent-sidebar:hover .os-rail-search__kbd')
+    expect(css).not.toContain('.os-rail-search:focus-within .os-rail-search__kbd')
   })
 
   it('renders search badge without black fill obstructing search field', () => {
@@ -43,9 +43,9 @@ describe('REQ-197: Search Ctrl-K badge transparent opacity and contrast', () => 
       </QueryClientProvider>,
     )
 
-    const searchInput = screen.getByRole('searchbox')
-    expect(searchInput).toBeInTheDocument()
-    expect(searchInput).toHaveAttribute('placeholder', 'Search')
+    const searchTrigger = screen.getByRole('button', { name: 'Search' })
+    expect(searchTrigger).toBeInTheDocument()
+    expect(searchTrigger).toHaveTextContent('Search')
 
     const kbd = screen.getByText(/Ctrl\+K|⌘K|Alt\+K/i)
     expect(kbd).toBeInTheDocument()

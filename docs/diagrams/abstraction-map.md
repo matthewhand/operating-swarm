@@ -60,7 +60,8 @@ flowchart TB
   (datetimestamp placement: bottom for traditional chat, above/beside for IRC).
 - **#219** — Chief-of-Staff sections: topology tools so a CoS can bound which
   agents talk to which, creating teams of teams.
-- **#220** — theme-gated optional streaming with markdown-safe partial render.
+- **#220** — theme-gated optional streaming with markdown-safe partial render
+  (`renderMarkdownSafe` + `supportsStreaming` / `renderStreamingAffordance`).
 
 ## Honesty
 

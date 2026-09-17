@@ -5,6 +5,7 @@ import {
   isConversationSummary,
   type ConversationSummary,
 } from './chatCompact'
+import { parseContextUsage, type ContextUsage } from './contextUsage'
 import { newConversationId } from './chatWs'
 import { asTranscriptRole, isStatusRole, type ChatTranscriptRole } from './chatStatus'
 import { messagesFromThreadPayload } from './transcriptReconstruct'
@@ -144,6 +145,8 @@ export interface AgentThreadMessage {
   kind?: 'prior_history'
   /** ISO timestamp so status/info chrome can show when it occurred after reload. */
   ts?: string
+  /** Terminal CLI/config failure — Chat shows a recovery banner (#274). */
+  fatal_config_error?: boolean
 }
 
 export interface AgentThread {
@@ -180,6 +183,7 @@ export interface CompactResult {
   summary: ConversationSummary
   summaries: ConversationSummary[]
   raw_count?: number
+  usage?: ContextUsage | null
 }
 
 function parseThreadMessage(value: unknown): AgentThreadMessage | null {
@@ -192,6 +196,7 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
     ts?: unknown
     timestamp?: unknown
     created_at?: unknown
+    fatal_config_error?: unknown
   }
   if (typeof row.role !== 'string' || typeof row.content !== 'string') return null
   if (row.edited !== undefined && row.edited !== true) return null
@@ -214,6 +219,7 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
   if (row.edited === true) parsed.edited = true
   const ts = row.ts || row.timestamp || row.created_at
   if (typeof ts === 'string' && ts.trim()) parsed.ts = ts.trim()
+  if (row.fatal_config_error === true) parsed.fatal_config_error = true
   return parsed
 }
 
@@ -289,6 +295,35 @@ export async function patchAgentMessage(
   }
 }
 
+/** POST /chat/thread/?agent= — wipe a poisoned thread (#274). */
+export async function clearAgentThread(
+  agentId: string,
+  conversationId?: string,
+): Promise<AgentThread> {
+  const agent = agentIdFromBlueprint(agentId)
+  await ensureCsrfCookie()
+  const data = await apiPost<AgentThread>(
+    `/chat/thread/?agent=${encodeURIComponent(agent)}${conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : ''}`,
+    { action: 'clear', conversation_id: conversationId },
+  )
+  const reconstructed = messagesFromThreadPayload(data || {})
+  const messages = reconstructed
+    .map(parseThreadMessage)
+    .filter((row): row is AgentThreadMessage => row != null)
+  const kind = classifyAgentKind(agent, data?.kind)
+  return {
+    agent_id: typeof data?.agent_id === 'string' ? data.agent_id : agent,
+    conversation_id:
+      typeof data?.conversation_id === 'string' && data.conversation_id
+        ? data.conversation_id
+        : conversationId || conversationIdForAgent(agent),
+    messages,
+    summaries: parseSummaries(data?.summaries),
+    kind,
+    editable: data?.editable === true || (data?.editable !== false && kind === 'api'),
+  }
+}
+
 /** POST /chat/thread/?agent= — append a status/turn message (REQ-46). */
 export async function appendAgentMessage(
   agentId: string,
@@ -348,6 +383,7 @@ export async function compactAgentThread(opts: {
     summary,
     summaries: summaries.length ? summaries : [summary],
     raw_count: data?.raw_count,
+    usage: parseContextUsage((data as { usage?: unknown })?.usage),
   }
 }
 
@@ -355,15 +391,15 @@ export async function compactAgentThread(opts: {
 export async function toggleSummaryInContext(opts: {
   summaryId: number
   includeInContext: boolean
-}): Promise<ConversationSummary> {
-  const data = await apiPost<{ summary: unknown }>('/chat/summary/toggle-context/', {
+}): Promise<{ summary: ConversationSummary; usage?: ContextUsage | null }> {
+  const data = await apiPost<{ summary: unknown; usage?: unknown }>('/chat/summary/toggle-context/', {
     summary_id: opts.summaryId,
     include_in_context: opts.includeInContext,
   })
   if (!isConversationSummary(data?.summary)) {
     throw new Error('Toggle returned no summary')
   }
-  return data.summary
+  return { summary: data.summary, usage: parseContextUsage(data?.usage) }
 }
 
 /** POST /chat/context-start/ — start chat context from a chosen message (REQ-121). */

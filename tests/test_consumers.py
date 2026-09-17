@@ -16,6 +16,7 @@ Covers:
 import asyncio
 import json
 import re
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -473,6 +474,100 @@ class TestReceive:
         assert len(consumer.messages) == 0
 
     @pytest.mark.asyncio
+    async def test_receive_empty_message_with_attachments_runs(self, consumer):
+        """REQ-811: image-only paste still starts a turn."""
+        consumer.messages = []
+        aid = str(uuid.uuid4())
+        text_data = json.dumps({"message": "  ", "attachments": [aid]})
+
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "respond_with_default_model", new_callable=AsyncMock
+                ) as mock_default:
+                    await consumer.receive(text_data)
+
+        mock_default.assert_awaited_once()
+        assert consumer.messages[0]["role"] == "user"
+        assert consumer.messages[0]["attachments"] == [aid]
+        assert consumer.messages[0]["content"] == "Attached file"
+
+    @pytest.mark.asyncio
+    async def test_default_model_messages_include_image_url_parts(self, consumer):
+        """REQ-811: consumer expands image attachments to image_url parts."""
+        consumer.messages = []
+        aid = str(uuid.uuid4())
+
+        def fake_expand(_user, messages, **_kwargs):
+            out = []
+            for msg in messages:
+                row = dict(msg)
+                if row.get("role") == "user":
+                    row["content"] = [
+                        {"type": "text", "text": row.get("content") or ""},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abc"},
+                        },
+                    ]
+                    row.pop("attachments", None)
+                out.append(row)
+            return out
+
+        async def mock_stream():
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta.content = "a red square"
+            yield mock_chunk
+            mock_chunk2 = MagicMock()
+            mock_chunk2.choices = [MagicMock()]
+            mock_chunk2.choices[0].delta.content = None
+            yield mock_chunk2
+
+        with patch(
+            "swarm.consumers._expand_model_messages",
+            new_callable=AsyncMock,
+            side_effect=lambda _consumer, messages: fake_expand(None, messages),
+        ):
+            with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+                with patch("swarm.consumers.AsyncOpenAI") as mock_openai:
+                    mock_client = MagicMock()
+                    mock_client.base_url = "http://198.51.100.30:8000/v1"
+                    mock_client.chat.completions.create = AsyncMock(
+                        return_value=mock_stream()
+                    )
+                    mock_client.close = AsyncMock()
+                    mock_openai.return_value = mock_client
+                    import swarm.consumers as consumers_module
+
+                    original_os = consumers_module.os
+                    mock_os = MagicMock()
+                    mock_os.getenv = MagicMock(return_value="test-key")
+                    mock_os.environ = {
+                        "OPENAI_API_KEY": "test-key",
+                        "OPENAI_MODEL": "auxiliary",
+                    }
+                    consumers_module.os = mock_os
+                    try:
+                        with patch.object(consumer, "send", new_callable=AsyncMock):
+                            await consumer.receive(
+                                json.dumps(
+                                    {
+                                        "message": "what is this",
+                                        "attachments": [aid],
+                                    }
+                                )
+                            )
+                    finally:
+                        consumers_module.os = original_os
+
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        user_content = kwargs["messages"][0]["content"]
+        assert isinstance(user_content, list)
+        assert any(part.get("type") == "image_url" for part in user_content)
+        assert "Attached" not in json.dumps(user_content)
+
+    @pytest.mark.asyncio
     async def test_receive_missing_message_key_is_ignored(self, consumer):
         """JSON without 'message' key is logged and dropped, socket survives."""
         text_data = json.dumps({"content": "Hello"})
@@ -649,6 +744,79 @@ class TestReceive:
         )
         assert future.result() == "allow"
         assert consumer.messages == []
+
+    @pytest.mark.asyncio
+    async def test_question_answer_is_not_blocked_by_in_flight_turn(self, consumer):
+        """ask_user answers must resolve while the turn lock is held."""
+        hold = asyncio.Event()
+        entered = asyncio.Event()
+
+        async def fake_respond(*_args, **_kwargs):
+            entered.set()
+            await hold.wait()
+
+        consumer.messages = []
+        consumer.default_blueprint = "chatbot"
+        future = asyncio.get_running_loop().create_future()
+        consumer._pending_question_answers = {"q-1": future}
+
+        with patch("swarm.consumers.render_to_string", return_value="<div/>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "respond_with_blueprint", side_effect=fake_respond
+                ):
+                    turn = asyncio.create_task(
+                        consumer.receive(
+                            json.dumps({"message": "hello", "blueprint": "chatbot"})
+                        )
+                    )
+                    await asyncio.wait_for(entered.wait(), timeout=2)
+                    await consumer.receive(
+                        json.dumps(
+                            {
+                                "type": "question_answer",
+                                "id": "q-1",
+                                "answer": "staging",
+                            }
+                        )
+                    )
+                    assert future.result() == "staging"
+                    hold.set()
+                    await turn
+
+    @pytest.mark.asyncio
+    async def test_receive_question_answer_resolves_pending_and_skips_chat(self, consumer):
+        future = asyncio.get_running_loop().create_future()
+        consumer.messages = []
+        consumer._pending_question_answers = {"q-1": future}
+        await consumer.receive(
+            json.dumps({"type": "question_answer", "id": "q-1", "answer": "canary"})
+        )
+        assert future.result() == "canary"
+        assert consumer.messages == []
+
+    @pytest.mark.asyncio
+    async def test_elicit_user_question_emits_event_and_resumes(self, consumer):
+        from swarm.core.ask_user import demo_profile_question
+
+        sent = []
+
+        async def fake_send(*, text_data=None, **_kwargs):
+            sent.append(text_data)
+
+        consumer.send = fake_send
+        consumer.active_agent = "chatbot"
+        consumer._pending_question_answers = {}
+        question = demo_profile_question()
+        task = asyncio.create_task(consumer.elicit_user_question(question))
+        await asyncio.sleep(0)
+        frames = [json.loads(raw) for raw in sent if raw and raw.strip().startswith("{")]
+        event = next(frame for frame in frames if frame.get("type") == "user_question")
+        assert event["ask"] == question["ask"]
+        assert event["choices"] == question["choices"]
+        assert event["other"] == question["other"]
+        await consumer.resolve_question_answer({"id": event["id"], "answer": "prod"})
+        assert await asyncio.wait_for(task, timeout=2) == "prod"
 
     @pytest.mark.asyncio
     async def test_edit_frame_updates_transcript_used_by_next_turn(self, consumer):
@@ -1238,6 +1406,85 @@ class TestBlueprintSelection:
 
         assert all("Started a new" not in str(frame) for frame in frames)
         assert all(m.get("content") != "Started a new grok session." for m in consumer.messages)
+        assert all(
+            m.get("content") != "Started a new grok session."
+            for m in getattr(consumer, "ui_events", [])
+        )
+
+    @pytest.mark.asyncio
+    async def test_receive_skips_new_session_notice_when_hop_already_recorded(
+        self, consumer, tmp_path, monkeypatch
+    ):
+        """REQ-866: hop notice already in the transcript suppresses the short line."""
+        monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+        hop = (
+            "Started a new grok session (qwen → grok). "
+            "No prior context to carry from qwen."
+        )
+        consumer.messages = []
+        consumer.ui_events = [{"role": "status", "content": hop, "seq": 0}]
+        consumer.conversation_id = "conv-cli-hop"
+
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock):
+                with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                    await consumer.receive(
+                        json.dumps(
+                            {
+                                "message": "hello",
+                                "blueprint": "cli_agent",
+                                "params": {"cli": "grok"},
+                            }
+                        )
+                    )
+                    frames = [
+                        call.kwargs.get("text_data") or call.args[0]
+                        for call in mock_send.await_args_list
+                    ]
+
+        assert all("Started a new grok session." not in str(frame) for frame in frames)
+        assert all(
+            m.get("content") != "Started a new grok session."
+            for m in getattr(consumer, "ui_events", [])
+        )
+
+    @pytest.mark.asyncio
+    async def test_receive_skips_new_session_notice_when_hop_persisted(
+        self, consumer, tmp_path, monkeypatch
+    ):
+        """REQ-866: REST hop on disk suppresses the prompt-time line on a stale socket."""
+        monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+        hop = (
+            "Started a new grok session (qwen → grok). "
+            "No prior context to carry from qwen."
+        )
+        consumer.messages = []
+        consumer.ui_events = []
+        consumer.conversation_id = "conv-cli-hop-disk"
+        persisted = {
+            "messages": [],
+            "ui_events": [{"role": "status", "content": hop}],
+        }
+
+        with patch("swarm.consumers._load_agent_record", return_value=persisted):
+            with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+                with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock):
+                    with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                        await consumer.receive(
+                            json.dumps(
+                                {
+                                    "message": "hello",
+                                    "blueprint": "cli_agent",
+                                    "params": {"cli": "grok"},
+                                }
+                            )
+                        )
+                        frames = [
+                            call.kwargs.get("text_data") or call.args[0]
+                            for call in mock_send.await_args_list
+                        ]
+
+        assert all("Started a new grok session." not in str(frame) for frame in frames)
         assert all(
             m.get("content") != "Started a new grok session."
             for m in getattr(consumer, "ui_events", [])

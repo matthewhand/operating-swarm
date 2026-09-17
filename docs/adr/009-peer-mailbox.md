@@ -26,7 +26,7 @@ No secrets. No Neon. GitHub-only docs (no local demo-port seed).
 
 **Visibility (Matthew 2026-09-04):** when a bot is on a **team**, list/send is **only other members of that team**. A **relationship** between team↔agent or team↔team makes members mutually discoverable across that edge — not a global mesh.
 
-**ACL (REQ-162 / #573):** Support allow-all (same-kind); others start at team ∪ edges; per-agent or per-role **whitelist XOR blacklist**. Entries target **agent** (rail/roster id), **team** (roster id → every member), or **role** (canonical role). Agent Editor toggles the mode and add/removes entries — no config-file hunting. Empty Support whitelist stays allow-all.
+**ACL (REQ-162 / #573):** Support allow-all (same-kind); others start at team ∪ edges; per-agent or per-role **whitelist XOR blacklist**. Entries target **agent** (rail/roster id), **team** (roster id → every member), **role** (canonical role), or **section** (CoS rail section, Issue #219). Agent Editor toggles the mode and add/removes entries — no config-file hunting. Empty Support whitelist stays allow-all. CoS `set_talk_acl` writes the same store.
 
 **Constraints:** Align with teams CoS. No Neon. No secrets in Issues.
 

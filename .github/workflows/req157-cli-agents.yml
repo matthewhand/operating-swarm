@@ -1,49 +1,7 @@
 name: REQ-157 CLI agents opt-in
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/cli_catalog.py"
-      - "src/swarm/core/swarm_cli.py"
-      - "src/swarm/core/config_ownership.py"
-      - "src/swarm/apps.py"
-      - "src/swarm/views/api_views.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "tests/core/test_cli_catalog.py"
-      - "tests/core/test_req157_cli_agents.py"
-      - "tests/api/test_cli_agents_opt_in.py"
-      - "tests/api/test_blueprint_source.py"
-      - "tests/cli/test_cli_agents_command.py"
-      - "webui/frontend/src/lib/cliAgents.ts"
-      - "webui/frontend/src/lib/cliAgentContext.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/__tests__/cliAgents.test.ts"
-      - "webui/frontend/src/lib/__tests__/cliAgentContext.test.ts"
-      - "webui/frontend/src/components/CliAgentsSettingsPane.tsx"
-      - "webui/frontend/src/components/__tests__/CliAgentsSettingsPane.test.tsx"
-      - ".github/workflows/req157-cli-agents.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/cli_catalog.py"
-      - "src/swarm/core/swarm_cli.py"
-      - "src/swarm/core/config_ownership.py"
-      - "src/swarm/apps.py"
-      - "src/swarm/views/api_views.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "tests/core/test_cli_catalog.py"
-      - "tests/core/test_req157_cli_agents.py"
-      - "tests/api/test_cli_agents_opt_in.py"
-      - "tests/api/test_blueprint_source.py"
-      - "tests/cli/test_cli_agents_command.py"
-      - "webui/frontend/src/lib/cliAgents.ts"
-      - "webui/frontend/src/lib/cliAgentContext.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/__tests__/cliAgents.test.ts"
-      - "webui/frontend/src/lib/__tests__/cliAgentContext.test.ts"
-      - "webui/frontend/src/components/CliAgentsSettingsPane.tsx"
-      - "webui/frontend/src/components/__tests__/CliAgentsSettingsPane.test.tsx"
-      - ".github/workflows/req157-cli-agents.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:
@@ -67,7 +25,8 @@ jobs:
             tests/core/test_req157_cli_agents.py \
             tests/core/test_cli_catalog.py \
             tests/api/test_cli_agents_opt_in.py \
-            tests/cli/test_cli_agents_command.py
+            tests/cli/test_cli_agents_command.py \
+            tests/unit/test_issue117_cli_settings_compact.py
         env:
           DJANGO_ALLOW_ASYNC_UNSAFE: "true"
 

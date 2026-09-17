@@ -9,8 +9,8 @@ print_logger = logging.getLogger('print_debug')
 
 class MessageSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=["system", "user", "assistant", "tool"])
-    # Content is CharField, allows null/blank by default
-    content = serializers.CharField(allow_null=True, required=False, allow_blank=True)
+    # String, null, or OpenAI multimodal parts (text + image_url).
+    content = serializers.JSONField(allow_null=True, required=False)
     name = serializers.CharField(required=False, allow_blank=True)
 
     # Removed validate_content
@@ -83,7 +83,10 @@ class ChatCompletionRequestSerializer(serializers.Serializer):
              # *** Check raw content type here ***
              content = raw_msg.get('content', None)
              if 'content' in raw_msg and content is not None and not isinstance(content, str):
-                  msg_errors['content'] = ["Content must be a string or null."] # Match test assertion
+                  from swarm.core.chat_attachments import is_multimodal_content
+
+                  if not is_multimodal_content(content):
+                      msg_errors['content'] = ["Content must be a string or null."] # Match test assertion
 
              # Add other raw checks if needed (e.g., role type)
 

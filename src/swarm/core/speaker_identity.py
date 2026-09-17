@@ -72,6 +72,11 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "path": "delimiter",
         "notes": "One-shot argv/stdin prompt; no message objects.",
     },
+    "cli:kilocode": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "One-shot argv/stdin prompt; no message objects.",
+    },
     "cli:pi": {
         "name_field": "stripped",
         "path": "delimiter",
@@ -94,6 +99,37 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
             "Thread chat POST takes a prompt string and replies with "
             "textResponse; no Chat Completions message objects."
         ),
+    },
+    "remote:letta": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": (
+            "Agent message POST takes a prompt string and replies with "
+            "assistant_message content; no Chat Completions message objects."
+        ),
+    },
+    "remote:openwebui": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": (
+            "External Open WebUI chat completions; resume key is an existing "
+            "chat id. Not Operating Swarm's own WebUI."
+        ),
+    },
+    "remote:flowise": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "Flowise prediction stream; resume key is flowId or flowId:chatId.",
+    },
+    "remote:n8n": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "n8n webhook/chat workflow resume; session is workflow id or webhook path.",
+    },
+    "remote:slack": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "Slack bot threads as sessions; resume key is channel:thread_ts.",
     },
     "remote:omb": {
         "name_field": "stripped",

@@ -1,3 +1,5 @@
+import { parseContextUsage, type ContextUsage } from './contextUsage'
+import { questionFromPayload, type DecisionQuestion } from './decisionQuestion'
 import { parsePrOpened, type PrOpenedEvent } from './prOpened'
 import {
   isRateLimitWait,
@@ -58,6 +60,11 @@ export type ChatWsEvent =
       agentId?: string
     }
   | {
+      kind: 'user_question'
+      question: DecisionQuestion
+      agentId?: string
+    }
+  | {
       kind: 'status'
       text: string
       rateLimit?: RateLimitWait
@@ -67,6 +74,7 @@ export type ChatWsEvent =
   | { kind: 'subagent_fan_out'; event: SubagentFanOutData }
   | { kind: 'spa_hello'; spaVersion: string }
   | { kind: 'suggestions'; suggestions: string[] }
+  | { kind: 'context_usage'; usage: ContextUsage }
   | {
       kind: 'interbot_hop'
       id: string
@@ -75,6 +83,22 @@ export type ChatWsEvent =
       pending: boolean
     }
   | { kind: 'unknown'; raw: string }
+
+/** Keys-and-size summary for unknown frames — never log the raw payload. */
+export function summarizeUnknownWsFrame(raw: string): string {
+  const bytes = new TextEncoder().encode(raw).length
+  let keys = ''
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const names = Object.keys(parsed as Record<string, unknown>).slice(0, 8)
+      if (names.length) keys = `; keys=${names.join(',')}`
+    }
+  } catch {
+    // HTML / non-JSON
+  }
+  return `kind=unknown; bytes=${bytes}${keys}`
+}
 
 const OOB_CHUNK_PREFIX = 'beforeend:#'
 const ASSISTANT_ID_PREFIX = 'message-response-'
@@ -92,6 +116,29 @@ export function buildChatWsUrl(
 
 /** Optional per-message params (team target, CLI, …) forwarded to the consumer. */
 export type ChatWsParams = Record<string, unknown>
+
+/**
+ * Merge per-turn WS params. Later objects win on key conflicts so an explicit
+ * CLI dropdown (`cli` / `failover: false`) is not overwritten by inference seats.
+ */
+export function mergeChatSendParams(
+  ...parts: Array<ChatWsParams | undefined | null>
+): ChatWsParams | undefined {
+  const merged: ChatWsParams = {}
+  for (const part of parts) {
+    if (!part) continue
+    Object.assign(merged, part)
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined
+}
+
+/** cli_agent dropdown send params: try this CLI only (issue #99). */
+export function cliAgentChatParams(cli: string, model?: string): ChatWsParams {
+  const params: ChatWsParams = { cli, failover: false }
+  const trimmed = (model ?? '').trim()
+  if (trimmed && trimmed !== 'default') params.model = trimmed
+  return params
+}
 
 /** Build the JSON frame sent to DjangoChatConsumer.receive(). */
 export function buildChatWsFrame(
@@ -112,6 +159,11 @@ export function buildToolDecisionFrame(
   decision: 'allow' | 'always' | 'deny',
 ): string {
   return JSON.stringify({ type: 'tool_decision', id, decision })
+}
+
+/** Resume an in-flight ``ask_user`` tool (issue #221). */
+export function buildQuestionAnswerFrame(id: string, answer: string): string {
+  return JSON.stringify({ type: 'question_answer', id, answer })
 }
 
 /** Build the JSON frame that edits an existing transcript turn (REQ-49). */
@@ -171,6 +223,16 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
         agentId: payload.agent_id ? String(payload.agent_id) : undefined,
       }
     }
+    if (type === 'user_question') {
+      const question = questionFromPayload(payload)
+      if (question) {
+        return {
+          kind: 'user_question',
+          question,
+          agentId: payload.agent_id ? String(payload.agent_id) : undefined,
+        }
+      }
+    }
     if (type === 'pr_opened') {
       const event = parsePrOpened(payload)
       if (event) return { kind: 'pr_opened', event }
@@ -199,6 +261,11 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
     if (type === 'suggestions') {
       const suggestions = parseSuggestions(payload)
       return { kind: 'suggestions', suggestions }
+    }
+    if (type === 'context_usage') {
+      const usage = parseContextUsage(payload)
+      if (!usage) return { kind: 'unknown', raw }
+      return { kind: 'context_usage', usage }
     }
     if (type === 'rate_limit_wait' || payload.object === 'open_swarm.rate_limit_wait') {
       if (isRateLimitWait(payload)) {

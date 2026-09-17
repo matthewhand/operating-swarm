@@ -1,12 +1,14 @@
-# Open Swarm User Guide: `swarm-cli`
+# Operating Swarm User Guide: `os-cli`
 
-This guide is the task-oriented reference for the `swarm-cli` command-line
-tool: managing blueprints and configuration in your Open Swarm environment.
-It assumes you have installed `open-swarm` (from source: `uv sync
---all-extras`; from PyPI: `pip install open-swarm`). Every command documented
-here is verified against `swarm-cli --help`.
+This guide is the task-oriented reference for the `os-cli` command-line
+tool (`os` is the same command): managing blueprints and configuration in
+your Operating Swarm (OS) environment. Bare `os` / `os-cli` (or `os chat` /
+`os tui`) opens the TUI to chat with configured agents. It assumes you have installed from source (`uv sync --all-extras`)
+or, once published, `pip install os-core` (legacy `open-swarm` on PyPI is a
+deprecation alias — see [#296](https://github.com/matthewhand/open-swarm-private/issues/296)).
+Every command documented here is verified against `os-cli --help` (`os --help` is the same).
 
-> **Documentation map:** this file is the `swarm-cli` reference;
+> **Documentation map:** this file is the `os-cli` reference;
 > [docs/USER_JOURNEY.md](./docs/USER_JOURNEY.md) is the end-to-end story
 > (install → CLI → web UI → API) with real transcripts;
 > [docs/GUIDED_TOUR.md](./docs/GUIDED_TOUR.md) is the **screenshot tour** of the
@@ -39,10 +41,10 @@ here is verified against `swarm-cli --help`.
 
 <!-- from-scratch: list.txt -->
 ```text
-swarm-cli list
+os-cli list
 ```
 
-`swarm-cli` ships these commands (verify with `swarm-cli --help`):
+`os-cli` ships these commands (verify with `os-cli --help`):
 
 | Command | Purpose |
 | --- | --- |
@@ -62,14 +64,14 @@ swarm-cli list
 | `moa` | Mixture of Agents (`--backend fake\|grok\|acpx`; `--act` / `--act-write`, or `--team --workdir` + `--team-tasks` for scripted consensus→team — not a live Runner) |
 | `moa-init` | Install/merge default `moa` panel config/presets (`--write`, `--show-openwebui`; team mode is CLI/model-path, not a preset key) |
 
-Run `swarm-cli --help` or `swarm-cli <command> --help` for the authoritative
+Run `os-cli --help` or `os-cli <command> --help` for the authoritative
 usage text.
 
 ---
 
 ## File Locations (XDG Compliance)
 
-`swarm-cli` follows the XDG Base Directory Specification (via
+`os-cli` follows the XDG Base Directory Specification (via
 `platformdirs`), keeping your home directory clean. Linux paths shown;
 macOS/Windows vary per `platformdirs` conventions.
 
@@ -89,26 +91,26 @@ macOS/Windows vary per `platformdirs` conventions.
         `list` pick them up from here.
 *   **Installed CLI Binaries (Executables):**
     *   **Location:** `~/.local/share/swarm/bin/`
-    *   **Purpose:** standalone executables created by `swarm-cli install`.
+    *   **Purpose:** standalone executables created by `os-cli install`.
     *   **Note:** add this directory to your `PATH` to run installed
         blueprints directly by name.
 *   **Build Cache (PyInstaller):**
     *   **Location:** `~/.cache/swarm/`
-    *   **Purpose:** temporary files generated during `swarm-cli install`.
+    *   **Purpose:** temporary files generated during `os-cli install`.
 
 ---
 
 ## Managing Blueprints
 
-### Listing Blueprints (`swarm-cli list`)
+### Listing Blueprints (`os-cli list`)
 
 Shows three groups: installed executables, blueprints bundled with the
 package, and user blueprint sources.
 
 ```bash
-swarm-cli list                # all three groups
-swarm-cli list --installed    # -i: only installed executables
-swarm-cli list --available    # -a: only blueprint source directories
+os-cli list                # all three groups
+os-cli list --installed    # -i: only installed executables
+os-cli list --available    # -a: only blueprint source directories
 ```
 
 Example output (fresh environment):
@@ -116,7 +118,7 @@ Example output (fresh environment):
 ```text
 --- Installed Blueprint Executables (in /home/user/.local/share/swarm/bin) ---
 (No installed blueprint executables found in /home/user/.local/share/swarm/bin)
-Try 'swarm-cli compile <blueprint_name>' or see 'swarm-cli list --available'.
+Try 'os-cli compile <blueprint_name>' or see 'os-cli list --available'.
 
 --- Bundled Blueprints (available from package) ---
 - jeeves (entry: blueprint_jeeves.py)
@@ -129,13 +131,13 @@ Try 'swarm-cli compile <blueprint_name>' or see 'swarm-cli list --available'.
 You can add blueprints by copying their source folders to this directory.
 ```
 
-### Adding Your Own Blueprints (`swarm-cli add` or manual copy)
+### Adding Your Own Blueprints (`os-cli add` or manual copy)
 
 Prefer the CLI when you have a blueprint source path:
 
 ```bash
-swarm-cli add ./my_blueprints/cool_agent --name cool_agent
-swarm-cli list --available    # it now appears as a user blueprint source
+os-cli add ./my_blueprints/cool_agent --name cool_agent
+os-cli list --available    # it now appears as a user blueprint source
 ```
 
 Or copy the folder yourself into the user blueprints directory:
@@ -143,10 +145,10 @@ Or copy the folder yourself into the user blueprints directory:
 ```bash
 mkdir -p ~/.local/share/swarm/blueprints
 cp -r ./my_blueprints/cool_agent ~/.local/share/swarm/blueprints/cool_agent
-swarm-cli list --available
+os-cli list --available
 ```
 
-### Installing Blueprints as Commands (`swarm-cli compile`)
+### Installing Blueprints as Commands (`os-cli compile`)
 
 Builds a standalone executable (PyInstaller) from a user blueprint source or
 a bundled blueprint, and places it in `~/.local/share/swarm/bin/`.
@@ -154,7 +156,7 @@ a bundled blueprint, and places it in `~/.local/share/swarm/bin/`.
 command under older names.
 
 ```bash
-swarm-cli compile jeeves
+os-cli compile jeeves
 # Installing blueprint 'jeeves' as executable...
 #   Source: .../src/swarm/blueprints/jeeves
 #   Entry Point: blueprint_jeeves.py
@@ -171,9 +173,9 @@ swarm-cli compile jeeves
     without an API key (see
     [docs/USER_JOURNEY.md](./docs/USER_JOURNEY.md#try-a-blueprint-without-an-api-key-swarm_test_mode)).
 
-### Terminal TUI (`swarm-cli tui`) — interactive front door
+### Terminal TUI (`os` / `os-cli tui` / `os chat`) — interactive front door
 
-Open Swarm’s own terminal client of the **same HTTP API** as the WebUI
+Operating Swarm’s own terminal client of the **same HTTP API** as the WebUI
 ([REQ-111](https://github.com/matthewhand/open-swarm/issues/481) /
 [ADR-012](./docs/adr/012-swarm-cli-tui.md)): a Herdr-like left **AGENTS rail**
 (kind sections CLI / API / Blueprint / Remote from the same five catalogs the
@@ -181,7 +183,7 @@ SPA sidebar reads) and a live chat pane. Selecting a seat hydrates that
 agent’s real thread (`GET /chat/thread/`); Blueprint seats send and stream
 replies over REST SSE (`/v1/chat/completions`, Bearer); `n` starts a new
 session and `s` lists / resumes. Not Herdr’s SSH TUI and not an in-process
-blueprint runtime (`swarm-cli launch` stays a separate door).
+blueprint runtime (`os-cli launch` stays a separate door).
 
 Keys: `j` / `k` (or arrows) move, `Enter` selects, type + `Enter` sends,
 `n` new session, `s` session list + a digit resumes, `/` filters the rail
@@ -192,38 +194,39 @@ composer (their send is the SPA websocket path; TUI v1 has no cookie jar).
 
 ```bash
 # Textual is an optional [tui] extra (included by `uv sync --all-extras`).
-# Requires a running swarm-api (greenfield http://127.0.0.1:8000; fleet often :8002 when LiteLLM owns :8000 — not :8001)
+# Requires a running os-api (greenfield http://127.0.0.1:8000; fleet often :8002 when LiteLLM owns :8000 — not :8001)
 # and, when API auth is on, API_AUTH_TOKEN / SWARM_API_KEY (env values only).
-swarm-cli tui
+os              # shortcut; same as os-cli / os tui / os chat
+os chat --agent grok
 
-# Non-TTY / CI: the Wave 0 ASCII dump + JSON still work
-swarm-cli tui --once
-swarm-cli tui --once --base-url http://127.0.0.1:8000 --json   # or :8002 on fleets where LiteLLM owns :8000
+# Non-TTY / CI: ASCII dump + JSON
+os tui --once
+os tui --once --base-url http://127.0.0.1:8000 --json   # or :8002 on fleets where LiteLLM owns :8000
 ```
 
 `launch` / `install` stay available (dual entry).
 
-### Launching Blueprints (`swarm-cli launch`)
+### Launching Blueprints (`os-cli launch`)
 
 Runs a **previously compiled** blueprint executable from
 `~/.local/share/swarm/bin/`. If no executable is present, `launch` falls back
 to running the blueprint's source directly — the installed user source first,
 then the bundled copy — and names the tier it used. The fallback never
 prompts, so hook-driven runs cannot hang; only when no tier resolves does
-`launch` exit with an error telling you to `swarm-cli compile <name>` first.
+`launch` exit with an error telling you to `os-cli compile <name>` first.
 
 *   **Single message run:**
     ```bash
-    swarm-cli launch jeeves --message "What time is it?"
+    os-cli launch jeeves --message "What time is it?"
     ```
 *   **Interactive mode:** (omit `--message`; behavior depends on the
     blueprint)
     ```bash
-    swarm-cli launch jeeves
+    os-cli launch jeeves
     ```
 *   **Hooks — chain other installed blueprints around the main run:**
     ```bash
-    swarm-cli launch codey \
+    os-cli launch codey \
       --pre lint_team \
       --listen observer \
       --post verifier \
@@ -244,11 +247,11 @@ These are the only `launch` options. To select a different LLM profile, set
 passed when running the blueprint executable (or its module entry point)
 directly, e.g. `python -m swarm.blueprints.jeeves.jeeves_cli --help`.
 
-### Removing Blueprints (`swarm-cli delete` / `uninstall`)
+### Removing Blueprints (`os-cli delete` / `uninstall`)
 
 ```bash
-swarm-cli uninstall jeeves                 # remove compiled executable from user bin
-swarm-cli delete cool_agent                # remove from user blueprint library
+os-cli uninstall jeeves                 # remove compiled executable from user bin
+os-cli delete cool_agent                # remove from user blueprint library
 # optional manual cleanup of leftover files:
 # rm ~/.local/share/swarm/bin/jeeves
 # rm -r ~/.local/share/swarm/blueprints/cool_agent
@@ -260,14 +263,14 @@ swarm-cli delete cool_agent                # remove from user blueprint library
 
 `swarm_config.json` holds your LLM profiles and MCP server definitions.
 Copy [`swarm_config.example.json`](./swarm_config.example.json) or run
-`swarm-cli config init`. Manage entries with `swarm-cli config` (or edit
+`os-cli config init`. Manage entries with `os-cli config` (or edit
 the JSON file by hand). A checkout-local `swarm_config.json` is gitignored.
 
 ```bash
-swarm-cli config list --section llm
-swarm-cli config add --section llm --name default --json \
+os-cli config list --section llm
+os-cli config add --section llm --name default --json \
   '{"provider":"openai","model":"gpt-4o-mini","api_key":"${OPENAI_API_KEY}"}'
-swarm-cli config remove --section llm --name default
+os-cli config remove --section llm --name default
 ```
 
 The loader honors `SWARM_CONFIG_PATH`, then XDG
@@ -374,11 +377,11 @@ export DEFAULT_LLM=orchestration
 Or register the same profiles with the CLI:
 
 ```bash
-swarm-cli config add --section llm --name orchestration --json \
+os-cli config add --section llm --name orchestration --json \
   '{"provider":"openai","model":"orchestration","base_url":"${LITELLM_BASE_URL}","api_key":"${LITELLM_API_KEY}","intelligence":0.95}'
-swarm-cli config add --section llm --name delegation --json \
+os-cli config add --section llm --name delegation --json \
   '{"provider":"openai","model":"delegation","base_url":"${LITELLM_BASE_URL}","api_key":"${LITELLM_API_KEY}","intelligence":0.7,"cost":0.4}'
-swarm-cli config add --section llm --name auxiliary --json \
+os-cli config add --section llm --name auxiliary --json \
   '{"provider":"openai","model":"auxiliary","base_url":"${LITELLM_BASE_URL}","api_key":"${LITELLM_API_KEY}","speed":0.9,"cost":0.9}'
 ```
 
@@ -413,7 +416,7 @@ Choose which profile a run uses via the `DEFAULT_LLM` environment variable
 export DEFAULT_LLM=ollama_example          # from the example above
 # or, with the local gateway profiles:
 # export DEFAULT_LLM=orchestration
-swarm-cli launch codey --message "Test Llama3 performance"
+os-cli launch codey --message "Test Llama3 performance"
 ```
 
 See [CONFIGURATION.md](./CONFIGURATION.md) for the full configuration guide
@@ -421,25 +424,25 @@ See [CONFIGURATION.md](./CONFIGURATION.md) for the full configuration guide
 
 ---
 
-## Discovering CLI Agents (`swarm-cli cli-agents`)
+## Discovering CLI Agents (`os-cli cli-agents`)
 
 Autodiscover which agentic CLIs from your `cli_agents` config are installed on
-this host (and optionally authenticated). Alias: `swarm-cli agents`.
+this host (and optionally authenticated). Alias: `os-cli agents`.
 
 ```bash
-swarm-cli cli-agents                     # install status (fast)
-swarm-cli cli-agents --check-auth        # also run each CLI's auth_check
-swarm-cli cli-agents --suggest           # propose config for installed-but-unconfigured CLIs
-swarm-cli cli-agents --smoke             # one trivial one-shot per installed CLI (uses quota)
-swarm-cli cli-agents --json              # machine-readable (combine with the flags above)
-swarm-cli cli-agents --list-models       # live {cli, models} for each catalog CLI
-swarm-cli list-models grok               # one CLI; omit the name to probe all
-swarm-cli cli-agents --config ./swarm_config.json
+os-cli cli-agents                     # install status (fast)
+os-cli cli-agents --check-auth        # also run each CLI's auth_check
+os-cli cli-agents --suggest           # propose config for installed-but-unconfigured CLIs
+os-cli cli-agents --smoke             # one trivial one-shot per installed CLI (uses quota)
+os-cli cli-agents --json              # machine-readable (combine with the flags above)
+os-cli cli-agents --list-models       # live {cli, models} for each catalog CLI
+os-cli list-models grok               # one CLI; omit the name to probe all
+os-cli cli-agents --config ./swarm_config.json
 
 # Generate a starter swarm_config wiring cli_agents + fusion/orchestrator/map
 # over CLIs found on this host (claude/gemini/codex/opencode catalog):
-swarm-cli cli-agents --init              # print JSON to stdout
-swarm-cli cli-agents --init --write      # write to XDG config (backs up existing)
+os-cli cli-agents --init              # print JSON to stdout
+os-cli cli-agents --init --write      # write to XDG config (backs up existing)
 ```
 
 `--smoke` invokes each CLI's model once; prefer `--check-auth` for a cheap
@@ -448,15 +451,15 @@ login probe. Full adapter schema and fusion modes:
 
 ---
 
-## Team wizard (`swarm-cli wizard`)
+## Team wizard (`os-cli wizard`)
 
 Scaffold a new **Blueprint** (multi-agent workflow source) under your
 blueprints tree — unrelated to `/v1/teams` LLM-profile aliases. Interactive by
 default; use `--non-interactive` in scripts/CI.
 
 ```bash
-swarm-cli wizard
-swarm-cli wizard --non-interactive \
+os-cli wizard
+os-cli wizard --non-interactive \
   --name my_team \
   --role "planner:Break work into steps" \
   --role "implementer:Apply changes" \
@@ -464,12 +467,12 @@ swarm-cli wizard --non-interactive \
 ```
 
 `--no-shortcut` skips installing a CLI launcher symlink. Full flags:
-`swarm-cli wizard --help`. Also covered in
+`os-cli wizard --help`. Also covered in
 [docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
 ---
 
-## Skills (`swarm-cli skills`)
+## Skills (`os-cli skills`)
 
 List reusable `SKILL.md` capabilities under the project's `skills/` directory
 (or `--dir`). Applying a skill is not a separate CLI write path — pass
@@ -478,10 +481,10 @@ seat (today's stored `api` kind). Chat shows those references as chips; click
 opens a skill card. Discovery and #652 kinds: [docs/SKILLS.md](./docs/SKILLS.md).
 
 ```bash
-swarm-cli skills                         # name, asset count, description
-swarm-cli skills --show counting-lines   # full SKILL.md instructions
-swarm-cli skills --json
-swarm-cli skills --dir /path/to/skills
+os-cli skills                         # name, asset count, description
+os-cli skills --show counting-lines   # full SKILL.md instructions
+os-cli skills --json
+os-cli skills --dir /path/to/skills
 ```
 
 Bundled examples: `conventional-commit`, `reviewing-code`, `writing-changelog`,
@@ -491,7 +494,7 @@ Bundled examples: `conventional-commit`, `reviewing-code`, `writing-changelog`,
 
 ---
 
-## Mixture of Agents (`swarm-cli moa`)
+## Mixture of Agents (`os-cli moa`)
 
 Read-only multi-seat opinions → orchestrator determination. **Participants
 never write.** After consensus you choose one of:
@@ -508,26 +511,26 @@ read context only and is **not** a substitute for `--workdir`.
 
 ```bash
 # Demo / CI — default backend is fake
-swarm-cli moa "How should we rate-limit the API?" --json
+os-cli moa "How should we rate-limit the API?" --json
 
 # Explicit fake multi-seat
-swarm-cli moa "Pick a cache" --backend fake --participants a,b \
+os-cli moa "Pick a cache" --backend fake --participants a,b \
   --fake-responses 'a=Use redis.||b=Use redis with TTL.'
 
 # Live Grok consensus (local grok CLI; Codex not required)
-swarm-cli moa "Summarize risks in auth/" --backend grok \
+os-cli moa "Summarize risks in auth/" --backend grok \
   --participants analyst,critic --cwd .
 
 # Optional acpx multi-vendor panel
-swarm-cli moa "Review the design" --backend acpx \
+os-cli moa "Review the design" --backend acpx \
   --participants claude,gemini --cwd .
 
 # Orchestrator-only write after determination
-swarm-cli moa "Document the decision" --backend fake --act \
+os-cli moa "Document the decision" --backend fake --act \
   --act-write ./moa_decision.md
 
 # Consensus then scripted team (no openai-agents)
-swarm-cli moa "Ship rate limiting?" --backend fake --team \
+os-cli moa "Ship rate limiting?" --backend fake --team \
   --workdir /tmp/moa-team \
   --team-tasks 'implementer:Apply|tester:Verify|docs:ADR' \
   --json -v
@@ -550,21 +553,21 @@ Full model, backends, Python API, and honesty notes:
 [docs/examples/moa-consensus-vs-team/](./docs/examples/moa-consensus-vs-team/),
 [docs/examples/moa-orchestrator/](./docs/examples/moa-orchestrator/).
 
-### MoA config init (`swarm-cli moa-init`)
+### MoA config init (`os-cli moa-init`)
 
 Install or merge the default `moa` panel block (backend, participants, named
 presets). **Presets are panel-only** (`backend` / `participants` /
 `fake_responses`) — team mode is **not** a preset key; use
-`swarm-cli moa --team --workdir …` or API models `hybrid_moa` /
+`os-cli moa --team --workdir …` or API models `hybrid_moa` /
 `moa_orchestrator`.
 
 ```bash
-swarm-cli moa-init                       # dry-run print default moa block
-swarm-cli moa-init --write               # merge into XDG / discovered config
-swarm-cli moa-init --config ./swarm_config.json --write
-swarm-cli moa-init --write --overwrite   # replace existing moa block entirely
-swarm-cli moa-init --backend fake -p analyst,critic   # dry-run with overrides
-swarm-cli moa-init --show-openwebui      # Open WebUI connection JSON; exit
+os-cli moa-init                       # dry-run print default moa block
+os-cli moa-init --write               # merge into XDG / discovered config
+os-cli moa-init --config ./swarm_config.json --write
+os-cli moa-init --write --overwrite   # replace existing moa block entirely
+os-cli moa-init --backend fake -p analyst,critic   # dry-run with overrides
+os-cli moa-init --show-openwebui      # Open WebUI connection JSON; exit
 ```
 
 Example config: [docs/examples/moa.swarm_config.json](./docs/examples/moa.swarm_config.json).
@@ -581,17 +584,17 @@ operator shell screenshot tour see
 
 ## Troubleshooting
 
-*   **Command Not Found (`swarm-cli` or installed blueprint):**
+*   **Command Not Found (`os-cli` or installed blueprint):**
     *   Ensure the install completed (`uv sync --all-extras` from source, or
         `pip install open-swarm`); with `uv`, prefix commands with `uv run`.
     *   Verify Python's user script directory (e.g. `~/.local/bin`) is in
         your `PATH`.
     *   For installed blueprints, check that `~/.local/share/swarm/bin/` is
         also in your `PATH`.
-*   **`Blueprint executable not found` from `swarm-cli launch`:** `launch`
+*   **`Blueprint executable not found` from `os-cli launch`:** `launch`
     only runs installed executables — run
-    `swarm-cli install <name>` first, and check spelling against
-    `swarm-cli list`.
+    `os-cli install <name>` first, and check spelling against
+    `os-cli list`.
 *   **Configuration Errors:**
     *   Verify your `swarm_config.json` exists (working directory or
         `~/.config/swarm/`) and is valid JSON.
@@ -600,14 +603,14 @@ operator shell screenshot tour see
 *   **Permissions:** ensure you have read/write permission for the XDG
     directories (`~/.config/swarm`, `~/.local/share/swarm`,
     `~/.cache/swarm`).
-*   **`swarm-cli moa` usage errors (exit 2):** `--team` requires
+*   **`os-cli moa` usage errors (exit 2):** `--team` requires
     `--workdir`; `--workdir` without `--team` is rejected; `--team` and
     `--act` cannot be combined. Use `--cwd` only for panel read context.
-*   **`swarm-cli moa --team` soft-fail (exit 1, payload printed):** unusable
+*   **`os-cli moa --team` soft-fail (exit 1, payload printed):** unusable
     panel skips specialists; or a specialist returns `ok=False`. Inspect
     `--json` / `-v` or the stderr soft-fail line. See
-    [docs/TROUBLESHOOTING.md §8](./docs/TROUBLESHOOTING.md#8-moa--swarm-cli-moa-common-failures).
+    [docs/TROUBLESHOOTING.md §8](./docs/TROUBLESHOOTING.md#8-moa--os-cli-moa-common-failures).
 *   **CLI agents missing / unauthenticated:** run
-    `swarm-cli cli-agents --check-auth` (or `--init --write` for a starter
-    config). Each CLI authenticates itself; Open Swarm does not proxy their
+    `os-cli cli-agents --check-auth` (or `--init --write` for a starter
+    config). Each CLI authenticates itself; Operating Swarm does not proxy their
     credentials. See [docs/CLI_FUSION.md](./docs/CLI_FUSION.md).

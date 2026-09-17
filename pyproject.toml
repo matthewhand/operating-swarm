@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "open-swarm"
+name = "os-core"
 version = "0.5.4"
-description = "Open Swarm: Orchestrating AI Agent Swarms with Django"
+description = "Operating Swarm (OS): provider-agnostic agent operating layer and harness (os-core). Import path remains swarm."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -31,7 +31,6 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
     "pyyaml>=6.0",
-    "django-cors-headers>=4.0.0",
     "uvicorn[standard]>=0.23.0",
     "gunicorn>=21.0.0",
     "psycopg2-binary>=2.9.0",
@@ -41,6 +40,7 @@ dependencies = [
     "channels>=4.0",
     "channels-redis>=4.0",
     "daphne>=4.0.0",
+    "whitenoise>=6.6.0",  # #423: serve /static/ in production (DEBUG=false, no proxy)
     "tiktoken>=0.5.0",
     "platformdirs>=4.0.0",
     "typer>=0.9.0", # Changed from typer[all]
@@ -64,22 +64,36 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/matthewhand/open-swarm"
-Documentation = "https://github.com/matthewhand/open-swarm/blob/main/README.md"
-Repository = "https://github.com/matthewhand/open-swarm.git"
-Changelog = "https://github.com/matthewhand/open-swarm/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/matthewhand/operating-swarm"
+Documentation = "https://github.com/matthewhand/operating-swarm/blob/main/README.md"
+Repository = "https://github.com/matthewhand/operating-swarm.git"
+Changelog = "https://github.com/matthewhand/operating-swarm/blob/main/CHANGELOG.md"
 
 [project.scripts]
-swarm-api = "swarm.core.swarm_api:main"
-swarm-cli = "swarm.core.swarm_cli:app"
+os-cli = "swarm.core.swarm_cli:app"
+os = "swarm.core.swarm_cli:app"
+os-api = "swarm.core.swarm_api:main"
+swarm-desktop = "swarm.desktop.cli:main"
 codey = "swarm.blueprints.codey.codey_cli:main"
 suggestion = "swarm.blueprints.suggestion.suggestion_cli:main"
 
 [project.optional-dependencies]
 tui = [
     # REQ-111 Wave 1a: interactive Herdr-like TUI chrome. Kept optional so a
-    # plain core install stays thin; `swarm-cli tui` explains how to add it.
+    # plain core install stays thin; `os-cli tui` explains how to add it.
     "textual>=0.80.0,<1.0",
+]
+sandbox = [
+    # REQ-863 / #253: Daytona SaaS microVMs. Lazy-imported so a core install
+    # stays thin. `pip install 'daytona>=0.5.0'` (or this extra) pulls the SDK.
+    # Marker keeps `uv lock --check` green: daytona requires httpx>=0.28, which
+    # conflicts with the project's httpx>=0.25.2,<0.26.0 pin (same class of
+    # problem as django-mcp-server — see the note below).
+    "daytona>=0.5.0 ; python_version < '3'",
+]
+desktop = [
+    # REQ-883B: pywebview window. Not required for `swarm-desktop --print-plan`.
+    "pywebview>=5.0,<6",
 ]
 memory = [
     # The mem0 integration imports `from mem0 import Memory`; that module is

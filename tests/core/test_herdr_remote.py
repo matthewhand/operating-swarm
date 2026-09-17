@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -175,6 +176,10 @@ def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
     def runner(argv, timeout=None):
         del timeout
         calls.append(list(argv))
+        if "get" in argv:
+            return subprocess.CompletedProcess(argv, 0, '{"result":{"state":"idle"}}', "")
+        if "read" in argv:
+            return subprocess.CompletedProcess(argv, 0, "HERDR_PONG", "")
         return subprocess.CompletedProcess(argv, 0, '{"type":"agent_prompted"}', "")
 
     real = HerdrClient.from_remote_config
@@ -194,13 +199,138 @@ def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
             prompt="HERDR_PING_OK",
             target="w3:p1",
             config=cfg,
+            timeout=1.0,
         )
     assert sent.ok is True
+    assert sent.data["text"] == "HERDR_PONG"
     assert from_remote_calls == [cfg]
-    assert calls == [["herdr", "agent", "prompt", "w3:p1", "HERDR_PING_OK"]]
-    assert "--remote" not in calls[0]
+    assert calls == [
+        ["herdr", "agent", "get", "w3:p1"],
+        [
+            "herdr",
+            "agent",
+            "prompt",
+            "w3:p1",
+            "HERDR_PING_OK",
+            "--wait",
+            # #470: idle | done | blocked — a turn that finishes settles in
+            # ``done``, so ``--until idle`` alone could only expire.
+            "--until",
+            "idle",
+            "--until",
+            "done",
+            "--until",
+            "blocked",
+            "--timeout",
+            "1000",
+        ],
+        ["herdr", "agent", "read", "w3:p1", "--source", "recent", "--format", "text"],
+    ]
+    assert "--remote" not in calls[1]
     assert "gap" not in (sent.detail or "").lower()
     assert getattr(sent, "gap", None) in (None, "")
+
+
+def _timed_out_prompt_runner(state: dict, *, moved_by: int, text: str):
+    """Runner where ``agent prompt --wait`` expires but the pane may have moved.
+
+    Live shape (#470): ``{"error":{"code":"timeout","message":"timed out
+    waiting for agent status"}}`` on the prompt, while ``agent get`` later
+    reports an advanced ``state_change_seq``.
+    """
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "prompt" in argv:
+            state["seq"] += moved_by
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                '{"error":{"code":"timeout","message":"timed out waiting for agent status"}}',
+                "timed out waiting for agent status",
+            )
+        if "get" in argv:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                json.dumps(
+                    {"result": {"agent": {"agent_status": "done", "state_change_seq": state["seq"]}}}
+                ),
+                "",
+            )
+        if "read" in argv:
+            return subprocess.CompletedProcess(argv, 0, text, "")
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    return runner
+
+
+def _run_herdr_send_with_runner(runner):
+    from unittest.mock import patch
+
+    real = HerdrClient.from_remote_config
+
+    def spy(config=None, **kwargs):
+        kwargs.setdefault("runner", runner)
+        return real(config, **kwargs)
+
+    cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
+    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+        return remotes_core.operate(
+            "herdr",
+            "send",
+            prompt="HERDR_PING_OK",
+            target="w3:p5",
+            config=cfg,
+            timeout=1.0,
+        )
+
+
+def test_herdr_send_recovers_the_reply_when_the_stopped_wait_expires(monkeypatch):
+    """#470: a completed turn was reported as a timeout and its reply discarded."""
+    monkeypatch.delenv("HERDR_BASE_URL", raising=False)
+    monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
+    state = {"seq": 100}
+    sent = _run_herdr_send_with_runner(
+        _timed_out_prompt_runner(state, moved_by=900, text="HERDR-PROOF-OK")
+    )
+    assert sent.ok is True
+    assert sent.data["text"] == "HERDR-PROOF-OK"
+    assert sent.data["target"] == "w3:p5"
+    assert "recovered" in sent.detail
+    assert getattr(sent, "gap", None) in (None, "")
+
+
+def test_herdr_send_timeout_without_state_movement_stays_an_honest_gap(monkeypatch):
+    """No state movement means nothing ran — never present stale pane text."""
+    monkeypatch.delenv("HERDR_BASE_URL", raising=False)
+    monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
+    state = {"seq": 100}
+    sent = _run_herdr_send_with_runner(
+        _timed_out_prompt_runner(state, moved_by=0, text="STALE PREVIOUS REPLY")
+    )
+    assert sent.ok is False
+    assert sent.gap == "herdr_reply_timeout"
+    assert "text" not in (sent.data or {})
+    assert "timed out" in sent.detail
+
+
+def test_herdr_send_still_refuses_a_blocked_pane(monkeypatch):
+    """The blocked guard moved out of ``check_blocked`` into the shared agent get."""
+    monkeypatch.delenv("HERDR_BASE_URL", raising=False)
+    monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "get" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, '{"result":{"agent":{"agent_status":"blocked"}}}', ""
+            )
+        raise AssertionError(f"must not submit to a blocked pane: {argv}")
+
+    sent = _run_herdr_send_with_runner(runner)
+    assert sent.ok is False
+    assert "blocked" in sent.detail
 
 
 def test_operate_list_uses_from_remote_config_exact_argv(monkeypatch):

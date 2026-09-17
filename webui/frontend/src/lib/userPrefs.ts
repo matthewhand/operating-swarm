@@ -54,6 +54,18 @@ export type { AgentDropdownChoice, AgentDropdowns }
 
 export const USER_PREFS_PATH = '/v1/preferences/'
 
+export const USER_PREFS_CHANGED_EVENT = 'swarm:user-prefs-changed'
+
+export function dispatchUserPrefsChanged(prefs: UserPrefs): void {
+  try {
+    window.dispatchEvent(
+      new CustomEvent<UserPrefs>(USER_PREFS_CHANGED_EVENT, { detail: prefs }),
+    )
+  } catch {
+    /* ignore in environments without window */
+  }
+}
+
 export const DEFAULT_AUTO_COMPRESS_PCT = 80
 export const MIN_AUTO_COMPRESS_PCT = 1
 export const MAX_AUTO_COMPRESS_PCT = 99
@@ -254,6 +266,7 @@ export async function saveUserPrefs(patch: {
     if (parsed && !parsed.empty) {
       applyPrefsToLocal(parsed)
     }
+    if (parsed) dispatchUserPrefsChanged(parsed)
     return parsed
   } catch {
     return null

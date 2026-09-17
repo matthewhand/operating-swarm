@@ -10,17 +10,17 @@ import { SPA_HELLO_EVENT, getExpectedSpaVersion } from '../lib/spaHello'
 import { getBakedSpaVersion } from '../lib/spaVersion'
 import { resolveUpdateChrome, type UpdateChromeKind } from '../lib/spaUpdate'
 
-const ISSUES_LABEL = 'Open Swarm issues'
+const ISSUES_LABEL = 'Operating Swarm issues'
 const LOCAL_LABEL = 'Reload to update this tab'
-const UPSTREAM_LABEL = 'Newer Open Swarm release available'
+const UPSTREAM_LABEL = 'Newer Operating Swarm release available'
 
 const LOCAL_TOOLTIP =
   'This tab’s SPA is behind the connected backend. Reload to fetch the new UI.'
 const LOCAL_AND_UPSTREAM_TOOLTIP =
   'This tab’s SPA is behind the connected backend. Reload to fetch the new UI. A newer GitHub release is also available.'
 const UPSTREAM_TOOLTIP =
-  'A newer Open Swarm release is on GitHub. Opens that release page.'
-const IDLE_TOOLTIP = 'Open Swarm issues on GitHub'
+  'A newer Operating Swarm release is on GitHub. Opens that release page.'
+const IDLE_TOOLTIP = 'Operating Swarm issues on GitHub'
 
 export function updateChromeAriaLabel(kind: UpdateChromeKind): string {
   if (kind === 'local') return LOCAL_LABEL

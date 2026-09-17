@@ -1,4 +1,4 @@
-# Contributing to Open Swarm
+# Contributing to Operating Swarm
 
 Thanks for your interest. Issues and PRs are welcome — this is an alpha-stage
 project under active cleanup, so small, focused contributions land fastest.
@@ -12,8 +12,8 @@ half-finished, and where help is most useful.
 Requirements: Python >= 3.10 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/matthewhand/open-swarm.git
-cd open-swarm
+git clone https://github.com/matthewhand/operating-swarm.git
+cd operating-swarm
 uv sync --all-extras
 ```
 
@@ -46,22 +46,31 @@ Pytest is configured in `pyproject.toml` (Django settings, asyncio mode,
 test paths). Some suites are skipped without API keys or optional services;
 that is expected.
 
-**CI goal is green `main`.** The `Python Tests` workflow (3.10 / 3.11 /
-3.12) must collect and pass on tip of `main`. The sibling `vitest` job
-runs `npm ci` then `npm test` in `webui/frontend` (REQ-171C-7 / #616).
-Own-diff triage is still the first question when a PR is red (did *this*
-change break it?), but that is not permission to live with a permanent
-pytest collection, Vitest, or matrix red. Do not skip or weaken unrelated
-tests to paper over a product/export mismatch. Do not treat `test_req*`
-source greps as SPA coverage.
+**CI is a thin default suite** (Actions budget / #250). On every PR/`main`
+push: `Python Tests` (pytest **3.12** + Vitest). `tsc-ratchet` only when
+`webui/frontend/**` changes. Per-REQ own-diff workflows and Playwright
+visual/e2e are **`workflow_dispatch` only** — not on every PR.
+
+If a job fails in 2–7s with **no steps and no logs**, that is an Actions
+account block (spending limit / payment), not a code failure. Prefer
+cutting workflows over raising the spend cap.
+
+Do not skip or weaken unrelated tests to paper over a product/export
+mismatch. Do not treat `test_req*` source greps as SPA coverage.
 
 **Intentional HOLDs** (skipped on purpose; not unexplained red):
 
-- `golden-journey` in `.github/workflows/visual-regression.yml` (`if: false`)
-  — REQ-89 [#446](https://github.com/matthewhand/open-swarm/issues/446).
+- `golden-journey` in `.github/workflows/visual-regression.yml` (`if: false`,
+  `workflow_dispatch` only) — REQ-89 [#446](https://github.com/matthewhand/open-swarm/issues/446).
   Screenshot / tour lock is stale. Do not delete the workflow; do not
   treat the skip as a pytest waiver. Re-enable only after recapture.
   Vitest is gated by `python-pytest.yml`, not this HOLD.
+
+**Instant-fail / no job logs:** check **Billing → Actions spending limit**
+first, not code (#250). Jobs that die in a few seconds with empty steps and
+no logs are an account-level Actions block (quota/payment), not a workflow
+or pytest regression. Repo settings can already be `enabled: true` with
+`allowed_actions: all`; raising the spending limit is a human billing gate.
 
 ## Linting
 
@@ -108,6 +117,14 @@ under `tests/blueprints/`.
 - **Be honest in docs**: this project is mid-cleanup; do not document
   features as working unless they are (see `FEATURE_STATUS.md` for the
   live evidence board).
+- **Rebase-or-close window** (#247): branches age out fast. A PR that
+  stays **CONFLICTING** with `main` for **>48h** gets a nudge comment.
+  After **>72h** still conflicting, close it as superseded and cite the
+  landed equivalent on `main`. Before reviewing a stale branch, grep
+  `main` for the fix (check-if-fixed first). Before closing, salvage
+  unique regression tests or file a successor issue with a port
+  inventory. Stacked PRs must name their **base PR** in the body.
+  Triage notes: [docs/qa/ISSUE-247-stale-pr-hygiene.md](docs/qa/ISSUE-247-stale-pr-hygiene.md).
 
 ## Where help is wanted
 
