@@ -414,3 +414,49 @@ def test_load_full_configuration_complex_merging():
         assert result["cli_setting"] == "cli_value"
     finally:
         os.unlink(config_path)
+
+
+class TestDefaultConfigDiscovery:
+    """A no-override caller must load the real config, not an empty base one.
+
+    The default used to resolve through ``paths.get_swarm_config_file()``, which
+    named ``config.yaml`` — a file nothing writes, loaded with ``json.load``. So
+    every caller without an override (``requirements.load_active_config``, and the
+    MCP provider's ``mcpServers`` behind it) silently merged against ``{}``.
+    """
+
+    def test_no_override_discovers_swarm_config_json(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "swarm_config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "llm": {
+                        "default": {
+                            "provider": "openai",
+                            "model": "gpt-4o-mini",
+                            "api_key": "sk-test",
+                        }
+                    },
+                    "settings": {"default_llm_profile": "default"},
+                    "mcpServers": {"filesystem": {"command": "npx"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("SWARM_CONFIG_PATH", str(config_file))
+
+        result = load_full_configuration("TestBlueprint")
+
+        assert result["llm"]["default"]["model"] == "gpt-4o-mini"
+        assert result["mcpServers"]["filesystem"]["command"] == "npx"
+
+    def test_nothing_found_still_returns_the_shape(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("SWARM_CONFIG_PATH", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.chdir(tmp_path)
+
+        result = load_full_configuration("TestBlueprint")
+
+        assert isinstance(result, dict)
+        for key in ("llm", "mcpServers", "remotes"):
+            assert key in result

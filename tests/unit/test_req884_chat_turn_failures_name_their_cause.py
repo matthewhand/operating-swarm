@@ -45,6 +45,25 @@ def test_req884_error_partial_uses_the_shared_safe_message_helper():
     assert "model provider is unusable" in dispatch
 
 
+def test_req884_error_frame_names_a_missing_credential():
+    """The hint is optional-by-design and must not invent a cause."""
+    dispatch = _turn_dispatch()
+    assert "_credential_hint()" in dispatch
+    assert "hint = _credential_hint()" in dispatch
+    assert "if hint:" in dispatch
+    text = _text(CONSUMERS)
+    assert "def _credential_hint() -> str:" in text
+    assert "llm_credential_hint" in text
+
+
+def test_req884_diagnosis_stays_quiet_when_it_cannot_prove_a_problem():
+    diagnostics = (REPO / "src" / "swarm" / "core" / "llm_diagnostics.py").read_text(
+        encoding="utf-8"
+    )
+    assert "if not profile:" in diagnostics
+    assert "or add an api_key to this LLM profile" in diagnostics
+
+
 def test_req884_a_failed_error_send_cannot_itself_escape():
     dispatch = _turn_dispatch()
     assert "turn error partial send failed" in dispatch
