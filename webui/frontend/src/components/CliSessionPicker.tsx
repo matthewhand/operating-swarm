@@ -254,7 +254,10 @@ export default function CliSessionPicker({
             <label className="flex items-center gap-1 text-xs text-base-content/70">
               <span className="sr-only">Continue selected session on another CLI</span>
               <select
-                className="select select-ghost select-xs"
+                /* #569: `select-ghost` is transparent by design, which reads as a
+                   broken/unstyled control inside the dialog. Match the popup's
+                   other inputs instead. */
+                className="select select-bordered select-xs"
                 aria-label="Continue on CLI"
                 data-testid="cli-session-continue-on"
                 defaultValue=""

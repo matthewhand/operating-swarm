@@ -3581,7 +3581,7 @@ export default function AgentSidebar({
               {/* #182: Teams entry lives in the rail footer, directly above Plugins. */}
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
                 onClick={() => window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))}
                 title="Teams"
                 aria-label="Teams"
@@ -3593,7 +3593,7 @@ export default function AgentSidebar({
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
                 onClick={openPlugins}
                 title={pluginsCalendarSupported ? 'Plugins' : API_ONLY_REASON}
                 aria-label={pluginsCalendarSupported ? 'Plugins' : `Plugins: ${API_ONLY_REASON}`}
@@ -3613,7 +3613,7 @@ export default function AgentSidebar({
               </span>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
                 onClick={openCalendar}
                 title={pluginsCalendarSupported ? 'Calendar' : API_ONLY_REASON}
                 aria-label={pluginsCalendarSupported ? 'Calendar' : `Calendar: ${API_ONLY_REASON}`}

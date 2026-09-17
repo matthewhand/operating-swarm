@@ -1353,6 +1353,14 @@ button.os-agent-row {
 .os-agent-sidebar--avatar-only .os-bin-label {
   display: none;
 }
+/* #574: `display: none` on the label removes its line-box too, so the footer
+   buttons lost height and the whole footer jumped as the rail crossed the
+   avatar-only threshold. Pin the height the label was providing instead:
+   py-1.5 (0.75rem) + text-sm line-height (1.25rem) = 2rem. */
+.os-agent-sidebar--avatar-only .os-rail-footer-btn {
+  height: 2rem;
+  padding-block: 0;
+}
 .os-agent-sidebar--avatar-only [data-testid="rail-update-chrome"] {
   display: none;
 }

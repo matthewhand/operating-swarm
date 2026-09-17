@@ -127,4 +127,13 @@ describe('CliSessionPicker', () => {
     expect(onContinueOn.mock.calls[0][1]).toBe('agy')
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('#569: the Continue-on select has a real surface, not the transparent ghost variant', () => {
+    renderPicker({ continueTargets: ['agy'], onContinueOn: vi.fn() })
+    const select = screen.getByRole('combobox', { name: 'Continue on CLI' })
+    // `select-ghost` is transparent by design, which reads as an unstyled/broken
+    // control inside the dialog.
+    expect(select).not.toHaveClass('select-ghost')
+    expect(select).toHaveClass('select-bordered')
+  })
 })

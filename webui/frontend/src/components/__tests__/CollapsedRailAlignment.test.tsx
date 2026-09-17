@@ -35,3 +35,33 @@ describe('REQ-196: Collapsed sidepane vertical alignment for Support and peer ro
     expect(badgeRules).toMatch(/display:\s*none/)
   })
 })
+
+describe('#574: the rail footer keeps its height when the labels are hidden', () => {
+  const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8')
+  const sidebar = fs.readFileSync(
+    path.resolve(__dirname, '../AgentSidebar.tsx'),
+    'utf8',
+  )
+
+  it('pins a height on the footer buttons in avatar-only mode', () => {
+    // The labels are hidden with `display: none`, which removes their line-box as
+    // well — so without a pinned height the footer shrinks and the whole block
+    // jumps as the rail crosses the threshold.
+    const match = css.match(
+      /\.os-agent-sidebar--avatar-only\s+\.os-rail-footer-btn\s*\{([^}]+)\}/,
+    )
+    expect(match).toBeTruthy()
+    expect(match![1]).toMatch(/height:\s*2rem/)
+    expect(match![1]).toMatch(/padding-block:\s*0/)
+  })
+
+  it('marks every persistent footer button with the hook class', () => {
+    // Teams, Plugins, Calendar. If a fourth is added it must carry the class too,
+    // or it will reintroduce the jump.
+    const marked = sidebar.match(/os-rail-footer-btn/g) ?? []
+    expect(marked).toHaveLength(3)
+    for (const testid of ['os-teams-button', 'os-plugins-button', 'os-calendar-button']) {
+      expect(sidebar).toContain(testid)
+    }
+  })
+})
