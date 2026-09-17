@@ -34,6 +34,13 @@ import {
 } from './starter-agents'
 import { cycleSessionMode as nextSessionMode, normalizeSessionMode, type SessionMode } from './session-modes'
 import {
+  HIDDEN_AGENTS_CHANGED_EVENT,
+  HIDDEN_AGENTS_STORAGE_KEY,
+  hasHiddenAgentsStorage,
+  loadHiddenAgentIds,
+  saveHiddenAgentIds,
+} from './hiddenAgents'
+import {
   AVATAR_THEME_STORAGE_KEY,
   AVATAR_THEME_SET_EVENT,
   AVATAR_THEMES_ENABLED_EVENT,
@@ -151,6 +158,31 @@ interface AgentStoreState {
   loadTeam: (teamId: string) => void
 }
 
+/**
+ * #507: `agent_hidden_ids` is a bridge, not a second truth. Every write here
+ * mirrors into the canonical `swarm_hidden_agents` store (which notifies
+ * same-tab listeners — the DOM `storage` event never fires in the writing
+ * tab), so the Chat rail and the Agent Router rail can never disagree.
+ */
+function bridgeHiddenAgentIds(ids: string[]): string[] {
+  const unique = Array.from(new Set(ids.filter((id) => id.length > 0)))
+  try {
+    localStorage.setItem('agent_hidden_ids', JSON.stringify(unique))
+  } catch {
+    /* persistence is best-effort */
+  }
+  saveHiddenAgentIds(unique)
+  return unique
+}
+
+/** #507: canonical key wins when present; the legacy key is a one-time import. */
+function loadInitialHiddenAgentIds(): string[] {
+  if (hasHiddenAgentsStorage()) {
+    return loadHiddenAgentIds()
+  }
+  return loadStored<string[]>('agent_hidden_ids', [])
+}
+
 function loadStored<T>(key: string, fallback: T): T {
   try {
     const item = localStorage.getItem(key)
@@ -229,6 +261,7 @@ function persistOverlayKeys(state: {
   saveStored('agent_frameworks', state.frameworkByAgent)
   saveStored('agent_blueprints', state.blueprintByAgent)
   saveStored('agent_hidden_ids', state.hiddenAgentIds)
+  saveHiddenAgentIds(state.hiddenAgentIds)
   saveStored('agent_quickstarts', state.quickstartsByAgent)
 }
 
@@ -304,7 +337,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
   customSections: loadStored<Record<string, string>>('agent_custom_sections', {}),
   customOrder: loadStored<string[]>('agent_custom_order', []),
   favouriteIds: loadStored<string[]>('agent_favourite_ids', []),
-  hiddenAgentIds: loadStored<string[]>('agent_hidden_ids', []),
+  hiddenAgentIds: loadInitialHiddenAgentIds(),
   roleAssignments: loadStored<RoleAssignments>('agent_role_assignments', {}),
 
   sidebarOpen: loadStored<boolean>('agent_sidebar_open', true),
@@ -589,15 +622,15 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
   hideAgent: (agentId) =>
     set((state) => {
       if (!agentId || state.hiddenAgentIds.includes(agentId)) return state
-      const hiddenAgentIds = [...state.hiddenAgentIds, agentId]
-      saveStored('agent_hidden_ids', hiddenAgentIds)
+      const hiddenAgentIds = bridgeHiddenAgentIds([...state.hiddenAgentIds, agentId])
       return { hiddenAgentIds }
     }),
 
   unhideAgent: (agentId) =>
     set((state) => {
-      const hiddenAgentIds = state.hiddenAgentIds.filter((id) => id !== agentId)
-      saveStored('agent_hidden_ids', hiddenAgentIds)
+      const hiddenAgentIds = bridgeHiddenAgentIds(
+        state.hiddenAgentIds.filter((id) => id !== agentId),
+      )
       return { hiddenAgentIds }
     }),
 
@@ -605,7 +638,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
     set((state) => {
       const hiddenAgentIds = hideAllExceptStarters(state.agents.map((a) => a.agent_id))
       const favouriteIds = state.favouriteIds.filter((id) => !hiddenAgentIds.includes(id))
-      saveStored('agent_hidden_ids', hiddenAgentIds)
+      bridgeHiddenAgentIds(hiddenAgentIds)
       saveStored('agent_favourite_ids', favouriteIds)
       const selectedHidden = state.selectedAgentId
         ? hiddenAgentIds.includes(state.selectedAgentId)
@@ -619,7 +652,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
 
   unhideAllAgents: () =>
     set(() => {
-      saveStored('agent_hidden_ids', [])
+      bridgeHiddenAgentIds([])
       return { hiddenAgentIds: [] }
     }),
 
@@ -890,5 +923,21 @@ if (typeof window !== 'undefined') {
   window.addEventListener(AVATAR_THEME_SET_EVENT, onAvatarThemeSet)
   window.addEventListener(AVATAR_THEMES_ENABLED_EVENT, onEnabledThemesSet)
   window.addEventListener('storage', onStorage)
+
+  // #507: adopt canonical-store writes made by other surfaces (rail, search
+  // palette). Equality guard keeps our own mirrored dispatch from echoing.
+  const onHiddenAgentsChanged = () => {
+    const canonical = loadHiddenAgentIds()
+    if (
+      JSON.stringify(canonical) === JSON.stringify(useAgentStore.getState().hiddenAgentIds)
+    ) {
+      return
+    }
+    useAgentStore.setState({ hiddenAgentIds: canonical })
+  }
+  window.addEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onHiddenAgentsChanged)
+  window.addEventListener('storage', (event) => {
+    if (event.key === HIDDEN_AGENTS_STORAGE_KEY) onHiddenAgentsChanged()
+  })
 }
 

@@ -27,6 +27,32 @@ import {
 
 export const HIDDEN_AGENTS_STORAGE_KEY = 'swarm_hidden_agents'
 
+/**
+ * #507: fired on EVERY write to the canonical hidden-id store (same tab).
+ * The DOM `storage` event only fires in *other* documents — never in the tab
+ * that made the write — so same-tab surfaces (Search palette unhide, Agent
+ * Router store bridge, tests) must dispatch/listen to this event instead.
+ */
+export const HIDDEN_AGENTS_CHANGED_EVENT = 'swarm:hidden-agents-changed'
+
+function notifyHiddenAgentsChanged(): void {
+  try {
+    // Async on purpose: write helpers are sometimes called during render
+    // (e.g. the first-load seed inside the rail's resolvedHiddenIds
+    // computation). A synchronous dispatch there would setState mid-render
+    // and trip React's update-depth guard.
+    window.setTimeout(() => {
+      try {
+        window.dispatchEvent(new Event(HIDDEN_AGENTS_CHANGED_EVENT))
+      } catch {
+        /* listener gone */
+      }
+    }, 0)
+  } catch {
+    /* no window (SSG/tests) — nothing to notify */
+  }
+}
+
 /** Fallback ids when the live catalog has not listed a gate/skeptic seat yet. */
 export const DEFAULT_HIDDEN_AGENT_IDS: readonly string[] = [
   GATE_AGENT_ID,
@@ -97,6 +123,7 @@ export function saveHiddenAgentIds(ids: string[]): void {
   } catch {
     /* persistence is best-effort */
   }
+  notifyHiddenAgentsChanged()
 }
 
 export function hideAgentId(id: string, current: string[]): string[] {
@@ -106,7 +133,12 @@ export function hideAgentId(id: string, current: string[]): string[] {
   return next
 }
 
-/** Role seats (support / gate / skeptic) are hideable — no exemptions. */
+/**
+ * Role seats (support / gate / skeptic) are hideable — no exemptions.
+ * #507: CLI and API seats are hideable too — Hide and Unhide are inverses
+ * for every rail kind (the old force-visible exemption made Hide on a
+ * CLI/API seat a silent no-op that no UI could undo).
+ */
 export function canHideAgent(id: string): boolean {
   return typeof id === 'string' && id.length > 0
 }

@@ -70,6 +70,8 @@ import {
 } from '../lib/agentRoles'
 import { isNonCatalogRailPinId, railSeatAgents } from '../lib/railSeats'
 import {
+  HIDDEN_AGENTS_CHANGED_EVENT,
+  canHideAgent,
   hasHiddenAgentsStorage,
   hideAgentId,
   loadHiddenAgentIds,
@@ -698,21 +700,31 @@ export default function AgentSidebar({
   useEffect(() => {
     const onChange = () => {
       setSessionTick((n) => n + 1)
-      // Search Hidden Bots unhides in localStorage and fires `storage` (same tab).
+      // #507: any same-tab write to the canonical hidden-id store dispatches
+      // HIDDEN_AGENTS_CHANGED_EVENT (the DOM `storage` event only fires in
+      // *other* documents, never the tab that wrote). The `storage` listener
+      // below is kept for cross-tab writes only.
       if (hasHiddenAgentsStorage()) {
-        setHiddenIds(loadHiddenAgentIds())
+        // Change-guarded: a stale echo must not dirty state (the store's own
+        // write already notified it synchronously before this guard existed).
+        const next = loadHiddenAgentIds()
+        setHiddenIds((current) =>
+          JSON.stringify(current ?? []) === JSON.stringify(next) ? current : next,
+        )
       }
     }
     window.addEventListener(SCALE_OUT_SESSIONS_EVENT, onChange)
     window.addEventListener(AGENT_CHAT_SESSIONS_EVENT, onChange)
     window.addEventListener(AGENT_CONVERSATION_EVENT, onChange)
     window.addEventListener(GENERATION_COMPLETE_EVENT, onChange)
+    window.addEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onChange)
     window.addEventListener('storage', onChange)
     return () => {
       window.removeEventListener(SCALE_OUT_SESSIONS_EVENT, onChange)
       window.removeEventListener(AGENT_CHAT_SESSIONS_EVENT, onChange)
       window.removeEventListener(AGENT_CONVERSATION_EVENT, onChange)
       window.removeEventListener(GENERATION_COMPLETE_EVENT, onChange)
+      window.removeEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onChange)
       window.removeEventListener('storage', onChange)
     }
   }, [])
@@ -974,12 +986,17 @@ export default function AgentSidebar({
     return () => window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onSettings)
   }, [])
 
+  // #507: Hide and Unhide are inverses for every rail kind — the old
+  // force-visible exemption for CLI/API seats (#321/#621) turned Hide into a
+  // silent no-op that no UI could undo. canHideAgent() is now the single
+  // policy: any rail row is hideable, and a hidden CLI/API seat lands in the
+  // Hidden tail like any other.
   const visibleAgents = useMemo(
     () =>
       agents.filter(
         (agent) =>
           !isRailIdDeleted(agent.id, deletedIds) &&
-          (isCliRailAgent(agent) || isApiRailAgent(agent) || !resolvedHiddenIds.includes(agent.id)),
+          !resolvedHiddenIds.includes(agent.id),
       ),
     [agents, resolvedHiddenIds, deletedIds],
   )
@@ -988,8 +1005,6 @@ export default function AgentSidebar({
       agents.filter(
         (agent) =>
           !isRailIdDeleted(agent.id, deletedIds) &&
-          !isCliRailAgent(agent) &&
-          !isApiRailAgent(agent) &&
           resolvedHiddenIds.includes(agent.id),
       ),
     [agents, resolvedHiddenIds, deletedIds],
@@ -1790,13 +1805,7 @@ export default function AgentSidebar({
    * favourite slot. Role agents (support, gate, skeptic) are not exempt.
    */
   const hideFromRail = (id: string) => {
-    if (!id) return
-    if (
-      agents.some(
-        (agent) => agent.id === id && (isCliRailAgent(agent) || isApiRailAgent(agent)),
-      )
-    )
-      return
+    if (!id || !canHideAgent(id)) return
     setHiddenIds((current) => hideAgentId(id, current ?? resolvedHiddenIds))
   }
 

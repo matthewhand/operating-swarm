@@ -549,16 +549,20 @@ describe('AgentSidebar Grok rail', () => {
     expect(posted).toBe(true)
   })
 
-  it('keeps cli_agent and api_agent listed even if they were previously hidden', async () => {
+  // #507: the old force-visible exemption (#321/#621) is gone — Hide and
+  // Unhide are inverses for every rail kind, and the Hidden count is truthful.
+  it('hides cli_agent and api_agent when their ids are in the hidden store', async () => {
     localStorage.setItem(
       HIDDEN_AGENTS_STORAGE_KEY,
       JSON.stringify(['cli_agent', 'api_agent', 'codey']),
     )
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
-    await within(list).findByRole('link', { name: /cli_agent/ })
-    expect(within(list).getByRole('link', { name: /api_agent/ })).toBeInTheDocument()
+    await within(list).findByRole('link', { name: /Support/ })
+    expect(within(list).queryByRole('link', { name: /cli_agent/ })).not.toBeInTheDocument()
+    expect(within(list).queryByRole('link', { name: /api_agent/ })).not.toBeInTheDocument()
     expect(within(list).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
+    expect(hiddenBotsButton(3)).toBeInTheDocument()
   })
 
   it('seeds Hidden with gate and skeptic on first load; Support stays visible', async () => {

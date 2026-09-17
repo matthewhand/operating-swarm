@@ -431,9 +431,11 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
                     aria-label={`Unhide ${row.name}`}
                     onClick={(e) => {
                       e.stopPropagation()
+                      // #507: unhideAgentId dispatches HIDDEN_AGENTS_CHANGED_EVENT
+                      // (a same-tab notification); faking a DOM `storage` event
+                      // never worked in real browsers — it only fires cross-tab.
                       const next = unhideAgentId(row.agentId!, hiddenIds)
                       setHiddenIds(next)
-                      window.dispatchEvent(new Event('storage'))
                     }}
                   >
                     Unhide
