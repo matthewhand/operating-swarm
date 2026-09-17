@@ -99,7 +99,84 @@ export function normalizeRemoteEndpoint(
   return out
 }
 
-export function remoteEndpointLabel(endpoint: CliRemoteEndpoint | null | undefined): string {
+/**
+ * Structural subset of {@link CliRemoteEndpoint} accepted where an endpoint is
+ * only *read*.
+ *
+ * `AgentEdit`'s `remote` is `{ host?, port?, … }` — an in-progress edit form, so
+ * `port` is optional there while {@link CliRemoteEndpoint} requires it. Reading a
+ * label or a session target does not care, so accept the loose shape instead of
+ * forcing callers to widen or cast.
+ */
+export interface CliRemoteEndpointLike {
+  host?: string | null
+  port?: number | string | null
+  username?: string | null
+  password_env?: string | null
+  box?: string | null
+  id?: string | null
+}
+
+export function remoteEndpointLabel(endpoint: CliRemoteEndpointLike | null | undefined): string {
   if (!endpoint?.host) return ''
   return `${endpoint.host}:${endpoint.port}`
 }
+
+/** A box discovered from the CLI probe (`cliQuery.data.remote_boxes`). */
+export interface CliRemoteBox {
+  id?: string | null
+  host?: string | null
+  port?: number | string | null
+}
+
+export interface CliRemoteSessionChoices {
+  /** Rows other than the default — never contains the default target. */
+  boxes: Array<{ value: string; label: string }>
+  /** The override-free target: the agent's box, else its `host:port`, else `''`. */
+  defaultTarget: string
+  /** Label for the default row: the agent's endpoint, or `This host`. */
+  defaultLabel: string
+  /** True only when there is a real alternative to the default. */
+  hasChoice: boolean
+}
+
+function boxRow(box: CliRemoteBox | null | undefined): { value: string; label: string } {
+  const host = String(box?.host ?? '').trim()
+  const port = box?.port == null || box.port === '' ? '' : `:${box.port}`
+  const id = String(box?.id ?? '').trim()
+  const value = id || (host ? `${host}${port}` : '')
+  return { value, label: value }
+}
+
+/**
+ * Issue #570 — rows for the CLI session remote-box select.
+ *
+ * There is deliberately **no `Local` row**. An empty value already means "follow
+ * the agent's own endpoint", which is also what the select falls back to, so a
+ * `Local` row duplicated the agent's endpoint in the common case and was the
+ * *only* row when the agent has no remote — a control offering a choice of one.
+ *
+ * The returned `defaultTarget` is what the select must use as its value when no
+ * override is set. It is **not** a bare `''` whenever the agent has an endpoint,
+ * which is what previously let the value match no option at all (an agent with
+ * `remote.host` and no `remote.box` displayed the first row, `Local`, despite
+ * being remote-configured).
+ */
+export function cliRemoteSessionChoices(
+  endpoint: CliRemoteEndpointLike | null | undefined,
+  remoteBoxes: readonly (CliRemoteBox | null | undefined)[] | null | undefined,
+): CliRemoteSessionChoices {
+  const endpointLabel = remoteEndpointLabel(endpoint)
+  const defaultTarget = String(endpoint?.box || endpointLabel || '').trim()
+  const boxes = (remoteBoxes ?? [])
+    .map(boxRow)
+    .filter((box) => Boolean(box.value) && box.value !== defaultTarget)
+
+  return {
+    boxes,
+    defaultTarget,
+    defaultLabel: endpointLabel || 'This host',
+    hasChoice: boxes.length > 0,
+  }
+}
+

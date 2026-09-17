@@ -311,7 +311,7 @@ import {
   roleCssClass,
 } from '../lib/agentRoles'
 import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit, loadInferenceList } from '../lib/agentEdits'
-import { isRemoteCapableCli, remoteEndpointLabel } from '../lib/cliRemote'
+import { cliRemoteSessionChoices, isRemoteCapableCli, remoteEndpointLabel } from '../lib/cliRemote'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
 import { chatFolderParams } from '../lib/agentFolder'
 import { navbarWorkspaceSubtitle } from '../lib/agentWorkspace'
@@ -1088,6 +1088,38 @@ const ChatPage = () => {
     if (selectedCli?.cli) return selectedCli.cli
     return preferredChatCli(discoveredClis, '')
   }, [searchParams, persistedDropdown.cli, selectedCli, discoveredClis])
+
+  /** The agent's own configured remote endpoint, if any. */
+  const agentRemote = useMemo(
+    () => loadAgentEdit(selectedBlueprint).remote,
+    [selectedBlueprint],
+  )
+
+  /**
+   * #570: choices for the CLI session's remote box.
+   *
+   * There is deliberately **no `Local` row**. An empty value means "follow the
+   * agent's own endpoint", which is also the state the select falls back to, so a
+   * `Local` row duplicated the agent's endpoint in the common case — and was the
+   * *only* row when the agent has no remote, i.e. a control offering a choice of
+   * one. Instead:
+   *
+   *  - the agent's own endpoint is the default row (labelled with the endpoint, or
+   *    `This host` when the agent has none), so the default is named by what it
+   *    actually is rather than by a synonym for "not remote";
+   *  - the listed boxes exclude that endpoint, so nothing is offered twice;
+   *  - the picker is only rendered when at least one *other* box is discovered,
+   *    because otherwise there is nothing to choose.
+   *
+   * This also fixes a silent misreport: the previous option value was
+   * `remote.box || remoteEndpointLabel(remote)` while the select's value was
+   * `remote.box || ''`, so an agent with `remote.host` and no `remote.box` had a
+   * value matching no option and the browser displayed the first row (`Local`).
+   */
+  const cliRemoteSession = useMemo(
+    () => cliRemoteSessionChoices(agentRemote, cliQuery.data?.remote_boxes),
+    [agentRemote, cliQuery.data],
+  )
 
   const cliModelsQuery = useQuery({
     queryKey: ['cli-models', currentCli],
@@ -3649,14 +3681,20 @@ const ChatPage = () => {
               agentName={selectedAgentName}
             />
           ) : null}
-          {isCliAgent && currentCli && isRemoteCapableCli(currentCli, cliQuery.data?.remote) ? (
+          {isCliAgent &&
+          currentCli &&
+          isRemoteCapableCli(currentCli, cliQuery.data?.remote) &&
+          cliRemoteSession.hasChoice ? (
             <label className="flex items-center gap-1 min-w-0">
               <span className="sr-only">CLI remote box</span>
               <select
                 className="select select-xs select-bordered h-7 min-h-0 max-w-[12rem] font-medium"
                 aria-label="CLI remote box"
                 data-testid="select-cli-session-remote"
-                value={(searchParams.get('cli_remote') ?? '').trim() || loadAgentEdit(selectedBlueprint).remote?.box || ''}
+                /* #570: value always resolves to exactly one listed option — the
+                   override if set, otherwise the agent's own endpoint (the empty
+                   row), never a bare `''` that matches nothing. */
+                value={(searchParams.get('cli_remote') ?? '').trim() || cliRemoteSession.defaultTarget}
                 onChange={(event) => {
                   const next = event.target.value
                   setSearchParams(
@@ -3670,22 +3708,15 @@ const ChatPage = () => {
                   )
                 }}
               >
-                <option value="">Local</option>
-                {(cliQuery.data?.remote_boxes ?? []).map((box) => (
-                  <option key={box.id || box.host} value={box.id || `${box.host}:${box.port}`}>
-                    {box.id || box.host}:{box.port}
+                {/* #570: the default row replaces the old `Local` row. Selecting it
+                    clears `?cli_remote` and returns the session to the agent's own
+                    endpoint — so the default stays reachable without a synonym row. */}
+                <option value="">{cliRemoteSession.defaultLabel}</option>
+                {cliRemoteSession.boxes.map((box) => (
+                  <option key={box.value} value={box.value}>
+                    {box.label}
                   </option>
                 ))}
-                {loadAgentEdit(selectedBlueprint).remote?.host ? (
-                  <option
-                    value={
-                      loadAgentEdit(selectedBlueprint).remote?.box ||
-                      remoteEndpointLabel(loadAgentEdit(selectedBlueprint).remote)
-                    }
-                  >
-                    {remoteEndpointLabel(loadAgentEdit(selectedBlueprint).remote)}
-                  </option>
-                ) : null}
               </select>
             </label>
           ) : null}
