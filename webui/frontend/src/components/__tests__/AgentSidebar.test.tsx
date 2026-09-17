@@ -12,7 +12,12 @@ import {
   GENERATION_COMPLETE_EVENT,
   RAIL_ORDER_STORAGE_KEY,
 } from '../../lib/railOrder'
-import { BUMP_COMPLETED_KEY, HOSTNAME_OVERRIDE_KEY } from '../../lib/settingsPrefs'
+import {
+  BUMP_COMPLETED_KEY,
+  BUMP_SCOPE_KEY,
+  HOSTNAME_OVERRIDE_KEY,
+} from '../../lib/settingsPrefs'
+import { RAIL_SECTIONS_STORAGE_KEY } from '../../lib/railSections'
 import { saveAgentSessions, type AgentSession } from '../../lib/scaleOutSessions'
 import { publishChatConnection, resetChatConnection } from '../../lib/chatConnection'
 import { notifyCliRunState, resetCliRunState } from '../../lib/cliRunState'
@@ -1132,6 +1137,64 @@ describe('AgentSidebar Grok rail', () => {
     expect(storedRailOrder()[0]).toBe('stewie')
   })
 
+  it('#552: a sectioned agent is NOT bumped by default — Only Unassigned', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: { stewie: 'sec_stuff' },
+        unassignedCollapsed: false,
+      }),
+    )
+    localStorage.setItem(BUMP_COMPLETED_KEY, '1')
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    await within(list).findByRole('link', { name: /Stewie/ })
+
+    const before = railIds(list)
+    fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
+
+    // Its own position and its section-mates' positions are unchanged.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(railIds(list)).toEqual(before)
+    expect(storedRailOrder()).toEqual([])
+  })
+
+  it('#552: All sections restores the old behaviour for sectioned agents', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: { stewie: 'sec_stuff' },
+        unassignedCollapsed: false,
+      }),
+    )
+    localStorage.setItem(BUMP_COMPLETED_KEY, '1')
+    localStorage.setItem(BUMP_SCOPE_KEY, 'all')
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    await within(list).findByRole('link', { name: /Stewie/ })
+
+    fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
+
+    await waitFor(() => {
+      expect(storedRailOrder()[0]).toBe('stewie')
+    })
+  })
+
+  it('#552: the scope is still subordinate to the master toggle', async () => {
+    localStorage.setItem(BUMP_COMPLETED_KEY, '0')
+    localStorage.setItem(BUMP_SCOPE_KEY, 'all')
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    await within(list).findByRole('link', { name: /Stewie/ })
+
+    fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
+
+    expect(railIds(list)[0]).toBe('support')
+    expect(storedRailOrder()).toEqual([])
+  })
+
   it('does not bump a completed fixture when the toggle is off', async () => {
     localStorage.setItem(BUMP_COMPLETED_KEY, '0')
     renderSidebar()
@@ -1143,6 +1206,48 @@ describe('AgentSidebar Grok rail', () => {
 
     expect(railIds(list)[0]).toBe('support')
     expect(storedRailOrder()).toEqual([])
+  })
+
+  it('#564: a pinned agent dropped inside a section is unpinned AND assigned to it', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: {}, // empty: this is exactly the gap that swallowed the drop
+        unassignedCollapsed: false,
+      }),
+    )
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'stewie', name: 'Stewie' }]),
+    )
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    // Wait for the rows before looking for sections — the rail paints its
+    // loading state first.
+    await within(list).findByRole('link', { name: /Codey/ })
+
+    const tile = within(screen.getByLabelText('Pinned agents')).getByRole('link', {
+      name: 'Stewie',
+    })
+    const section = screen
+      .getAllByTestId('rail-section')
+      .find((node) => node.getAttribute('data-section-id') === 'sec_stuff')!
+
+    // Drop on the section BLOCK, not its header and not its empty hint — the
+    // padding is where a real drag lands and where the container's
+    // dropUnfavourite used to take over (unpin only, never assign).
+    dragTo(tile, section)
+
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership.stewie).toBe('sec_stuff')
+    // And it really did leave the pinned grid.
+    expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
+    expect(
+      within(screen.getAllByTestId('rail-section').find(
+        (node) => node.getAttribute('data-section-id') === 'sec_stuff',
+      )!).getByRole('link', { name: /Stewie/ }),
+    ).toBeInTheDocument()
   })
 
   it('REQ-128: does not duplicate favourite agents into the list when generation finishes', async () => {

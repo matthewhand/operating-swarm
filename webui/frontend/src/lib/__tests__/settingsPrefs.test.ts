@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   BUMP_COMPLETED_KEY,
+  BUMP_SCOPE_EVENT,
+  BUMP_SCOPE_KEY,
   HOSTNAME_OVERRIDE_KEY,
   RETENTION_MODE_KEY,
   isRetentionMode,
   loadBumpCompleted,
+  loadBumpScope,
   loadHostnameOverride,
   loadRetentionMode,
   saveBumpCompleted,
+  saveBumpScope,
   saveHostnameOverride,
   saveRetentionMode,
 } from '../settingsPrefs'
@@ -17,6 +21,7 @@ describe('settingsPrefs', () => {
     localStorage.removeItem(HOSTNAME_OVERRIDE_KEY)
     localStorage.removeItem(RETENTION_MODE_KEY)
     localStorage.removeItem(BUMP_COMPLETED_KEY)
+    localStorage.removeItem(BUMP_SCOPE_KEY)
   })
 
   it('treats only Count/Disk/Archive/Trash ids as retention modes', () => {
@@ -51,5 +56,33 @@ describe('settingsPrefs', () => {
     expect(loadBumpCompleted()).toBe(false)
     saveBumpCompleted(true)
     expect(loadBumpCompleted()).toBe(true)
+  })
+
+  it('#552: defaults the bump scope to Unassigned only', () => {
+    expect(loadBumpScope()).toBe('unassigned')
+  })
+
+  it('#552: round-trips an explicit All sections scope', () => {
+    expect(saveBumpScope('all')).toBe('all')
+    expect(localStorage.getItem(BUMP_SCOPE_KEY)).toBe('all')
+    expect(loadBumpScope()).toBe('all')
+    saveBumpScope('unassigned')
+    expect(loadBumpScope()).toBe('unassigned')
+  })
+
+  it('#552: falls back to Unassigned for an unrecognised stored value', () => {
+    localStorage.setItem(BUMP_SCOPE_KEY, 'everything')
+    expect(loadBumpScope()).toBe('unassigned')
+  })
+
+  it('#552: announces the scope change so the rail can follow', () => {
+    const seen: string[] = []
+    const onChange = (event: Event) => {
+      seen.push((event as CustomEvent).detail?.scope)
+    }
+    window.addEventListener(BUMP_SCOPE_EVENT, onChange)
+    saveBumpScope('all')
+    window.removeEventListener(BUMP_SCOPE_EVENT, onChange)
+    expect(seen).toEqual(['all'])
   })
 })

@@ -69,6 +69,9 @@ import { PYTHON_CODE_CLASS, highlightPython } from '../lib/highlightPython'
 import {
   detectedHostname,
   loadBumpCompleted,
+  loadBumpScope,
+  saveBumpScope,
+  type BumpScope,
   loadHostnameOverride,
   saveBumpCompleted,
 } from '../lib/settingsPrefs'
@@ -232,6 +235,7 @@ export default function SettingsSheet({
   const [cullFractionPct, setCullFractionPct] = useState(50)
   const [selectedBlueprintId, setSelectedBlueprintId] = useState(blueprintId || '')
   const [bumpCompleted, setBumpCompleted] = useState(() => loadBumpCompleted())
+  const [bumpScope, setBumpScope] = useState<BumpScope>(() => loadBumpScope())
   const [searchQuery, setSearchQuery] = useState('')
   const resolvedDefinitionId = definitionId || teamId || blueprintId || ''
   const resolvedKind: DefinitionKind =
@@ -271,6 +275,7 @@ export default function SettingsSheet({
       )
     })
     setBumpCompleted(loadBumpCompleted())
+    setBumpScope(loadBumpScope())
     if (initialSection) {
       setSection(initialSection)
       // #87: a handed blueprintId must still pre-select when a section is
@@ -690,6 +695,8 @@ export default function SettingsSheet({
                 setBumpCompleted(next)
                 saveBumpCompleted(next)
               }}
+              bumpScope={bumpScope}
+              onBumpScope={(next) => setBumpScope(saveBumpScope(next))}
             />
           )}
           {section === 'image-gen' && <ImageGenPane />}
@@ -1912,9 +1919,13 @@ function GeneralPane({
 function RailPane({
   bumpCompleted,
   onBumpCompleted,
+  bumpScope,
+  onBumpScope,
 }: {
   bumpCompleted: boolean
   onBumpCompleted: (next: boolean) => void
+  bumpScope: BumpScope
+  onBumpScope: (next: BumpScope) => void
 }) {
   const queryClient = useQueryClient()
   const { success, error: toastError } = useToast()
@@ -1986,6 +1997,38 @@ function RailPane({
         On: when a generation finishes, that agent moves to the top of the
         visible list. Off: order changes only by drag.
       </p>
+      {/* #552: a scope on the preference above, not a second switch — it is only
+          meaningful while the bump is on, so it is hidden otherwise. */}
+      {bumpCompleted ? (
+        <fieldset
+          className="mt-2 ml-2 flex flex-col gap-1 border-l border-base-300 pl-3"
+          data-testid="bump-completed-scope"
+        >
+          <legend className="sr-only">Bump scope</legend>
+          {(
+            [
+              { value: 'unassigned', label: 'Only Unassigned', hint: 'Agents you placed in a section keep their position.' },
+              { value: 'all', label: 'All sections', hint: 'Any finished agent moves to the top of its section.' },
+            ] as const
+          ).map((option) => (
+            <label key={option.value} className="label cursor-pointer justify-start gap-3">
+              <input
+                type="radio"
+                className="radio radio-sm"
+                name="bump-completed-scope"
+                value={option.value}
+                checked={bumpScope === option.value}
+                onChange={() => onBumpScope(option.value)}
+                aria-label={option.label}
+              />
+              <span>
+                <span className="label-text">{option.label}</span>
+                <p className="mt-0.5 text-xs text-base-content/60">{option.hint}</p>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
       <div className="pt-2 border-t border-base-200">
         <AvatarThemePicker />
       </div>

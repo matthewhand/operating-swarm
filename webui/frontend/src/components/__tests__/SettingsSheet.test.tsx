@@ -5,6 +5,7 @@ import SettingsSheet, { settingsDetailFromQuery } from '../SettingsSheet'
 import { ToastProvider } from '../DaisyUI'
 import {
   BUMP_COMPLETED_KEY,
+  BUMP_SCOPE_KEY,
   HOSTNAME_OVERRIDE_KEY,
   RETENTION_MODE_KEY,
 } from '../../lib/settingsPrefs'
@@ -61,6 +62,7 @@ describe('SettingsSheet', () => {
     localStorage.removeItem(HOSTNAME_OVERRIDE_KEY)
     localStorage.removeItem(RETENTION_MODE_KEY)
     localStorage.removeItem(BUMP_COMPLETED_KEY)
+    localStorage.removeItem(BUMP_SCOPE_KEY)
     localStorage.removeItem('swarm_theme')
     localStorage.removeItem('swarm_theme_navbar')
     localStorage.removeItem('swarm_mcp_servers')
@@ -107,6 +109,23 @@ describe('SettingsSheet', () => {
     fireEvent.click(toggle)
     expect(toggle).not.toBeChecked()
     expect(localStorage.getItem(BUMP_COMPLETED_KEY)).toBe('0')
+  })
+
+  it('#552: the bump scope is a sub-toggle, default Only Unassigned, hidden when the bump is off', () => {
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Rail' }))
+
+    expect(screen.getByTestId('bump-completed-scope')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Only Unassigned' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'All sections' })).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'All sections' }))
+    expect(screen.getByRole('radio', { name: 'All sections' })).toBeChecked()
+    expect(localStorage.getItem(BUMP_SCOPE_KEY)).toBe('all')
+
+    // Subordinate to the master toggle — not a second switch.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Bump completed agents to top' }))
+    expect(screen.queryByTestId('bump-completed-scope')).not.toBeInTheDocument()
   })
 
   it('adds a local MCP server from Plugins without storing secrets', async () => {

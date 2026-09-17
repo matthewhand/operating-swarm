@@ -112,7 +112,10 @@ import {
 } from '../lib/agentNotifications'
 import {
   BUMP_COMPLETED_EVENT,
+  BUMP_SCOPE_EVENT,
   loadBumpCompleted,
+  loadBumpScope,
+  type BumpScope,
   saveHostnameOverride,
 } from '../lib/settingsPrefs'
 import { computeRailHotkeyTargets } from '../lib/railHotkeys'
@@ -566,6 +569,7 @@ export default function AgentSidebar({
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const [railOrder, setRailOrder] = useState<string[]>(() => loadRailOrder())
   const [bumpCompleted, setBumpCompleted] = useState(() => loadBumpCompleted())
+  const [bumpScope, setBumpScope] = useState<BumpScope>(() => loadBumpScope())
   const [sessionTick, setSessionTick] = useState(0)
   const [sessionPicker, setSessionPicker] = useState<SessionPickerState | null>(null)
   const [cliPicker, setCliPicker] = useState<CliPickerState | null>(null)
@@ -1602,9 +1606,16 @@ export default function AgentSidebar({
   )
 
   useEffect(() => {
-    const onBump = () => setBumpCompleted(loadBumpCompleted())
+    const onBump = () => {
+      setBumpCompleted(loadBumpCompleted())
+      setBumpScope(loadBumpScope())
+    }
     window.addEventListener(BUMP_COMPLETED_EVENT, onBump)
-    return () => window.removeEventListener(BUMP_COMPLETED_EVENT, onBump)
+    window.addEventListener(BUMP_SCOPE_EVENT, onBump)
+    return () => {
+      window.removeEventListener(BUMP_COMPLETED_EVENT, onBump)
+      window.removeEventListener(BUMP_SCOPE_EVENT, onBump)
+    }
   }, [])
 
   const rowDisplayName = useCallback(
@@ -1645,6 +1656,15 @@ export default function AgentSidebar({
       }
       if (!bumpCompleted) return
       if (!agentId || !visibleRowIds.includes(agentId)) return
+      // #552: by default the bump is confined to Unassigned, so an agent the
+      // operator placed in a section keeps the position they gave it. This
+      // guards the automatic bump only — a manual drag is not gated by it.
+      if (
+        bumpScope === 'unassigned' &&
+        sectionIdForAgent(agentId, sectionState) !== UNASSIGNED_SECTION_ID
+      ) {
+        return
+      }
       const base = mergeRailOrder(railOrder, visibleRowIds)
       persistVisibleOrder(bumpRailIdToTop(base, agentId))
     }
@@ -1652,6 +1672,8 @@ export default function AgentSidebar({
     return () => window.removeEventListener(GENERATION_COMPLETE_EVENT, onComplete)
   }, [
     bumpCompleted,
+    bumpScope,
+    sectionState,
     visibleRowIds,
     railOrder,
     persistVisibleOrder,
@@ -3385,6 +3407,14 @@ export default function AgentSidebar({
                         data-section-custom={block.custom ? 'true' : 'false'}
                         data-collapsed={block.collapsed ? 'true' : 'false'}
                         data-internal-only={block.internalOnly ? 'true' : 'false'}
+                        /* #564: the whole section block accepts a drop, not just
+                           its header and its empty hint. Without this, a drop
+                           on the padding or the gap between rows bubbled to the
+                           list container's `dropUnfavourite`, which unpins but
+                           never assigns — so a dragged pin landed in
+                           Unassigned however carefully you aimed. */
+                        onDragOver={(event) => allowSectionDrop(event, block.id)}
+                        onDrop={(event) => dropOnSection(event, block.id)}
                       >
                         {isAvatarOnly ? null : (
                           <RailSectionHeader
