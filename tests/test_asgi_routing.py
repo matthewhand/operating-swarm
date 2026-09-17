@@ -103,12 +103,15 @@ class TestAsgiWiring:
     def test_settings_point_at_this_application(self):
         assert settings.ASGI_APPLICATION == "swarm.asgi.application"
 
-    def test_http_branch_wraps_staticfiles_when_debug(self):
+    def test_http_branch_has_no_debug_only_static_handler(self):
         from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
 
-        # pytest sets DJANGO_DEBUG before swarm.asgi import (TESTING in settings).
+        # #423: this branch used to be wrapped in ASGIStaticFilesHandler, which
+        # only served /static/ when DEBUG was on — production behind uvicorn
+        # answered every asset with a Django 404 instead.
         http_app = application.application_mapping["http"]
-        assert isinstance(http_app, ASGIStaticFilesHandler)
+        assert not isinstance(http_app, ASGIStaticFilesHandler)
+        assert "whitenoise.middleware.WhiteNoiseMiddleware" in settings.MIDDLEWARE
 
     def test_channels_and_daphne_installed(self):
         assert "channels" in settings.INSTALLED_APPS

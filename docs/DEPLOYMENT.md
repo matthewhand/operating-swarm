@@ -101,6 +101,20 @@ build bakes that `dist/` into the image, so `docker compose` / Fly deploys serve
 the SPA without a host-side Node install. CI (`python-pytest.yml` `frontend`
 job) runs the same script on PRs.
 
+**Static files (`/static/*`, #423):** served by `whitenoise` as Django middleware
+(see `settings.MIDDLEWARE`), so `/static/*.css` answers with `DEBUG=false` as
+well — the systemd and docker/LAN deployments bind uvicorn directly and have no
+proxy behind which an asset request could hide. `WHITENOISE_USE_FINDERS = True`
+serves the checked-in app static dirs in addition to `STATIC_ROOT`, so a deploy
+that never runs `collectstatic` (the docker/LAN one) still gets styled pages.
+`collectstatic` into `STATIC_ROOT` remains the cheaper production path: with
+finders on, WhiteNoise walks every static directory at boot to build its file
+map. Django's own static view is deliberately **not** used — it is `DEBUG`-only
+and is not meant to face a network. If you *do* put nginx in front of the app,
+[`deploy/oracle/nginx-open-swarm.conf`](../deploy/oracle/nginx-open-swarm.conf)
+carries an equivalent `location /static/` alias. Prove:
+`uv run pytest tests/unit/test_issue423_production_static.py`.
+
 Point any OpenAI client at the **Open Swarm** base (`http://<host>:8000/v1`
 greenfield, or `http://<host>:8002/v1` when LiteLLM already owns `:8000`) with
 `Authorization: Bearer $API_AUTH_TOKEN`. Do not confuse swarm `/v1` with LiteLLM
