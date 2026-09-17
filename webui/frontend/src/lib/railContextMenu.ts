@@ -52,6 +52,9 @@ export interface RailMenuSubItemSpec {
   id: string
   label: string
   checked?: boolean
+  /** #497: draw a rule above this child so it does not read as one of the
+   *  destinations it follows (e.g. `New section` after the section list). */
+  dividerBefore?: boolean
 }
 
 export interface RailMenuItemSpec {
@@ -189,6 +192,8 @@ export function moveToMenuItem(moveTo?: RailMenuMoveTo): RailMenuItemSpec {
   children.push({
     id: NEW_SECTION_TARGET,
     label: NEW_SECTION_PLACEHOLDER,
+    // #497: 'New section' is an action, not a destination — separate it.
+    dividerBefore: true,
   })
   return {
     id: 'move-to',

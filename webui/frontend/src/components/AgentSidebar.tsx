@@ -2464,7 +2464,7 @@ export default function AgentSidebar({
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
+            <span className="os-rail-row-name text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2701,40 +2701,9 @@ export default function AgentSidebar({
     )
     const teamTimestampLabel = formatRailTimestamp(teamTime)
     const unread = unreadIds.includes(hideId)
-    // Team badge lives in the name row's right slot (unread → badge → timestamp),
-    // matching the agent/CoS/support pill placement — not an avatar overlay.
-    const teamBadgeNode = (
-      <span
-        className="os-agent-role-badge shrink-0 badge badge-ghost badge-xs font-medium uppercase tracking-wide text-base-content/55"
-        data-kind="team"
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${name} team settings`}
-        data-definition-id={team.id}
-        style={{
-          fontSize: '0.55rem',
-          padding: '0 0.25rem',
-          lineHeight: '1.2',
-          height: '0.9rem',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
-          whiteSpace: 'nowrap',
-        }}
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          openDefinition('team', team.id, { teamId: team.id })
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            openDefinition('team', team.id, { teamId: team.id })
-          }
-        }}
-      >
-        Team
-      </span>
-    )
+    // #525: no `Team` badge. Team membership is not a role, so the pill was
+    // claiming role status — same reason #496 removed `Remote`. The right slot
+    // now falls through to the row's timestamp.
     return (
       <Link
         to={`/chat?team=${encodeURIComponent(team.id)}`}
@@ -2782,7 +2751,7 @@ export default function AgentSidebar({
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
+            <span className="os-rail-row-name text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2801,8 +2770,6 @@ export default function AgentSidebar({
                   aria-label="Unread"
                   data-testid="rail-unread-dot"
                 />
-              ) : teamBadgeNode ? (
-                teamBadgeNode
               ) : teamTimestampLabel ? (
                 <span
                   className={`os-rail-timestamp shrink-0 text-xs text-base-content/40 tabular-nums ${
@@ -2859,23 +2826,10 @@ export default function AgentSidebar({
     )
     const remoteTimestampLabel = formatRailTimestamp(remoteTime)
     const unread = unreadIds.includes(hideId)
-    // Remote badge aligns right on the name row like the Team/agent pills.
-    const remoteBadgeNode = (
-      <span
-        className="os-agent-role-badge shrink-0 badge badge-ghost badge-xs font-medium uppercase tracking-wide text-base-content/55"
-        data-kind="remote"
-        style={{
-          fontSize: '0.55rem',
-          padding: '0 0.25rem',
-          lineHeight: '1.2',
-          height: '0.9rem',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Remote
-      </span>
-    )
+    // #496: no `Remote` badge. Remote is a seat kind (transport), not a role, so
+    // the pill was claiming role status. The kind stays on the row itself —
+    // `data-kind="remote"`, `os-agent-row--remote`, and the `(remote)` aria
+    // label all remain. The right slot now falls through to the timestamp.
     return (
       <Link
         to={`/chat?remote=${encodeURIComponent(remote.id)}`}
@@ -2936,7 +2890,7 @@ export default function AgentSidebar({
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="block min-w-0 truncate text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
+            <span className="os-rail-row-name text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
             <span className="flex items-center gap-1 shrink-0 relative">
               {spillSlot ? (
                 <span
@@ -2955,8 +2909,6 @@ export default function AgentSidebar({
                   aria-label="Unread"
                   data-testid="rail-unread-dot"
                 />
-              ) : remoteBadgeNode ? (
-                remoteBadgeNode
               ) : remoteTimestampLabel ? (
                 <span
                   className={`os-rail-timestamp text-xs text-base-content/40 tabular-nums ${

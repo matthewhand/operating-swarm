@@ -941,7 +941,12 @@ html:not([data-theme="light"]) .os-composer,
   height: var(--os-top-chrome-h);
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
 }
+
+/* #495/#556: the pill clips its own children. Without this, the placeholder
+   (fixed content width, no `min-width: 0`) spilled past the rounded edge and
+   painted into the neighbouring + button once the rail got narrow. */
 .os-rail-search {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -950,9 +955,14 @@ html:not([data-theme="light"]) .os-composer,
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 10%, transparent);
   background: color-mix(in srgb, var(--color-base-100) 40%, transparent);
+  overflow: hidden;
 }
 .os-rail-search__input {
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background: transparent;
   border: 0;
   outline: none;
@@ -963,8 +973,16 @@ html:not([data-theme="light"]) .os-composer,
 .os-rail-search__placeholder {
   color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
 }
+/* #553: the ⌃K chip is overlaid, not laid out. As a flex child it was
+   `flex-shrink: 0` and always reserved its own width — so the concealed chip
+   clipped the "Search" placeholder. Absolutely positioned it takes no space in
+   either state, and the placeholder never shifts when the hint fades in. */
 .os-rail-search__kbd,
 .os-rail-search__kbd.kbd {
+  position: absolute;
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
   font-size: 0.65rem;
   padding: 0.1rem 0.35rem;
   border-radius: 0.3rem;
@@ -973,13 +991,16 @@ html:not([data-theme="light"]) .os-composer,
   color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-base-content) 15%, transparent);
   box-shadow: none;
-  flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out;
   pointer-events: none;
 }
-/* #57: Ctrl/Cmd+K hint only while the pointer is over the rail. */
-.os-agent-sidebar:hover .os-rail-search__kbd {
+/* #498 / REQ-900: Ctrl/Cmd+K hint only while the pointer is over the search
+   field (or the field has keyboard focus) — not the whole sidepane. The field
+   is the button, and the chip is pointer-events: none, so hovering the chip's
+   own area still counts as hovering the field (no dead zone). */
+.os-rail-search:hover .os-rail-search__kbd,
+.os-rail-search:focus-visible .os-rail-search__kbd {
   opacity: 1;
   background: color-mix(in srgb, var(--color-base-content) 16%, transparent) !important;
 }
@@ -1078,13 +1099,27 @@ html:not([data-theme="light"]) .os-composer,
 .os-fav-tile--drop {
   background: color-mix(in srgb, var(--color-base-content) 12%, transparent);
 }
+/* #579: the role badge holds the tile's top-right corner rather than floating
+   over the avatar. It is still absolutely positioned, so it adds no vertical
+   space to the tile (the grid must not grow). */
 .os-fav-tile__badge {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 10;
-  max-width: calc(100% - 0.3rem);
+  top: 0.2rem;
+  right: 0.2rem;
+  transform: none;
+  z-index: 11;
+  max-width: calc(100% - 0.4rem);
+  transition: right 0.15s ease-in-out, top 0.15s ease-in-out;
+}
+/* #579: three tenants want the top of a pinned tile (badge, ⌥N hint, NEEDS
+   APPROVAL band). Stated rules instead of hopeful offsets: the ⌥N hint gets the
+   corner on hover and the badge slides left of it, and the attention band wins
+   the top edge outright, pushing the badge below it. */
+.os-fav-tile:hover:has(.os-fav-tile__shortcut) .os-fav-tile__badge {
+  right: 1.6rem;
+}
+.os-fav-tile:has(.os-fav-tile__attention) .os-fav-tile__badge {
+  top: 1.1rem;
 }
 .os-fav-tile__name {
   max-width: 100%;
@@ -1198,9 +1233,28 @@ html:not([data-theme="light"]) .os-composer,
   align-self: flex-start;
   margin-top: 0.125rem;
 }
+/* #556: the label column clips. The leaf name already had `truncate`, but the
+   row's second line is a `shrink-0` cluster whose ⌥N member appears on hover —
+   so the row's intrinsic width grew exactly when the pointer was over the rail,
+   and nothing in the chain established paint containment. */
 .os-agent-row__label-col {
   min-width: 0;
   flex: 1 1 0%;
+  overflow: hidden;
+}
+/* #556: the name is cut with a fade, not an ellipsis — a mask over an ellipsis
+   glyph reads as a smudge. `title` on the span keeps the full value reachable. */
+.os-rail-row-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 1.25rem),
+    transparent
+  );
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.25rem), transparent);
 }
 button.os-agent-row {
   width: 100%;
@@ -1755,9 +1809,32 @@ button.os-agent-row {
 /* REQ-78: XOR update/info slot to the right of the system name.
    Colour A (local SPA/backend mismatch) is amber/warning.
    Colour B (GitHub newer release) is sky/info. Distinct from #372 WS red. */
+/* #547: the update/info affordance is pinned to the right edge of the footer
+   row (it used to trail the hostname input wherever that landed), and it gains
+   a text label once the rail is wide enough to carry it. */
 .os-rail-update-chrome {
   flex-shrink: 0;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  gap: 0.25rem;
+}
+.os-rail-update-chrome__label {
+  display: none;
+}
+@container (min-width: 15rem) {
+  .os-rail-update-chrome {
+    width: auto;
+    min-width: 0;
+    padding-inline: 0.35rem;
+  }
+  .os-rail-update-chrome__label {
+    display: inline;
+    font-size: 0.65rem;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
 }
 .os-rail-update-chrome--idle {
   color: color-mix(in srgb, var(--color-base-content) 55%, transparent);

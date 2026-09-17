@@ -72,23 +72,36 @@ function SubMenuItem({
   onSubSelect?: (parentId: RailMenuItemId, childId: string) => void
 }) {
   return (
-    <li>
-      <button
-        type="button"
-        role="menuitem"
-        data-menu-id={parentId}
-        data-move-to={child.id}
-        aria-checked={child.checked || undefined}
-        onClick={() => onSubSelect?.(parentId, child.id)}
-      >
-        <Check
-          className={`h-4 w-4 ${child.checked ? '' : 'opacity-0'}`}
+    <Fragment>
+      {/* #497: submenus could not express grouping at all, so 'New section' ran
+          together with the section list it follows. */}
+      {child.dividerBefore ? (
+        <li
           aria-hidden="true"
-          data-menu-icon={child.checked ? 'checked' : 'unchecked'}
-        />
-        {child.label}
-      </button>
-    </li>
+          className="pointer-events-none px-2 py-0.5"
+          data-testid="rail-menu-submenu-divider"
+        >
+          <hr className="border-base-300" />
+        </li>
+      ) : null}
+      <li>
+        <button
+          type="button"
+          role="menuitem"
+          data-menu-id={parentId}
+          data-move-to={child.id}
+          aria-checked={child.checked || undefined}
+          onClick={() => onSubSelect?.(parentId, child.id)}
+        >
+          <Check
+            className={`h-4 w-4 ${child.checked ? '' : 'opacity-0'}`}
+            aria-hidden="true"
+            data-menu-icon={child.checked ? 'checked' : 'unchecked'}
+          />
+          {child.label}
+        </button>
+      </li>
+    </Fragment>
   )
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
-import UpdateChrome from '../UpdateChrome'
+import UpdateChrome, { updateChromeVisibleLabel } from '../UpdateChrome'
 import { publishExpectedSpaVersion, resetExpectedSpaVersion } from '../../lib/spaHello'
 import { setBakedSpaVersionForTests } from '../../lib/spaVersion'
 import { GITHUB_ISSUES_URL, resetGithubReleaseCache } from '../../lib/githubRelease'
@@ -93,6 +93,33 @@ describe('UpdateChrome (REQ-78)', () => {
     await waitFor(() => {
       expect(screen.getByTestId('rail-update-chrome')).toHaveAttribute('data-kind', 'idle')
     })
+  })
+
+  it('#547: the on-screen label is words for reload/update and nothing for idle', () => {
+    expect(updateChromeVisibleLabel('idle')).toBeNull()
+    expect(updateChromeVisibleLabel('local')).toBe('Reload')
+    expect(updateChromeVisibleLabel('upstream')).toBe('Update available')
+  })
+
+  it('#547: renders the text label alongside the icon when the state has one', async () => {
+    stubGithub('v0.5.6')
+    render(<UpdateChrome />)
+    act(() => {
+      publishExpectedSpaVersion('0.5.4')
+    })
+    const btn = await screen.findByLabelText('Newer Operating Swarm release available')
+    const label = btn.querySelector('.os-rail-update-chrome__label')
+    expect(label).not.toBeNull()
+    expect(label).toHaveTextContent('Update available')
+    // The words are decorative — the aria-label carries the meaning.
+    expect(label).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('#547: idle stays icon-only so the ⓘ never shouts', async () => {
+    stubGithub('0.5.4')
+    render(<UpdateChrome />)
+    const btn = screen.getByTestId('rail-update-chrome')
+    expect(btn.querySelector('.os-rail-update-chrome__label')).toBeNull()
   })
 
   it('both → local priority, tooltip mentions upstream, one icon only', async () => {

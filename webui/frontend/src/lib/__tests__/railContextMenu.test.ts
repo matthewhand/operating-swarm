@@ -5,10 +5,43 @@ import {
   copyableConversationId,
   duplicateName,
   isRailMenuKey,
+  moveToMenuItem,
   railMenuItems,
   sectionMenuItems,
 } from '../railContextMenu'
 import { NEW_SECTION_TARGET, UNASSIGNED_SECTION_ID } from '../railSections'
+
+describe('#497 moveToMenuItem grouping', () => {
+  it('marks only New section as separated from the destinations', () => {
+    const item = moveToMenuItem({
+      sections: [
+        { id: 'sec_a', name: 'alpha' },
+        { id: 'sec_b', name: 'beta' },
+      ],
+      currentSectionId: 'sec_a',
+    })
+    const children = item.children ?? []
+
+    expect(children.map((child) => child.id)).toEqual([
+      'sec_a',
+      'sec_b',
+      UNASSIGNED_SECTION_ID,
+      NEW_SECTION_TARGET,
+    ])
+    // Destinations carry no rule; the action that follows them does.
+    expect(children.slice(0, 3).every((child) => !child.dividerBefore)).toBe(true)
+    expect(children[3].dividerBefore).toBe(true)
+  })
+
+  it('still separates New section when there are no custom sections', () => {
+    const children = moveToMenuItem()?.children ?? []
+    expect(children.map((child) => child.id)).toEqual([
+      UNASSIGNED_SECTION_ID,
+      NEW_SECTION_TARGET,
+    ])
+    expect(children[1].dividerBefore).toBe(true)
+  })
+})
 
 describe('railMenuItems (REQ-82)', () => {
   const base = {

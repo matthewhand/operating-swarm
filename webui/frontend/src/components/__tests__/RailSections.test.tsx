@@ -8,6 +8,7 @@ import { HIDDEN_AGENTS_STORAGE_KEY } from '../../lib/hiddenAgents'
 import { PINNED_AGENTS_STORAGE_KEY } from '../../lib/pinnedAgents'
 import {
   NEW_SECTION_PLACEHOLDER,
+  NEW_SECTION_TARGET,
   RAIL_SECTIONS_STORAGE_KEY,
   UNASSIGNED_SECTION_ID,
 } from '../../lib/railSections'
@@ -205,6 +206,36 @@ describe('REQ-209 sidepane agent sections', () => {
       expect(within(sectionById(UNASSIGNED_SECTION_ID)!).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     })
     expect(within(list).getAllByTestId('spill-hotkey').length).toBeGreaterThan(0)
+  })
+
+  it('#497: Move to separates the section list from New section with a divider', async () => {
+    renderRail()
+    await openAgentMenu(/Rakazo/)
+    fireEvent.click(await screen.findByTestId('rail-menu-move-to'))
+    const submenu = await screen.findByTestId('rail-menu-move-to-submenu')
+    const children = Array.from(submenu.children) as HTMLElement[]
+
+    const dividerIndexes = children
+      .map((node, index) =>
+        node.getAttribute('data-testid') === 'rail-menu-submenu-divider' ? index : -1,
+      )
+      .filter((index) => index >= 0)
+    // Exactly one rule — the destinations above it are one undivided list.
+    expect(dividerIndexes).toHaveLength(1)
+
+    const newSectionIndex = children.findIndex(
+      (node) => node.querySelector(`[data-move-to="${NEW_SECTION_TARGET}"]`) !== null,
+    )
+    expect(newSectionIndex).toBeGreaterThan(dividerIndexes[0])
+    // 'New section' is the last child, so the rule only ever separates it.
+    expect(newSectionIndex).toBe(children.length - 1)
+
+    // The destinations themselves are NOT separated from each other.
+    const unassignedIndex = children.findIndex(
+      (node) => node.querySelector('[data-move-to="unassigned"]') !== null,
+    )
+    expect(unassignedIndex).toBeGreaterThanOrEqual(0)
+    expect(dividerIndexes[0]).toBeGreaterThan(unassignedIndex)
   })
 
   it('#173: right-clicking the rail background creates an empty section and focuses its title', async () => {

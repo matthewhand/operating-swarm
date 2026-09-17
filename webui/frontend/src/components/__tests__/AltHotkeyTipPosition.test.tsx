@@ -19,4 +19,31 @@ describe('Alt Hotkey Tip Position (REQ-182)', () => {
     expect(css).toContain('.os-fav-tile:hover .os-fav-tile__shortcut')
     expect(css).not.toContain('.os-fav-tile:focus-within .os-fav-tile__shortcut')
   })
+
+  it('#579: the pinned role badge holds the top-right corner, not the avatar centre', () => {
+    const cssPath = path.resolve(__dirname, '../../index.css')
+    const css = fs.readFileSync(cssPath, 'utf-8')
+    const match = css.match(/\.os-fav-tile__badge\s*\{([^}]+)\}/)
+    expect(match).not.toBeNull()
+    const ruleBody = match![1]
+
+    expect(ruleBody).toMatch(/right:\s*0\.\d+rem/)
+    expect(ruleBody).toMatch(/top:\s*0\.\d+rem/)
+    // Centring over the avatar is what the badge must stop doing.
+    expect(ruleBody).not.toMatch(/left:\s*50%/)  
+    expect(ruleBody).not.toMatch(/translate\(-50%/)  
+    // Still absolutely positioned: the pinned grid must not grow.
+    expect(ruleBody).toContain('position: absolute')
+  })
+
+  it('#579: the two tenants of the top-right corner have stated rules', () => {
+    const cssPath = path.resolve(__dirname, '../../index.css')
+    const css = fs.readFileSync(cssPath, 'utf-8')
+    // The ⌥N hint wins the corner on hover; the badge slides left of it.
+    expect(css).toContain(
+      '.os-fav-tile:hover:has(.os-fav-tile__shortcut) .os-fav-tile__badge',
+    )
+    // The NEEDS APPROVAL band wins the top edge; the badge drops below it.
+    expect(css).toContain('.os-fav-tile:has(.os-fav-tile__attention) .os-fav-tile__badge')
+  })
 })

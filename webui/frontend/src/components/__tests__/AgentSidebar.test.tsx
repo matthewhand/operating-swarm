@@ -1361,7 +1361,8 @@ describe('AgentSidebar Grok rail', () => {
 
     const office = within(list).getByRole('link', { name: /Office/ })
     expect(office).toHaveAttribute('data-kind', 'team')
-    expect(within(office).getByText('Team')).toHaveAttribute('data-kind', 'team')
+    // #525: team membership is not a role, so a team row carries no badge.
+    expect(within(office).queryByText('Team')).not.toBeInTheDocument()
 
     const research = within(list).getByRole('link', { name: /Research/ })
     expect(research).toHaveAttribute('data-kind', 'team')
@@ -1565,7 +1566,9 @@ describe('AgentSidebar teams', () => {
     const team = await within(list).findByRole('link', { name: /Demo Team \(team\)/ })
     expect(team).toHaveAttribute('href', '/chat?team=demo-team')
     expect(team.className).toMatch(/os-team-item/)
-    expect(within(team).getByText('Team')).toBeInTheDocument()
+    // #525: the 'Team' role-styled pill is gone from sidepane rows.
+    expect(within(team).queryByText('Team')).not.toBeInTheDocument()
+    expect(within(team).queryByText('Remote')).not.toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Stewie/ })).toBeInTheDocument()
   })
@@ -1609,7 +1612,7 @@ describe('AgentSidebar teams', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Demo Harness Kinds \(team\)/ })
     expect(team).toHaveAttribute('href', '/chat?team=demo-harness-kinds')
-    expect(within(team).getByText('Team')).toBeInTheDocument()
+    expect(within(team).queryByText('Team')).not.toBeInTheDocument()
   })
 
   it('shows three declared persona faces on a team row (REQ-81)', async () => {
@@ -1689,25 +1692,18 @@ describe('AgentSidebar teams', () => {
     )
   })
 
-  it('opens the definition pane when the Team badge is clicked', async () => {
-    const opened: Array<Record<string, unknown>> = []
-    const onOpen = (event: Event) => {
-      opened.push((event as CustomEvent).detail || {})
-    }
-    window.addEventListener('swarm:open-settings', onOpen)
+  it('#525: a team row renders no Team badge and no definition-pane button', async () => {
     renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const team = await within(list).findByRole('link', { name: /Demo Team \(team\)/ })
 
-    const badge = await screen.findByRole('button', { name: 'Open Demo Team team settings' })
-    fireEvent.click(badge)
-    expect(opened).toEqual([
-      {
-        section: 'definition',
-        definitionKind: 'team',
-        definitionId: 'demo-team',
-        teamId: 'demo-team',
-      },
-    ])
-    window.removeEventListener('swarm:open-settings', onOpen)
+    expect(within(team).queryByText('Team')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Open Demo Team team settings' }),
+    ).not.toBeInTheDocument()
+    // Team membership is still declared on the row itself (semantics kept).
+    expect(team).toHaveAttribute('data-kind', 'team')
+    expect(team).toHaveAttribute('aria-label', 'Demo Team (team)')
   })
 
   it('selects a team like an agent via ?team=', async () => {
