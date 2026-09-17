@@ -25,11 +25,17 @@ def test_role_badge_sits_on_the_name_row_not_bottom_centered():
 
 
 def test_team_stack_shows_all_up_to_three_then_two_plus_n():
+    """REQ-891 (#485) redesigned the team sidepane stack: at most
+    STACK_FACE_LIMIT (3) faces, no +N chip, recency-ordered while any member
+    works, stable roster order when idle. The old "all ≤3 then 2 + N" rule
+    survives only in the rail constants (TEAM_STACK_*), kept for #398."""
     src = AVATAR_STACK.read_text(encoding="utf-8")
     assert "TEAM_STACK_ALL_MAX = 3" in src
     assert "TEAM_STACK_FACE_LIMIT = 2" in src
-    assert "if (all.length <= TEAM_STACK_ALL_MAX)" in src
-    assert "all.slice(0, TEAM_STACK_FACE_LIMIT)" in src
+    assert "export function teamSidepaneStack" in src
+    assert "faces: ordered.slice(0, STACK_FACE_LIMIT)" in src
+    assert "remainder: 0" in src
+    assert "b.startedAt - a.startedAt" in src
 
 
 def test_alt_n_and_ctrl_k_hints_are_hover_only():
