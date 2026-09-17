@@ -79,6 +79,9 @@
   --tab-border: 1px;
   --tab-radius: 0.5rem;
   --os-chrome-sidebar: #111111;
+  /* #560: the top chrome band — the chat header and the rail's search strip
+     both consume it, so they share one baseline instead of two guesses. */
+  --os-top-chrome-h: 3.5rem;
   /* REQ-101: Grok chrome colour tokens */
   --os-grok-rail: #111111;
   --os-grok-tile-selected: #313131;
@@ -383,15 +386,25 @@ html:not([data-theme="light"]) .os-composer,
 .os-agent-dot[data-mark="5"] { background: #8a6a5a; }
 
 /* REQ-66 scale-out stack — same overlapping faces as inter-bot hops */
+/* #559: alignment is a property of the *host* layout, so it is scoped to the
+   host. The rail row is a left-aligned row; the pinned tile is a centred
+   column. Keeping these in the base rule made team stacks hug the left edge
+   of a pinned tile and sit 0.2rem below a single-agent pin's baseline. */
 .os-stacked-avatars {
   display: inline-flex;
   flex-direction: row;
   align-items: center;
   flex: 0 0 auto;
   flex-shrink: 0;
+  min-height: 1.15rem;
+}
+.os-agent-row .os-stacked-avatars {
   align-self: flex-start;
   margin-top: 0.2rem;
-  min-height: 1.15rem;
+}
+.os-fav-tile .os-stacked-avatars {
+  align-self: center;
+  margin-top: 0;
 }
 .os-stacked-avatar {
   width: 1.15rem;
@@ -875,6 +888,11 @@ html:not([data-theme="light"]) .os-composer,
   }
 }
 
+/* #560: the rail's top strip consumes the same token as `.os-chat-header`.*/
+.os-rail-search-row {
+  height: var(--os-top-chrome-h);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
 .os-rail-search {
   display: flex;
   align-items: center;
@@ -1179,6 +1197,23 @@ button.os-agent-row {
   outline-offset: 2px;
   background: color-mix(in srgb, var(--color-base-300) 40%, transparent);
 }
+/* #562: the rail's scrolling body. `scrollbar-gutter: stable` reserves the
+   gutter even when nothing overflows, so revealing the scrollbar cannot reflow
+   the pane. Without it, a classic (Linux/Windows) scrollbar takes its width out
+   of the content box and every row jumps left — worst in avatar-only mode where
+   the rail is 68–96px wide. Avatar-only reclaims the gutter instead, since a
+   permanently reserved 15px there is a large slice of the pane. */
+.os-rail-scroller {
+  scrollbar-gutter: stable;
+}
+.os-agent-sidebar--avatar-only .os-rail-scroller {
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+}
+.os-agent-sidebar--avatar-only .os-rail-scroller::-webkit-scrollbar {
+  width: 0;
+}
+
 /* REQ-99: Left-rail fade above Plugins footer (scroll soft-edge) */
 .os-rail-scroll-fade {
   position: absolute;
@@ -1684,6 +1719,13 @@ button.os-agent-row {
   color: #38bdf8;
 }
 
+/* #560: one token for the top chrome band, so the chat header and the rail's
+   search strip cannot drift apart. They were independent: the strip was a
+   fixed 3.5rem (2.25rem pill + 1.25rem padding) while the header's height was
+   content-driven by the header avatar, which is 2.5rem under the default theme
+   but 2.75rem under blobs/bee/bland — so switching theme grew the navbar and
+   broke the shared baseline. `height` (not `min-height`) pins it on purpose:
+   a taller child now overflows symmetrically instead of growing the band. */
 .os-chat-header {
   display: flex;
   align-items: center;
@@ -1695,7 +1737,7 @@ button.os-agent-row {
      inside this header. Title clamping belongs to the label that holds the
      title (`.os-navbar-identity-label`, mask included), which is where it is. */
   gap: 0.375rem;
-  min-height: 3rem;
+  height: var(--os-top-chrome-h);
   padding: 0.5rem 1rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
   /* #530: relative so the centered token meter can anchor to the header row. */

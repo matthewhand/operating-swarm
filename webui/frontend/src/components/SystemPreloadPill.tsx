@@ -1,5 +1,5 @@
 import { useState, useId } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { DisclosureChevron } from './DisclosureChevron'
 import { renderSafeMarkdown } from '../lib/markdown'
 import { messageFromLabel } from '../lib/compactedCardMenu'
 import { useCompactedCardMenu } from './CompactedCardContextMenu'
@@ -65,11 +65,9 @@ export function SystemPreloadPill({
           {pillMark(label)}
         </span>
         <span>{label}</span>
-        <ChevronDown
-          className={`h-3.5 w-3.5 opacity-60 transition-transform duration-150 shrink-0 ${
-            expanded ? 'rotate-180' : ''
-          }`}
-          aria-hidden="true"
+        <DisclosureChevron
+          expanded={expanded}
+          className="h-3.5 w-3.5 opacity-60 shrink-0"
         />
       </button>
       {expanded && (

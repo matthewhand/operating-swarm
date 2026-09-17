@@ -5,11 +5,10 @@ import {
   Clock,
   AlertCircle,
   MessageSquare,
-  ChevronDown,
-  ChevronUp,
   ArrowRight,
   Sparkles,
 } from 'lucide-react'
+import { DisclosureChevron } from './DisclosureChevron'
 import AgentAvatar from './AgentAvatar'
 import { registerDynamicSubagent } from '../lib/dynamicSubagents'
 import {
@@ -310,11 +309,10 @@ export default function SubagentFanOutBlock({
                       {count}
                     </span>
                   )}
-                  {isExpanded ? (
-                    <ChevronUp className="w-3 h-3 ml-0.5 opacity-70" />
-                  ) : (
-                    <ChevronDown className="w-3 h-3 ml-0.5 opacity-70" />
-                  )}
+                  <DisclosureChevron
+                    expanded={isExpanded}
+                    className="w-3 h-3 ml-0.5 opacity-70"
+                  />
                 </button>
               )
             })}

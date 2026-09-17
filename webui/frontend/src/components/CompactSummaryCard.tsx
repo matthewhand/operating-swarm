@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { ChevronDown, Pencil } from 'lucide-react'
+import { Pencil } from 'lucide-react'
+import { DisclosureChevron } from './DisclosureChevron'
 import { compactedCardCopyText } from '../lib/compactedCardMenu'
 import { useCompactedCardMenu } from './CompactedCardContextMenu'
 import { Textarea } from './DaisyUI'
@@ -145,11 +146,9 @@ export function CompactSummaryCard({
           onKeyDown={onKeyDown}
         >
           <span>{title}</span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 opacity-60 transition-transform duration-150 shrink-0 ${
-              expanded ? 'rotate-180' : ''
-            }`}
-            aria-hidden="true"
+          <DisclosureChevron
+            expanded={expanded}
+            className="h-3.5 w-3.5 opacity-60 shrink-0"
           />
         </button>
         {canEdit && !editing ? (

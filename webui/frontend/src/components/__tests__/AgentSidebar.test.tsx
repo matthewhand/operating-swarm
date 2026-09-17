@@ -864,7 +864,12 @@ describe('AgentSidebar Grok rail', () => {
     expect(within(trigger).getByText('Hidden Bots')).toBeInTheDocument()
     expect(within(trigger).getByTestId('os-hidden-bots-count')).toHaveTextContent('2')
     fireEvent.mouseEnter(trigger)
-    expect(within(trigger).getByTestId('os-hidden-bots-tail')).toHaveTextContent('>')
+    // #557: the hover affordance is now the lucide chevron rather than a literal
+    // '>' character, so assert the icon (and that the count yields to it) instead
+    // of coupling the test to a text glyph.
+    const tail = within(trigger).getByTestId('os-hidden-bots-tail')
+    expect(tail.querySelector('svg.lucide-chevron-right')).toBeTruthy()
+    expect(tail).not.toHaveTextContent('>')
     fireEvent.mouseLeave(trigger)
     expect(within(trigger).getByTestId('os-hidden-bots-count')).toHaveTextContent('2')
   })
@@ -2446,7 +2451,7 @@ describe('AgentSidebar REQ-129 — Hidden Bots row chrome', () => {
     localStorage.clear()
   })
 
-  it('renders "Hidden Bots" label with count and swaps count to > on hover', async () => {
+  it('renders "Hidden Bots" label with count and swaps count to a chevron on hover', async () => {
     localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify(['gate', 'skeptic']))
     renderSidebar()
     const btn = await screen.findByTestId('os-hidden-bots-button')
@@ -2458,9 +2463,11 @@ describe('AgentSidebar REQ-129 — Hidden Bots row chrome', () => {
     const countEl = within(btn).getByTestId('os-hidden-bots-count')
     expect(countEl).toHaveTextContent('2')
 
-    // Hover state: swaps count to >
+    // Hover state: swaps the count for the chevron icon (#557 — was a literal '>')
     fireEvent.mouseEnter(btn)
-    expect(within(btn).getByTestId('os-hidden-bots-tail')).toHaveTextContent('>')
+    const tail = within(btn).getByTestId('os-hidden-bots-tail')
+    expect(tail.querySelector('svg.lucide-chevron-right')).toBeTruthy()
+    expect(tail).not.toHaveTextContent('>')
 
     // Leave hover state: restores count
     fireEvent.mouseLeave(btn)

@@ -11,7 +11,7 @@ import {
 } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calendar, Plug, Plus, Search, Server, Trash2, Users, X } from 'lucide-react'
+import { Calendar, ChevronRight, Plug, Plus, Search, Server, Trash2, Users, X } from 'lucide-react'
 import AgentCalendarView from './AgentCalendarView'
 export const OPEN_CALENDAR_EVENT = 'open-calendar-view'
 import AddAgentWizard, { type AgentKind } from './AddAgentWizard'
@@ -3340,7 +3340,7 @@ export default function AgentSidebar({
           <nav
             ref={navScrollRef}
             onScroll={updateCanScroll}
-            className="min-h-0 flex-1 overflow-y-auto px-2 pb-16"
+            className="os-rail-scroller min-h-0 flex-1 overflow-y-auto px-2 pb-16"
             data-testid="rail-agent-scroller"
             aria-label="Agent list"
             onContextMenu={(event) => {
@@ -3524,12 +3524,17 @@ export default function AgentSidebar({
                 >
                   {hiddenCount}
                 </span>
+                {/* #557: this row opens the Hidden Bots **dialog**
+                    (`aria-haspopup="dialog"` → `openSearchPalette({ filterHidden })`),
+                    so it is a navigation affordance and a right chevron is correct —
+                    deliberately NOT a `DisclosureChevron`, which would imply an inline
+                    expand. Only the glyph changes: a lucide icon instead of the literal
+                    `>` character, so weight/size match the rest of the set. */}
                 <span
                   className={`os-hidden-bots-chevron ${hoveringHidden ? 'inline' : 'hidden group-hover:inline'}`}
-                  aria-hidden="true"
                   data-testid="os-hidden-bots-chevron"
                 >
-                  &gt;
+                  <ChevronRight className="h-3 w-3" aria-hidden="true" />
                 </span>
               </span>
             </button>

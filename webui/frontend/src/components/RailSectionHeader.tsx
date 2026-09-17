@@ -4,7 +4,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import { ChevronDown, ChevronRight, Lock, LockOpen } from 'lucide-react'
+import { Lock, LockOpen } from 'lucide-react'
+import { DisclosureChevron } from './DisclosureChevron'
 import {
   EMPTY_SECTION_HINT,
   NEW_SECTION_PLACEHOLDER,
@@ -138,11 +139,7 @@ export default function RailSectionHeader({
                 aria-hidden="true"
                 data-testid="rail-section-toggle"
               >
-                {collapsed ? (
-                  <ChevronRight className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5" />
-                )}
+                <DisclosureChevron expanded={!collapsed} className="h-3.5 w-3.5" />
               </span>
             </span>
           </button>
