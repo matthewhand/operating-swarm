@@ -143,11 +143,14 @@ _GAP_HINTS: dict[str, str] = {
     "flowise_session_required": "pick a chatflow first.",
     "herdr_reply_empty": "check that pane is still alive in herdr, then retry.",
     "herdr_reply_timeout": "check that pane in herdr — it may be busy or blocked — then retry.",
+    "hermes_reply_failed": "check the Hermes gateway's log for that run, then retry.",
     "hermes_reply_timeout": "retry in a moment — the run may still be going.",
     "hermes_run_id_missing": "check the Hermes gateway returns a run id after accepting a send.",
     "letta_agent_required": "pick a Letta agent first.",
     "n8n_workflow_required": "pick a workflow first.",
+    "omb_reply_failed": "retry the prompt — the turn ended without a reply and without timing out.",
     "omb_reply_timeout": "wait for the bot's follow-up, or retry — it may still be working.",
+    "omb_turn_error": "retry the prompt — the bot's last turn ended in an internal error.",
     "openwebui_auth": "set OPENWEBUI_API_KEY (or sign in to Open WebUI), then retry.",
     "openwebui_chat_required": "pick a chat first.",
     "rakazo_rpc_requires_better_auth_session": (
@@ -156,6 +159,10 @@ _GAP_HINTS: dict[str, str] = {
     ),
     "rakazo_rpc_unusable": "point base_url at the Rakazo API (:3100), not the Vite UI (:5173).",
     "slack_thread_required": "pick a Slack thread first.",
+    "trueforge_no_session": (
+        "point the send at a TrueForge session id (Settings → Remotes lists the "
+        "agents it can start one for), or start a session for that agent first."
+    ),
 }
 
 

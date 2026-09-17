@@ -11,6 +11,7 @@ the chat bubble carried the raw ``{"json": {"code": "UNAUTHORIZED" ...}}`` body.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -114,12 +115,43 @@ def test_no_remote_dumps_json_on_failure(remote):
 # --- the gap map is complete and stays complete -----------------------------
 
 
+# A gap code is lowercase snake_case; a comparison operand like "timed out" is not.
+_CODE_SHAPE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _string_constants(node: ast.AST) -> set[str]:
+    """Every code-shaped string literal inside an expression."""
+    return {
+        n.value
+        for n in ast.walk(node)
+        if isinstance(n, ast.Constant)
+        and isinstance(n.value, str)
+        and _CODE_SHAPE.match(n.value)
+    }
+
+
 def _gap_codes_in_source() -> set[str]:
-    """Every gap code the backend can actually raise."""
-    pattern = re.compile(r'gap="([a-z0-9_]+)"')
+    """Every gap code the backend can actually raise.
+
+    Parses the AST instead of grepping for ``gap="code"``. #474 rewrote one
+    assignment as a multi-line conditional (``else "omb_reply_timeout"``), which
+    the literal-only pattern read as "no raiser" — a false dead entry that would
+    have deleted a live hint.
+    """
     found: set[str] = set()
     for path in SRC.rglob("*.py"):
-        found.update(pattern.findall(path.read_text(encoding="utf-8")))
+        source = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:  # pragma: no cover — unparseable file, fall back
+            found.update(re.findall(r'gap="([a-z0-9_]+)"', source))
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if kw.arg == "gap":
+                    found.update(_string_constants(kw.value))
     return found
 
 

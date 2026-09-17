@@ -50,3 +50,4 @@ source-lock so the spec cannot silently regress.
 | REQ-887 | Teams + Plugins marketplaces (MCP Registry + Agent Skills + OS team packs) | [REQ-887-teams-plugins-marketplaces.md](./REQ-887-teams-plugins-marketplaces.md) | `tests/unit/test_req887_marketplace.py` |
 | REQ-889 | Herdr Send cannot be submitted without a target (#453) | [REQ-889-herdr-send-target-guard.md](./REQ-889-herdr-send-target-guard.md) | `tests/unit/test_req889_herdr_send_target_guard.py` |
 | REQ-893 | Rail seats are `/v1/models` ids or they are not advertised as one (#426) | [REQ-893-rail-seat-model-ids.md](./REQ-893-rail-seat-model-ids.md) | `tests/unit/test_req893_rail_seat_model_ids.py` |
+| REQ-895 | Restore green `main` after the 19-PR batch merge (5 cross-PR regressions) | [REQ-895-batch-merge-regressions.md](./REQ-895-batch-merge-regressions.md) | `tests/unit/test_req890_remote_error_ux.py` |
