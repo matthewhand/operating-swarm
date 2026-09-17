@@ -4,10 +4,12 @@ Each catalog CLI exposes a real list/help/models command (see
 ``cli_catalog.LIST_MODELS``). This module runs that argv with stdin closed and
 a hard timeout, then parses boring model ids out of stdout.
 
-Missing CLI, unknown name, nonzero exit, empty stdout, or timeout → catalog
-``CLI_MODELS`` presets when known, otherwise last-good cached models,
-otherwise ``{cli, models: []}``, plus a warning. Never raises to the caller.
-Never hangs. Secrets are stripped from parsed ids and redacted from warnings.
+Missing CLI → catalog ``CLI_MODELS`` presets when known (display hint for a
+CLI that is not installed). Unknown name, nonzero exit, empty stdout, or
+timeout → last-good cached models when available, otherwise an honest
+``{cli, models: []}``, plus a warning — a probe that ran and failed never
+reports fabricated presets (#272). Never raises to the caller. Never hangs.
+Secrets are stripped from parsed ids and redacted from warnings.
 
 Profile loading (``/v1/llm-profiles/``) uses ``list_models_many``: concurrent
 probes, a 1.5s cap, TTL cache, and stale-while-revalidate so reloads do not
@@ -207,9 +209,21 @@ def _catalog_presets(name: str) -> list[str]:
 
 
 def _result_with_optional_presets(name: str, warning: str) -> ListModelsResult:
-    """Empty/failed probe → catalog presets when known, else empty + warning."""
+    """Known-CLI-missing → catalog presets when known, else empty + warning.
+
+    Presets are a display hint for a CLI that is not installed on this host,
+    never a substitute for a probe that ran and failed (#272): timeouts, auth
+    failures, and empty stdout report honestly empty so the cache's last-good
+    survives and the UI does not pin fabricated model ids.
+    """
     logger.warning(warning)
     return ListModelsResult(cli=name, models=_catalog_presets(name), warning=warning)
+
+
+def _result_runtime_failure(name: str, warning: str) -> ListModelsResult:
+    """A probe that ran and failed: honest empty models + redacted warning."""
+    logger.warning(warning)
+    return ListModelsResult(cli=name, models=[], warning=warning)
 
 
 async def probe_list_models(
@@ -233,7 +247,7 @@ async def probe_list_models(
 
     t = _default_timeout() if timeout is None else float(timeout)
     if t <= 0:
-        return _result_with_optional_presets(name, f"{name}: list-models timeout must be positive")
+        return _result_runtime_failure(name, f"{name}: list-models timeout must be positive")
 
     exe = _resolve_executable(argv[0], which=which)
     if exe is None:
@@ -246,28 +260,28 @@ async def probe_list_models(
     try:
         code, stdout, stderr = await runner(resolved, t)
     except asyncio.TimeoutError:
-        return _result_with_optional_presets(
+        return _result_runtime_failure(
             name, f"{name}: list-models probe timed out after {t:.1f}s"
         )
     except Exception as exc:  # never crash the caller
-        return _result_with_optional_presets(
+        return _result_runtime_failure(
             name, _safe_warning(f"{name}: list-models probe failed: {exc}")
         )
 
     if code is None:
-        return _result_with_optional_presets(
+        return _result_runtime_failure(
             name, f"{name}: list-models probe timed out after {t:.1f}s"
         )
     if code != 0:
         detail = (stderr or stdout or f"exit {code}").strip().splitlines()
         snippet = detail[0] if detail else f"exit {code}"
-        return _result_with_optional_presets(
+        return _result_runtime_failure(
             name, _safe_warning(f"{name}: list-models probe failed: {snippet}")
         )
 
     models = parse_models_stdout(stdout)
     if not models:
-        return _result_with_optional_presets(
+        return _result_runtime_failure(
             name, f"{name}: list-models probe returned no model ids"
         )
     return ListModelsResult(cli=name, models=models)
@@ -428,7 +442,10 @@ def _remember(row: ListModelsResult) -> ListModelsResult:
     with _CACHE_LOCK:
         prev = _RESULT_CACHE.get(row.cli)
         last_good = prev.last_good if prev is not None else None
-        if row.models:
+        if row.models and "not installed" not in (row.warning or ""):
+            # A real probe result refreshes last-good. Catalog presets from a
+            # missing-CLI probe are a display hint only and must not evict the
+            # last real model list (#272).
             last_good = row
         entry = _CacheEntry(ts=time.monotonic(), result=row, last_good=last_good)
         _RESULT_CACHE[row.cli] = entry
