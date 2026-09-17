@@ -499,6 +499,39 @@ html:not([data-theme="light"]) .os-composer,
       rotate(calc(var(--ea, 0deg) - 10deg)) scale(0.96);
   }
 }
+/* Idle pose (#110): an avatar that is not working still has to look alive.
+   Before this, only [data-eye-state="active"] animated and an idle blob was a
+   frozen rest pose — while `wanderEyePose()` (the idle wander) sat unused, so
+   nothing carried idle motion at all. A slow blink plus a very small gaze
+   drift is readable on a rail full of blobs and costs no JavaScript: the
+   duration is derived from the per-agent --ed the component already sets, so
+   every blob blinks on its own offset without a rAF loop per avatar. */
+.os-blob-avatar[data-eye-state="idle"] .os-blob-eyes {
+  animation: os-blob-idle calc(var(--ed, 9s) * 1.6) ease-in-out var(--ew, 0s) infinite;
+}
+@keyframes os-blob-idle {
+  0%,
+  100% {
+    transform: translate(var(--ex, 20px), var(--ey, 18px)) rotate(var(--ea, 0deg))
+      scale(var(--es, 1));
+  }
+  /* A small, slow glance — enough to read as awake, not enough to distract. */
+  12% {
+    transform: translate(calc(var(--ex, 20px) + 1.1px), var(--ey, 18px))
+      rotate(calc(var(--ea, 0deg) + 2.5deg)) scale(var(--es, 1));
+  }
+  /* The blink: a held vertical squash, so it registers as a lid rather than a
+     flicker. Held across two stops because a single-frame blink is invisible. */
+  46%,
+  52% {
+    transform: translate(var(--ex, 20px), var(--ey, 18px)) rotate(var(--ea, 0deg))
+      scale(var(--es, 1), 0.08);
+  }
+  70% {
+    transform: translate(calc(var(--ex, 20px) - 0.9px), calc(var(--ey, 18px) + 0.6px))
+      rotate(calc(var(--ea, 0deg) - 2deg)) scale(var(--es, 1));
+  }
+}
 .os-blob-body {
   transform-box: fill-box;
   transform-origin: center;
@@ -527,7 +560,9 @@ html:not([data-theme="light"]) .os-composer,
 }
 @media (prefers-reduced-motion: reduce) {
   .os-blob-avatar[data-eye-state="active"] .os-blob-eyes,
-  .os-blob-avatar[data-eye-state="active"] .os-blob-body {
+  .os-blob-avatar[data-eye-state="active"] .os-blob-body,
+  /* #110: idle motion is decoration too — it must stop with the rest. */
+  .os-blob-avatar[data-eye-state="idle"] .os-blob-eyes {
     animation: none;
   }
 }
