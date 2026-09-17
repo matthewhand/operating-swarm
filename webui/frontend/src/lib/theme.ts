@@ -4,8 +4,9 @@ export const THEME_TOGGLE_EVENT = 'swarm:toggle-theme'
 export const THEME_NAVBAR_STORAGE_KEY = 'swarm_theme_navbar'
 export const THEME_NAVBAR_SET_EVENT = 'swarm:set-theme-navbar'
 
-export type Theme = 'dark' | 'light' | 'system'
-export type ResolvedTheme = 'dark' | 'light'
+/** #529: a strict two-state light ↔ dark switch — no 'system' option. */
+export type Theme = 'dark' | 'light'
+export type ResolvedTheme = Theme
 
 export function resolveSystemTheme(): ResolvedTheme {
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
@@ -15,7 +16,6 @@ export function resolveSystemTheme(): ResolvedTheme {
 }
 
 export function resolveTheme(theme: Theme): ResolvedTheme {
-  if (theme === 'system') return resolveSystemTheme()
   return theme
 }
 
@@ -41,7 +41,10 @@ export function subscribeSystemTheme(onChange: (resolved: ResolvedTheme) => void
 export function initialTheme(): Theme {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+    // 'system' was accepted by the old 3-state cycle (#529): migrate it to its
+    // current resolved value so nobody's stored preference is lost.
+    if (stored === 'light' || stored === 'dark') return stored
+    if (stored === 'system') return resolveSystemTheme()
   } catch {
     /* storage unavailable — fall through to the dark default */
   }
@@ -49,9 +52,7 @@ export function initialTheme(): Theme {
 }
 
 export function nextTheme(theme: Theme): Theme {
-  if (theme === 'dark') return 'light'
-  if (theme === 'light') return 'system'
-  return 'dark'
+  return theme === 'dark' ? 'light' : 'dark'
 }
 
 export function persistTheme(theme: Theme): void {

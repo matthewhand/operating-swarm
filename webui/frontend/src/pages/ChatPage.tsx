@@ -3479,33 +3479,36 @@ const ChatPage = () => {
             ) : null}
           </div>
         </div>
-        <div className="os-chat-header__controls flex items-center shrink-0 gap-1 sm:gap-2">
-          {/* Token visibility: only when using API agents (swarm owns the numbers).
-              For remote, CLI, and non-API agent types, the token counter must not exist in the top navbar. */}
-          {isApiAgent && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case hidden sm:flex shrink-0"
-              aria-label="Session token usage"
-              data-testid="token-meter-button"
-              onClick={() => setTokenDiagOpen(true)}
+        {/* #530: the token meter is a direct child of the header row,
+            absolutely centered (see .os-chat-header__meter), not a member of
+            the right-hand controls cluster. Token visibility: only when using
+            API agents (swarm owns the numbers). For remote, CLI, and non-API
+            agent types, the token counter must not exist in the top navbar. */}
+        {isApiAgent && (
+          <button
+            type="button"
+            className="os-chat-header__meter btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case hidden sm:flex shrink-0"
+            aria-label="Session token usage"
+            data-testid="token-meter-button"
+            onClick={() => setTokenDiagOpen(true)}
+          >
+            <div
+              className="h-1 w-14 overflow-hidden rounded-full bg-base-300"
+              role="meter"
+              aria-label="Tokens in context"
+              aria-valuemin={0}
+              aria-valuemax={meterMax}
+              aria-valuenow={tokenCount}
             >
               <div
-                className="h-1 w-14 overflow-hidden rounded-full bg-base-300"
-                role="meter"
-                aria-label="Tokens in context"
-                aria-valuemin={0}
-                aria-valuemax={meterMax}
-                aria-valuenow={tokenCount}
-              >
-                <div
-                  className="h-full rounded-full bg-base-content/45"
-                  style={{ width: `${Math.max(tokenCount > 0 ? 4 : 0, tokenPct)}%` }}
-                />
-              </div>
-              <span className="tabular-nums whitespace-nowrap text-xs">{formatMeterLabel(tokenCount, contextMax)}</span>
-            </button>
-          )}
+                className="h-full rounded-full bg-base-content/45"
+                style={{ width: `${Math.max(tokenCount > 0 ? 4 : 0, tokenPct)}%` }}
+              />
+            </div>
+            <span className="tabular-nums whitespace-nowrap text-xs">{formatMeterLabel(tokenCount, contextMax)}</span>
+          </button>
+        )}
+        <div className="os-chat-header__controls flex items-center shrink-0 gap-1 sm:gap-2">
           {showEmptyRemoteChrome ? (
             <button
               type="button"

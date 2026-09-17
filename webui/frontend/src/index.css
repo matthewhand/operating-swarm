@@ -1663,6 +1663,8 @@ button.os-agent-row {
   min-height: 3rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
+  /* #530: relative so the centered token meter can anchor to the header row. */
+  position: relative;
 }
 @media (min-width: 640px) {
   .os-chat-header {
@@ -1683,6 +1685,15 @@ button.os-agent-row {
   flex-shrink: 0;
   flex-wrap: nowrap;
   align-items: center;
+}
+/* #530: the token meter sits centered in the header row, not right-aligned.
+   Absolutely positioned at the true center of `.os-chat-header` so it stays
+   centered regardless of how wide the identity and controls clusters are.
+   Pointer events stay on the meter only. */
+.os-chat-header__meter {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 .os-chat-header__avatar {
   pointer-events: none;

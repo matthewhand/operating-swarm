@@ -27,42 +27,32 @@ describe('theme helpers (REQ-110)', () => {
     expect(initialTheme()).toBe('dark')
   })
 
-  it('initialTheme reads light, dark, or system from localStorage', () => {
+  it('initialTheme reads light or dark from localStorage; a stored system migrates to its resolved value', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'light')
     expect(initialTheme()).toBe('light')
 
-    localStorage.setItem(THEME_STORAGE_KEY, 'system')
-    expect(initialTheme()).toBe('system')
-
     localStorage.setItem(THEME_STORAGE_KEY, 'dark')
     expect(initialTheme()).toBe('dark')
-  })
 
-  it('nextTheme cycles dark -> light -> system -> dark', () => {
-    expect(nextTheme('dark')).toBe('light')
-    expect(nextTheme('light')).toBe('system')
-    expect(nextTheme('system')).toBe('dark')
-  })
-
-  it('resolveTheme resolves light and dark directly, and system via matchMedia', () => {
-    expect(resolveTheme('light')).toBe('light')
-    expect(resolveTheme('dark')).toBe('dark')
-
-    // Mock matchMedia dark = true
+    // #529: 'system' is gone — an existing stored value resolves once so no
+    // preference is lost by the migration.
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
       matches: true,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     }))
-    expect(resolveTheme('system')).toBe('dark')
+    localStorage.setItem(THEME_STORAGE_KEY, 'system')
+    expect(initialTheme()).toBe('dark')
+  })
 
-    // Mock matchMedia dark = false (light)
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: false,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    }))
-    expect(resolveTheme('system')).toBe('light')
+  it('nextTheme flips dark <-> light (two-state, no system)', () => {
+    expect(nextTheme('dark')).toBe('light')
+    expect(nextTheme('light')).toBe('dark')
+  })
+
+  it('resolveTheme returns light and dark directly', () => {
+    expect(resolveTheme('light')).toBe('light')
+    expect(resolveTheme('dark')).toBe('dark')
   })
 
   it('subscribeSystemTheme listens to matchMedia change events', () => {
@@ -122,8 +112,8 @@ describe('theme helpers (REQ-110)', () => {
     const onSet = vi.fn()
     window.addEventListener(THEME_SET_EVENT, onSet)
 
-    dispatchSetTheme('system')
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('system')
+    dispatchSetTheme('light')
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
     expect(onSet).toHaveBeenCalled()
 
     window.removeEventListener(THEME_SET_EVENT, onSet)

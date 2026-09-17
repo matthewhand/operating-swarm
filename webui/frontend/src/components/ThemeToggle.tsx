@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Laptop, Moon, Sun } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 import {
   dispatchSetTheme,
   initialNavbarThemeVisible,
   initialTheme,
   nextTheme,
   resolveTheme,
-  subscribeSystemTheme,
   THEME_NAVBAR_SET_EVENT,
   THEME_SET_EVENT,
   THEME_TOGGLE_EVENT,
@@ -22,7 +21,7 @@ export default function ThemeToggle() {
   useEffect(() => {
     const onSet = (event: Event) => {
       const detail = (event as CustomEvent<Theme>).detail
-      if (detail === 'light' || detail === 'dark' || detail === 'system') {
+      if (detail === 'light' || detail === 'dark') {
         setTheme(detail)
         setResolvedTheme(resolveTheme(detail))
       }
@@ -50,22 +49,11 @@ export default function ThemeToggle() {
     }
   }, [])
 
-  useEffect(() => {
-    if (theme !== 'system') return
-    return subscribeSystemTheme((nextResolved) => {
-      setResolvedTheme(nextResolved)
-    })
-  }, [theme])
-
   if (!visible) return null
 
   const next = nextTheme(theme)
   const ariaLabel =
-    theme === 'dark'
-      ? 'Switch to light theme'
-      : theme === 'light'
-      ? 'Switch to system theme'
-      : 'Switch to dark theme'
+    theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
 
   return (
     <button
@@ -78,8 +66,6 @@ export default function ThemeToggle() {
     >
       {theme === 'dark' ? (
         <Sun className="h-4 w-4" aria-hidden="true" />
-      ) : theme === 'light' ? (
-        <Laptop className="h-4 w-4" aria-hidden="true" />
       ) : (
         <Moon className="h-4 w-4" aria-hidden="true" />
       )}

@@ -24,7 +24,6 @@ import {
   initialTheme,
   persistTheme,
   resolveTheme,
-  subscribeSystemTheme,
   nextTheme,
   THEME_SET_EVENT,
   THEME_TOGGLE_EVENT,
@@ -120,17 +119,10 @@ function App() {
   }, [themePreference])
 
   useEffect(() => {
-    if (themePreference !== 'system') return
-    return subscribeSystemTheme((nextResolved) => {
-      setResolvedTheme(nextResolved)
-    })
-  }, [themePreference])
-
-  useEffect(() => {
     const onToggle = () => setThemePreference((prev) => nextTheme(prev))
     const onSet = (event: Event) => {
       const detail = (event as CustomEvent<Theme>).detail
-      if (detail === 'light' || detail === 'dark' || detail === 'system') {
+      if (detail === 'light' || detail === 'dark') {
         setThemePreference(detail)
       }
     }
