@@ -36,8 +36,8 @@ import { cycleSessionMode as nextSessionMode, normalizeSessionMode, type Session
 import {
   HIDDEN_AGENTS_CHANGED_EVENT,
   HIDDEN_AGENTS_STORAGE_KEY,
-  hasHiddenAgentsStorage,
   loadHiddenAgentIds,
+  migrateLegacyHiddenAgentIds,
   saveHiddenAgentIds,
 } from './hiddenAgents'
 import {
@@ -159,28 +159,30 @@ interface AgentStoreState {
 }
 
 /**
- * #507: `agent_hidden_ids` is a bridge, not a second truth. Every write here
- * mirrors into the canonical `swarm_hidden_agents` store (which notifies
- * same-tab listeners — the DOM `storage` event never fires in the writing
- * tab), so the Chat rail and the Agent Router rail can never disagree.
+ * #507: the canonical `swarm_hidden_agents` store is the one truth. It also
+ * notifies same-tab listeners, which the DOM `storage` event never does in the
+ * writing tab, so the Chat rail and the Agent Router rail cannot disagree.
+ *
+ * #548: the legacy `agent_hidden_ids` key is **no longer written**. A bridge
+ * that keeps writing both keys is exactly the condition that let them drift —
+ * migrate once, then have one store. `migrateLegacyHiddenAgentIds()` retires the
+ * old key on first load.
  */
 function bridgeHiddenAgentIds(ids: string[]): string[] {
   const unique = Array.from(new Set(ids.filter((id) => id.length > 0)))
-  try {
-    localStorage.setItem('agent_hidden_ids', JSON.stringify(unique))
-  } catch {
-    /* persistence is best-effort */
-  }
   saveHiddenAgentIds(unique)
   return unique
 }
 
-/** #507: canonical key wins when present; the legacy key is a one-time import. */
+/**
+ * #507 / #548: the canonical key wins when present; otherwise adopt the legacy
+ * list and retire it. Never read the legacy key directly — see
+ * `migrateLegacyHiddenAgentIds`. The fallback is for the case where the
+ * migration could not write (storage unavailable), so the caller still sees a
+ * value instead of an empty list.
+ */
 function loadInitialHiddenAgentIds(): string[] {
-  if (hasHiddenAgentsStorage()) {
-    return loadHiddenAgentIds()
-  }
-  return loadStored<string[]>('agent_hidden_ids', [])
+  return migrateLegacyHiddenAgentIds() ?? loadHiddenAgentIds()
 }
 
 function loadStored<T>(key: string, fallback: T): T {
@@ -260,7 +262,8 @@ function persistOverlayKeys(state: {
   saveStored('agent_remote_members', state.remoteMemberByAgent)
   saveStored('agent_frameworks', state.frameworkByAgent)
   saveStored('agent_blueprints', state.blueprintByAgent)
-  saveStored('agent_hidden_ids', state.hiddenAgentIds)
+  // #548: canonical only — the legacy `agent_hidden_ids` key is retired by
+  // `migrateLegacyHiddenAgentIds()` and must not be resurrected here.
   saveHiddenAgentIds(state.hiddenAgentIds)
   saveStored('agent_quickstarts', state.quickstartsByAgent)
 }
@@ -384,20 +387,15 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
       let favouriteIds = state.favouriteIds
       const selectedAgentId = state.selectedAgentId
       try {
-        // Clean up legacy abandoned starter layout auto-hiding
+        // Clean up legacy abandoned starter layout auto-hiding.
+        // #548: this used to read the legacy `agent_hidden_ids` list, which is
+        // now migrated into the canonical store and retired at init — so the
+        // >50-id signature is read from the migrated list instead.
         if (localStorage.getItem('agent_sidebar_starters')) {
           localStorage.removeItem('agent_sidebar_starters')
-          const storedHidden = localStorage.getItem('agent_hidden_ids')
-          if (storedHidden) {
-            try {
-              const parsed = JSON.parse(storedHidden)
-              if (Array.isArray(parsed) && parsed.length > 50) {
-                localStorage.removeItem('agent_hidden_ids')
-                hiddenAgentIds = []
-              }
-            } catch {
-              /* ignore */
-            }
+          if (hiddenAgentIds.length > 50) {
+            hiddenAgentIds = []
+            saveHiddenAgentIds([])
           }
           const storedFavs = localStorage.getItem('agent_favourite_ids')
           if (storedFavs) {

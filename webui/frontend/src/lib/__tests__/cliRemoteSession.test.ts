@@ -67,12 +67,14 @@ describe('cliRemoteSessionChoices (#570)', () => {
   })
 
   it('keys a discovered box by id when it has one, else host:port', () => {
+    // Placeholders only — the sanitization gate forbids real private IPs and
+    // internal hostnames in tracked files.
     const choices = cliRemoteSessionChoices(null, [
-      { id: 'ubuntu-gtx', host: '10.0.0.36', port: 22 },
+      { id: 'named-box', host: 'box.example', port: 22 },
       { host: 'dev-box', port: 2222 },
     ])
     expect(choices.boxes).toEqual([
-      { value: 'ubuntu-gtx', label: 'ubuntu-gtx' },
+      { value: 'named-box', label: 'named-box' },
       { value: 'dev-box:2222', label: 'dev-box:2222' },
     ])
   })

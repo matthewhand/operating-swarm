@@ -120,8 +120,22 @@ describe('useAgentStore does not auto-hide agents on initial load', () => {
 
   it('cleans up legacy agent_sidebar_starters without auto-hiding', () => {
     localStorage.setItem('agent_sidebar_starters', 'support-cli-api-remote')
-    localStorage.setItem('agent_hidden_ids', JSON.stringify(Array.from({ length: 96 }, (_, i) => `agent-${i}`)))
     localStorage.setItem('agent_favourite_ids', JSON.stringify([STARTER_SUPPORT_ID, STARTER_CLI_ID, STARTER_API_ID, STARTER_REMOTE_ID]))
+
+    useAgentStore.getState().setAgents([...mockAgents])
+    const { hiddenAgentIds, favouriteIds } = useAgentStore.getState()
+    expect(localStorage.getItem('agent_sidebar_starters')).toBeNull()
+    expect(hiddenAgentIds).toEqual([])
+    expect(favouriteIds).toEqual([])
+  })
+
+  it('#548: the >50-id starter-layout guard reads the canonical list, not the retired key', () => {
+    localStorage.setItem('agent_sidebar_starters', 'support-cli-api-remote')
+    localStorage.setItem('agent_favourite_ids', JSON.stringify([STARTER_SUPPORT_ID, STARTER_CLI_ID, STARTER_API_ID, STARTER_REMOTE_ID]))
+    // The signature now lives in the canonical store — the legacy key is
+    // migrated away and retired at init, so reading it here would find nothing.
+    const many = Array.from({ length: 96 }, (_, i) => `agent-${i}`)
+    useAgentStore.setState({ hiddenAgentIds: many })
 
     useAgentStore.getState().setAgents([...mockAgents])
     const { hiddenAgentIds, favouriteIds } = useAgentStore.getState()

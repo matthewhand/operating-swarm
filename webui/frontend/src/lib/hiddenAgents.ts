@@ -28,6 +28,14 @@ import {
 export const HIDDEN_AGENTS_STORAGE_KEY = 'swarm_hidden_agents'
 
 /**
+ * #548: the pre-#507 key. It is a **migration source only** — never written
+ * again, so there is exactly one live truth. Kept as a constant so the few
+ * places that legitimately read it (the migration itself, and the >50-id
+ * starter-layout guard's test) cannot drift from each other.
+ */
+export const LEGACY_HIDDEN_AGENTS_STORAGE_KEY = 'agent_hidden_ids'
+
+/**
  * #507: fired on EVERY write to the canonical hidden-id store (same tab).
  * The DOM `storage` event only fires in *other* documents — never in the tab
  * that made the write — so same-tab surfaces (Search palette unhide, Agent
@@ -66,6 +74,47 @@ export function hasHiddenAgentsStorage(): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * #548: migrate the legacy `agent_hidden_ids` list into the canonical store,
+ * then retire the legacy key.
+ *
+ * Without this the import was **read-only** while the rail *seeds* defaults
+ * when the canonical key is absent — so a legacy-only install had its own
+ * hides discarded and gate/tool_gate/skeptic hidden instead, a change the user
+ * never asked for. Writing the legacy list into the canonical key first means
+ * the seed sees a key and correctly leaves it alone.
+ *
+ * Rules, deliberately:
+ * - legacy key absent -> `null` (nothing to do; the caller decides about
+ *   seeding)
+ * - legacy present, canonical **absent** -> adopt the legacy list verbatim
+ * - legacy present, canonical **present** -> canonical wins and the legacy list
+ *   is **dropped, not merged**; unioning would silently re-hide agents the
+ *   user had unhidden
+ *
+ * In both present cases the legacy key is removed.
+ */
+export function migrateLegacyHiddenAgentIds(): string[] | null {
+  let legacyRaw: string | null = null
+  try {
+    legacyRaw = localStorage.getItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY)
+  } catch {
+    return null
+  }
+  if (legacyRaw === null) return null
+
+  const adopt = !hasHiddenAgentsStorage()
+  const legacy = parseHiddenAgentIds(legacyRaw)
+  try {
+    if (adopt) saveHiddenAgentIds(legacy)
+    localStorage.removeItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY)
+  } catch {
+    /* storage unavailable — leave the keys alone rather than half-migrate */
+    return null
+  }
+  return adopt ? legacy : loadHiddenAgentIds()
 }
 
 export function parseHiddenAgentIds(raw: string | null): string[] {
@@ -108,6 +157,10 @@ export function defaultHiddenAgentIds(
 export function loadOrSeedHiddenAgentIds(
   catalog: Array<{ id: string; name?: string | null }> = [],
 ): string[] {
+  // #548: migrate before the absent-key test, otherwise a legacy-only install
+  // seeds defaults over the user's list.
+  const migrated = migrateLegacyHiddenAgentIds()
+  if (migrated) return migrated
   if (hasHiddenAgentsStorage()) {
     return loadHiddenAgentIds()
   }
