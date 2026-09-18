@@ -162,7 +162,7 @@ export function openSettingsSheet(detail?: OpenSettingsDetail): void {
   window.dispatchEvent(new CustomEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, { detail }))
 }
 
-const SETTINGS_SECTIONS: readonly SettingsSection[] = [
+export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'general',
   'definition',
   'blueprint',
@@ -181,6 +181,68 @@ const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'system',
   'plugins',
 ]
+
+/**
+ * #572: per-section searchable text — the nav label plus the names of the
+ * controls each pane actually renders. This is deliberately *beside* the nav
+ * and each entry carries a completeness guard in SettingsSheet.test.tsx, so a
+ * new section cannot arrive unsearchable and a keyword cannot silently drift
+ * from the control it describes (the #551 second-derivation read). When a pane
+ * gains a control, add its visible name here; the test fails if a section
+ * contributes no text at all.
+ */
+export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
+  general: [
+    'theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals',
+    'Show theme control in top bar',
+  ],
+  definition: ['definition', 'explain', 'instructions', 'prompt'],
+  blueprint: ['blueprints', 'recipes', 'python', 'custom'],
+  remotes: [
+    'remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh',
+    'Add a remote', 'Add remote', 'available remote kinds', 'Remote ID',
+    'Herdr location', 'SSH host', 'SSH user', 'SSH identity env', 'Use SSH agent',
+    'API key env', 'Test connection', 'Remove', 'nested open-swarm',
+  ],
+  retention: [
+    'retention', 'chat', 'trash', 'persistence', 'archive',
+    'Active Chats', 'Active threads', 'Conversations', 'Messages', 'In Trash',
+    'Disk Used', 'Auto-compress at', 'Compress', 'Cull fraction', 'Cull trigger',
+    'Strategy',
+  ],
+  hostname: [
+    'network', 'ip', 'domain', 'host', 'override',
+    'Location', 'Use system',
+  ],
+  'llm-profiles': [
+    'llm', 'models', 'litellm', 'profiles', 'default', 'task',
+    'Override per task', 'Task class map', 'orchestration', 'auxiliary', 'delegation',
+    'Add LLM profile', 'Advanced', 'Rate limits', 'What can be overridden per task',
+  ],
+  mcp: [
+    'mcp', 'tools', 'modelcontextprotocol',
+    'Configured MCP servers', 'Command', 'Args (comma-separated)',
+    'Secret env name (optional)',
+  ],
+  'cli-agents': [
+    'cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper',
+    'Command (space or quotes separated)', 'Hop context mode',
+  ],
+  roles: ['roles', 'safety', 'router', 'gate', 'skeptic', 'Delete custom role'],
+  sandboxes: [
+    'sandbox', 'docker', 'daytona', 'bare metal',
+    'Sandbox provider',
+  ],
+  'backend-audit': [
+    'audit', 'backend', 'activity', 'log', 'diagnostics',
+    'Backend audit', 'Clear log', 'No sends recorded yet',
+  ],
+  rail: ['avatar', 'order', 'bump', 'surfaces', 'Bump completed agents to top', 'Bump scope', 'Manage surfaces'],
+  'image-gen': ['image', 'images', 'generation', 'diffusion'],
+  speech: ['speech', 'tts', 'stt', 'audio', 'voice'],
+  system: ['system', 'sqlite', 'database', 'facts', 'config', 'Config coverage', 'env-only', 'secrets'],
+  plugins: ['plugins', 'openapi', 'marketplace', 'tools', 'connectors'],
+}
 
 export function isSettingsSection(value: string): value is SettingsSection {
   return (SETTINGS_SECTIONS as readonly string[]).includes(value)
@@ -334,10 +396,17 @@ export default function SettingsSheet({
     }
   }
 
-  const matchSearch = (title: string, keywords: string[] = []) => {
+  // #572: the predicate now searches the per-section CONTENT index — the
+  // names of the controls each pane renders — not just the menu label and a
+  // parallel keyword array. A control's own visible name finds its page.
+  const matchSearch = (section: SettingsSection, title: string, keywords: string[] = []) => {
     if (!searchQuery.trim()) return true
     const q = searchQuery.toLowerCase()
-    return title.toLowerCase().includes(q) || keywords.some((k) => k.toLowerCase().includes(q))
+    const haystack = [...(SETTINGS_SEARCH_CONTENT[section] ?? []), ...keywords]
+    return (
+      title.toLowerCase().includes(q) ||
+      haystack.some((text) => text.toLowerCase().includes(q))
+    )
   }
 
   return (
@@ -376,14 +445,14 @@ export default function SettingsSheet({
           <div className="flex-1 overflow-y-auto os-scrollable-picker-list">
             <ul className="menu menu-md w-full rounded-none p-2 space-y-0.5">
               {/* Category 1: General & Appearance */}
-              {(matchSearch('General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ||
-                matchSearch('Hostname', ['network', 'ip', 'domain', 'host', 'override']) ||
-                matchSearch('Rail', ['avatar', 'order', 'bump', 'surfaces'])) ? (
+              {(matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ||
+                matchSearch('hostname', 'Hostname', ['network', 'ip', 'domain', 'host', 'override']) ||
+                matchSearch('rail', 'Rail', ['avatar', 'order', 'bump', 'surfaces'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-1">
                     General & Appearance
                   </li>
-                  {matchSearch('General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ? (
+                  {matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ? (
                     <li>
                       <button
                         type="button"
@@ -395,7 +464,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Hostname', ['network', 'ip', 'domain', 'host', 'override']) ? (
+                  {matchSearch('hostname', 'Hostname', ['network', 'ip', 'domain', 'host', 'override']) ? (
                     <li>
                       <button
                         type="button"
@@ -407,7 +476,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Rail', ['avatar', 'order', 'bump', 'surfaces']) ? (
+                  {matchSearch('rail', 'Rail', ['avatar', 'order', 'bump', 'surfaces']) ? (
                     <li>
                       <button
                         type="button"
@@ -423,15 +492,15 @@ export default function SettingsSheet({
               ) : null}
 
               {/* Category 2: Models & Runtimes */}
-              {(matchSearch('CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ||
-                matchSearch('Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ||
-                matchSearch('Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ||
-                matchSearch('Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal'])) ? (
+              {(matchSearch('cli-agents', 'CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ||
+                matchSearch('llm-profiles', 'Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ||
+                matchSearch('remotes', 'Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ||
+                matchSearch('sandboxes', 'Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
                     Models & Runtimes
                   </li>
-                  {matchSearch('CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ? (
+                  {matchSearch('cli-agents', 'CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ? (
                     <li>
                       <button
                         type="button"
@@ -443,7 +512,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ? (
+                  {matchSearch('llm-profiles', 'Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ? (
                     <li>
                       <button
                         type="button"
@@ -455,7 +524,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ? (
+                  {matchSearch('remotes', 'Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ? (
                     <li>
                       <button
                         type="button"
@@ -467,7 +536,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal']) ? (
+                  {matchSearch('sandboxes', 'Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal']) ? (
                     <li>
                       <button
                         type="button"
@@ -479,7 +548,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Backend audit', ['audit', 'backend', 'activity', 'log', 'diagnostics']) ? (
+                  {matchSearch('backend-audit', 'Backend audit', ['audit', 'backend', 'activity', 'log', 'diagnostics']) ? (
                     <li>
                       <button
                         type="button"
@@ -495,16 +564,16 @@ export default function SettingsSheet({
               ) : null}
 
               {/* Category 3: Tools & Architecture */}
-              {(matchSearch('MCP servers', ['mcp', 'tools', 'modelcontextprotocol']) ||
-                matchSearch('Plugins', ['plugins', 'openapi', 'marketplace', 'tools']) ||
-                matchSearch('Roles', ['roles', 'safety', 'router', 'gate', 'skeptic']) ||
-                matchSearch('Blueprints', ['blueprints', 'recipes', 'python', 'custom']) ||
-                matchSearch('Definition', ['definition', 'explain', 'instructions'])) ? (
+              {(matchSearch('mcp', 'MCP servers', ['mcp', 'tools', 'modelcontextprotocol']) ||
+                matchSearch('plugins', 'Plugins', ['plugins', 'openapi', 'marketplace', 'tools']) ||
+                matchSearch('roles', 'Roles', ['roles', 'safety', 'router', 'gate', 'skeptic']) ||
+                matchSearch('blueprint', 'Blueprints', ['blueprints', 'recipes', 'python', 'custom']) ||
+                matchSearch('definition', 'Definition', ['definition', 'explain', 'instructions'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
                     Tools & Architecture
                   </li>
-                  {matchSearch('MCP servers', ['mcp', 'tools', 'modelcontextprotocol']) ? (
+                  {matchSearch('mcp', 'MCP servers', ['mcp', 'tools', 'modelcontextprotocol']) ? (
                     <li>
                       <button
                         type="button"
@@ -516,7 +585,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Plugins', ['plugins', 'openapi', 'marketplace', 'tools']) ? (
+                  {matchSearch('plugins', 'Plugins', ['plugins', 'openapi', 'marketplace', 'tools']) ? (
                     <li>
                       <button
                         type="button"
@@ -528,7 +597,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Roles', ['roles', 'safety', 'router', 'gate', 'skeptic']) ? (
+                  {matchSearch('roles', 'Roles', ['roles', 'safety', 'router', 'gate', 'skeptic']) ? (
                     <li>
                       <button
                         type="button"
@@ -540,7 +609,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Blueprints', ['blueprints', 'recipes', 'python', 'custom']) ? (
+                  {matchSearch('blueprint', 'Blueprints', ['blueprints', 'recipes', 'python', 'custom']) ? (
                     <li>
                       <button
                         type="button"
@@ -552,7 +621,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Definition', ['definition', 'explain', 'instructions']) ? (
+                  {matchSearch('definition', 'Definition', ['definition', 'explain', 'instructions']) ? (
                     <li>
                       <button
                         type="button"
@@ -568,13 +637,13 @@ export default function SettingsSheet({
               ) : null}
 
               {/* Category 4: Media & Voice */}
-              {(matchSearch('Image generation', ['image', 'images', 'generation', 'diffusion']) ||
-                matchSearch('Speech', ['speech', 'tts', 'stt', 'audio', 'voice'])) ? (
+              {(matchSearch('image-gen', 'Image generation', ['image', 'images', 'generation', 'diffusion']) ||
+                matchSearch('speech', 'Speech', ['speech', 'tts', 'stt', 'audio', 'voice'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
                     Media & Voice
                   </li>
-                  {matchSearch('Image generation', ['image', 'images', 'generation', 'diffusion']) ? (
+                  {matchSearch('image-gen', 'Image generation', ['image', 'images', 'generation', 'diffusion']) ? (
                     <li>
                       <button
                         type="button"
@@ -586,7 +655,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('Speech', ['speech', 'tts', 'stt', 'audio', 'voice']) ? (
+                  {matchSearch('speech', 'Speech', ['speech', 'tts', 'stt', 'audio', 'voice']) ? (
                     <li>
                       <button
                         type="button"
@@ -602,13 +671,13 @@ export default function SettingsSheet({
               ) : null}
 
               {/* Category 5: System & Storage */}
-              {(matchSearch('Retention', ['retention', 'chat', 'trash', 'persistence', 'archive']) ||
-                matchSearch('System', ['system', 'sqlite', 'database', 'facts', 'config'])) ? (
+              {(matchSearch('retention', 'Retention', ['retention', 'chat', 'trash', 'persistence', 'archive']) ||
+                matchSearch('system', 'System', ['system', 'sqlite', 'database', 'facts', 'config'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
                     System & Storage
                   </li>
-                  {matchSearch('Retention', ['retention', 'chat', 'trash', 'persistence', 'archive']) ? (
+                  {matchSearch('retention', 'Retention', ['retention', 'chat', 'trash', 'persistence', 'archive']) ? (
                     <li>
                       <button
                         type="button"
@@ -620,7 +689,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('System', ['system', 'sqlite', 'database', 'facts', 'config']) ? (
+                  {matchSearch('system', 'System', ['system', 'sqlite', 'database', 'facts', 'config']) ? (
                     <li>
                       <button
                         type="button"

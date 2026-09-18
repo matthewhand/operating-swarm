@@ -484,6 +484,43 @@ describe('SettingsSheet', () => {
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
   })
 
+  // #572: every settings section must contribute searchable text, so a new
+  // section cannot arrive unsearchable.
+  it('every settings section declares searchable content (#572)', async () => {
+    const { SETTINGS_SECTIONS, SETTINGS_SEARCH_CONTENT } = await import('../SettingsSheet')
+    for (const section of SETTINGS_SECTIONS) {
+      const texts = SETTINGS_SEARCH_CONTENT[section]
+      expect(texts, `section ${section} has a content index`).toBeTruthy()
+      expect(
+        texts.length,
+        `section ${section} contributes searchable text`,
+      ).toBeGreaterThan(0)
+      for (const text of texts) {
+        expect(text.trim(), `section ${section} entry is not blank`).not.toBe('')
+      }
+    }
+  })
+
+  // #572 acceptance: an exact control label visible only inside a settings
+  // page finds its section — previously it returned nothing.
+  it('search finds a control by its own visible name inside a page (#572)', async () => {
+    const { SETTINGS_SEARCH_CONTENT } = await import('../SettingsSheet')
+    // 'Override per task' renders only inside the LLM profiles pane.
+    expect(SETTINGS_SEARCH_CONTENT['llm-profiles']).toContain('Override per task')
+    // And the nav predicate agrees — render and search.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ object: 'list', data: [] }),
+    } as Response))
+    renderSheet()
+    const search = screen.getByLabelText('Search settings')
+    fireEvent.change(search, { target: { value: 'Override per task' } })
+    expect(screen.getByRole('button', { name: 'Show LLM profiles' })).toBeInTheDocument()
+    // An unrelated section is filtered out by the same query.
+    expect(screen.queryByRole('button', { name: 'Retention' })).not.toBeInTheDocument()
+  })
+
   // #566: the Settings audit pane renders what the send path recorded —
   // newest first, with the provenance reason, and a clear action.
   it('backend audit pane lists recorded sends with their reasons (#566)', async () => {
