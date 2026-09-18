@@ -60,6 +60,11 @@ export function classifyAgentKind(
   if (isRemoteImplId(explicit)) return 'remote'
   const text = (raw ?? '').trim().toLowerCase()
   if (text.startsWith('cli:')) return 'cli'
+  // #534: recipe blueprints run a turn for their payload kind — the SPA sends
+  // `blueprint: remote_harness` when a remote seat chats, so the recipe id is
+  // what every send-path gate sees. Mirror the backend classifier.
+  if (text === 'remote_harness') return 'remote'
+  if (text === 'cli_agent') return 'cli'
   if (text.startsWith('blueprint:')) return 'blueprint'
   if (
     text.startsWith('remote:') ||

@@ -2,11 +2,23 @@ import { describe, expect, it } from 'vitest'
 import { canEditAgentMessages, classifyAgentKind, isSwarmOwnedAgent } from '../agentKind'
 
 describe('classifyAgentKind', () => {
-  it('treats discovered blueprints as API (including cli_agent)', () => {
+  it('treats discovered blueprints as API', () => {
     expect(classifyAgentKind('jeeves')).toBe('api')
-    expect(classifyAgentKind('cli_agent')).toBe('api')
     expect(classifyAgentKind('support')).toBe('api')
     expect(canEditAgentMessages('codey')).toBe(true)
+  })
+
+  it('#534: recipe blueprints classify as their payload kind', () => {
+    // The SPA sends `blueprint: remote_harness` when a remote seat chats, so
+    // the recipe id is what every send-path gate sees. `cli_agent` is the
+    // CLI-fleet recipe for the same reason.
+    expect(classifyAgentKind('remote_harness')).toBe('remote')
+    expect(classifyAgentKind('cli_agent')).toBe('cli')
+    expect(canEditAgentMessages('remote_harness')).toBe(false)
+    expect(canEditAgentMessages('cli_agent')).toBe(true)
+    // Plain API seats keep their classification:
+    expect(classifyAgentKind('api_agent')).toBe('api')
+    expect(classifyAgentKind('chatbot')).toBe('api')
   })
 
   it('classifies CLI and remote source prefixes', () => {

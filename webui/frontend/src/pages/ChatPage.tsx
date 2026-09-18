@@ -159,7 +159,8 @@ import {
   toggleSummaryInContext,
   type ConversationSummary,
 } from '../lib/agentChat'
-import { canEditAgentMessages, classifyAgentKind, type AgentKind } from '../lib/agentKind'
+import { canEditAgentMessages, classifyAgentKind, isSwarmOwnedAgent, type AgentKind } from '../lib/agentKind'
+import { isCompressionNoticeText } from '../lib/compressionNotices'
 import {
   composerInsetCustomProperty,
   isPinnedToTranscriptBottom,
@@ -422,6 +423,13 @@ interface ChatMessage {
   rateLimit?: RateLimitWait
   /** Terminal CLI/config failure — recovery banner (#274). */
   fatalConfigError?: boolean
+}
+
+/** #534: persisted compression rows never render on restored transcripts. */
+function hydrateThreadRows(messages: Array<Parameters<typeof chatMessageFromThreadRow>[0]>): ChatMessage[] {
+  return messages
+    .filter((message) => !(message.role === 'status' && isCompressionNoticeText(message.content)))
+    .map(chatMessageFromThreadRow)
 }
 
 function chatMessageFromThreadRow(
@@ -945,12 +953,16 @@ const ChatPage = () => {
   const notifyCtxRef = useRef({
     agentId: activeChatAgentId,
     agentName: selectedAgentName,
+    agentKind,
+    blueprintId: selectedBlueprint,
   })
   notifyCtxRef.current = {
     agentId: activeChatAgentId,
     agentName: remoteFromUrl
       ? remoteDisplayName(selectedRemote || { id: remoteFromUrl, title: selectedAgentName })
       : selectedAgentName,
+    agentKind,
+    blueprintId: selectedBlueprint,
   }
   const signInHref = chatLoginHref(searchParams)
 
@@ -1694,7 +1706,7 @@ const ChatPage = () => {
         setRestoreNotice(restoredSessionNotice(thread.messages, 'team'))
         setThreads((prev) => ({
           ...prev,
-          [key]: thread.messages.map(chatMessageFromThreadRow),
+          [key]: hydrateThreadRows(thread.messages),
         }))
         setThreadReady(true)
       } catch (err) {
@@ -1745,7 +1757,7 @@ const ChatPage = () => {
           setRestoreNotice(restoredSessionNotice(thread.messages, 'remote'))
           setThreads((prev) => ({
             ...prev,
-            [key]: thread.messages.map(chatMessageFromThreadRow),
+            [key]: hydrateThreadRows(thread.messages),
           }))
           setThreadReady(true)
         } catch (err) {
@@ -1831,7 +1843,7 @@ const ChatPage = () => {
         }
         setThreads((prev) => ({
           ...prev,
-          [threadKey]: thread.messages.map(chatMessageFromThreadRow),
+          [threadKey]: hydrateThreadRows(thread.messages),
         }))
         setThreadReady(true)
       } catch (err) {
@@ -2102,6 +2114,14 @@ const ChatPage = () => {
             })
             break
           case 'status':
+            // #534: compression notices belong to API seats only. Remote/CLI
+            // seats manage their own context — never show the notice.
+            if (
+              isCompressionNoticeText(event.text) &&
+              !isSwarmOwnedAgent(notifyCtxRef.current.blueprintId, notifyCtxRef.current.agentKind)
+            ) {
+              break
+            }
             if (
               event.text === CLI_TERMINATED_STATUS &&
               current.some((row) => row.role === 'status' && row.text === CLI_TERMINATED_STATUS)

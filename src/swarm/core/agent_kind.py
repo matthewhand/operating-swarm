@@ -89,6 +89,17 @@ def classify_agent_kind(
         or is_remote_impl_id(text)
     ):
         return "remote"
+    # #534: recipe blueprints run a turn for their payload kind. The SPA sends
+    # ``blueprint: remote_harness`` (+ ``params.remote``) when a remote seat
+    # chats, so the recipe id is what every send-path gate sees — classifying
+    # it ``api`` let the REQ-87 compression hook run (and emit 'Auto-compress
+    # skipped' notices) on remote seats. ``cli_agent`` is the CLI-fleet recipe
+    # for the same reason. Explicit kinds still win; plain API seats
+    # (``api_agent``, ``chatbot``, named blueprints) are unchanged.
+    if text == "remote_harness":
+        return "remote"
+    if text == "cli_agent":
+        return "cli"
     return "api"
 
 

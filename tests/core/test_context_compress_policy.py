@@ -325,3 +325,20 @@ def test_blueprint_seats_keep_compression_per_issue_72_acceptance():
     for seat in ("codey", "blueprint:codey"):
         res = _prep_result_for(seat, messages)
         assert res.reason != "non_api_agent", seat
+
+
+@pytest.mark.django_db
+def test_recipe_blueprints_gate_like_their_payload_issue_534():
+    """#534: the SPA sends ``blueprint: remote_harness`` (plus
+    ``params.remote``) when a remote seat chats, so the send-path gate sees the
+    recipe id — which used to classify as ``api`` and let the
+    'Auto-compress skipped' notice fire on remote transcripts."""
+    messages = _turns(
+        ("user", "turn 1"),
+        ("assistant", "turn 2"),
+    )
+    for seat in ("remote_harness", "cli_agent"):
+        res = _prep_result_for(seat, messages)
+        assert res.acted is False, seat
+        assert res.reason == "non_api_agent", seat
+        assert res.info is None, seat
