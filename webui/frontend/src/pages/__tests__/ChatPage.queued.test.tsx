@@ -496,33 +496,29 @@ describe('ChatPage stop button (#223)', () => {
     expect(screen.getByTestId('queued-row')).toHaveTextContent('still queued')
   })
 
-  // #561 ask 2: the input-hover hint names the Enter action that is actually
-  // armed — "Send now" while a queued row waits, "Enter to send" otherwise.
-  it('shows the Send now hover tip while a queued send waits', async () => {
+  // #631: the ↵ hint exists ONLY to announce the interrupt-send action while
+  // a queued send waits — labelled "Send Now! ↵". No queue → no hint at all.
+  it('shows the Send Now! hint only while a queued send waits', async () => {
     renderChat()
     const ws = await openSocket()
     await act(async () => {
       startStreaming(ws)
     })
-    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
-      'title',
-      'Enter to send',
-    )
+    // No queue yet → the ↵ kbd is absent entirely (not "Enter to send").
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
       target: { value: 'send me now' },
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    await waitFor(() => {
-      expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
-        'title',
-        'Send now',
-      )
-    })
+    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
+      'title',
+      'Send Now! ↵',
+    )
   })
 
-  it('reverts to the plain Enter tip once the queue drains', async () => {
+  it('removes the hint once the queue drains', async () => {
     renderChat()
     const ws = await openSocket()
     await act(async () => {
@@ -534,7 +530,7 @@ describe('ChatPage stop button (#223)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
       'title',
-      'Send now',
+      'Send Now! ↵',
     )
 
     await act(async () => {
@@ -542,10 +538,7 @@ describe('ChatPage stop button (#223)', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
-        'title',
-        'Enter to send',
-      )
+      expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
     })
   })
 

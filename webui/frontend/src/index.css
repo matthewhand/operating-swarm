@@ -2396,6 +2396,18 @@ button.os-agent-row {
 .os-composer-wrap {
   padding: 0.75rem 1rem 0.25rem;
 }
+/* #632: the primary action (send/stop) sits OUTSIDE the input box. The row
+   owns the horizontal layout; .os-composer stays the rounded input pill. */
+.os-composer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.os-composer-row .os-composer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .os-composer {
   display: flex;
   align-items: center;
@@ -2519,6 +2531,16 @@ pre:focus-within .os-code-copy {
   flex-shrink: 0;
   background: var(--color-base-content);
   color: var(--color-base-100);
+}
+/* #632: while a response is in flight the outer button morphs into a square
+   stop — same slot, same size, unmistakable shape change. */
+.os-composer__send--stop {
+  border-radius: 0.55rem;
+  background: var(--color-error, #e11d48);
+  color: white;
+}
+.os-composer__send--stop:hover {
+  filter: brightness(1.08);
 }
 .os-composer__send:hover {
   opacity: 0.92;
@@ -2877,6 +2899,19 @@ html:not([data-theme="light"]) .os-composer__send,
   width: 100%;
   padding-block: 0;
   column-gap: 0.35rem;
+}
+/* #635: the shaded line highlight is a ROW-level paint — it spans edge to
+   edge across the <username> prefix, message text and timestamp. The bubble
+   box itself stays transparent (IRC's flat look); hover/selection shades
+   land here so no unshaded gap remains at either end of the line. */
+.os-chat-transcript[data-bubble-theme="irc"] .os-chat-row {
+  border-radius: 0.25rem;
+}
+.os-chat-transcript[data-bubble-theme="irc"] .os-chat-row:hover {
+  background: color-mix(in srgb, var(--color-base-content) 7%, transparent);
+}
+.os-chat-transcript[data-bubble-theme="irc"] .os-chat-row:focus-within {
+  background: color-mix(in srgb, var(--color-base-content) 9%, transparent);
 }
 .os-chat-transcript[data-bubble-theme="irc"] .chat[data-speaker]::before {
   content: "<" attr(data-speaker) ">";

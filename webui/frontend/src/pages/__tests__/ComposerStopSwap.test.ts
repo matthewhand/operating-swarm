@@ -1,17 +1,15 @@
 /**
- * #595 — while a turn is in flight, the composer's Stop button takes the
- * microphone's place instead of becoming a fifth icon in the trailing row.
+ * #632 (supersedes the #595 swap) — the composer's primary action lives
+ * OUTSIDE the input box, to its right:
  *
- * The row changing width mid-conversation (an extra control appended beside
- * the mic) moves everything underneath the pointer while the user types.
- * Swapping keeps the row's control count constant:
- *   idle  → [mic] …
- *   busy  → [stop] …   (mic hidden, not gone — it returns when idle)
+ *   idle, no draft      → [ .os-composer pill ] (no outer button)
+ *   idle, draft         → [ pill ][ ↑ send ]
+ *   busy                → [ pill ][ □ stop ]   (mic stays INSIDE the pill)
  *
- * Existing ChatPage.queued tests already pin the lifecycle (absent when idle,
- * present while in flight, gone after stop), so this file pins the swap
- * invariants in the source: one `composerBusy` signal, mic and stop mutually
- * exclusive through it.
+ * The outer slot keeps one primary action at all times; the mic no longer
+ * disappears mid-conversation. Existing ChatPage.queued tests pin the
+ * lifecycle (absent when idle, present while in flight, gone after settle);
+ * this file pins the structural invariants in the source.
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -30,41 +28,37 @@ function elementFor(testid: string): string {
   return src.slice(start, end + '</button>'.length)
 }
 
-/** The JSX expression text immediately wrapping an element (up to 200 chars). */
-function wrapperCondition(testid: string): string {
-  const anchor = src.indexOf(`data-testid="${testid}"`)
-  const elemStart = src.lastIndexOf('<button', anchor)
-  const before = src.slice(0, elemStart)
-  const brace = before.lastIndexOf('{')
-  return before.slice(brace, brace + 220)
-}
-
-describe('#595: Stop swaps into the microphone slot', () => {
-  it('one composerBusy signal derives both controls', () => {
+describe('#632: outer send/stop slot', () => {
+  it('one composerBusy signal derives the morph', () => {
     expect(src).toContain(
-      'const composerBusy = status === \'open\' && generationIsInFlight(messages, awaitingAssistant)',
+      "const composerBusy = status === 'open' && generationIsInFlight(messages, awaitingAssistant)",
     )
   })
 
-  it('the mic renders only while the composer is NOT busy', () => {
-    expect(wrapperCondition('composer-mic')).toMatch(/!\s*composerBusy/)
-  })
-
-  it('the stop button renders only while the composer IS busy', () => {
-    // The stop button is the ELSE branch of the same conditional the mic
-    // occupies — its wrapper is the ternary delimiter, not a negation.
-    const anchor = src.indexOf('data-testid="composer-stop"')
+  it('the mic is unconditional — it never disappears while busy', () => {
+    const anchor = src.indexOf('data-testid="composer-mic"')
     const elemStart = src.lastIndexOf('<button', anchor)
     const before = src.slice(0, elemStart)
-    expect(before.slice(-30)).toMatch(/\) : \(\s*$/)
-    const cond = wrapperCondition('composer-mic')
-    expect(cond).toMatch(/!\s*composerBusy/)
+    // The mic must not sit behind a `!composerBusy` ternary anymore.
+    expect(before.slice(-120)).not.toMatch(/!\s*composerBusy\s*\?/)
+    expect(src).toContain('data-testid="composer-mic"')
   })
 
-  it('the stop button no longer duplicates the old inline in-flight condition', () => {
-    // The old markup re-stated the full condition inline, appended after an
-    // unconditional mic; both must be gone in favour of the swap.
+  it('the stop button renders while busy, carrying the morph class', () => {
+    const stop = elementFor('composer-stop')
+    expect(stop).toContain('os-composer__send--stop')
+    expect(stop).toContain('interruptRunningTurn')
+  })
+
+  it('the outer slot carries send and stop — no inline in-flight condition re-stated', () => {
     const stop = elementFor('composer-stop')
     expect(stop).not.toContain('generationIsInFlight')
+    expect(src).toContain("className=\"os-composer__send\"")
+  })
+
+  it('send and stop share one outer slot beside the pill (CSS contract)', () => {
+    const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+    expect(css).toContain('.os-composer-row {')
+    expect(css).toContain('.os-composer__send--stop {')
   })
 })

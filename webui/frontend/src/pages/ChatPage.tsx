@@ -4312,7 +4312,7 @@ const ChatPage = () => {
             return (
               <div
                 key={message.key}
-                className="group/osrow"
+                className="group/osrow os-chat-row"
                 onContextMenu={(e) => {
                   if (message.role === 'system') return
                   handleBubbleContextMenu(e, message)
@@ -4574,6 +4574,7 @@ const ChatPage = () => {
                 onSelectItem={handleSelectSlashItem}
                 recentIds={recentSlashIds}
               />
+              <div className="os-composer-row">
               <div className={`os-composer ${replyTarget || pendingAttachments.length > 0 ? 'flex-col items-stretch !rounded-2xl !p-2' : ''} ${replyTarget ? 'os-composer--reply' : ''}`}>
                 {replyTarget && (
                   <div
@@ -4728,15 +4729,17 @@ const ChatPage = () => {
                     aria-expanded={isSlashOpen}
                     aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
                   />
-                  {!input ? (
+                  {sendNowHint ? (
+                    /* #631: the ↵ reveal exists ONLY to announce the interrupt-
+                       send action while a queued send waits. No queue → no hint. */
                     <kbd
                       className="os-composer__hint kbd kbd-xs"
                       data-testid="composer-send-hint"
-                      title={sendNowHint ? 'Send now' : 'Enter to send'}
+                      title="Send Now! ↵"
                     >
                       ↵
                     </kbd>
-                  ) : (
+                  ) : !input ? null : (
                     <kbd
                       className="os-composer__hint kbd kbd-xs"
                       data-testid="composer-clear-hint"
@@ -4746,46 +4749,52 @@ const ChatPage = () => {
                     </kbd>
                   )}
                   {renderRoutingPicker()}
-                  {!composerBusy ? (
-                    <button
-                      type="button"
-                      className="os-composer__icon"
-                      aria-label={sttListening ? 'Stop voice input' : 'Voice input'}
-                      aria-pressed={sttListening}
-                      data-testid="composer-mic"
-                      data-stt-path={sttPathUsed ?? undefined}
-                      onClick={handleMic}
-                    >
-                      <Mic className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="os-composer__icon os-composer__stop"
-                      aria-label="Stop generating"
-                      title="Stop the generation in flight (queued sends stay queued)"
-                      data-testid="composer-stop"
-                      onClick={interruptRunningTurn}
-                    >
-                      <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="os-composer__icon"
+                    aria-label={sttListening ? 'Stop voice input' : 'Voice input'}
+                    aria-pressed={sttListening}
+                    data-testid="composer-mic"
+                    data-stt-path={sttPathUsed ?? undefined}
+                    onClick={handleMic}
+                  >
+                    <Mic className="h-4 w-4" aria-hidden="true" />
+                  </button>
                   {sttPathUsed ? (
                     <span className="sr-only" data-testid="stt-path">
                       Voice input used {describeSpeechPath(sttPathUsed, 'stt')}
                     </span>
                   ) : null}
-                  {hasSendableDraft ? (
-                    <button
-                      type="submit"
-                      className="os-composer__send"
-                      aria-label="Send"
-                    >
-                      <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
-                    </button>
-                  ) : null}
                 </div>
+                {/* #632: the primary action lives OUTSIDE the input box, to its
+                    right. Idle: send (↑) when there is a draft. Busy: square
+                    stop (□) — and the send stays beside it when a draft is
+                    typed, because clicking Send mid-flight is exactly how a
+                    send gets QUEUED (#603); removing it would kill queueing.
+                    The mic stays inside the input regardless. */}
+                {composerBusy ? (
+                  <button
+                    type="button"
+                    className="os-composer__send os-composer__send--stop"
+                    aria-label="Stop generating"
+                    title="Stop the generation in flight (queued sends stay queued)"
+                    data-testid="composer-stop"
+                    onClick={interruptRunningTurn}
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                  </button>
+                ) : null}
+                {hasSendableDraft ? (
+                  <button
+                    type="submit"
+                    className="os-composer__send"
+                    aria-label="Send"
+                  >
+                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                ) : null}
               </div>
+              </div>{/* /os-composer-row */}
             </div>
           </form>
         </div>

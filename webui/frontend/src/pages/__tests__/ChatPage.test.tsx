@@ -1749,13 +1749,13 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     expect(composer).toHaveValue('')
     expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
-    // #595: the send puts the turn in flight — Stop now occupies the mic's
-    // slot (swap, not an extra icon), so the mic is gone until it settles.
-    expect(screen.queryByRole('button', { name: 'Voice input' })).not.toBeInTheDocument()
+    // #632: the outer send morphs into the square stop; the mic is untouched.
+    expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
     expect(screen.getByTestId('composer-stop')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-stop')).toHaveClass('os-composer__send--stop')
   })
 
-  it('ghosts composer shortcut chips until hover or focus, swapping Enter/Esc by draft', async () => {
+  it('#631: ghosts composer shortcut chips — the ↵ hint only exists with a queued send', async () => {
     renderChat()
     await act(async () => {
       MockWebSocket.instances[0]?.open()
@@ -1763,18 +1763,16 @@ describe('ChatPage Grok composer and per-agent threads', () => {
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     expect(screen.queryByTestId('first-load-tips')).not.toBeInTheDocument()
-    const sendHint = screen.getByTestId('composer-send-hint')
-    expect(sendHint).toHaveClass('os-composer__hint')
-    expect(composer.closest('.os-composer')).toContainElement(sendHint)
+    // No queue → no ↵ hint (its hover purpose is gone with #631).
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
 
     fireEvent.focus(composer)
-    expect(screen.getByTestId('composer-send-hint')).toBeInTheDocument()
-    fireEvent.change(composer, { target: { value: 'draft' } })
     expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+    fireEvent.change(composer, { target: { value: 'draft' } })
     expect(screen.getByTestId('composer-clear-hint')).toBeInTheDocument()
 
     fireEvent.change(composer, { target: { value: '' } })
-    expect(screen.getByTestId('composer-send-hint')).toBeInTheDocument()
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
   })
 
   it('shows a Blobs header avatar by default and falls back to bland when opted in', async () => {
