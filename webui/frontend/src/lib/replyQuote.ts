@@ -57,3 +57,16 @@ export function quoteLineCount(quote: string): number {
 
 /** How many lines of a reply quote stay visible before "Show more" (#565). */
 export const QUOTE_CLAMP_LINES = 4
+
+/**
+ * Format outbound text when replying to a target message or selection (#578 / #565).
+ * Quotes every line with `> `, prefixing the first line with `> **speaker**: ` if present.
+ */
+export function buildOutboundReplyText(
+  target: { speaker?: string; text: string },
+  input: string,
+): string {
+  const quotePrefix = target.speaker ? `> **${target.speaker}**: ` : '> '
+  const quoted = target.text.replace(/\r\n/g, '\n').split('\n').join('\n> ')
+  return `${quotePrefix}${quoted}\n\n${input}`
+}

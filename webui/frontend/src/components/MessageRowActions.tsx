@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Check, Copy, FoldVertical, Pencil } from 'lucide-react'
+import { Check, Copy, FoldVertical, Pencil, Reply } from 'lucide-react'
 import { useToast } from './DaisyUI'
 import {
   COPY_EMPTY_MESSAGE,
@@ -12,10 +12,10 @@ import {
 } from '../lib/clipboard'
 
 /**
- * Message action/reaction row (#70 / REQ-103 / REQ-869).
+ * Message action/reaction row (#70 / REQ-103 / REQ-869 / #578).
  *
  * ChatPage mounts this beside ChatMessageBubble inside `group/osrow`.
- * Combines Edit, Copy, Read Aloud, Retry, and context actions on one line.
+ * Combines Edit, Reply, Copy, Read Aloud, Retry, and context actions on one line.
  */
 export default function MessageRowActions({
   text,
@@ -26,6 +26,7 @@ export default function MessageRowActions({
   canCompress,
   onCompressToHere,
   contextStrategy = 'compress',
+  onReply,
 }: {
   text: string
   children?: ReactNode
@@ -35,6 +36,7 @@ export default function MessageRowActions({
   canCompress?: boolean
   onCompressToHere?: () => void
   contextStrategy?: 'compress' | 'cull'
+  onReply?: () => void
 }) {
   const [copied, setCopied] = useState(false)
   const { error } = useToast()
@@ -72,6 +74,18 @@ export default function MessageRowActions({
         >
           <Pencil className="h-3 w-3" aria-hidden="true" />
           Edit
+        </button>
+      ) : null}
+      {onReply ? (
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs gap-1"
+          aria-label="Reply to message"
+          data-testid="message-reply-action"
+          onClick={onReply}
+        >
+          <Reply className="h-3 w-3" aria-hidden="true" />
+          Reply
         </button>
       ) : null}
       <button

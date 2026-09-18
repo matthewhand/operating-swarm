@@ -163,7 +163,7 @@ describe('REQ-810: Chat right-click bubble theme select', () => {
     expect(screen.getByTestId('context-menu-bubble-theme-submenu')).toBeInTheDocument()
   })
 
-  it('does not open the menu when text is selected', async () => {
+  it('opens the menu when text is selected (#578)', async () => {
     renderChat()
     const ws = MockWebSocket.instances[0]
     await act(async () => {
@@ -173,11 +173,16 @@ describe('REQ-810: Chat right-click bubble theme select', () => {
     const bubble = await screen.findByText('Selectable bubble copy')
     const selection = {
       isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: bubble }),
       toString: () => 'Selectable',
     } as unknown as Selection
     vi.spyOn(window, 'getSelection').mockReturnValue(selection)
 
     fireEvent.contextMenu(bubble, { clientX: 120, clientY: 80 })
-    expect(screen.queryByTestId('message-context-menu')).not.toBeInTheDocument()
+    expect(screen.getByTestId('message-context-menu')).toBeInTheDocument()
+    expect(screen.getByTestId('context-menu-reply')).toBeInTheDocument()
+    expect(screen.getByTestId('context-menu-copy')).toBeInTheDocument()
   })
 })
+

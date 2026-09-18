@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Check, Copy, FoldVertical, Pencil, RotateCcw, ScrollText, Smile } from 'lucide-react'
+import { Check, Copy, FoldVertical, Pencil, Reply, RotateCcw, ScrollText, Smile } from 'lucide-react'
 import type { Agent, ChatMessage } from '../../types/agent'
 import { AgentAvatar } from '../AgentSidebar/AgentAvatar'
 import { Textarea, useToast } from '../DaisyUI'
@@ -29,6 +29,7 @@ interface AgentMessageBubbleProps {
   onRegenerateSummary?: (steer: string) => void
   onResolveApproval?: (status: 'approved' | 'rejected') => void
   onAddReaction?: (messageKey: string, emoji?: string) => void
+  onReply?: () => void
   /** REQ-213: view-only hide. Raw transcript stays on disk. */
   onRemoveCard?: () => void
   /** Persist an in-place summary edit (draft → save). */
@@ -46,6 +47,7 @@ export function AgentMessageBubble({
   onRegenerateSummary,
   onResolveApproval,
   onAddReaction,
+  onReply,
   onRemoveCard,
   onSaveEdit,
 }: AgentMessageBubbleProps) {
@@ -447,6 +449,18 @@ export function AgentMessageBubble({
               }
             >
               <Smile className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onReply && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs btn-circle"
+              aria-label="Reply to message"
+              title="Reply to message"
+              data-testid="message-reply-action"
+              onClick={onReply}
+            >
+              <Reply className="w-3.5 h-3.5" />
             </button>
           )}
           <button

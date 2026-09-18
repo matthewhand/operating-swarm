@@ -104,4 +104,20 @@ describe('MessageRowActions', () => {
     fireEvent.click(button)
     expect(onStart).toHaveBeenCalledTimes(1)
   })
+
+  it('renders Reply button when onReply is provided and triggers callback (#578)', () => {
+    const onReply = vi.fn()
+    renderActions('assistant reply text', undefined, { onReply })
+    const replyButton = screen.getByTestId('message-reply-action')
+    expect(replyButton).toBeInTheDocument()
+    expect(replyButton).toHaveAttribute('aria-label', 'Reply to message')
+    fireEvent.click(replyButton)
+    expect(onReply).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not render Reply button when onReply is omitted', () => {
+    renderActions('plain message')
+    expect(screen.queryByTestId('message-reply-action')).not.toBeInTheDocument()
+  })
 })
+

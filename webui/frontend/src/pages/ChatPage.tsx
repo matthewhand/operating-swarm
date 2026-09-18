@@ -13,13 +13,22 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Check, ChevronRight, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plus, Reply, Settings, Square } from 'lucide-react'
+import { ArrowUp, Check, ChevronRight, Copy, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plus, Reply, Settings, Square } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
 import { OPEN_SETTINGS_EVENT, openSettingsSheet, settingsDetailFromQuery } from '../components/SettingsSheet'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
 import { isRateLimitWait, type RateLimitWait } from '../lib/providerRateLimits'
+import { getScopedSelectionText } from '../lib/bubbleSelection'
+import { buildOutboundReplyText } from '../lib/replyQuote'
+import {
+  copyTextToClipboard,
+  COPY_EMPTY_MESSAGE,
+  COPY_EMPTY_TITLE,
+  COPY_FAILED_MESSAGE,
+  COPY_FAILED_TITLE,
+} from '../lib/clipboard'
 
 import {
   AGENT_DROPDOWNS_CHANGED_EVENT,
@@ -474,6 +483,7 @@ interface MessageContextMenuState {
   x: number
   y: number
   message: ChatMessage
+  selectedText?: string | null
 }
 
 function warnStatusPersistFailure(err: unknown): void {
@@ -483,7 +493,7 @@ function warnStatusPersistFailure(err: unknown): void {
 
 const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const { addToast, dismissByKind } = useToast()
+  const { addToast, dismissByKind, error: toastError } = useToast()
   const { narrow, railOpen, openRail } = useRailChrome()
   const teamFromUrl = searchParams.get('team') ?? ''
   const remoteFromUrl = searchParams.get('remote') ?? ''
@@ -798,14 +808,13 @@ const ChatPage = () => {
   const handleBubbleContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>, message: ChatMessage) => {
       if (message.streaming) return
-      if (typeof window !== 'undefined' && window.getSelection && !window.getSelection()?.isCollapsed) {
-        return
-      }
       event.preventDefault()
+      const selectedText = getScopedSelectionText(event.currentTarget)
       setContextMenu({
         x: event.clientX,
         y: event.clientY,
         message,
+        selectedText,
       })
     },
     [],
@@ -2773,9 +2782,8 @@ const ChatPage = () => {
   const handleSend = (event: FormEvent) => {
     event.preventDefault()
     if (!hasSendableDraft) return
-    const quotePrefix = replyTarget ? (replyTarget.speaker ? `> **${replyTarget.speaker}**: ` : `> `) : ''
     const textToSend = replyTarget
-      ? `${quotePrefix}${replyTarget.text.replace(/\r\n/g, '\n').split('\n').join('\n> ')}\n\n${input}`
+      ? buildOutboundReplyText(replyTarget, input)
       : input
     submitUserText(textToSend)
     setInput('')
@@ -3320,9 +3328,8 @@ const ChatPage = () => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       if (input.trim().length > 0 || readyAttachmentIds(pendingAttachments).length > 0) {
-        const quotePrefix = replyTarget ? (replyTarget.speaker ? `> **${replyTarget.speaker}**: ` : `> `) : ''
         const textToSend = replyTarget
-          ? `${quotePrefix}${replyTarget.text.replace(/\r\n/g, '\n').split('\n').join('\n> ')}\n\n${input}`
+          ? buildOutboundReplyText(replyTarget, input)
           : input
         submitUserText(textToSend)
         setInput('')
@@ -4176,6 +4183,16 @@ const ChatPage = () => {
                     onCompressToHere={() => {
                       handleContextToHere(message)
                     }}
+                    onReply={() => {
+                      setReplyTarget({
+                        key: message.key,
+                        role: message.role,
+                        speaker:
+                          message.role === 'user' ? 'You' : selectedAgentName,
+                        text: message.text,
+                      })
+                      composerRef.current?.focus()
+                    }}
                     className={message.role === 'user' ? 'w-full justify-end' : undefined}
                   >
                     {message.role === 'assistant' && message.text.trim() ? (
@@ -4568,7 +4585,7 @@ const ChatPage = () => {
                   role: contextMenu.message.role,
                   speaker:
                     contextMenu.message.role === 'user' ? 'You' : selectedAgentName,
-                  text: contextMenu.message.text,
+                  text: contextMenu.selectedText || contextMenu.message.text,
                 })
                 setContextMenu(null)
                 composerRef.current?.focus()
@@ -4576,6 +4593,26 @@ const ChatPage = () => {
             >
               <Reply className="h-4 w-4 opacity-70" aria-hidden="true" />
               Reply
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
+              data-testid="context-menu-copy"
+              onClick={() => {
+                const textToCopy = contextMenu.selectedText || contextMenu.message.text
+                setContextMenu(null)
+                void copyTextToClipboard(textToCopy).then((result) => {
+                  if (result === 'empty') {
+                    toastError(COPY_EMPTY_TITLE, COPY_EMPTY_MESSAGE)
+                  } else if (result === 'failed') {
+                    toastError(COPY_FAILED_TITLE, COPY_FAILED_MESSAGE)
+                  }
+                })
+              }}
+            >
+              <Copy className="h-4 w-4 opacity-70" aria-hidden="true" />
+              {contextMenu.selectedText ? 'Copy selection' : 'Copy'}
             </button>
             {(isApiAgent || agentKind === 'blueprint') &&
             (contextMenu.message.role === 'user' || contextMenu.message.role === 'assistant') &&

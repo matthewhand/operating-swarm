@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { QUOTE_CLAMP_LINES, quoteLineCount, splitLeadingQuote } from '../replyQuote'
+import {
+  QUOTE_CLAMP_LINES,
+  buildOutboundReplyText,
+  quoteLineCount,
+  splitLeadingQuote,
+} from '../replyQuote'
 
 describe('#565 splitLeadingQuote', () => {
   it('splits the quote the send path actually produces', () => {
@@ -51,4 +56,18 @@ describe('#565 splitLeadingQuote', () => {
     expect(quoteLineCount('one\ntwo\nthree\nfour\nfive')).toBe(5)
     expect(QUOTE_CLAMP_LINES).toBe(4)
   })
+
+  it('formats outbound reply text with speaker and quoted lines (#578)', () => {
+    const outbound = buildOutboundReplyText(
+      { speaker: 'Assistant', text: 'Line 1\r\nLine 2' },
+      'My reply',
+    )
+    expect(outbound).toBe('> **Assistant**: Line 1\n> Line 2\n\nMy reply')
+  })
+
+  it('formats outbound reply text without speaker (#578)', () => {
+    const outbound = buildOutboundReplyText({ text: 'Selected quote' }, 'Direct response')
+    expect(outbound).toBe('> Selected quote\n\nDirect response')
+  })
 })
+
