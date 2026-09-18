@@ -136,7 +136,7 @@ import {
   type BumpScope,
   saveHostnameOverride,
 } from '../lib/settingsPrefs'
-import { computeRailHotkeyTargets } from '../lib/railHotkeys'
+import { computeRailHotkeyTargets, herdrChatHref } from '../lib/railHotkeys'
 import {
   endAgentDrag,
   excludePinnedFromList,
@@ -162,7 +162,11 @@ import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId, type TeamRoster } from '../lib/teamRosters'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId, type RemoteEntry } from '../lib/remotesCatalog'
-import { activeRailId, railSelectionFromParams } from '../lib/railActive'
+import {
+  activeRailId,
+  herdrRowIdFromParams,
+  railSelectionFromParams,
+} from '../lib/railActive'
 import { fetchRemoteThreadSessions, remoteListsSessions } from '../lib/remoteSessions'
 import { configuredRemotes } from '../lib/remotes'
 import RemoteSessionsPopup from './RemoteSessionsPopup'
@@ -366,7 +370,10 @@ interface NotifyOutcomeHint {
 }
 
 function sidebarHref(agent: { id: string; kind?: string | null }): string {
-  if (isHerdrAgent(agent)) return '/teams/#herdr-members'
+  // #543: a herdr seat chats like every other kind — the agent name rides the
+  // remote-harness session param. Settings' member roster stays reachable from
+  // the row menu, not from stealing the row's primary click.
+  if (isHerdrAgent(agent)) return herdrChatHref(agent.id)
   return agentChatHref(agent.id)
 }
 
@@ -478,6 +485,8 @@ export default function AgentSidebar({
   // light up). `activeRail` carries the `team:` / `remote:` id shape the pins
   // and rows are stored under.
   const activeRail = onChat ? activeRailId(railSelectionFromParams(searchParams)) : ''
+  // #543: when the chat targets a herdr agent, that row is the active one.
+  const activeHerdrRow = onChat ? herdrRowIdFromParams(searchParams) : ''
   const [hiddenIds, setHiddenIds] = useState<string[] | null>(() =>
     hasHiddenAgentsStorage() ? loadHiddenAgentIds() : null,
   )
@@ -1862,7 +1871,9 @@ export default function AgentSidebar({
     if (hideId.startsWith('remote:')) return 'remote'
     const agent = agents.find((row) => row.id === hideId)
     if (agent && isCliRailAgent(agent)) return 'cli'
-    if (agent && isHerdrAgent(agent)) return 'remote'
+    // #543: herdr rows get their own menu kind — no Edit/Duplicate (no
+    // swarm-owned profile), no swarm conversation id, matching 'remote'.
+    if (agent && isHerdrAgent(agent)) return 'herdr'
     if ((agent as unknown as { kind?: string })?.kind === 'blueprint') return 'blueprint'
     return 'api'
   }
@@ -2544,9 +2555,10 @@ export default function AgentSidebar({
     const herdr = isHerdrAgent(agent)
     const sessions = sessionsByAgent[agent.id] ?? []
     const scaleOut = !herdr && shouldOpenSessionPicker(sessions)
-    // #542: herdr seats have no URL representation (see railActive), so they
-    // stay non-active rather than every herdr row lighting up at once.
-    const active = Boolean(activeRail) && !herdr && activeRail === agent.id
+    // #543: herdr seats are URL-addressable now (`herdrRowIdFromParams`), so
+    // the targeted agent's row goes active exactly like a remote row.
+    const active = Boolean(activeHerdrRow && herdr && activeHerdrRow === agent.id) ||
+      Boolean(activeRail && !herdr && activeRail === agent.id)
     const role = agentRole(agent)
     const dragging = draggingId === agent.id
     const dropping = dropTargetId === agent.id
@@ -2656,7 +2668,7 @@ export default function AgentSidebar({
             event.currentTarget.blur()
           }}
           onMouseLeave={(event) => event.currentTarget.blur()}
-          {...rowMenuHandlers(agent.id, name, hidden, isHerdrAgent(agent) ? 'remote' : 'api')}
+          {...rowMenuHandlers(agent.id, name, hidden, isHerdrAgent(agent) ? 'herdr' : 'api')}
         >
           {body}
         </a>

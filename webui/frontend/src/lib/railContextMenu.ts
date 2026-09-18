@@ -18,7 +18,7 @@ import { teamThreadId } from './teamRosters'
 
 export const RAIL_LONG_PRESS_MS = 500
 
-export type RailMenuKind = 'api' | 'cli' | 'team' | 'remote' | 'blueprint'
+export type RailMenuKind = 'api' | 'cli' | 'team' | 'remote' | 'blueprint' | 'herdr'
 
 export type RailMenuItemId =
   | 'select-agent'
@@ -283,7 +283,7 @@ export function copyableConversationId(
     const existing = peekStoredConversationId(id)
     if (existing) return existing
   }
-  if (kind === 'cli' || kind === 'remote') return null
+  if (kind === 'cli' || kind === 'remote' || kind === 'herdr') return null
   if (kind === 'team') return teamThreadId(entityId.replace(/^team:/, ''))
   return conversationIdForAgent(entityId || railId)
 }

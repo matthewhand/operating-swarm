@@ -66,6 +66,19 @@ export function railSelectionKind(selection: RailSelection): RailScopeKind {
 }
 
 /**
+ * #543: the rail id of the herdr row the chat pane is showing, or ''. A herdr
+ * seat is now URL-addressable — `?remote=herdr&session=<agent>` names the
+ * agent — so `herdr:<agent>` can be active exactly like a remote row. An
+ * empty session (the bare remote scope) still names no seat.
+ */
+export function herdrRowIdFromParams(params?: URLSearchParams | null): string {
+  const remoteId = (params?.get('remote') ?? '').trim()
+  const session = (params?.get('session') ?? '').trim()
+  if (remoteId !== 'herdr' || !session) return ''
+  return `herdr:${session}`
+}
+
+/**
  * The rail id of the row the chat pane is showing — i.e. the value a pin's
  * `id` or a row's `data-rail-id` must equal to be active.
  *
@@ -86,13 +99,10 @@ export function activeRailIdFromParams(params?: URLSearchParams | null): string 
 }
 
 /**
- * Herdr rows live behind `/teams/#herdr-members`, which names no member, so
- * every herdr row would resolve to the same active state. We therefore only
- * ever mark a herdr row active when its own id is explicitly the current
- * target — which the URL cannot express today. Keeping this as an explicit
- * helper (rather than an inline `!herdr`) documents the exclusion instead of
- * hiding it inside a comparison.
+ * #543: herdr rows CAN be active now — `herdrRowIdFromParams` names the row
+ * when the URL targets a herdr agent. Kept as a helper for the rail so the
+ * comparison has one owner; returns '' when no herdr row is targeted.
  */
-export function isHerdrRowActive(): boolean {
-  return false
+export function isHerdrRowActive(params?: URLSearchParams | null): string {
+  return herdrRowIdFromParams(params)
 }

@@ -306,15 +306,17 @@ def test_health_reports_instance_id():
 
 def test_named_title_becomes_label():
     """The live #503 case: title is configured, label must follow."""
+    # Sanitised host label (tests/test_tracked_files_sanitization.py) — the
+    # shape under test is "provider (host)" from a configured title.
     cfg = _cfg(
         **{
-            "trueforge-2": {"base_url": "http://tf-a.example.test:8791", "title": "TrueForge (ubuntu-gtx)"},
+            "trueforge-2": {"base_url": "http://tf-a.example.test:8791", "title": "TrueForge (gpu-box)"},
         },
     )
     spec = remotes.load_remote("trueforge-2", cfg)
     d = spec.public_dict()
-    assert d["title"] == "TrueForge (ubuntu-gtx)"
-    assert d["label"] == "TrueForge (ubuntu-gtx)"
+    assert d["title"] == "TrueForge (gpu-box)"
+    assert d["label"] == "TrueForge (gpu-box)"
 
 
 def test_unnamed_instance_keeps_derived_label():
@@ -356,16 +358,16 @@ def test_persist_remote_accepts_and_clears_title(tmp_path, monkeypatch):
     spec, _ = remotes.persist_remote(
         "trueforge-2",
         base_url="http://tf-a.example.test:8791",
-        title="TrueForge (ubuntu-gtx)",
+        title="TrueForge (gpu-box)",
         config_path=cfg_path,
     )
-    assert spec.title == "TrueForge (ubuntu-gtx)"
+    assert spec.title == "TrueForge (gpu-box)"
     on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert on_disk["remotes"]["trueforge-2"]["title"] == "TrueForge (ubuntu-gtx)"
+    assert on_disk["remotes"]["trueforge-2"]["title"] == "TrueForge (gpu-box)"
 
     # Reload from disk and confirm the label projection follows.
     spec2 = remotes.load_remote("trueforge-2", json.loads(cfg_path.read_text(encoding="utf-8")))
-    assert spec2.public_dict()["label"] == "TrueForge (ubuntu-gtx)"
+    assert spec2.public_dict()["label"] == "TrueForge (gpu-box)"
 
     # Clearing restores the derived label.
     spec3, _ = remotes.persist_remote("trueforge-2", title="   ", config_path=cfg_path)

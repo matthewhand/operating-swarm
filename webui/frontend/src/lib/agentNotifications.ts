@@ -214,6 +214,11 @@ export function chatHrefForRowId(id: string): string {
   if (id.startsWith('remote:')) {
     return `/chat?remote=${encodeURIComponent(id.slice('remote:'.length))}`
   }
+  // #543: a herdr seat chats like every other kind — its agent name rides the
+  // remote-harness session param, so the URL is the conversation target.
+  if (id.startsWith('herdr:')) {
+    return `/chat?remote=herdr&session=${encodeURIComponent(id.slice('herdr:'.length))}`
+  }
   return `/chat?blueprint=${encodeURIComponent(id)}`
 }
 

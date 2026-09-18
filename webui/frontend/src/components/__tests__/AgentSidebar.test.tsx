@@ -1056,7 +1056,10 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const herdr = await within(list).findByRole('link', { name: /w3:p1/ })
-    expect(herdr).toHaveAttribute('href', '/teams/#herdr-members')
+    // #543: the herdr row LINKS TO ITS CHAT — the agent name rides the
+    // remote-harness session param — instead of the settings-adjacent members
+    // page. A herdr seat is a talk-to target like every other kind.
+    expect(herdr).toHaveAttribute('href', '/chat?remote=herdr&session=w3%3Ap1')
     expect(herdr).toHaveTextContent(/Herdr · localhost/)
   })
 

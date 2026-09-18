@@ -10,6 +10,17 @@ export function isHerdrAgent(agent?: { id?: string; kind?: string | null } | nul
 }
 
 /**
+ * #543: a herdr seat is URL-addressable like every other kind — the agent
+ * name rides the remote-harness `session` param, so `?remote=herdr&session=<agent>`
+ * IS the conversation target. The `herdr:<name>` rail id stays the seat's
+ * identity (pins/sections/hides); the URL is just where it lives when active.
+ */
+export function herdrChatHref(agentId: string): string {
+  const name = agentId.startsWith('herdr:') ? agentId.slice('herdr:'.length) : agentId
+  return `/chat?remote=herdr&session=${encodeURIComponent(name)}`
+}
+
+/**
  * Structural row shape for hotkey targeting — callers own their row types
  * (AgentSidebar uses TeamRoster/RemoteEntry), so these stay minimum-viable.
  */
@@ -41,13 +52,15 @@ export function computeRailHotkeyTargets({
   // Up to 9 pins (1-indexed Alt+1..9)
   for (let i = 0; i < Math.min(visiblePins.length, 9); i++) {
     const pin = visiblePins[i]
+    // #543: herdr seats chat like every other kind — the pin targets the
+    // agent's own conversation, not the settings-adjacent members page.
     const herdr = isHerdrAgent(pin)
     targets.push({
       id: pin.id,
       kind: 'pin',
       name: pin.name || pin.id,
       isHerdr: herdr,
-      href: herdr ? '/teams/#herdr-members' : chatHrefForRowId(pin.id),
+      href: herdr ? herdrChatHref(pin.id) : chatHrefForRowId(pin.id),
     })
   }
 
@@ -77,7 +90,7 @@ export function computeRailHotkeyTargets({
         name: row.agent.name || row.agent.id,
         isHerdr: herdr,
         href: herdr
-          ? '/teams/#herdr-members'
+          ? herdrChatHref(row.agent.id)
           : `/chat?blueprint=${encodeURIComponent(row.agent.id)}`,
       })
     }

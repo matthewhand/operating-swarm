@@ -163,7 +163,8 @@ describe('AgentPinGrid drag-to-pin', () => {
     expect(team.getAttribute('href')).not.toMatch(/blueprint=/)
     expect(remote).toHaveAttribute('href', '/chat?remote=omb')
     expect(remote.getAttribute('href')).not.toMatch(/blueprint=/)
-    expect(herdr).toHaveAttribute('href', '/teams/#herdr-members')
+    // #543: a herdr pin opens that agent's chat, like every other kind.
+    expect(herdr).toHaveAttribute('href', '/chat?remote=herdr&session=w3%3Ap1')
   })
 
   it('restores tiles from localStorage and lets the user remove one', async () => {

@@ -60,9 +60,13 @@ describe('railActive (#542)', () => {
     expect(railSelectionKind(railSelectionFromParams(undefined))).toBe('seat')
   })
 
-  it('does not claim herdr rows can be active — they have no URL representation', () => {
-    // Documented exclusion: every herdr row shares `/teams/#herdr-members`, so
-    // marking them from the URL would light them all up at once.
-    expect(isHerdrRowActive()).toBe(false)
+  // #543: herdr seats are URL-addressable now — `?remote=herdr&session=<agent>`
+  // names exactly one row, so that row (and only that row) goes active.
+  it('names the targeted herdr row from a herdr chat URL (#543)', () => {
+    expect(isHerdrRowActive(params('?remote=herdr&session=w3%3Ap1'))).toBe('herdr:w3:p1')
+    expect(isHerdrRowActive(params('?remote=herdr'))).toBe('')
+    expect(isHerdrRowActive(params('?remote=herdr&session='))).toBe('')
+    expect(isHerdrRowActive(params('?remote=omb&session=x'))).toBe('')
+    expect(isHerdrRowActive(undefined)).toBe('')
   })
 })

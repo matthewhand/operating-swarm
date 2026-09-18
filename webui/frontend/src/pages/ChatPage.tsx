@@ -13,11 +13,21 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Check, ChevronRight, Copy, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plus, Reply, Settings, Square } from 'lucide-react'
+import { ArrowUp, AlertCircle, Check, ChevronDown, ChevronRight, Copy, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plus, Reply, Server, Settings, Square, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
-import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
+import {
+  Alert,
+  ConfirmModal,
+  TOAST_KIND_WS_DISCONNECT,
+  useToast,
+} from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
-import { OPEN_SETTINGS_EVENT, openSettingsSheet, settingsDetailFromQuery } from '../components/SettingsSheet'
+import {
+  OPEN_SETTINGS_EVENT,
+  openSettingsSheet,
+  settingsDetailFromQuery,
+} from '../components/SettingsSheet'
+import { OVERLAY_CHROME_CLASSES } from '../lib/chromeOverlay'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
 import { isRateLimitWait, type RateLimitWait } from '../lib/providerRateLimits'
 import { getScopedSelectionText } from '../lib/bubbleSelection'
@@ -124,6 +134,7 @@ import {
   fetchBlueprints,
   fetchCliAgents,
   fetchCliModels,
+  fetchHerdrAgents,
   fetchLlmProfiles,
   fetchRemotes,
   fetchSpeechSettings,
@@ -277,6 +288,7 @@ function isRemoteAction(value: unknown): value is RemoteAction {
 import {
   ADD_REMOTE_VALUE,
   configuredRemotes,
+  isHerdrKind,
   remoteKinds,
   remoteOptionLabel,
   remoteSelectPlaceholder,
@@ -619,6 +631,16 @@ const ChatPage = () => {
   const [dropdownTick, setDropdownTick] = useState(0)
   const [selectedRemoteId, setSelectedRemoteId] = useState('')
   const [remoteThreadPicker, setRemoteThreadPicker] = useState<MemberSession[] | null>(null)
+  // #543: the herdr agent picker — the talk-to choice for a herdr seat, listed
+  // from GET /v1/herdr-agents/ (configured agents only; discovery stays in
+  // Settings). null = closed.
+  const [herdrPickerOpen, setHerdrPickerOpen] = useState(false)
+  const herdrAgentsQuery = useQuery({
+    queryKey: ['herdr-agents-chat'],
+    queryFn: fetchHerdrAgents,
+    enabled: herdrPickerOpen,
+    retry: 1,
+  })
   const [conversationId, setConversationId] = useState(() =>
     teamFromUrl
       ? teamThreadId(teamFromUrl)
@@ -920,7 +942,12 @@ const ChatPage = () => {
   const selectedAgentName = teamFromUrl
     ? selectedTeamSession?.name || selectedTeam?.name || teamFromUrl
     : remoteFromUrl
-          ? selectedRemoteSession?.name || selectedRemote?.title || remoteFromUrl
+          ? // #543: a herdr session names the herdr AGENT being talked to —
+            // surface it as the seat name, not just the provider.
+            selectedRemoteSession?.name ||
+            (isHerdrKind(remoteFromUrl) && sessionFromUrl
+              ? sessionFromUrl
+              : selectedRemote?.title || remoteFromUrl)
           : editedAgentLabel({
               id: selectedBlueprint,
               name: fallbackAgentName,
@@ -3904,6 +3931,21 @@ const ChatPage = () => {
               agentName={selectedAgentName}
             />
           ) : null}
+          {isHerdrKind(remoteFromUrl) ? (
+            /* #543: the herdr talk-to picker — which herdr AGENT this
+               conversation targets. Same popup shape as the other pickers;
+               selection lands in `?session=`, the URL that owns the target. */
+            <button
+              type="button"
+              className="btn btn-xs btn-outline h-7 min-h-0 max-w-[14rem] font-medium"
+              data-testid="herdr-agent-picker"
+              aria-haspopup="dialog"
+              onClick={() => setHerdrPickerOpen(true)}
+            >
+              <span className="truncate">{selectedAgentName || 'Herdr'}</span>
+              <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+            </button>
+          ) : null}
           {productModes.api && isApiAgent ? (
             /* #580: the rail offers Select/New session on API seats — the
                navbar now keeps that promise via the same declared capability
@@ -4903,6 +4945,109 @@ const ChatPage = () => {
         }}
         toolCalls={seatToolCalls}
       />
+
+      {herdrPickerOpen ? (
+        /* #543: which herdr agent am I talking to? Lists CONFIGURED agents
+           (GET /v1/herdr-agents/); discovery and add/remove stay in Settings
+           per the ticket's constraint. Empty/error states say why — no silent
+           fallback to a default agent (#494's rule). */
+        <div
+          role="dialog"
+          aria-label="Choose herdr agent"
+          data-testid="herdr-agent-popup"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"
+          onClick={() => setHerdrPickerOpen(false)}
+        >
+          <div
+            className={`w-[min(24rem,90vw)] space-y-2 rounded-box p-4 ${OVERLAY_CHROME_CLASSES}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h5 className="text-sm font-semibold">Choose herdr agent</h5>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                aria-label="Close herdr agent picker"
+                onClick={() => setHerdrPickerOpen(false)}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            {herdrAgentsQuery.isPending ? (
+              <p className="text-sm text-base-content/60" data-testid="herdr-picker-loading">
+                Loading herdr agents…
+              </p>
+            ) : herdrAgentsQuery.isError ? (
+              <div className="space-y-2" data-testid="herdr-picker-error">
+                <Alert type="warning" icon={<AlertCircle className="h-5 w-5" />}>
+                  <span className="text-sm">
+                    Herdr is unreachable — check that it is running, or add it
+                    under Settings → Remotes.
+                  </span>
+                </Alert>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  onClick={() => openSettingsSheet({ section: 'remotes' })}
+                >
+                  Open Remotes settings
+                </button>
+              </div>
+            ) : (herdrAgentsQuery.data?.data ?? []).length === 0 ? (
+              <div className="space-y-2" data-testid="herdr-picker-empty">
+                <Alert type="info" icon={<Server className="h-5 w-5" />}>
+                  <span className="text-sm">No herdr agents configured yet.</span>
+                </Alert>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  onClick={() => openSettingsSheet({ section: 'remotes' })}
+                >
+                  Add one in Settings
+                </button>
+              </div>
+            ) : (
+              <ul className="space-y-1" aria-label="Herdr agents">
+                {(herdrAgentsQuery.data?.data ?? []).map((agent) => (
+                  <li key={`${agent.remote || 'local'}:${agent.name}`}>
+                    <button
+                      type="button"
+                      className={`btn btn-sm w-full justify-between ${
+                        sessionFromUrl === agent.name ? 'btn-primary' : ''
+                      }`}
+                      data-testid="herdr-agent-option"
+                      data-herdr-agent={agent.name}
+                      data-herdr-remote={agent.remote || 'localhost'}
+                      title={
+                        sessionFromUrl === agent.name
+                          ? 'Currently selected'
+                          : `Talk to ${agent.name}`
+                      }
+                      onClick={() => {
+                        setSearchParams(
+                          (prev) => {
+                            const next = new URLSearchParams(prev)
+                            next.set('remote', 'herdr')
+                            next.set('session', agent.name)
+                            return next
+                          },
+                          { replace: true },
+                        )
+                        setHerdrPickerOpen(false)
+                      }}
+                    >
+                      <span>{agent.name}</span>
+                      <span className="text-xs opacity-60">
+                        {agent.remote ? `remote: ${agent.remote}` : 'localhost'}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <SessionPicker
         open={remoteThreadPicker !== null}
