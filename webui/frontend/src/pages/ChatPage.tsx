@@ -2723,14 +2723,41 @@ const ChatPage = () => {
       // REQ-171A-3 / #603: queue before assistant_start, not only while
       // streaming. REQ-90 / #447 owns the pane chrome; this only closes
       // the pre-start double-{message} race.
+      // #561: mid-generation queueing is a non-API affordance — a CLI/remote
+      // turn is serial and a typed message must survive it. A proven API seat
+      // takes a concurrent message instead, so only the transport queue above
+      // (the closed-socket branch, kept for every kind) applies to it. Teams
+      // and remotes keep queueing: their members run serially.
+      //
+      // "API" must be *proven*, not defaulted: classifyAgentKind falls back to
+      // 'api' for any unknown id, and treating a stale-catalog CLI seat as
+      // concurrent would corrupt its serial session. Proven = the id itself
+      // (api_agent / api / api:*) or the server-declared blueprint kind. A
+      // false queue merely waits for the drain; a false concurrent send cannot
+      // be undone.
       if (generationIsInFlight(messages, awaitingAssistant)) {
-        queued.enqueue(trimmed)
-        return
+        const apiSeatProven =
+          isApiBlueprintId(selectedBlueprint) ||
+          (selectedAgent as { kind?: string } | undefined)?.kind === 'api'
+        if (!apiSeatProven) {
+          queued.enqueue(trimmed)
+          return
+        }
       }
       setAwaitingAssistant(true)
       if (!sendText(trimmed)) setAwaitingAssistant(false)
     },
-    [addToast, awaitingAssistant, messages, pendingAttachments, queued, sendText, status],
+    [
+      addToast,
+      awaitingAssistant,
+      messages,
+      pendingAttachments,
+      queued,
+      selectedAgent,
+      selectedBlueprint,
+      sendText,
+      status,
+    ],
   )
 
   const startFreshCliSession = useCallback(() => {
@@ -3411,6 +3438,11 @@ const ChatPage = () => {
   // #207: API seats on the default profile get a setup tip when the default
   // LLM is not usable. Explicit model/profile overrides (pinned seats) and
   // CLI/remote/team seats are exempt by design.
+  // #561: with a queued send waiting, Enter on the empty composer sends that
+  // row now (the interrupt path — see handleComposerKeyDown). Say so on the
+  // input-hover hint instead of the default "Enter to send".
+  const sendNowHint =
+    !input.trim() && nextDrainableQueuedSend(queued.rows, queuedHoldIds) !== null
   const showDefaultLlmTip = shouldShowDefaultLlmTip({
     isApiAgent,
     hasExplicitModelOverride: Boolean(selectedModelId),
@@ -4560,7 +4592,7 @@ const ChatPage = () => {
                     <kbd
                       className="os-composer__hint kbd kbd-xs"
                       data-testid="composer-send-hint"
-                      title="Enter to send"
+                      title={sendNowHint ? 'Send now' : 'Enter to send'}
                     >
                       ↵
                     </kbd>

@@ -85,13 +85,34 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     Element.prototype.scrollIntoView = vi.fn()
     clearAllQueuedSends()
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    // #561: the gate is deliberately conservative — an unknown id (codey, with
+    // this empty catalog) is NOT proven API, so it queues mid-generation. That
+    // fallback is what the CLI queue assertions below ride on; the api_agent
+    // concurrency test is proven by id alone and needs no catalog.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [] }),
-      } as Response),
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+        } as Response
+      }),
     )
   })
 
@@ -291,13 +312,34 @@ describe('ChatPage queued sends (#198 enter-to-interrupt)', () => {
     Element.prototype.scrollIntoView = vi.fn()
     clearAllQueuedSends()
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    // #561: the gate is deliberately conservative — an unknown id (codey, with
+    // this empty catalog) is NOT proven API, so it queues mid-generation. That
+    // fallback is what the CLI queue assertions below ride on; the api_agent
+    // concurrency test is proven by id alone and needs no catalog.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [] }),
-      } as Response),
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+        } as Response
+      }),
     )
   })
 
@@ -364,13 +406,34 @@ describe('ChatPage stop button (#223)', () => {
     Element.prototype.scrollIntoView = vi.fn()
     clearAllQueuedSends()
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    // #561: the gate is deliberately conservative — an unknown id (codey, with
+    // this empty catalog) is NOT proven API, so it queues mid-generation. That
+    // fallback is what the CLI queue assertions below ride on; the api_agent
+    // concurrency test is proven by id alone and needs no catalog.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [] }),
-      } as Response),
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+        } as Response
+      }),
     )
   })
 
@@ -431,5 +494,115 @@ describe('ChatPage stop button (#223)', () => {
       type: 'cancel_turn',
     })
     expect(screen.getByTestId('queued-row')).toHaveTextContent('still queued')
+  })
+
+  // #561 ask 2: the input-hover hint names the Enter action that is actually
+  // armed — "Send now" while a queued row waits, "Enter to send" otherwise.
+  it('shows the Send now hover tip while a queued send waits', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
+      'title',
+      'Enter to send',
+    )
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'send me now' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
+        'title',
+        'Send now',
+      )
+    })
+  })
+
+  it('reverts to the plain Enter tip once the queue drains', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'drain me' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
+      'title',
+      'Send now',
+    )
+
+    await act(async () => {
+      finishStreaming(ws)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
+        'title',
+        'Enter to send',
+      )
+    })
+  })
+
+  it('keeps the Esc-to-clear hint for a non-empty draft alongside the queue', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'hold this' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'a fresh draft' },
+    })
+
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+    expect(screen.getByTestId('composer-clear-hint')).toHaveAttribute(
+      'title',
+      'Esc to clear',
+    )
+  })
+
+  // #561 ask 3: queueing mid-generation is a non-API affordance. API seats
+  // take concurrent sends; only the closed-socket transport queue (#167)
+  // applies to every kind.
+  it('sends concurrently on an API seat mid-generation instead of queueing', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'concurrent api send' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    expect(ws.send).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+      message: 'concurrent api send',
+    })
+    expect(screen.queryByTestId('queued-row')).not.toBeInTheDocument()
+  })
+
+  it('still queues mid-generation on a CLI seat', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'cli queue' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(screen.getByTestId('queued-row')).toHaveTextContent('cli queue')
   })
 })
