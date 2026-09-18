@@ -1,11 +1,17 @@
 import { afterEach } from 'vitest'
+import { configure } from '@testing-library/dom'
 import { resetRemotesFetchCacheForTests } from './lib/api'
-
-import '@testing-library/jest-dom';
 import { resetChatConnection } from './lib/chatConnection';
 import { resetExpectedSpaVersion } from './lib/spaHello';
 import { resetGithubReleaseCache } from './lib/githubRelease';
 import { setBakedSpaVersionForTests } from './lib/spaVersion';
+
+import '@testing-library/jest-dom';
+
+// #592: default 1000ms findBy*/waitFor window is too tight for heavy mounts
+// in a full parallel run (machine-speed flaky, membership moved between runs).
+// See TESTING.md.
+configure({ asyncUtilTimeout: 4000 })
 
 // #581: drop the coalesced /v1/remotes/ cache after every test — the
 // module-level TTL cache must never leak a previous test's remotes payload

@@ -156,6 +156,10 @@ export default defineConfig(({ mode }) => ({
         environment: 'jsdom',
         setupFiles: ['./src/setupTests.ts'],
         globals: true,
+        // #592: integration tests mount full ChatPage/AgentSidebar trees; under
+        // full-suite CPU load a cold mount can pass the 5s default. Floor, not
+        // invitation — see TESTING.md.
+        testTimeout: 15000,
         // Unit/component tests live under src/; e2e/*.spec.ts is Playwright and
         // must not be collected by vitest (different runner).
         include: ['src/**/*.{test,spec}.{ts,tsx}'],

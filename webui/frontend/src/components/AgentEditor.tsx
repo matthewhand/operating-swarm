@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
 import LlmProfileAddForm from './LlmProfileAddForm'
@@ -141,6 +141,10 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [newChatPerTask, setNewChatPerTask] = useState(false)
   const [useSuggestions, setUseSuggestions] = useState(false)
   const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
+  // #592: set the moment the user edits one of these fields; hydration skips
+  // touched groups so a late settings fetch cannot overwrite in-progress edits.
+  const seatTogglesTouchedRef = useRef(false)
+  const voiceTouchedRef = useRef(false)
   const [streamReplies, setStreamReplies] = useState<SeatStreamReplies>(null)
   const streamRepliesId = useId()
   const [savingSettings, setSavingSettings] = useState(false)
@@ -313,9 +317,16 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     ;(async () => {
       const settings = await fetchAgentSettings(id)
       if (!cancelled) {
-        setNewChatPerTask(settings.new_chat_per_task)
-        setUseSuggestions(settings.use_suggestions)
-        setVoiceBind(parseVoiceBind(settings))
+        // #592: hydration never clobbers an edit the user already made. The
+        // fetch (and a late `blueprintsQuery.data`) can resolve *after* the
+        // user toggled/typed — server defaults must not win over them.
+        if (!seatTogglesTouchedRef.current) {
+          setNewChatPerTask(settings.new_chat_per_task)
+          setUseSuggestions(settings.use_suggestions)
+        }
+        if (!voiceTouchedRef.current) {
+          setVoiceBind(parseVoiceBind(settings))
+        }
         setStreamReplies(loadSeatStreamReplies(id))
         if (!edit.folder && settings.folder) {
           setFolder(settings.folder)
@@ -328,6 +339,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   }, [isOpen, id, blueprintsQuery.data])
 
   const handleToggleNewChat = async (next: boolean) => {
+    seatTogglesTouchedRef.current = true
     setNewChatPerTask(next)
     if (!id) return
     setSavingSettings(true)
@@ -339,6 +351,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   }
 
   const handleToggleSuggestions = async (next: boolean) => {
+    seatTogglesTouchedRef.current = true
     setUseSuggestions(next)
     if (!id) return
     setSavingSettings(true)
@@ -350,6 +363,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   }
 
   const persistVoicePatch = async (patch: Partial<AgentVoiceBind>) => {
+    voiceTouchedRef.current = true
     setVoiceBind((prev) => ({ ...prev, ...patch }))
     if (!id) return
     setSavingSettings(true)
