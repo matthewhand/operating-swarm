@@ -194,7 +194,7 @@ describe('REQ-865: responsive navbar element prioritization (#255)', () => {
     expect(screen.queryByRole('button', { name: 'Open agent list' })).not.toBeInTheDocument()
   })
 
-  it('keeps CLI routing and session switcher in the non-shrinking controls cluster', async () => {
+  it('mounts CLI routing picker in the composer, and session switcher in the navbar controls cluster', async () => {
     renderChat('/chat?blueprint=cli_agent&mode=cli&cli=grok', true)
     await act(async () => {
       MockWebSocket.instances[0]?.open()
@@ -204,9 +204,10 @@ describe('REQ-865: responsive navbar element prioritization (#255)', () => {
     const controls = header.querySelector('.os-chat-header__controls')
     expect(controls).toHaveClass('shrink-0')
 
+    const composer = screen.getByRole('textbox', { name: 'Chat message' }).closest('.os-composer')
     const cliPicker = await screen.findByTestId('navbar-routing-picker')
     expect(cliPicker).toHaveAttribute('data-seat-kind', 'cli')
-    expect(controls).toContainElement(cliPicker)
+    expect(composer).toContainElement(cliPicker)
 
     const sessionSwitcher = await screen.findByTestId('os-cli-session-switcher')
     expect(controls).toContainElement(sessionSwitcher)

@@ -801,7 +801,7 @@ export function NavbarRoutingPicker({
       }}
     >
       <div
-        className="join os-routing-face"
+        className={`join os-routing-face ${open || paletteOpen || hoverPill ? 'os-routing-face--hot' : ''}`}
         role="group"
         aria-label={groupLabel}
         id={labelId}

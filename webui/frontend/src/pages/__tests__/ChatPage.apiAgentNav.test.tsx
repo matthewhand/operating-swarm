@@ -166,17 +166,15 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
     expect(cliPicker.length).toBeGreaterThan(0)
   })
 
-  it('API picker ends with a divider then Manage API', { timeout: 10000 }, async () => {
+  it('API picker opens searchable palette with Manage API action', { timeout: 10000 }, async () => {
     stubChat()
     renderChat('/chat?blueprint=api_agent')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    const menu = await screen.findByTestId('routing-menu-agent')
-    const items = within(menu).getAllByRole('menuitem')
-    expect(items[items.length - 1]).toHaveTextContent('Manage API')
-    expect(within(menu).getByTestId('manage-surface-divider')).toHaveAttribute('role', 'separator')
+    const manageBtn = await screen.findByTestId('os-model-manage-api')
+    expect(manageBtn).toHaveTextContent('Manage API in Settings')
   })
 
   it('API model pick flows into the WS frame params.model', async () => {
@@ -244,7 +242,7 @@ describe('ChatPage Manage CLI / API footers (#254)', () => {
         MockWebSocket.instances[0]?.open()
       })
       fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-      fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage API' }))
+      fireEvent.click(await screen.findByTestId('os-model-manage-api'))
       expect(opened).toEqual([{ section: 'llm-profiles' }])
     } finally {
       stop()

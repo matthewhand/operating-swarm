@@ -3401,6 +3401,105 @@ const ChatPage = () => {
     return 'Disconnected'
   }, [authRejected, status])
 
+  const renderRoutingPicker = () => {
+    if (showRemotesControl && !showEmptyRemoteChrome) {
+      return (
+        <NavbarRoutingPicker
+          seatKind="remote"
+          aria-label="Remote"
+          placeholder={remoteSelectPlaceholder(configuredRemoteRows.length, selectedRemoteId)}
+          agents={configuredRemoteRows.map((remote) => ({
+            id: remote.id,
+            label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
+          }))}
+          selectedAgent={selectedRemoteId}
+          models={remoteNavbarAgents.map((row) => row.id)}
+          modelOptions={remoteNavbarAgents}
+          selectedModel={ombSelectedBotId || sessionFromUrl}
+          modelWarning={remoteAgentWarning}
+          footerAction={{
+            id: ADD_REMOTE_VALUE,
+            label: 'Manage Remote',
+            onSelect: () => openSettingsSheet({ section: 'remotes' }),
+          }}
+          onChange={(next) => {
+            const nextId = next.agent
+            setSelectedRemoteId(nextId)
+            const remote = configuredRemoteRows.find((row) => row.id === nextId)
+            if (bindingAgentId && remote) {
+              saveAgentRemoteBinding(bindingAgentId, {
+                id: remote.id,
+                kind: remote.kind || remote.id,
+              })
+              persistAgentDropdownChoice(bindingAgentId, { remote: remote.id })
+            } else if (bindingAgentId && !nextId) {
+              saveAgentRemoteBinding(bindingAgentId, null)
+              persistAgentDropdownChoice(bindingAgentId, { remote: '' })
+            }
+            setSearchParams((prev) => {
+              const params = new URLSearchParams(prev)
+              if (nextId) params.set('remote', nextId)
+              if (next.changed === 'model' && next.model) {
+                params.set('session', next.model)
+              } else if (next.changed === 'agent') {
+                params.delete('session')
+              }
+              return params
+            })
+          }}
+        />
+      )
+    }
+    if (productModes.cli && isCliAgent) {
+      return (
+        <NavbarRoutingPicker
+          seatKind="cli"
+          aria-label="CLI"
+          agents={discoveredClis.map((cli) => ({ id: cli, label: cli }))}
+          selectedAgent={currentCli}
+          models={availableCliModels}
+          selectedModel={currentCliModel}
+          modelWarning={cliModelWarning}
+          preferredEffort={persistedDropdown.effort}
+          footerAction={{
+            id: MANAGE_CLI_VALUE,
+            label: 'Manage CLI',
+            onSelect: () => openSettingsSheet({ section: 'cli-agents' }),
+          }}
+          onChange={applyCliRoutingChange}
+        />
+      )
+    }
+    if (productModes.api && isApiAgent) {
+      /* #108, #584: API seats route through LLM profiles, not host CLIs. */
+      return (
+        <NavbarRoutingPicker
+          seatKind="api"
+          aria-label="API"
+          agents={apiModelOptionsFromProfiles(
+            llmProfilesQuery.data?.profiles,
+            llmProfilesQuery.data?.default_llm_profile
+              ? [llmProfilesQuery.data.default_llm_profile]
+              : [],
+          ).map((opt) => ({ id: opt.id, label: opt.label }))}
+          selectedAgent={
+            selectedModelId || llmProfilesQuery.data?.default_llm_profile || ''
+          }
+          models={[]}
+          selectedModel=""
+          defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
+          footerAction={{
+            id: '__manage_api__',
+            label: 'Manage API',
+            onSelect: () => openSettingsSheet({ section: 'llm-profiles' }),
+          }}
+          onChange={applyApiRoutingChange}
+        />
+      )
+    }
+    return null
+  }
+
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
       {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
@@ -3598,51 +3697,6 @@ const ChatPage = () => {
             >
               Add remote
             </button>
-          ) : showRemotesControl ? (
-            <NavbarRoutingPicker
-              seatKind="remote"
-              aria-label="Remote"
-              placeholder={remoteSelectPlaceholder(configuredRemoteRows.length, selectedRemoteId)}
-              agents={configuredRemoteRows.map((remote) => ({
-                id: remote.id,
-                label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
-              }))}
-              selectedAgent={selectedRemoteId}
-              models={remoteNavbarAgents.map((row) => row.id)}
-              modelOptions={remoteNavbarAgents}
-              selectedModel={ombSelectedBotId || sessionFromUrl}
-              modelWarning={remoteAgentWarning}
-              footerAction={{
-                id: ADD_REMOTE_VALUE,
-                label: 'Manage Remote',
-                onSelect: () => openSettingsSheet({ section: 'remotes' }),
-              }}
-              onChange={(next) => {
-                const nextId = next.agent
-                setSelectedRemoteId(nextId)
-                const remote = configuredRemoteRows.find((row) => row.id === nextId)
-                if (bindingAgentId && remote) {
-                  saveAgentRemoteBinding(bindingAgentId, {
-                    id: remote.id,
-                    kind: remote.kind || remote.id,
-                  })
-                  persistAgentDropdownChoice(bindingAgentId, { remote: remote.id })
-                } else if (bindingAgentId && !nextId) {
-                  saveAgentRemoteBinding(bindingAgentId, null)
-                  persistAgentDropdownChoice(bindingAgentId, { remote: '' })
-                }
-                setSearchParams((prev) => {
-                  const params = new URLSearchParams(prev)
-                  if (nextId) params.set('remote', nextId)
-                  if (next.changed === 'model' && next.model) {
-                    params.set('session', next.model)
-                  } else if (next.changed === 'agent') {
-                    params.delete('session')
-                  }
-                  return params
-                })
-              }}
-            />
           ) : null}
           {showRemotesControl && activeRemoteId ? (
             <RemoteSessionSwitcher
@@ -3705,24 +3759,6 @@ const ChatPage = () => {
               <option value={MANAGE_TEAMS_VALUE}>Manage Team</option>
             </select>
           ) : null}
-          {productModes.cli && isCliAgent ? (
-            <NavbarRoutingPicker
-              seatKind="cli"
-              aria-label="CLI"
-              agents={discoveredClis.map((cli) => ({ id: cli, label: cli }))}
-              selectedAgent={currentCli}
-              models={availableCliModels}
-              selectedModel={currentCliModel}
-              modelWarning={cliModelWarning}
-              preferredEffort={persistedDropdown.effort}
-              footerAction={{
-                id: MANAGE_CLI_VALUE,
-                label: 'Manage CLI',
-                onSelect: () => openSettingsSheet({ section: 'cli-agents' }),
-              }}
-              onChange={applyCliRoutingChange}
-            />
-          ) : null}
           {isCliAgent && currentCli ? (
             <CliSessionSwitcher
               agentId={selectedBlueprint}
@@ -3777,31 +3813,6 @@ const ChatPage = () => {
                 ))}
               </select>
             </label>
-          ) : null}
-          {productModes.api && isApiAgent ? (
-            /* #108: API seats route through LLM profiles, not host CLIs. */
-            <NavbarRoutingPicker
-              seatKind="api"
-              aria-label="API"
-              agents={apiModelOptionsFromProfiles(
-                llmProfilesQuery.data?.profiles,
-                llmProfilesQuery.data?.default_llm_profile
-                  ? [llmProfilesQuery.data.default_llm_profile]
-                  : [],
-              ).map((opt) => ({ id: opt.id, label: opt.label }))}
-              selectedAgent={
-                selectedModelId || llmProfilesQuery.data?.default_llm_profile || ''
-              }
-              models={[]}
-              selectedModel=""
-              defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
-              footerAction={{
-                id: '__manage_api__',
-                label: 'Manage API',
-                onSelect: () => openSettingsSheet({ section: 'llm-profiles' }),
-              }}
-              onChange={applyApiRoutingChange}
-            />
           ) : null}
           <div
             className="flex items-center shrink-0 gap-1 sm:gap-2"
@@ -4508,6 +4519,7 @@ const ChatPage = () => {
                       Esc
                     </kbd>
                   )}
+                  {renderRoutingPicker()}
                   {!composerBusy ? (
                     <button
                       type="button"
