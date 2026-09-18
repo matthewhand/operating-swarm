@@ -146,13 +146,9 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         description: 'Open the teams sheet over chat',
         overlay: 'teams',
       },
-      {
-        id: 'action-compose-team',
-        tab: 'Actions',
-        name: 'Compose team',
-        description: 'Drag-drop roster overlay (team_rosters.json)',
-        action: () => window.dispatchEvent(new CustomEvent('swarm:open-team-composer')),
-      },
+      // #550 / #182: `Compose team` was moved to the rail footer (the `Teams`
+      // button, above Plugins). Listing it here as well made the palette look
+      // like the owner of the action, which is why it read as a duplicate.
       {
         id: 'action-settings',
         tab: 'Actions',

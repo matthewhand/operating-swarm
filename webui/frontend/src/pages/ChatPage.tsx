@@ -90,7 +90,6 @@ import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
 import ComposerAttachChips from '../components/ComposerAttachChips'
 import {
   attachmentCaption,
-  composerFileAttachSupported,
   createPendingAttachment,
   filesFromList,
   imageFilesFromClipboard,
@@ -99,6 +98,7 @@ import {
   uploadChatAttachment,
   type PendingAttachment,
 } from '../lib/chatAttachments'
+import { composerMenuCapabilities } from '../lib/composerMenu'
 import {
   type SlashItem,
   buildSlashCatalog,
@@ -1019,10 +1019,6 @@ const ChatPage = () => {
           searchParams,
         })),
   )
-  const attachFilesOk = composerFileAttachSupported({
-    isCli: isCliAgent,
-    isRemote: isRemoteAgent || isRemoteBackedTeam,
-  })
 
   const supportSelected = Boolean(
     !teamFromUrl &&
@@ -1041,6 +1037,13 @@ const ChatPage = () => {
       !isRemoteAgent &&
       !isCliAgent,
   )
+  // #550: the composer `+` menu's contents are derived from the seat rather than
+  // hardcoded per item, so an item cannot be added ungated. See lib/composerMenu.
+  const composerMenu = composerMenuCapabilities({
+    isApi: isApiAgent,
+    isCli: isCliAgent,
+    isRemote: isRemoteAgent || isRemoteBackedTeam,
+  })
   const showContextUsage = isApiAgent || agentKind === 'blueprint'
 
   useEffect(() => {
@@ -4343,20 +4346,21 @@ const ChatPage = () => {
                           <button
                             type="button"
                             role="menuitem"
-                            aria-disabled={!attachFilesOk}
-                            className={`os-plus-menu__item ${!attachFilesOk ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            aria-disabled={!composerMenu.addFiles.enabled}
+                            className={`os-plus-menu__item ${
+                              !composerMenu.addFiles.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
                             title={
-                              attachFilesOk
+                              composerMenu.addFiles.enabled
                                 ? 'Add files to this chat'
-                                : 'File attachments aren’t supported for CLI or remote seats'
+                                : composerMenu.addFiles.reason
                             }
                             onClick={() => {
-                              if (!attachFilesOk) {
+                              if (!composerMenu.addFiles.enabled) {
                                 addToast({
                                   type: 'info',
                                   title: 'Add files',
-                                  message:
-                                    'File attachments aren’t supported for CLI or remote seats. Switch to an API agent to attach.',
+                                  message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
                                 })
                                 setPlusOpen(false)
                                 return
@@ -4373,8 +4377,30 @@ const ChatPage = () => {
                           <button
                             type="button"
                             role="menuitem"
-                            className="os-plus-menu__item"
+                            // #550: Compact summarises server-side history, so a
+                            // CLI/remote seat has nothing for it to act on. Kept
+                            // visible-but-disabled with the reason (the same read
+                            // `Add files` uses one item above, and #511's
+                            // precedent) rather than vanishing silently.
+                            aria-disabled={!composerMenu.compact.enabled}
+                            className={`os-plus-menu__item ${
+                              !composerMenu.compact.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
+                            title={
+                              composerMenu.compact.enabled
+                                ? 'Summarise this conversation and reclaim context'
+                                : composerMenu.compact.reason
+                            }
                             onClick={() => {
+                              if (!composerMenu.compact.enabled) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Compact',
+                                  message: `${composerMenu.compact.reason}. Switch to an API agent to compact.`,
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
                               void handleCompact()
                             }}
                           >

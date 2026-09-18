@@ -226,6 +226,9 @@ describe('SearchPalette', () => {
     expect(screen.getByRole('option', { name: /Show LLM profiles/ })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Hermes/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Rakazo/ })).not.toBeInTheDocument()
+    // #550 / #182: Compose team belongs to the rail footer's Teams button.
+    // Listing it here too made the palette read as a second owner.
+    expect(screen.queryByRole('option', { name: /Compose team/ })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('option', { name: /Toggle theme/ }))
     expect(onClose).toHaveBeenCalled()

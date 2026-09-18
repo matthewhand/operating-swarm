@@ -1654,6 +1654,36 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(screen.queryByRole('menuitem', { name: 'Add files' })).not.toBeInTheDocument()
   })
 
+  it('#550: Compact is offered but disabled on a CLI seat, with the reason reachable', async () => {
+    renderChat('/chat?blueprint=cli_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const compact = screen.getByRole('menuitem', { name: 'Compact' })
+    // Visible-but-disabled rather than silently absent: the user just opened
+    // this menu, so the reason has to be reachable (#511's precedent).
+    expect(compact).toHaveAttribute('aria-disabled', 'true')
+    expect(compact.getAttribute('title')).toMatch(/server-side history/i)
+
+    fireEvent.click(compact)
+    expect(await screen.findByText(/server-side history/i)).toBeInTheDocument()
+    // A refusal must not leave the menu hanging open.
+    expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
+  })
+
+  it('#550: Compact stays live on an API seat', async () => {
+    renderChat()
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const compact = screen.getByRole('menuitem', { name: 'Compact' })
+    expect(compact).toHaveAttribute('aria-disabled', 'false')
+  })
+
   it('shows an explanatory toast when Add files is clicked on an unsupported seat', async () => {
     vi.mocked(fetch).mockImplementation(async (info) => {
       const url = String(info)
