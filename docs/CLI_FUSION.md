@@ -203,7 +203,7 @@ started a new session — never a fake “restored”.
 | `gemini` | `--resume {session_id}` (`-r`) | UUID. `--session-id` starts a **new** session | JSON `session_id` / `sessionId` when present |
 | `codex` | `codex exec resume {session_id} …` (subcommand) | UUID / thread id | JSON `thread_id` when `--json`; default catalog parse is text |
 | `opencode` | `opencode run --session {session_id}` (`-s`) | `ses_…`. `--continue` is last-cwd, not thread-scoped | JSON when the CLI emits it; default parse is text |
-| `omp` | `omp -p --resume {session_id}` (`-r`) | session id/path; `--continue` is last-session — do not use | default parse is text |
+| `omp` | `omp -p --resume {session_id}` (`-r`) | session id/path; `--continue` is last-session — do not use | default parse is text; id stamped from omp's own store `~/.omp/agent/sessions` after each turn (#640) |
 | `agy` | `--conversation {session_id}` | UUID. `--continue` is most-recent, not thread-scoped | JSON `conversation_id` |
 | `pi` | `pi -p --session {session_id}` | path or id. `--continue` is last session | JSON when present; smoke/verify uses `--no-session` |
 

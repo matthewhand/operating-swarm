@@ -295,6 +295,10 @@ DEFAULT_AGY_CONVERSATIONS_DIR = "~/.gemini/antigravity-cli/conversations"
 # name is the session's cwd, non-alphanumerics → ``-``.
 QWEN_SESSIONS_STORE = "qwen_sessions"
 DEFAULT_QWEN_PROJECTS_DIR = "~/.qwen/projects"
+# omp (Oh My Pi) persists every session as JSONL under its agent dir; the
+# visible `-p` output is plain text, so ids are read from the store (#640).
+OMP_SESSIONS_STORE = "omp_sessions"
+DEFAULT_OMP_SESSIONS_DIR = "~/.omp/agent/sessions"
 
 SESSION: dict[str, dict[str, Any]] = {
     "grok": {
@@ -377,12 +381,15 @@ SESSION: dict[str, dict[str, Any]] = {
         "resume_insert": 2,  # after `omp -p` → `omp -p --resume <id> …`
         "resume_strip": ["--no-session", "--continue", "-c"],
         "session_id_paths": [".session", ".id"],
-        "list_capability": LIST_CAPABILITY_PASTE_ONLY,
+        "list_store": OMP_SESSIONS_STORE,
+        "list_store_dir": DEFAULT_OMP_SESSIONS_DIR,
+        "list_capability": LIST_CAPABILITY_WORKS,
         "notes": (
             "omp -p --resume <id|path> (also -r). --continue/-c is last session — "
-            "do not use it here. Smoke/verify injects --no-session (ephemeral); "
-            "production cmd does not. List is paste-only — no verified "
-            "non-interactive list argv."
+            "do not use it here. `-p` prints text, so the session id is read from "
+            "omp's own store ~/.omp/agent/sessions/<cwd>/<timestamp>_<id>.jsonl "
+            "(newest after each successful turn). Smoke/verify injects --no-session "
+            "(ephemeral) and is never stamped."
         ),
     },
     "agy": {
@@ -496,21 +503,30 @@ def list_sessions_store(name: str, config: dict[str, Any] | None = None) -> str 
 
 def list_sessions_store_dir(name: str, config: dict[str, Any] | None = None) -> str | None:
     """Expanded directory for a provider session store, or None."""
-    if list_sessions_store(name, config) is None:
+    kind = list_sessions_store(name, config)
+    if kind is None:
         return None
     entry = _cli_agent_entry(name, config)
     raw = entry.get("list_store_dir")
-    if raw is None:
-        policy = session_policy(name) or {}
-        raw = policy.get("list_store_dir")
     if raw:
         return os.path.expanduser(str(raw))
-    env = os.environ.get("SWARM_AGY_CONVERSATIONS_DIR", "").strip()
+    env_map = {
+        AGY_CONVERSATIONS_STORE: "SWARM_AGY_CONVERSATIONS_DIR",
+        OMP_SESSIONS_STORE: "SWARM_OMP_SESSIONS_DIR",
+    }
+    env = os.environ.get(env_map.get(kind, ""), "").strip()
     if env:
         return os.path.expanduser(env)
-    if list_sessions_store(name, config) == AGY_CONVERSATIONS_STORE:
-        return os.path.expanduser(DEFAULT_AGY_CONVERSATIONS_DIR)
-    return None
+    policy = session_policy(name) or {}
+    raw = policy.get("list_store_dir")
+    if raw:
+        return os.path.expanduser(str(raw))
+    kind_defaults = {
+        AGY_CONVERSATIONS_STORE: DEFAULT_AGY_CONVERSATIONS_DIR,
+        OMP_SESSIONS_STORE: DEFAULT_OMP_SESSIONS_DIR,
+    }
+    default_dir = kind_defaults.get(kind)
+    return os.path.expanduser(default_dir) if default_dir else None
 
 
 def list_capability(name: str, config: dict[str, Any] | None = None) -> str:

@@ -19,13 +19,17 @@ def test_omp_catalog_pins_litellm_orchestration():
     assert e["parse"] == "text"
 
 
-def test_omp_session_policy_paste_only_with_smoke_no_session():
+def test_omp_session_policy_store_backed_listing():
     pol = cli_catalog.session_policy("omp")
     assert pol is not None
     assert pol["resume_argv"] == ["--resume", "{session_id}"]
     assert pol["resume_insert"] == 2
-    assert pol["list_capability"] == cli_catalog.LIST_CAPABILITY_PASTE_ONLY
-    assert cli_catalog.can_list_sessions("omp") is False
+    # #640: omp `-p` prints text (no id on stdout), but omp persists every
+    # session under ~/.omp/agent/sessions — the store is the id source.
+    assert pol["list_store"] == cli_catalog.OMP_SESSIONS_STORE
+    assert pol["list_store_dir"] == cli_catalog.DEFAULT_OMP_SESSIONS_DIR
+    assert pol["list_capability"] == cli_catalog.LIST_CAPABILITY_WORKS
+    assert cli_catalog.can_list_sessions("omp") is True
     assert "--no-session" not in cli_catalog.catalog_entry("omp")["cmd"]
     assert "--no-session" in cli_catalog.smoke_flags("omp")
 

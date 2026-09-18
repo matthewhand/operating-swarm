@@ -17,7 +17,6 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapter, CliResult
 from swarm.core.cli_session_error import is_fatal_config_error
 from swarm.core.cli_sessions import (
@@ -29,6 +28,7 @@ from swarm.core.cli_sessions import (
     resolve_thread,
 )
 from swarm.core.consensus import run_consensus
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.session_policy import resume_cli_session_id
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,41 @@ class CliAgentBlueprint(CliKindBase):
             session_id,
             conversation_id=str(params.get("conversation_id") or ""),
         )
+
+    def _stamp_store_session(
+        self, params: dict[str, Any], adapter: Any, result: Any
+    ) -> None:
+        """#640: capture the CLI's own session id when stdout carries none.
+
+        omp prints plain text under ``-p`` so ``result.session_id`` is always
+        empty, yet omp persists every session under its agent dir. After a
+        successful production turn (no ``--no-session`` in the cmd), stamp the
+        newest store id so the next turn resumes and the notice stays honest.
+        Only CLIs whose catalog declares a store kind are touched; store reads
+        never mutate the CLI's files.
+        """
+        try:
+            if getattr(result, "session_id", None):
+                return
+            if not getattr(result, "ok", False):
+                return
+            cmd = list(getattr(getattr(adapter, "config", None), "cmd", None) or [])
+            if "--no-session" in cmd:  # smoke/verify run — ephemeral by design
+                return
+            from swarm.core import cli_catalog
+            from swarm.core.cli_session_stores import (
+                latest_session_id_from_store,
+            )
+
+            name = str(getattr(adapter, "name", "") or "")
+            if cli_catalog.list_sessions_store(name) is None:
+                return
+            store_dir = cli_catalog.list_sessions_store_dir(name)
+            sid = latest_session_id_from_store(name, store_dir)
+            if sid:
+                self._remember_session(params, name, sid)
+        except Exception:
+            logger.debug("provider-store session stamp skipped", exc_info=True)
 
     def _forget_session(self, params: dict[str, Any], cli_name: str) -> None:
         ref = self._thread_ref(params)
@@ -295,6 +330,8 @@ class CliAgentBlueprint(CliKindBase):
             self._remember_session(params, adapter.name, result.session_id)
         elif resumed and stored:
             self._remember_session(params, adapter.name, stored)
+        else:
+            self._stamp_store_session(params, adapter, result)
         if result.ok:
             self._mark_active_cli(params, adapter.name)
         return result, resumed
@@ -305,7 +342,11 @@ class CliAgentBlueprint(CliKindBase):
         # mutated by a concurrent request across await points.
         params = dict(self._params)
 
-        from swarm.core.cli_run_registry import bind_run_owner, reset_run_owner, run_owner_from_params
+        from swarm.core.cli_run_registry import (
+            bind_run_owner,
+            reset_run_owner,
+            run_owner_from_params,
+        )
 
         owner_token = bind_run_owner(run_owner_from_params(params))
         try:
@@ -520,6 +561,8 @@ class CliAgentBlueprint(CliKindBase):
                     self._remember_session(params, adapter.name, result.session_id)
                 elif resumed and stored:
                     self._remember_session(params, adapter.name, stored)
+                else:
+                    self._stamp_store_session(params, adapter, result)
                 if result is not None and result.ok:
                     self._mark_active_cli(params, adapter.name)
                 if result is not None and result.terminated:

@@ -46,7 +46,14 @@ def test_catalog_list_capability_table():
     assert cli_catalog.can_list_sessions("grok") is True
     assert cli_catalog.can_list_sessions("agy") is True
     assert cli_catalog.can_list_sessions("opencode") is True
-    for name in ("claude", "gemini", "codex", "pi", "omp"):
+    # #640: omp moved from paste-only to store-backed listing — ids come from
+    # omp's own ~/.omp/agent/sessions JSONL store.
+    assert cli_catalog.can_list_sessions("omp") is True
+    assert cli_catalog.list_capability("omp") == cli_catalog.LIST_CAPABILITY_WORKS
+    assert (
+        cli_catalog.list_sessions_store("omp") == cli_catalog.OMP_SESSIONS_STORE
+    )
+    for name in ("claude", "gemini", "codex", "pi"):
         assert cli_catalog.can_list_sessions(name) is False
         assert cli_catalog.list_capability(name) == cli_catalog.LIST_CAPABILITY_PASTE_ONLY
         assert cli_catalog.list_sessions_argv(name) is None
