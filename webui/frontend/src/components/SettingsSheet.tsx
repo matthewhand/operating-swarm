@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, FileCode2, HardDrive, Plus, Server } from 'lucide-react'
+import { AlertCircle, ChevronDown, FileCode2, HardDrive, Plus, Server, X } from 'lucide-react'
 import { Alert, Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
 import DefinitionPane from './DefinitionPane'
 import LlmProfileAddForm from './LlmProfileAddForm'
@@ -2174,6 +2174,37 @@ function LlmProfilesPane({
   const remote = profilesQuery.data
   const [defaultId, setDefaultId] = useState('')
   const [overrideOn, setOverrideOn] = useState(false)
+  const [overridePopupOpen, setOverridePopupOpen] = useState(false)
+  // #575: the truth test for the boolean lives in the same data as the popup
+  // rows, so the two cannot drift. A kind gains override support by flipping
+  // `enabled` here (or, later, by its kind base declaring it) — the popup and
+  // the flag update together, with no second list anywhere in the UI.
+  const overrideTaskKinds = useMemo(
+    () => [
+      {
+        id: 'api',
+        label: 'API agents',
+        enabled: true,
+        reason: 'Per-task profile overrides (orchestration / auxiliary / delegation)',
+        unavailableReason: '',
+      },
+      {
+        id: 'cli',
+        label: 'CLI agents',
+        enabled: false,
+        reason: 'The CLI owns its own model selection for the session',
+        unavailableReason: 'Overrides are API-only for now — the CLI owns its own model selection',
+      },
+      {
+        id: 'remote',
+        label: 'Remote agents',
+        enabled: false,
+        reason: 'The remote provider exposes its own model picker',
+        unavailableReason: 'Overrides are API-only for now — the remote provider picks its own models',
+      },
+    ],
+    [],
+  )
   const [taskMap, setTaskMap] = useState<Partial<Record<LlmTaskClass, string>>>({})
   const [saving, setSaving] = useState(false)
   const [addingProfile, setAddingProfile] = useState(false)
@@ -2380,25 +2411,103 @@ function LlmProfilesPane({
 
       <button
         type="button"
-        role="switch"
-        aria-checked={overrideOn}
-        className="flex items-center gap-3 text-left"
-        onClick={() => setOverrideOn((on) => !on)}
+        className="btn btn-outline btn-sm"
+        data-testid="override-per-task-button"
+        aria-haspopup="dialog"
+        aria-expanded={overridePopupOpen}
+        onClick={() => setOverridePopupOpen((open) => !open)}
       >
-        <input
-          type="checkbox"
-          className="toggle toggle-primary pointer-events-none"
-          checked={overrideOn}
-          readOnly
-          tabIndex={-1}
-          aria-hidden="true"
-        />
         <span className="label-text">Override per task</span>
+        <span
+          className={`badge badge-sm ${overrideOn ? 'badge-primary' : 'badge-ghost'}`}
+          data-testid="override-per-task-state"
+        >
+          {overrideOn ? 'On' : 'Off'}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
       <p className="text-xs text-base-content/60">
         Off: every job uses Default. On: cheap summary stays on auxiliary,
         design / coding can use delegation.
       </p>
+
+      {overridePopupOpen ? (
+        <div
+          role="dialog"
+          aria-label="Per-task LLM overrides"
+          data-testid="override-per-task-popup"
+          className={`max-h-[min(70vh,36rem)] space-y-3 overflow-y-auto rounded-box p-4 ${OVERLAY_CHROME_CLASSES}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h5 className="text-sm font-semibold">What can be overridden per task</h5>
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs"
+              aria-label="Close overrides popup"
+              onClick={() => setOverridePopupOpen(false)}
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={overrideOn}
+            className="flex items-center gap-3 text-left"
+            data-testid="override-per-task-switch"
+            onClick={() => setOverrideOn((on) => !on)}
+          >
+            <input
+              type="checkbox"
+              className="toggle toggle-primary pointer-events-none"
+              checked={overrideOn}
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+            />
+            <span className="label-text">Override per task</span>
+          </button>
+          <p className="text-xs text-base-content/60">
+            On: each task class below gets its own profile (auto-filled from
+            Default until you change it). Off: every job uses Default. The map
+            is kept when you switch off, so re-enabling loses nothing.
+          </p>
+          <ul className="space-y-2">
+            {overrideTaskKinds.map((entry) => {
+              const enabled = entry.enabled
+              return (
+                <li key={entry.id} className="flex items-start justify-between gap-3">
+                  <span>
+                    <span className="text-sm font-medium">{entry.label}</span>
+                    <span className="block text-xs text-base-content/60">{entry.reason}</span>
+                  </span>
+                  {enabled ? (
+                    <span className="badge badge-success badge-sm" data-testid={`override-kind-${entry.id}-on`}>Supported</span>
+                  ) : (
+                    <span
+                      className="tooltip tooltip-left"
+                      data-tip={entry.unavailableReason}
+                      tabIndex={0}
+                    >
+                      <span
+                        className="badge badge-ghost badge-sm opacity-60"
+                        data-testid={`override-kind-${entry.id}-off`}
+                      >
+                        N/A
+                      </span>
+                    </span>
+                  )}
+                </li>
+              )
+            })
+            }
+          </ul>
+          <p className="text-xs text-base-content/60">
+            API only, for now. Other kinds light up here by declaring override
+            support — nothing in this popup is a hardcoded kind list.
+          </p>
+        </div>
+      ) : null}
 
       {overrideOn ? (
         <fieldset className="space-y-3">

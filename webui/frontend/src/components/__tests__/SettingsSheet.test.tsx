@@ -789,11 +789,63 @@ describe('SettingsSheet', () => {
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
     expect(await screen.findByLabelText('Default')).toBeInTheDocument()
+    // #575: the flag now lives inside the override popup; the button opens it.
+    fireEvent.click(screen.getByTestId('override-per-task-button'))
+    expect(screen.getByTestId('override-per-task-popup')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Override per task' })).toHaveAttribute(
       'aria-checked',
       'false',
     )
     expect(screen.queryByLabelText('Delegation (design / coding)')).not.toBeInTheDocument()
+  })
+
+  // #575: the popup names which kinds can be overridden per task — API
+  // enabled, cli/remote disabled *with a reason*, per the #511 treatment.
+  it('override popup lists API enabled and cli/remote disabled with reasons', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          object: 'llm_profiles',
+          profiles: [
+            { id: 'gpt-5.6-terra', object: 'llm_profile', source: 'config', owned_by: 'openai' },
+          ],
+          default_llm_profile: 'gpt-5.6-terra',
+          default_is_auto: false,
+          override_per_task: false,
+          task_llm_profiles: {},
+          auto_picks: {},
+          warnings: [],
+          routes: {},
+          task_classes: ['orchestration', 'auxiliary', 'delegation'],
+        }),
+      } as Response),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
+    expect(await screen.findByLabelText('Default')).toBeInTheDocument()
+    expect(screen.getByTestId('override-per-task-state')).toHaveTextContent('Off')
+    fireEvent.click(screen.getByTestId('override-per-task-button'))
+
+    expect(screen.getByTestId('override-kind-api-on')).toBeInTheDocument()
+    const cliOff = screen.getByTestId('override-kind-cli-off')
+    expect(cliOff).toBeInTheDocument()
+    const remoteOff = screen.getByTestId('override-kind-remote-off')
+    expect(remoteOff).toBeInTheDocument()
+    const cliTip = cliOff.parentElement as HTMLElement
+    expect(cliTip.getAttribute('data-tip') || '').toMatch(/API-only/i)
+    const remoteTip = remoteOff.parentElement as HTMLElement
+    expect(remoteTip.getAttribute('data-tip') || '').toMatch(/API-only/i)
+
+    // The switch inside the popup round-trips the flag; the badge follows.
+    fireEvent.click(screen.getByTestId('override-per-task-switch'))
+    expect(screen.getByRole('switch', { name: 'Override per task' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByTestId('override-per-task-state')).toHaveTextContent('On')
   })
 
   it('shows the per-task map when override is on', async () => {
@@ -827,6 +879,10 @@ describe('SettingsSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
     expect(await screen.findByLabelText('Delegation (design / coding)')).toHaveValue('o3')
     expect(screen.getByLabelText('Auxiliary (code summary)')).toBeInTheDocument()
+    // #575: the map renders outside the popup (as before); the switch that
+    // controls the flag is inside the popup — open it to read the state.
+    expect(screen.getByTestId('override-per-task-state')).toHaveTextContent('On')
+    fireEvent.click(screen.getByTestId('override-per-task-button'))
     expect(screen.getByRole('switch', { name: 'Override per task' })).toHaveAttribute(
       'aria-checked',
       'true',
