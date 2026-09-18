@@ -146,24 +146,27 @@ describe('ChatPage OMB navbar agents (#102)', () => {
       ).toBe(true)
     })
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'remote')
+    // #629: the combined pill shows the remote provider label.
     expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('OpenMousBot')
-    const modelPill = await screen.findByTestId('routing-pill-model')
-    expect(modelPill).toHaveAttribute('aria-label', 'Remote agent')
-    expect(modelPill).not.toHaveTextContent('Desk')
-    fireEvent.click(modelPill)
-    const menu = await screen.findByTestId('routing-menu-model')
-    expect(within(menu).getByRole('menuitem', { name: 'Desk' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Specialist' })).toBeInTheDocument()
-    expect(menu.textContent).not.toContain(FAT_MESSAGE)
+    // #504: nested remote agents are palette rows (labelled by name), not a
+    // nested flyout menu.
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    const palette = await screen.findByTestId('os-model-search-palette')
+    expect(await within(palette).findByTestId('os-model-row-desk-1', {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(within(palette).getByTestId('os-model-row-spec-9')).toBeInTheDocument()
+    expect(within(palette).getByTestId('os-model-row-desk-1')).toHaveTextContent('Desk')
+    expect(within(palette).getByTestId('os-model-row-spec-9')).toHaveTextContent('Specialist')
+    expect(palette.textContent).not.toContain(FAT_MESSAGE)
     expect(screen.getByTestId('navbar-routing-picker').textContent).not.toMatch(/\bOMB\b/)
   })
 
   it('send frame params.target is the selected bot id', async () => {
     renderChat('/chat?remote=omb&session=desk-1')
     const ws = await openSocket()
-    const modelPill = await screen.findByTestId('routing-pill-model')
+    // #629: the combined pill carries the session target label.
+    const pill = await screen.findByTestId('routing-pill-agent')
     await waitFor(() => {
-      expect(modelPill).toHaveTextContent('Desk')
+      expect(pill).toHaveTextContent('Desk')
     })
     fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
       target: { value: 'hello desk' },
@@ -185,7 +188,7 @@ describe('ChatPage OMB navbar agents (#102)', () => {
   it('refuses send with omb_bot_required when no agent is selected', async () => {
     renderChat('/chat?remote=omb')
     const ws = await openSocket()
-    await screen.findByTestId('routing-pill-model')
+    await screen.findByTestId('routing-pill-agent')
     fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
       target: { value: 'should not go' },
     })

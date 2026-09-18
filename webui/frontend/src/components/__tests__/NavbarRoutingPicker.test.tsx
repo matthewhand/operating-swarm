@@ -1,16 +1,17 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+/**
+ * Universal routing picker (REQ-906 / #504) + combined composer trigger
+ * (REQ-907 / #629).
+ *
+ * Every seat kind opens the shared search palette — scoped by default with a
+ * removable chip (#504) — and the composer shows ONE combined pill labelled
+ * `provider/model(/effort)` (#629) instead of three separate pills.
+ */
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NavbarRoutingPicker } from '../NavbarRoutingPicker'
-
-const { fetchCliModelsMock } = vi.hoisted(() => ({
-  fetchCliModelsMock: vi.fn(async (cli: string) => ({ cli, models: [] as string[] })),
-}))
-
-vi.mock('../../lib/api', () => ({
-  fetchCliModels: (...args: [string]) => fetchCliModelsMock(...args),
-}))
+import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
 
 const AGY_MODELS = [
   'gemini-3.8-flash-high',
@@ -23,437 +24,164 @@ function renderPicker(
   props: Partial<ComponentProps<typeof NavbarRoutingPicker>> = {},
 ) {
   const onChange = vi.fn()
+  const onNavigateAgent = vi.fn()
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const view = render(
     <QueryClientProvider client={client}>
       <NavbarRoutingPicker
         seatKind="cli"
         agents={[
-          { id: 'agy', label: 'agy' },
-          { id: 'grok', label: 'grok' },
+          { id: 'agy', label: 'agy', kind: 'cli' },
+          { id: 'grok', label: 'grok', kind: 'cli' },
         ]}
         selectedAgent="agy"
         models={AGY_MODELS}
         selectedModel="gemini-3.8-flash-medium"
         preferredEffort="medium"
+        allAgents={[
+          { id: 'agy', label: 'agy', kind: 'cli' },
+          { id: 'grok', label: 'grok', kind: 'cli' },
+          { id: 'api_agent', label: 'API Agent', kind: 'api' },
+          { id: 'omb', label: 'OpenMousBot', kind: 'remote' },
+        ]}
+        onNavigateAgent={onNavigateAgent}
         onChange={onChange}
         footerAction={{ id: '__manage_cli__', label: 'Manage CLI', onSelect: vi.fn() }}
         {...props}
       />
     </QueryClientProvider>,
   )
-  return { onChange, ...view }
+  return { onChange, onNavigateAgent, ...view }
 }
 
-describe('NavbarRoutingPicker (REQ-200)', () => {
-  const originalMatchMedia = window.matchMedia
+function openPalette() {
+  fireEvent.click(screen.getByTestId('routing-pill-agent'))
+  return screen.getByTestId('os-model-search-palette')
+}
 
+describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
   afterEach(() => {
     document.documentElement.removeAttribute('dir')
-    if (originalMatchMedia) window.matchMedia = originalMatchMedia
-    else delete (window as { matchMedia?: unknown }).matchMedia
-    fetchCliModelsMock.mockReset()
-    fetchCliModelsMock.mockImplementation(async (cli: string) => ({ cli, models: [] }))
   })
 
-  it('renders one control with three pills and no sibling selects', () => {
+  it('#629: renders ONE combined pill labelled provider/model/effort', () => {
     renderPicker()
-    expect(screen.getByTestId('navbar-routing-picker')).toBeInTheDocument()
-    expect(screen.getAllByTestId('navbar-routing-picker')).toHaveLength(1)
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy')
-    expect(screen.getByTestId('routing-pill-model')).toHaveTextContent('gemini-3.8-flash')
-    expect(screen.getByTestId('routing-pill-effort')).toHaveTextContent('medium')
-    expect(screen.getByTestId('routing-face')).toHaveAttribute(
-      'title',
-      'agy / gemini-3.8-flash / medium',
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent(
+      'agy/gemini-3.8-flash/medium',
     )
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
-    expect(screen.queryByText('You')).not.toBeInTheDocument()
-    expect(screen.queryByText('Default')).not.toBeInTheDocument()
+    // The retired per-dimension pills are gone.
+    expect(screen.queryByTestId('routing-pill-model')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('routing-pill-effort')).not.toBeInTheDocument()
   })
 
-  it('hides the chevron until hover and opens that dimension only', () => {
+  it('#629: empty segments render as — and never leave dangling dividers', () => {
+    renderPicker({ models: [], selectedModel: '', preferredEffort: undefined })
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy/—')
+  })
+
+  it('#504: every kind opens the palette (CLI included), not a flyout', () => {
     renderPicker()
-    const effort = screen.getByTestId('routing-pill-effort')
-    const chevron = effort.querySelector('.os-routing-pill__chevron')
-    expect(chevron).toBeTruthy()
-    fireEvent.mouseEnter(effort)
-    expect(screen.getByTestId('routing-menu-effort')).toBeInTheDocument()
+    openPalette()
+    expect(screen.getByTestId('os-model-search-palette')).toBeInTheDocument()
+    expect(screen.queryByTestId('routing-flyout')).not.toBeInTheDocument()
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'high' }))
   })
 
-  it('changes effort alone without clearing agent or model', () => {
+  it('#504: palette is scoped by default with a visible chip', () => {
+    renderPicker()
+    openPalette()
+    // Agents group + the selection's model group, but not other kinds.
+    expect(screen.getByTestId('os-model-row-agy')).toBeInTheDocument()
+    expect(screen.getByTestId('os-model-row-grok')).toBeInTheDocument()
+    expect(screen.getByTestId('os-model-row-gemini-3.8-flash-medium')).toBeInTheDocument()
+    expect(screen.queryByTestId('os-model-row-api_agent')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('os-model-row-omb')).not.toBeInTheDocument()
+  })
+
+  it('#504: clearing the scope chip reveals all configured options', () => {
+    renderPicker()
+    openPalette()
+    fireEvent.click(screen.getByTestId('os-palette-scope-clear'))
+    expect(screen.getByTestId('os-model-row-api_agent')).toBeInTheDocument()
+    expect(screen.getByTestId('os-model-row-omb')).toBeInTheDocument()
+  })
+
+  it('#504: picking a model emits a model change', () => {
     const { onChange } = renderPicker()
-    fireEvent.click(screen.getByTestId('routing-pill-effort'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'high' }))
+    openPalette()
+    fireEvent.click(screen.getByTestId('os-model-row-claude-sonnet-4-6'))
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
-        changed: 'effort',
+        changed: 'model',
         agent: 'agy',
-        model: 'gemini-3.8-flash-high',
-        modelBase: 'gemini-3.8-flash',
-        effort: 'high',
+        modelBase: 'claude-sonnet-4-6',
       }),
     )
   })
 
-  it('re-prompts effort after a model that exposes it', () => {
-    const { onChange } = renderPicker()
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.8-flash' }))
+  it('#504: picking an agent of the same kind rebinds the seat', () => {
+    const { onChange, onNavigateAgent } = renderPicker()
+    openPalette()
+    fireEvent.click(screen.getByTestId('os-model-row-grok'))
     expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changed: 'model',
-        modelBase: 'gemini-3.8-flash',
-        effort: 'medium',
-      }),
+      expect.objectContaining({ changed: 'agent', agent: 'grok' }),
     )
-    expect(screen.getByTestId('routing-menu-effort')).toBeInTheDocument()
+    expect(onNavigateAgent).not.toHaveBeenCalled()
   })
 
-  it('skips effort for a model family without it', () => {
-    const { onChange } = renderPicker()
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'claude-sonnet-4-6' }))
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changed: 'model',
-        model: 'claude-sonnet-4-6',
-        effort: null,
-      }),
-    )
-    expect(screen.queryByTestId('routing-menu-effort')).not.toBeInTheDocument()
+  it('#502: picking an out-of-scope kind navigates instead of rebinding', () => {
+    const { onChange, onNavigateAgent } = renderPicker()
+    openPalette()
+    fireEvent.click(screen.getByTestId('os-palette-scope-clear'))
+    fireEvent.click(screen.getByTestId('os-model-row-api_agent'))
+    expect(onNavigateAgent).toHaveBeenCalledWith('api_agent', 'api')
+    expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('opens the full cascade from the agent pill and supports keyboard', () => {
-    renderPicker()
-    const agent = screen.getByTestId('routing-pill-agent')
-    fireEvent.click(agent)
-    const menu = screen.getByTestId('routing-menu-agent')
-    expect(within(menu).getByRole('menuitem', { name: 'agy' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'grok' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Manage CLI' })).toBeInTheDocument()
-    const picker = screen.getByTestId('navbar-routing-picker')
-    fireEvent.keyDown(picker, { key: 'ArrowDown' })
-    fireEvent.keyDown(picker, { key: 'Enter' })
-    fireEvent.keyDown(picker, { key: 'Escape' })
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-  })
-
-  it('uses a sheet on narrow viewports', () => {
-    const mq = {
-      matches: true,
-      media: '(max-width: 1023px)',
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-      onchange: null,
-    }
-    window.matchMedia = vi.fn().mockImplementation(() => mq) as unknown as typeof window.matchMedia
-    renderPicker()
-    fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    expect(screen.getByTestId('routing-sheet')).toBeInTheDocument()
-  })
-
-  const emptyModelsNoFamilies = {
-    models: [] as string[],
-    selectedModel: '',
-    modelWarning: 'grok: no models advertised',
-  }
-
-  it('narrow sheet keeps an explicit Model request when no families are known yet (#275)', async () => {
-    const mq = {
-      matches: true,
-      media: '(max-width: 1023px)',
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-      onchange: null,
-    }
-    window.matchMedia = vi.fn().mockImplementation(() => mq) as unknown as typeof window.matchMedia
-    // The model pill is rendered because a probe warning exists, yet there are no
-    // families — the old level fallback swapped in the agent list here.
-    renderPicker(emptyModelsNoFamilies)
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    expect(screen.getByTestId('routing-sheet')).toBeInTheDocument()
-    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
-    expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
-      'grok: no models advertised',
-    )
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-  })
-
-  it('wide flyout keeps an explicit Model request when no families are known yet (#275)', async () => {
-    renderPicker(emptyModelsNoFamilies)
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    expect(screen.queryByTestId('routing-sheet')).not.toBeInTheDocument()
-    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
-    expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
-      'grok: no models advertised',
-    )
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-  })
-
-  it('desktop hover on the model pill opens the model menu, not the agent list (#275)', () => {
-    renderPicker(emptyModelsNoFamilies)
-    fireEvent.mouseEnter(screen.getByTestId('routing-pill-agent'))
-    expect(screen.getByTestId('routing-menu-agent')).toBeInTheDocument()
-    fireEvent.mouseEnter(screen.getByTestId('routing-pill-model'))
-    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-  })
-
-  it('model pill click is not stolen by the routing-face agent fallback (#275)', () => {
-    renderPicker(emptyModelsNoFamilies)
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    // Face onClick must not replace the model menu with the CLI provider list.
-    fireEvent.click(screen.getByTestId('routing-face'))
-    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-  })
-
-  it('lists pi provider/model ids as pin-able model options (#103)', () => {
-    const { onChange } = renderPicker({
-      agents: [
-        { id: 'pi', label: 'pi' },
-        { id: 'grok', label: 'grok' },
-      ],
-      selectedAgent: 'pi',
-      models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-6'],
-      selectedModel: 'openai/gpt-4o',
-      preferredEffort: undefined,
-    })
-    expect(screen.getByTestId('routing-pill-model')).toHaveTextContent('openai/gpt-4o')
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    expect(screen.getByRole('menuitem', { name: 'openai/gpt-4o' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'anthropic/claude-sonnet-4-6' })).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'openai' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'default' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'anthropic/claude-sonnet-4-6' }))
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changed: 'model',
-        agent: 'pi',
-        model: 'anthropic/claude-sonnet-4-6',
-        modelBase: 'anthropic/claude-sonnet-4-6',
-        effort: null,
-      }),
-    )
-  })
-
-  it('shows a probe warning instead of option default when models are empty', async () => {
+  it('the manage footer action carries the kind-appropriate label', () => {
+    const manage = vi.fn()
     renderPicker({
-      models: [],
-      selectedModel: '',
-      modelWarning: "grok: CLI not installed (no 'grok' on PATH)",
+      footerAction: { id: '__manage_cli__', label: 'Manage CLI', onSelect: manage },
     })
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
-      "grok: CLI not installed (no 'grok' on PATH)",
-    )
-    expect(screen.queryByRole('menuitem', { name: 'default' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Default' })).not.toBeInTheDocument()
+    openPalette()
+    const btn = screen.getByTestId('os-model-manage-api')
+    expect(btn).toHaveTextContent('Manage CLI in Settings')
+    fireEvent.click(btn)
+    expect(manage).toHaveBeenCalledTimes(1)
   })
 
-  it('puts a separator then Manage CLI last without a nested model flyout', () => {
-    const onSelect = vi.fn()
-    renderPicker({
-      footerAction: { id: '__manage_cli__', label: 'Manage CLI', onSelect },
-    })
-    fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    const menu = screen.getByTestId('routing-menu-agent')
-    const items = within(menu).getAllByRole('menuitem')
-    expect(items.map((item) => item.getAttribute('data-testid'))).toEqual([
-      'routing-option-agent-agy',
-      'routing-option-agent-grok',
-      'routing-option-agent-__manage_cli__',
-    ])
-    expect(items[items.length - 1]).toHaveAccessibleName('Manage CLI')
-    const divider = within(menu).getByTestId('manage-surface-divider')
-    expect(divider).toHaveAttribute('role', 'separator')
-    const manage = items[items.length - 1]
-    expect(manage.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
-    expect(manage).not.toHaveAttribute('aria-haspopup')
-    expect(within(manage).queryByText('›')).not.toBeInTheDocument()
-    fireEvent.mouseEnter(manage)
-    fireEvent.keyDown(screen.getByTestId('navbar-routing-picker'), { key: 'ArrowRight' })
-    expect(manage).not.toHaveAttribute('aria-haspopup')
-    fireEvent.click(manage)
-    expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-  })
-
-  it('API seat opens the searchable model palette, not the agent dropdown (#281)', () => {
-    const { onChange } = renderPicker({
-      seatKind: 'api',
-      agents: [
-        { id: 'orchestration', label: 'Orchestration' },
-        { id: 'gpt-4o', label: 'gpt-4o' },
-        { id: 'anthropic/claude-3-5-sonnet', label: 'claude-3-5-sonnet' },
-      ],
-      selectedAgent: 'orchestration',
-      models: [],
-      selectedModel: '',
-      defaultAgent: 'orchestration',
-      footerAction: undefined,
-    })
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('Orchestration')
-    fireEvent.mouseEnter(screen.getByTestId('routing-pill-agent'))
-    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    const palette = screen.getByTestId('os-model-search-palette')
-    expect(palette).toHaveClass('os-search-palette')
-    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Filter models' })).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('os-model-row-gpt-4o'))
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ changed: 'agent', agent: 'gpt-4o' }),
-    )
-    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
-  })
-
-  it('opens nested menus toward inline-start in RTL', () => {
-    document.documentElement.setAttribute('dir', 'rtl')
-    renderPicker()
-    fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    const picker = screen.getByTestId('navbar-routing-picker')
-    fireEvent.keyDown(picker, { key: 'ArrowLeft' })
-    expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
-    document.documentElement.removeAttribute('dir')
-  })
-
-  it('shows Loading... with a spinner while CLI models are fetching (REQ-870)', async () => {
-    fetchCliModelsMock.mockReturnValue(new Promise(() => {}))
-    renderPicker({ models: [], selectedModel: '', modelWarning: undefined })
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    const loading = await screen.findByTestId('routing-model-loading')
-    expect(loading).toHaveTextContent('Loading...')
-    expect(loading.querySelector('.loading-spinner')).toBeTruthy()
-    expect(screen.queryByText('No options')).not.toBeInTheDocument()
-    expect(screen.queryByText('No models discovered')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('routing-model-warning')).not.toBeInTheDocument()
-  })
-
-  it('suppresses a premature empty warning while models are in flight', async () => {
-    fetchCliModelsMock.mockReturnValue(new Promise(() => {}))
-    renderPicker({
-      models: [],
-      selectedModel: '',
-      modelWarning: 'No models discovered',
-    })
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    expect(await screen.findByTestId('routing-model-loading')).toHaveTextContent(
-      'Loading...',
-    )
-    expect(screen.queryByTestId('routing-model-warning')).not.toBeInTheDocument()
-    expect(screen.queryByText('No options')).not.toBeInTheDocument()
-  })
-
-  it('replaces Loading... with fetched model options', async () => {
-    let resolveFetch: (value: { cli: string; models: string[] }) => void = () => {}
-    fetchCliModelsMock.mockReturnValue(
-      new Promise((resolve) => {
-        resolveFetch = resolve
-      }),
-    )
-    renderPicker({ models: [], selectedModel: '' })
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
-    expect(await screen.findByTestId('routing-model-loading')).toBeInTheDocument()
-    resolveFetch({ cli: 'agy', models: ['qwen2.5-coder:32b', 'qwen2.5-coder:7b'] })
-    await waitFor(() => {
-      expect(screen.queryByTestId('routing-model-loading')).not.toBeInTheDocument()
-    })
-    expect(screen.getByRole('menuitem', { name: 'qwen2.5-coder:32b' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'qwen2.5-coder:7b' })).toBeInTheDocument()
-  })
-
-  it('lists nested OpenMousBot agents without defaulting to the first bot (#102)', () => {
-    const { onChange } = renderPicker({
-      seatKind: 'remote',
-      agents: [{ id: 'omb', label: 'OpenMousBot' }],
-      selectedAgent: 'omb',
-      models: ['desk-1', 'spec-9'],
-      modelOptions: [
-        { id: 'desk-1', label: 'Desk' },
-        { id: 'spec-9', label: 'Specialist' },
-      ],
-      selectedModel: '',
-      footerAction: { id: '__add_remote__', label: 'Add remote', onSelect: vi.fn() },
-    })
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('OpenMousBot')
-    const modelPill = screen.getByTestId('routing-pill-model')
-    expect(modelPill).toHaveAttribute('aria-label', 'Remote agent')
-    expect(modelPill).not.toHaveTextContent('Desk')
-    expect(modelPill).not.toHaveTextContent('Specialist')
-    fireEvent.click(modelPill)
-    const menu = screen.getByTestId('routing-menu-model')
-    expect(within(menu).getByRole('menuitem', { name: 'Desk' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Specialist' })).toBeInTheDocument()
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Desk' }))
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changed: 'model',
-        agent: 'omb',
-        model: 'desk-1',
-      }),
-    )
-  })
-
-  describe('#584 composer routing pill resting and hover states', () => {
-    it('resting routing face has transparent chrome and gains --hot when hovered/open', () => {
+  it('surfaces the #494 warning with its Fix-in-Settings action', async () => {
+    const listener = vi.fn()
+    window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    try {
       renderPicker({
-        seatKind: 'cli',
-        agents: [{ id: 'grok', label: 'grok' }],
-        selectedAgent: 'grok',
-        models: ['grok-4.5'],
-        selectedModel: 'grok-4.5',
+        modelWarning: 'OpenMousBot list requires auth.',
+        modelWarningAction: {
+          kind: 'settings',
+          section: 'remotes',
+          remote: 'omb',
+          field: 'api_key_env',
+        },
       })
-      const face = screen.getByTestId('routing-face')
-      const agentPill = screen.getByTestId('routing-pill-agent')
-      expect(face).not.toHaveClass('os-routing-face--hot')
-      expect(agentPill).not.toHaveClass('os-routing-pill--hot')
+      openPalette()
+      const warning = await screen.findByTestId('routing-model-warning')
+      expect(warning).toHaveTextContent('OpenMousBot list requires auth.')
+      fireEvent.click(screen.getByTestId('routing-model-warning-action'))
+      await waitFor(() => expect(listener).toHaveBeenCalledTimes(1))
+      expect(listener.mock.calls[0][0].detail).toMatchObject({
+        section: 'remotes',
+        remoteId: 'omb',
+      })
+    } finally {
+      window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+    }
+  })
 
-      fireEvent.mouseEnter(agentPill)
-      expect(face).toHaveClass('os-routing-face--hot')
-      expect(agentPill).toHaveClass('os-routing-pill--hot')
-
-      fireEvent.keyDown(screen.getByTestId('navbar-routing-picker'), { key: 'Escape' })
-      expect(face).not.toHaveClass('os-routing-face--hot')
-      expect(agentPill).not.toHaveClass('os-routing-pill--hot')
-    })
-
-    it('enforces transparent resting border and fill in index.css to guarantee zero layout shift', () => {
-      const { readFileSync } = require('node:fs')
-      const { resolve } = require('node:path')
-      const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
-
-      // Resting face is transparent with 1px transparent border to reserve space without paint
-      expect(css).toContain('.os-routing-face {')
-      expect(css).toContain('border: 1px solid transparent;')
-      expect(css).toContain('background: transparent;')
-
-      // Sibling separator has transparent inline start border
-      expect(css).toContain('.os-routing-pill + .os-routing-pill {')
-      expect(css).toContain('border-inline-start: 1px solid transparent;')
-
-      // Hover, focus-within, and hot state apply border color and background without changing border width
-      expect(css).toContain('.os-routing-face:hover,')
-      expect(css).toContain('.os-routing-face:focus-within,')
-      expect(css).toContain('.os-routing-face--hot,')
-
-      // Composer positioning opens upward and rounds full
-      expect(css).toContain('.os-composer .os-routing-picker')
-      expect(css).toContain('.os-composer .os-routing-face {')
-      expect(css).toContain('border-radius: 999px;')
-      expect(css).toContain('.os-composer .os-routing-flyout {')
-      expect(css).toContain('inset-block-end: calc(100% + 0.35rem);')
-    })
+  it('REQ-870: shows Loading while the CLI model probe is in flight, rows stay navigable', () => {
+    renderPicker({ loading: true })
+    openPalette()
+    expect(screen.getByTestId('routing-model-loading')).toBeInTheDocument()
+    // REQ-870 parity: the agent rows remain pickable while models probe.
+    expect(screen.getByTestId('os-model-row-agy')).toBeInTheDocument()
   })
 })

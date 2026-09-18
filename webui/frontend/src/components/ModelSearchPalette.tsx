@@ -17,6 +17,18 @@ export interface ModelSearchPaletteProps {
   onClose: () => void
   onSelect: (model: ModelSearchOption) => void
   onManageSettings?: () => void
+  /** #504: footer label for the manage deep-link. Defaults to the API wording. */
+  manageLabel?: string
+  /** #504: visible scope chip (e.g. `CLI · qwen`). Absent → no chip row. */
+  scopeLabel?: string
+  /** #504: full option set revealed when the scope chip is cleared. */
+  allModels?: readonly ModelSearchOption[]
+  /** #504: clears the caller's persisted scope preference (best-effort). */
+  onClearScope?: () => void
+  /** REQ-870: lazy CLI model probe in flight — the list is momentarily empty. */
+  loading?: boolean
+  /** #494: backend-classified failure surfaced with its Fix-in-Settings action. */
+  warning?: { text: string; actionLabel?: string; onAction?: () => void }
 }
 
 function shortcutLabel(index: number): string {
@@ -31,21 +43,39 @@ export default function ModelSearchPalette({
   onClose,
   onSelect,
   onManageSettings,
+  manageLabel,
+  scopeLabel,
+  allModels,
+  onClearScope,
+  loading = false,
+  warning,
 }: ModelSearchPaletteProps) {
   const [query, setQuery] = useState('')
+  // #504: the scope starts on every open and survives until the user removes
+  // the chip — a fresh open re-tightens the list, matching "scoped by default".
+  const [scopeCleared, setScopeCleared] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const visible = useMemo(() => filterModelOptions(models, query), [models, query])
+  const scopeOn = Boolean(scopeLabel) && !scopeCleared
+  // #504: the option set itself swaps — scoped list by default, the full
+  // configured catalog when the chip is cleared. Scoped must be a subset of
+  // all (caller contract), so the palette can branch on the arrays.
+  const scopedList = models
+  const allList = allModels && allModels.length >= models.length ? allModels : models
+  const effectiveModels = scopeOn ? scopedList : allList
+
+  const visible = useMemo(() => filterModelOptions(effectiveModels, query), [effectiveModels, query])
   const groups = useMemo(() => groupModelOptions(visible), [visible])
 
   useEffect(() => {
     setActiveIdx(0)
-  }, [query, models, open])
+  }, [query, effectiveModels, open])
 
   useEffect(() => {
     if (!open) return
     setQuery('')
+    setScopeCleared(false)
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [open])
 
@@ -108,7 +138,7 @@ export default function ModelSearchPalette({
 
   if (!open) return null
 
-  const emptySearch = models.length > 0 && visible.length === 0
+  const emptySearch = effectiveModels.length > 0 && visible.length === 0
   let optionIndex = -1
 
   return (
@@ -146,15 +176,72 @@ export default function ModelSearchPalette({
           />
         </div>
 
+        {scopeLabel ? (
+          <div className="os-search-palette__scope" data-testid="os-palette-scope-row">
+            <span
+              className="os-search-palette__scope-chip"
+              data-testid="os-palette-scope"
+              title="Showing options for the current context only"
+            >
+              {scopeLabel}
+            </span>
+            <button
+              type="button"
+              className="os-search-palette__scope-clear"
+              data-testid="os-palette-scope-clear"
+              aria-label={
+                scopeCleared ? 'Scope removed — showing all configured options' : 'Remove scope and show all configured options'
+              }
+              aria-pressed={scopeCleared}
+              onClick={() => {
+                setScopeCleared(true)
+                onClearScope?.()
+              }}
+            >
+              {scopeCleared ? 'Showing all — restore scope' : 'Show all configured options ✕'}
+            </button>
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div
+            className="os-routing-menu__loading"
+            data-testid="routing-model-loading"
+            role="status"
+            aria-live="polite"
+            aria-label="Loading..."
+          >
+            <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+            <span>Loading...</span>
+          </div>
+        ) : null}
+        {!loading && warning ? (
+          <div className="os-routing-menu__warning" data-testid="routing-model-warning" role="status">
+            {warning.text}
+            {warning.onAction ? (
+              <button
+                type="button"
+                className="btn btn-xs btn-primary mt-1"
+                data-testid="routing-model-warning-action"
+                onClick={() => {
+                  onClose()
+                  warning.onAction?.()
+                }}
+              >
+                {warning.actionLabel || 'Fix in Settings'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <ul
           id="os-model-results"
           role="listbox"
           aria-label="Models"
           className="os-search-palette__list"
         >
-          {models.length === 0 ? (
+          {effectiveModels.length === 0 && !loading && !warning ? (
             <li className="os-search-empty">No models.</li>
-          ) : emptySearch ? (
+          ) : emptySearch && !loading && !warning ? (
             <li className="os-search-empty">
               {query.trim() ? `No matches for “${query.trim()}”.` : 'No models.'}
             </li>
@@ -238,7 +325,7 @@ export default function ModelSearchPalette({
             onClick={openManage}
           >
             <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
-            Manage API in Settings
+            {manageLabel || 'Manage API in Settings'}
           </button>
         </div>
       </div>

@@ -127,8 +127,8 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    const modelPill = await screen.findByTestId('routing-pill-model')
-    fireEvent.click(modelPill)
+    // #629: the combined pill opens the palette; the warning rides in it.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
       "grok: CLI not installed (no 'grok' on PATH)",
     )
@@ -142,9 +142,9 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    const modelPill = await screen.findByTestId('routing-pill-model')
-    fireEvent.click(modelPill)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'grok-4.5' }))
+    // #504: probed models are palette rows.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-grok-4.5'))
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'pin the next run' } })
     fireEvent.submit(composer.closest('form')!)
@@ -165,11 +165,11 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    const modelPill = await screen.findByTestId('routing-pill-model')
-    fireEvent.click(modelPill)
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     expect(screen.queryByRole('menuitem', { name: 'openai' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'default' })).not.toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'openai/gpt-4o' }))
+    // #504 + #103: the full provider/model id pins verbatim — no family split.
+    fireEvent.click(await screen.findByTestId('os-model-row-openai/gpt-4o'))
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'pin pi' } })
     fireEvent.submit(composer.closest('form')!)

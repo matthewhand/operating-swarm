@@ -225,7 +225,8 @@ describe('ChatPage Manage CLI / API footers (#254)', () => {
         MockWebSocket.instances[0]?.open()
       })
       fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-      fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage CLI' }))
+      // #504: the manage action moved into the palette footer.
+      fireEvent.click(await screen.findByTestId('os-model-manage-api'))
       expect(opened).toEqual([{ section: 'cli-agents' }])
       expect(screen.getByTestId('navbar-routing-picker')).toBeInTheDocument()
     } finally {

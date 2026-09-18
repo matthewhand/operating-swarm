@@ -2251,6 +2251,41 @@ button.os-agent-row {
   text-transform: uppercase;
   color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
 }
+/* #504: the routing palette's scope chip + reveal-all control. */
+.os-search-palette__scope {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 10%, transparent);
+}
+.os-search-palette__scope-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
+}
+.os-search-palette__scope-clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.35rem;
+}
+.os-search-palette__scope-clear:hover {
+  background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+  color: var(--color-base-content);
+}
 .os-routing-menu__back,
 .os-routing-menu__empty,
 .os-routing-menu__loading,

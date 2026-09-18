@@ -419,7 +419,7 @@ import {
 } from '../lib/cliAgentContext'
 import { productModesWhenSettled } from '../lib/productModes'
 import { recordBackendUse } from '../lib/backendAudit'
-import { isHiddenRoutingLabel } from '../lib/routingPath'
+import { isHiddenRoutingLabel, type RoutingSeatKind } from '../lib/routingPath'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
 const SHOW_MESSAGE_ACTIONS = isExperimentalEnabled('chat_message_actions')
@@ -1068,6 +1068,42 @@ const ChatPage = () => {
   const remotesCatalogReady = !remotesListQuery.isPending && !remotesQuery.isPending
   const showEmptyRemoteChrome =
     showRemotesControl && remotesCatalogReady && configuredRemoteRows.length === 0
+  // #504: the cross-kind union the routing palette's "show all" reveals. Each
+  // row declares its kind so a pick outside the current scope navigates (#502)
+  // instead of rebinding the current seat.
+  const allPaletteAgents = useMemo(() => {
+    const rows: Array<{ id: string; label: string; kind: 'api' | 'cli' | 'remote' | 'team' }> = []
+    for (const bp of blueprints) {
+      rows.push({ id: bp.id, label: bp.name || bp.id, kind: 'api' })
+    }
+    for (const cli of cliAgents) {
+      rows.push({ id: cli.id, label: cli.name || cli.id, kind: 'cli' })
+    }
+    for (const remote of remotes) {
+      rows.push({ id: remote.id, label: remote.title || remote.id, kind: 'remote' })
+    }
+    for (const team of teams) {
+      rows.push({ id: team.id, label: team.name || team.id, kind: 'team' })
+    }
+    return rows
+  }, [blueprints, cliAgents, remotes, teams])
+  // #502 doctrine: choosing an out-of-scope agent navigates to it — it never
+  // rewrites the current seat's provider/model binding.
+  const navigateToPaletteAgent = useCallback(
+    (targetId: string, kind?: RoutingSeatKind | 'team') => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('team')
+        next.delete('remote')
+        next.delete('session')
+        if (kind === 'team') next.set('team', targetId)
+        else if (kind === 'remote') next.set('remote', targetId)
+        else next.set('agent', targetId)
+        return next
+      })
+    },
+    [setSearchParams],
+  )
   const ombRemoteId = isOpenMousBotKind(selectedRemoteId)
     ? selectedRemoteId
     : isOpenMousBotKind(remoteFromUrl)
@@ -3569,7 +3605,10 @@ const ChatPage = () => {
           agents={configuredRemoteRows.map((remote) => ({
             id: remote.id,
             label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
+            kind: 'remote' as const,
           }))}
+          allAgents={allPaletteAgents}
+          onNavigateAgent={navigateToPaletteAgent}
           selectedAgent={selectedRemoteId}
           models={remoteNavbarAgents.map((row) => row.id)}
           modelOptions={remoteNavbarAgents}
@@ -3620,12 +3659,15 @@ const ChatPage = () => {
         <NavbarRoutingPicker
           seatKind="cli"
           aria-label="CLI"
-          agents={discoveredClis.map((cli) => ({ id: cli, label: cli }))}
+          agents={discoveredClis.map((cli) => ({ id: cli, label: cli, kind: 'cli' as const }))}
           selectedAgent={currentCli}
           models={availableCliModels}
           selectedModel={currentCliModel}
           modelWarning={cliModelWarning}
           preferredEffort={persistedDropdown.effort}
+          allAgents={allPaletteAgents}
+          onNavigateAgent={navigateToPaletteAgent}
+          loading={isCliAgent && (cliModelsQuery.isFetching || cliModelsQuery.isLoading)}
           footerAction={{
             id: MANAGE_CLI_VALUE,
             label: 'Manage CLI',
@@ -3646,7 +3688,9 @@ const ChatPage = () => {
             llmProfilesQuery.data?.default_llm_profile
               ? [llmProfilesQuery.data.default_llm_profile]
               : [],
-          ).map((opt) => ({ id: opt.id, label: opt.label }))}
+          ).map((opt) => ({ id: opt.id, label: opt.label, kind: 'api' as const }))}
+          allAgents={allPaletteAgents}
+          onNavigateAgent={navigateToPaletteAgent}
           selectedAgent={
             selectedModelId || llmProfilesQuery.data?.default_llm_profile || ''
           }

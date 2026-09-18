@@ -32,7 +32,8 @@ function renderPicker(
 describe('NavbarRoutingPicker #494 actionable warning', () => {
   it('renders plain text when the warning has no action (no regression)', async () => {
     renderPicker({ modelWarning: 'Remote agent list failed' })
-    fireEvent.click(screen.getByTestId('routing-pill-model'))
+    // #629: the composer has one combined pill; the palette carries the warning.
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
     const warning = await screen.findByTestId('routing-model-warning')
     expect(warning).toHaveTextContent('Remote agent list failed')
     expect(screen.queryByTestId('routing-model-warning-action')).not.toBeInTheDocument()
@@ -51,7 +52,7 @@ describe('NavbarRoutingPicker #494 actionable warning', () => {
           field: 'api_key_env',
         },
       })
-      fireEvent.click(screen.getByTestId('routing-pill-model'))
+      fireEvent.click(screen.getByTestId('routing-pill-agent'))
       const warning = await screen.findByTestId('routing-model-warning')
       expect(warning).toHaveTextContent('OpenMousBot list requires auth.')
       const fix = screen.getByTestId('routing-model-warning-action')

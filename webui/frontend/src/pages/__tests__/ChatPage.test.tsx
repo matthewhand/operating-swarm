@@ -2013,18 +2013,18 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'remote')
     expect(pill).toHaveAttribute('data-value', 'omb')
     fireEvent.click(pill)
-    const menu = await screen.findByTestId('routing-menu-agent')
-    const options = within(menu)
-      .getAllByRole('menuitem')
+    // #504: remote options and the Manage footer live in the palette now.
+    const palette = await screen.findByTestId('os-model-search-palette')
+    const options = within(palette)
+      .getAllByRole('option')
       .map((opt) => opt.textContent)
-    expect(options).toContain('OpenMousBot')
-    expect(options).toContain('Manage Remote')
-    expect(options[options.length - 1]).toBe('Manage Remote')
-    expect(within(menu).getByTestId('manage-surface-divider')).toHaveAttribute('role', 'separator')
-    expect(options).not.toContain('Hermes')
-    expect(options).not.toContain('Rakazo')
-    expect(options).not.toContain('OMB')
-    expect(options).not.toContain('No remotes')
+    // Row textContent carries label + description + shortcut, so match loosely.
+    expect(options.some((text) => text?.includes('OpenMousBot'))).toBe(true)
+    expect(options.every((text) => !text?.includes('Hermes'))).toBe(true)
+    expect(options.every((text) => !text?.includes('Rakazo'))).toBe(true)
+    expect(options.every((text) => !/\bOMB\b/.test(text || ''))).toBe(true)
+    expect(palette.textContent).not.toContain('No remotes')
+    expect(screen.getByTestId('os-model-manage-api')).toHaveTextContent('Manage Remote')
     expect(screen.getByTestId('navbar-routing-picker').textContent).not.toMatch(/\bOMB\b/)
   })
 
@@ -2068,9 +2068,9 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     const pill = await screen.findByTestId('routing-pill-agent')
     expect(pill).toHaveAttribute('data-value', 'omb')
     fireEvent.click(pill)
-    const menu = await screen.findByTestId('routing-menu-agent')
-    expect(within(menu).getByRole('menuitem', { name: 'OpenMousBot' })).toBeInTheDocument()
-    expect(within(menu).queryByRole('menuitem', { name: 'No remotes' })).not.toBeInTheDocument()
+    const palette = await screen.findByTestId('os-model-search-palette')
+    expect(await within(palette).findByTestId('os-model-row-omb')).toBeInTheDocument()
+    expect(within(palette).queryByText('No remotes')).not.toBeInTheDocument()
   })
 
   it('opens Add remote instead of No remotes chrome when none are configured', async () => {
@@ -2156,12 +2156,9 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     const pill = await screen.findByTestId('routing-pill-agent')
     expect(pill).toHaveTextContent('Pick a remote')
     fireEvent.click(pill)
-    const menu = await screen.findByTestId('routing-menu-agent')
-    const options = within(menu)
-      .getAllByRole('menuitem')
-      .map((opt) => opt.textContent)
-    expect(options).toContain('OpenMousBot')
-    expect(options).not.toContain('No remotes')
+    const palette = await screen.findByTestId('os-model-search-palette')
+    expect(await within(palette).findByTestId('os-model-row-omb')).toBeInTheDocument()
+    expect(within(palette).queryByText('No remotes')).not.toBeInTheDocument()
   })
 
   it('hides the Remotes control on local API and CLI agents', async () => {
@@ -3884,7 +3881,8 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
 
     const cliPill = await screen.findByTestId('routing-pill-agent')
     fireEvent.click(cliPill)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'grok' }))
+    // #504: agents live in the palette now.
+    fireEvent.click(await screen.findByTestId('os-model-row-grok'))
 
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent(
@@ -4006,12 +4004,11 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
 
     const cliPill = await screen.findByTestId('routing-pill-agent')
     fireEvent.click(cliPill)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'antigravity' }))
-    const modelPill = await screen.findByTestId('routing-pill-model')
-    fireEvent.click(modelPill)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'grok-4' }))
-    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'antigravity')
-    expect(screen.getByTestId('routing-pill-model')).toHaveAttribute('data-value', 'grok-4')
+    fireEvent.click(await screen.findByTestId('os-model-row-antigravity'))
+    // #629: one combined pill — reopen the palette and pick the model row.
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-grok-4'))
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'antigravity / grok-4')
 
     first.unmount()
     renderChat('/chat?blueprint=cli_agent&mode=cli')
@@ -4020,10 +4017,8 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
     })
 
     const restoredCli = await screen.findByTestId('routing-pill-agent')
-    const restoredModel = await screen.findByTestId('routing-pill-model')
     await waitFor(() => {
-      expect(restoredCli).toHaveAttribute('data-value', 'antigravity')
-      expect(restoredModel).toHaveAttribute('data-value', 'grok-4')
+      expect(restoredCli).toHaveAttribute('data-value', 'antigravity / grok-4')
     })
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
@@ -4110,18 +4105,16 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
       'title',
       'agy / gemini-3.8-flash / medium',
     )
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy')
-    expect(screen.getByTestId('routing-pill-model')).toHaveTextContent('gemini-3.8-flash')
-    expect(screen.getByTestId('routing-pill-effort')).toHaveTextContent('medium')
+    // #629: the combined pill carries all three segments.
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy/gemini-3.8-flash/medium')
 
-    fireEvent.click(screen.getByTestId('routing-pill-effort'))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'high' }))
+    // #504: the palette carries the effort pick — same base → effort change.
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-gemini-3.8-flash-high'))
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent('Effort: medium → high')
     expect(status.className).not.toMatch(/chat-start|chat-end/)
-    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'agy')
-    expect(screen.getByTestId('routing-pill-model')).toHaveAttribute('data-value', 'gemini-3.8-flash')
-    expect(screen.getByTestId('routing-pill-effort')).toHaveAttribute('data-value', 'high')
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'agy / gemini-3.8-flash / high')
   })
 })
 describe('ChatPage seat state survives navigation (#229)', () => {

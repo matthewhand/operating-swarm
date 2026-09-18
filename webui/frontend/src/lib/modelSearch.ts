@@ -11,6 +11,8 @@ export interface ModelSearchOption {
   description?: string
   provider?: string
   tag?: string
+  /** #504: declared seat kind of an agent row — cross-kind picks navigate. */
+  kind?: 'api' | 'cli' | 'remote' | 'blueprint' | 'team'
 }
 
 export interface ModelSearchGroup {
