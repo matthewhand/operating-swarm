@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Calendar as CalendarIcon,
   CheckCircle2,
@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Loader2,
   MessageSquare,
+  Plus,
   Sparkles,
   X,
   XCircle,
@@ -21,6 +22,9 @@ import {
 import { isApiBlueprintId } from "../lib/cliAgentContext"
 import { humanizeCron } from "./RemotesSettings"
 import { OverlayFocusTrap } from "./OverlayFocusTrap"
+import { RoutineEditorDialog } from "./RoutineEditorDialog"
+import { railSelectionFromParams } from "../lib/railActive"
+import { useLocation } from "react-router-dom"
 
 export interface CalendarDay {
   date: Date
@@ -351,7 +355,7 @@ export function executionSourceLabel(
     return human || "Cron"
   }
   if (source === "github_pr_merged") {
-    const repo = routine.trigger?.owner_repo
+    const repo = (routine.trigger as { owner_repo?: string } | undefined)?.owner_repo
     return repo ? `GitHub PR merged · ${repo}` : "GitHub PR merged"
   }
   if (source === "github_webhook") return "GitHub webhook"
@@ -446,9 +450,16 @@ export const AgentCalendarView = memo(function AgentCalendarView({
   defaultViewMode = "all",
 }: AgentCalendarViewProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const queryClient = useQueryClient()
   const [apiOnly, setApiOnly] = useState(defaultApiOnly)
   const [viewMode, setViewMode] = useState<CalendarViewMode>(defaultViewMode)
   const [selectedEntry, setSelectedEntry] = useState<CalendarEntry | null>(null)
+  // #513: empty-day creation. The prefill date is the clicked cell; the agent
+  // is the current seat (URL params, same source the rail highlights).
+  const [editorPrefill, setEditorPrefill] = useState<{ date: string; agentId: string } | null>(null)
+  const railSelection = railSelectionFromParams(new URLSearchParams(location.search))
+  const currentAgentId = railSelection.blueprintId || "api_agent"
 
   const routinesQuery = useQuery({
     queryKey: ["all-routines"],
@@ -460,6 +471,8 @@ export const AgentCalendarView = memo(function AgentCalendarView({
   const rawRoutines = initialRoutines ?? routinesQuery.data ?? []
 
   const clock = useMemo(() => (now != null ? new Date(now) : new Date()), [now])
+  // #513: cells before today do not offer the empty-day `+`.
+  const todayKey = useMemo(() => localDateKey(clock), [clock])
 
   const baseDate = useMemo(() => {
     if (startDate) return new Date(startDate)
@@ -519,8 +532,22 @@ export const AgentCalendarView = memo(function AgentCalendarView({
     routine.agent_id ||
     "API Agent"
 
+  const editorDialog = editorPrefill ? (
+    <RoutineEditorDialog
+      open={true}
+      prefill={editorPrefill}
+      onClose={() => setEditorPrefill(null)}
+      onSaved={() => {
+        // #513: the created routine must appear on the clicked day
+        // immediately — the calendar reads the ["all-routines"] cache.
+        void queryClient.invalidateQueries({ queryKey: ["all-routines"] })
+      }}
+    />
+  ) : null
   return (
-    <OverlayFocusTrap onClose={onClose}>
+    <>
+      {editorDialog}
+      <OverlayFocusTrap onClose={onClose}>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-xs"
       data-testid="agent-calendar-overlay"
@@ -646,11 +673,25 @@ export const AgentCalendarView = memo(function AgentCalendarView({
                     </span>
                   </div>
 
-                  <div className="flex-1 space-y-1.5 overflow-y-auto max-h-[140px] pr-0.5">
+                  <div className="group/cell flex-1 space-y-1.5 overflow-y-auto max-h-[140px] pr-0.5">
                     {dayEntries.length === 0 ? (
-                      <span className="text-[11px] text-base-content/30 italic block text-center pt-2 select-none">
-                        No routines
-                      </span>
+                      day.dateKey >= todayKey && viewMode !== "history" ? (
+                        <button
+                          type="button"
+                          className="hidden group-hover/cell:block group-focus-within/cell:block mx-auto mt-1 btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-primary focus-visible:text-primary"
+                          data-testid={`calendar-add-${day.dateKey}`}
+                          aria-label={`Add routine on ${day.dateKey}`}
+                          onClick={() =>
+                            setEditorPrefill({ date: day.dateKey, agentId: currentAgentId })
+                          }
+                        >
+                          <Plus className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-base-content/30 italic block text-center pt-2 select-none">
+                          No routines
+                        </span>
+                      )
                     ) : (
                       dayEntries.map((entry) => {
                         const routine = entry.routine
@@ -1018,7 +1059,8 @@ export const AgentCalendarView = memo(function AgentCalendarView({
         </div>
       </div>
     </div>
-    </OverlayFocusTrap>
+      </OverlayFocusTrap>
+    </>
   )
 })
 
