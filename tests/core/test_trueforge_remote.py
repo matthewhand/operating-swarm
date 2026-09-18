@@ -1064,3 +1064,102 @@ def test_hermes_send_refused_names_url(monkeypatch):
     assert "127.0.0.1:9" in sent.detail
     assert "refused" in sent.detail.lower()
 
+
+
+# ---------------------------------------------------------------------------
+# REQ-916 / #515: reverse map — container-gateway alias → external host
+# ---------------------------------------------------------------------------
+
+
+def _gateway_reset(monkeypatch):
+    """Isolate the reverse-map env surface for one test."""
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    monkeypatch.delenv("SWARM_HOST_GATEWAY_EXTERNAL", raising=False)
+    monkeypatch.setattr(remotes_core, "_EXTERNAL_GATEWAY_WARNED", False)
+
+
+def test_gateway_alias_rewrites_to_external_fqdn_keeping_port(monkeypatch):
+    _gateway_reset(monkeypatch)
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "trueforge.example.test")
+    assert (
+        remotes_core._normalize_base_url("http://host.docker.internal:8791")
+        == "http://trueforge.example.test:8791"
+    )
+
+
+def test_gateway_override_with_port_wins(monkeypatch):
+    _gateway_reset(monkeypatch)
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "trueforge.example.test:8443")
+    assert (
+        remotes_core._normalize_base_url("http://host.docker.internal:8791")
+        == "http://trueforge.example.test:8443"
+    )
+
+
+def test_gateway_alias_untouched_inside_container(monkeypatch):
+    # In a container the alias IS the correct name — the forward mapping's own
+    # output must not be undone by the reverse map.
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "1")
+    monkeypatch.delenv("SWARM_HOST_GATEWAY_EXTERNAL", raising=False)
+    monkeypatch.setattr(remotes_core, "_EXTERNAL_GATEWAY_WARNED", False)
+    monkeypatch.setenv("SWARM_HOST_GATEWAY", "host.docker.internal")
+    monkeypatch.setenv("PORT", "8000")
+    assert (
+        remotes_core._normalize_base_url("http://127.0.0.1:8791")
+        == "http://host.docker.internal:8791"
+    )
+
+
+def test_gateway_alias_untouched_when_override_unset(monkeypatch):
+    _gateway_reset(monkeypatch)
+    assert (
+        remotes_core._normalize_base_url("http://host.docker.internal:8791")
+        == "http://host.docker.internal:8791"
+    )
+
+
+def test_all_gateway_aliases_rewrite(monkeypatch):
+    _gateway_reset(monkeypatch)
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "box.example.test")
+    for alias in (
+        "host.docker.internal",
+        "gateway.docker.internal",
+        "host.containers.internal",
+    ):
+        assert remotes_core._normalize_base_url(
+            f"http://{alias}:8791"
+        ) == "http://box.example.test:8791", alias
+
+
+def test_gateway_alias_rewrites_in_ui_url_too(monkeypatch):
+    # The browser cannot resolve gateway aliases either — the loopback
+    # asymmetry must NOT carry over to the reverse map.
+    _gateway_reset(monkeypatch)
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "trueforge.example.test")
+    assert (
+        remotes_core._normalize_ui_url("http://host.docker.internal:8791/ui")
+        == "http://trueforge.example.test:8791/ui"
+    )
+
+
+def test_gateway_normalization_is_idempotent(monkeypatch):
+    _gateway_reset(monkeypatch)
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "trueforge.example.test")
+    once = remotes_core._normalize_base_url("http://host.docker.internal:8791/ui#frag")
+    twice = remotes_core._normalize_base_url(once)
+    assert once == twice == "http://trueforge.example.test:8791/ui#frag"
+
+
+def test_gateway_rewrite_preserves_userinfo_path_query(monkeypatch):
+    _gateway_reset(monkeypatch)
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "box.example.test")
+    out = remotes_core._normalize_base_url(
+        "http://user:pw@gateway.docker.internal:9000/a/b?x=1&y=2"
+    )
+    assert out == "http://user:pw@box.example.test:9000/a/b?x=1&y=2"
+
+
+def test_unreachable_copy_names_gateway_override(monkeypatch):
+    result = remotes_core.HttpResult(status=None, error="Connection refused", url="http://x:1")
+    detail = remotes_core._unreachable_detail(result, "Chat")
+    assert "SWARM_HOST_GATEWAY_EXTERNAL" in detail

@@ -723,12 +723,16 @@ def _normalize_base_url(url: str) -> str:
         # ::1 → ECONNREFUSED even when 127.0.0.1:port is UP.
         host = "127.0.0.1"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    in_container = _running_in_container()
     if (
         host in _LOOPBACK_HOSTS
-        and _running_in_container()
+        and in_container
         and port != this_server_listen_port()
     ):
         host = (os.environ.get("SWARM_HOST_GATEWAY") or "host.docker.internal").strip() or "host.docker.internal"
+    # REQ-916 / #515: the reverse map. Mutually exclusive with the forward
+    # mapping above via the same in_container gate.
+    host, port = _rewrite_container_gateway_host(host, port, in_container=in_container)
     userinfo = ""
     if parsed.username:
         userinfo = parsed.username
@@ -737,7 +741,7 @@ def _normalize_base_url(url: str) -> str:
         # urlunparse joins netloc verbatim — the separator has to live here.
         userinfo += "@"
     host_str = f"[{host}]" if ":" in host and not (host.startswith("[") and host.endswith("]")) else host
-    netloc = f"{userinfo}{host_str}" + (f":{parsed.port}" if parsed.port else "")
+    netloc = f"{userinfo}{host_str}" + (f":{port}" if port else "")
     return urlunparse(
         (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
     ).rstrip("/")
@@ -750,6 +754,11 @@ def _normalize_ui_url(url: str) -> str:
     (127.0.0.1 / localhost) to Docker gateway (host.docker.internal),
     because ui_url is consumed by the user's host browser, not by Python
     inside a Docker container.
+
+    REQ-916 / #515: the reverse direction is different — a container-gateway
+    alias (host.docker.internal & co) is a dead name for the browser too, so
+    it IS rewritten here (same gate as base_url). The loopback asymmetry does
+    not carry over: loopback works in browsers, gateway aliases do not.
     """
     raw = (url or "").strip().rstrip("/")
     if not raw:
@@ -760,13 +769,18 @@ def _normalize_ui_url(url: str) -> str:
     host = (parsed.hostname or "").lower()
     if host in {"localhost", "::1"}:
         host = "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    host, port = _rewrite_container_gateway_host(
+        host, port, in_container=_running_in_container()
+    )
     userinfo = ""
     if parsed.username:
         userinfo = parsed.username
         if parsed.password:
             userinfo += f":{parsed.password}"
         userinfo += "@"
-    netloc = f"{userinfo}{host}" + (f":{parsed.port}" if parsed.port else "")
+    host_str = f"[{host}]" if ":" in host and not (host.startswith("[") and host.endswith("]")) else host
+    netloc = f"{userinfo}{host_str}" + (f":{port}" if port else "")
     return urlunparse(
         (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
     ).rstrip("/")
@@ -781,7 +795,9 @@ def _unreachable_detail(result: HttpResult, what: str) -> str:
         return (
             f"{what} refused at {where}. Nothing is listening on that host:port "
             "from this process. If Operating Swarm is in Docker, 127.0.0.1 is the "
-            "container — use host.docker.internal or the host LAN IP."
+            "container — use host.docker.internal, the host LAN IP, or set "
+            "SWARM_HOST_GATEWAY_EXTERNAL=<fqdn>[:port] so gateway-alias remotes "
+            "resolve from outside the container."
         )
     if err:
         return f"{what} failed: {err}" + (f" ({url})" if url else "")
@@ -789,6 +805,65 @@ def _unreachable_detail(result: HttpResult, what: str) -> str:
 
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
+
+# REQ-916 / #515: container-gateway aliases in the wild. They only resolve
+# inside the container runtime's own network — from the LAN or from the
+# user's browser they are dead names.
+_CONTAINER_GATEWAY_HOSTS = frozenset(
+    {"host.docker.internal", "gateway.docker.internal", "host.containers.internal"}
+)
+
+_EXTERNAL_GATEWAY_WARNED = False
+
+
+def _external_gateway_override() -> tuple[str, int | None]:
+    """Parse ``SWARM_HOST_GATEWAY_EXTERNAL`` (fqdn, or fqdn:port)."""
+    raw = (os.environ.get("SWARM_HOST_GATEWAY_EXTERNAL") or "").strip().strip("/")
+    if not raw:
+        return "", None
+    if "://" in raw:  # tolerate a scheme pasted in
+        raw = raw.split("://", 1)[1]
+    host, _, port_text = raw.partition(":")
+    host = host.strip()
+    if not host:
+        return "", None
+    port: int | None = None
+    if port_text.isdigit():
+        port = int(port_text)
+    return host, port
+
+
+def _rewrite_container_gateway_host(
+    host: str, port: int | None, *, in_container: bool
+) -> tuple[str, int | None]:
+    """REQ-916 / #515: reverse map a container-gateway alias to the external host.
+
+    ``SWARM_HOST_GATEWAY_EXTERNAL`` names the FQDN a gateway alias should be
+    seen as from outside the container network. Override carries no port →
+    the original port is kept; override carries one → it wins (a reverse
+    proxy may move the service). Direction-gated: when this process IS in a
+    container the alias is the *correct* name, so it is preserved — otherwise
+    the forward loopback mapping's own output would be immediately undone.
+    With no override configured nothing is rewritten — no guessing.
+    """
+    global _EXTERNAL_GATEWAY_WARNED
+    if host not in _CONTAINER_GATEWAY_HOSTS:
+        return host, port
+    if in_container:
+        return host, port
+    external, external_port = _external_gateway_override()
+    if not external:
+        if not _EXTERNAL_GATEWAY_WARNED:
+            _EXTERNAL_GATEWAY_WARNED = True
+            logger.warning(
+                "Remote URL uses a container-gateway alias (%s) which is only "
+                "resolvable inside the container runtime. Set "
+                "SWARM_HOST_GATEWAY_EXTERNAL=<fqdn>[:port] so it can be "
+                "reached from the LAN and from browsers.",
+                host,
+            )
+        return host, port
+    return external, (external_port if external_port is not None else port)
 
 
 def this_server_listen_port() -> int:
