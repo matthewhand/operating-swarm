@@ -301,7 +301,7 @@ import { ChatMessageActions } from '../experimental/ChatMessageActions'
 import { RoleAgentTip } from '../components/RoleAgentTip'
 import { DefaultLlmTip } from '../components/DefaultLlmTip'
 import { CliSessionRecoveryBanner } from '../components/CliSessionRecoveryBanner'
-import { lastTurnNeedsRecovery } from '../lib/cliSessionRecovery'
+import { lastRecoveryTarget, lastTurnNeedsRecovery } from '../lib/cliSessionRecovery'
 import {
   hydrateRoleAgentTipDismissed,
   persistRoleAgentTipDismissed,
@@ -2788,6 +2788,11 @@ const ChatPage = () => {
 
   const showCliSessionRecovery =
     threadReady && !awaitingAssistant && lastTurnNeedsRecovery(messages)
+  // #499: the banner's primary action opens Settings on the section that can
+  // actually resolve the failure — session actions stay as secondary options.
+  const cliRecoveryConfigTarget = showCliSessionRecovery
+    ? lastRecoveryTarget(messages)
+    : undefined
 
   /**
    * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
@@ -4323,6 +4328,8 @@ const ChatPage = () => {
             onStartFresh={startFreshCliSession}
             onRetry={retryCliSession}
             onClearHistory={clearCliSessionHistory}
+            configTarget={cliRecoveryConfigTarget}
+            onConfigure={(target) => openSettingsSheet({ section: target.section })}
           />
         ) : null}
         {awaitingAssistant && !streamingMessage && (

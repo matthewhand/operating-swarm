@@ -244,6 +244,11 @@ def _normalize_messages(raw: Any) -> list[dict[str, Any]]:
             msg["seq"] = seq
         if item.get("fatal_config_error") is True:
             msg["fatal_config_error"] = True
+            # #499: the classified Settings section survives rehydrate so the
+            # recovery banner can deep-link to the fix, not just reshuffle.
+            target = item.get("config_target")
+            if isinstance(target, dict) and isinstance(target.get("section"), str):
+                msg["config_target"] = {"section": target["section"]}
         out.append(msg)
     return out
 

@@ -21,6 +21,18 @@ _FATAL_CONFIG_NEEDLES = (
     "endpoint not configured",
 )
 
+# #499: needle → Settings section that can actually resolve the failure. The
+# banner's primary action deep-links there; session actions stay secondary.
+_FATAL_CONFIG_TARGETS: dict[str, dict[str, str]] = {
+    "no cli agents are configured": {"section": "cli-agents"},
+    "no cli is configured": {"section": "cli-agents"},
+    "no cli backend is configured": {"section": "cli-agents"},
+    "unconfigured harness": {"section": "remotes"},
+    "endpoint not configured": {"section": "remotes"},
+}
+
+CONFIG_TARGET_KEY = "config_target"
+
 
 def _blob(content: Any) -> str:
     if isinstance(content, Mapping):
@@ -55,11 +67,26 @@ def is_fatal_config_turn(message: Any) -> bool:
     return is_fatal_config_error(message, message)
 
 
-def fatal_config_error_extra(content: Any, meta: Mapping[str, Any] | None = None) -> dict[str, bool]:
-    """Kwargs for ``append_turn`` when the reply is a fatal config/CLI failure."""
-    if is_fatal_config_error(content, meta):
-        return {FATAL_CONFIG_ERROR_KEY: True}
-    return {}
+def fatal_config_error_extra(content: Any, meta: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Kwargs for ``append_turn`` when the reply is a fatal config/CLI failure.
+
+    #499: when the matching needle maps to a Settings section, the target
+    rides along as ``config_target`` — the banner's primary action deep-links
+    there instead of dead-ending on session reshuffles. The bare boolean is
+    kept for compatibility: a flag without a target must keep rendering
+    today's banner.
+    """
+    if not is_fatal_config_error(content, meta):
+        return {}
+    extra: dict[str, Any] = {FATAL_CONFIG_ERROR_KEY: True}
+    if isinstance(meta, Mapping) and meta.get(FATAL_CONFIG_ERROR_KEY) is True:
+        return extra  # explicit flag carries no inferred target
+    blob = _blob(content).lower()
+    for needle, target in _FATAL_CONFIG_TARGETS.items():
+        if needle in blob:
+            extra[CONFIG_TARGET_KEY] = dict(target)
+            break
+    return extra
 
 
 def is_uncontinued_fatal_init(messages: Any) -> bool:

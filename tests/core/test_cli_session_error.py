@@ -14,7 +14,12 @@ from swarm.core.cli_session_error import (
 def test_unconfigured_cli_copy_is_fatal():
     text = "No CLI agents are configured. Add a 'cli_agents' block to your swarm config."
     assert is_fatal_config_error(text) is True
-    assert fatal_config_error_extra(text) == {FATAL_CONFIG_ERROR_KEY: True}
+    # #499: the extra now carries the Settings section that resolves the
+    # failure — the banner's primary action deep-links there.
+    assert fatal_config_error_extra(text) == {
+        FATAL_CONFIG_ERROR_KEY: True,
+        "config_target": {"section": "cli-agents"},
+    }
 
 
 def test_resume_failure_copy_is_fatal():

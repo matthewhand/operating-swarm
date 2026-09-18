@@ -14,6 +14,30 @@ const FATAL_CONFIG_NEEDLES = [
   'endpoint not configured',
 ]
 
+/** #499: Settings section that can actually resolve a needle class. */
+const FATAL_CONFIG_TARGETS: Record<string, { section: 'cli-agents' | 'remotes' }> = {
+  'no cli agents are configured': { section: 'cli-agents' },
+  'no cli is configured': { section: 'cli-agents' },
+  'no cli backend is configured': { section: 'cli-agents' },
+  'unconfigured harness': { section: 'remotes' },
+  'endpoint not configured': { section: 'remotes' },
+}
+
+/** #499: where the configuration lives, when the failure names one. */
+export interface ConfigTarget {
+  section: 'cli-agents' | 'remotes'
+}
+
+/** Maps terminal copy to the Settings section that resolves it (#499). */
+export function configTargetFromText(text: string): ConfigTarget | undefined {
+  const blob = (text || '').toLowerCase()
+  if (!blob) return undefined
+  for (const [needle, target] of Object.entries(FATAL_CONFIG_TARGETS)) {
+    if (blob.includes(needle)) return target
+  }
+  return undefined
+}
+
 const RESUME_FAILURE_NEEDLES = [
   'no conversation',
   'conversation found',
@@ -35,6 +59,9 @@ export interface FatalConfigMessageLike {
   fatalConfigError?: boolean
   fatal_config_error?: boolean
   streaming?: boolean
+  /** #499: server-stamped Settings target riding on the persisted flag. */
+  configTarget?: ConfigTarget
+  config_target?: ConfigTarget
 }
 
 export function isFatalConfigErrorText(text: string): boolean {
@@ -57,4 +84,23 @@ export function lastTurnNeedsRecovery(messages: FatalConfigMessageLike[]): boole
     .find((row) => (row.role === 'user' || row.role === 'assistant') && row.streaming !== true)
   if (!last || last.role !== 'assistant') return false
   return isFatalConfigErrorMessage(last)
+}
+
+/**
+ * #499: the Settings target for the banner's primary action, from the same
+ * last assistant turn the recovery check reads. Prefers the server-stamped
+ * target (new records) and falls back to classifying the text (legacy rows).
+ * Undefined for resume failures and unknown copy — the banner stays unchanged.
+ */
+export function lastRecoveryTarget(
+  messages: FatalConfigMessageLike[],
+): ConfigTarget | undefined {
+  const last = [...messages]
+    .reverse()
+    .find((row) => (row.role === 'user' || row.role === 'assistant') && row.streaming !== true)
+  if (!last || last.role !== 'assistant') return undefined
+  if (!isFatalConfigErrorMessage(last)) return undefined
+  const stamped = last.configTarget ?? last.config_target
+  if (stamped && stamped.section) return stamped
+  return configTargetFromText(last.text || last.content || '')
 }
