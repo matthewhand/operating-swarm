@@ -143,6 +143,7 @@ import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId, type TeamRoster } from '../lib/teamRosters'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId, type RemoteEntry } from '../lib/remotesCatalog'
+import { activeRailId, railSelectionFromParams } from '../lib/railActive'
 import { fetchRemoteThreadSessions, remoteListsSessions } from '../lib/remoteSessions'
 import { configuredRemotes } from '../lib/remotes'
 import RemoteSessionsPopup from './RemoteSessionsPopup'
@@ -211,7 +212,7 @@ import {
   loadDeletedRailIds,
   markRailIdDeleted,
 } from '../lib/deletedRailIds'
-import { openSearchPalette } from './SearchPalette'
+import { openSearchPalette, type HiddenRailRow } from './SearchPalette'
 import { isMacPlatform, searchShortcutLabel } from '../lib/keybindingTips'
 import {
   AGENT_EDITS_CHANGED_EVENT,
@@ -440,11 +441,12 @@ export default function AgentSidebar({
   const onChat = pathname.startsWith('/chat') || pathname === '/'
   const selectedTeamId = onChat ? (searchParams.get('team') ?? '') : ''
   const selectedRemoteId = onChat ? (searchParams.get('remote') ?? '') : ''
-  const selectedId =
-    selectedTeamId || selectedRemoteId
-      ? ''
-      : defaultBlueprintId(onChat ? searchParams.get('blueprint') : '')
-
+  const selectedId = defaultBlueprintId(onChat ? searchParams.get('blueprint') : '')
+  // #542: the rail's active state comes from the URL, not from `selectedId`
+  // (which team/remote scopes used to blank out, so those pins could never
+  // light up). `activeRail` carries the `team:` / `remote:` id shape the pins
+  // and rows are stored under.
+  const activeRail = onChat ? activeRailId(railSelectionFromParams(searchParams)) : ''
   const [hiddenIds, setHiddenIds] = useState<string[] | null>(() =>
     hasHiddenAgentsStorage() ? loadHiddenAgentIds() : null,
   )
@@ -1084,6 +1086,42 @@ export default function AgentSidebar({
     [remotes, resolvedHiddenIds, deletedIds],
   )
   const hiddenCount = hiddenAgents.length + hiddenTeams.length + hiddenRemotes.length
+  // #549: the badge counts agents + teams + remotes, but the palette's universe
+  // is recipe rows only — so a hidden team, remote or CLI/herdr seat counted and
+  // was never listed. Hand the palette the rows it cannot derive, and the
+  // reconciled id list the badge itself used.
+  const hiddenRailRows = useMemo<HiddenRailRow[]>(() => {
+    const rows: HiddenRailRow[] = []
+    for (const team of hiddenTeams) {
+      rows.push({
+        id: teamHideId(team.id),
+        name: team.name || team.id,
+        description: team.description || 'Team hidden from the rail',
+        href: `/chat?team=${encodeURIComponent(team.id)}`,
+        tab: 'Bots',
+      })
+    }
+    for (const remote of hiddenRemotes) {
+      rows.push({
+        id: remoteHideId(remote.id),
+        name: remote.title,
+        description: remoteDisplayName(remote) || 'Remote hidden from the rail',
+        href: `/chat?remote=${encodeURIComponent(remote.id)}`,
+        tab: 'Bots',
+      })
+    }
+    for (const agent of hiddenAgents) {
+      rows.push({
+        id: agent.id,
+        name: agentLabel(agent),
+        description: agent.description || 'Agent hidden from the rail',
+        href: agentChatHref(agent.id),
+        avatarPath: agent.avatar_path ?? null,
+        tab: 'Bots',
+      })
+    }
+    return rows
+  }, [hiddenTeams, hiddenRemotes, hiddenAgents])
   const visibleCount = visibleAgents.length + visibleTeams.length + visibleRemotes.length
   const loadingList = !propBlueprints && blueprintsQuery.isPending && teamsQuery.isPending
   const loadFailed = blueprintsQuery.isError && teamsQuery.isError && visibleCount === 0
@@ -1378,8 +1416,10 @@ export default function AgentSidebar({
 
   const openPalette = useCallback(() => {
     onOpenSearch?.()
-    openSearchPalette()
-  }, [onOpenSearch])
+    // #549: keep the palette's hidden universe in sync with the badge even when
+    // the palette is opened from search rather than the Hidden Bots row.
+    openSearchPalette({ hiddenIds: resolvedHiddenIds, hiddenRows: hiddenRailRows })
+  }, [onOpenSearch, resolvedHiddenIds, hiddenRailRows])
 
   const openGroupPicker = useCallback((title: string, sessions: MemberSession[]) => {
     setPicker({ title, sessions })
@@ -2405,7 +2445,9 @@ export default function AgentSidebar({
     const herdr = isHerdrAgent(agent)
     const sessions = sessionsByAgent[agent.id] ?? []
     const scaleOut = !herdr && shouldOpenSessionPicker(sessions)
-    const active = !herdr && selectedId === agent.id
+    // #542: herdr seats have no URL representation (see railActive), so they
+    // stay non-active rather than every herdr row lighting up at once.
+    const active = Boolean(activeRail) && !herdr && activeRail === agent.id
     const role = agentRole(agent)
     const dragging = draggingId === agent.id
     const dropping = dropTargetId === agent.id
@@ -2664,7 +2706,7 @@ export default function AgentSidebar({
   const renderTeamLink = (team: TeamRoster, hidden: boolean, nested = false, spillSlot?: number) => {
     const name = team.name || team.id
     const hideId = teamHideId(team.id)
-    const active = selectedTeamId === team.id
+    const active = Boolean(activeRail) && activeRail === hideId
     const sessions = sessionsForTeam(team)
     const declared = declaredRosterForTeam(team, catalog)
     const rawFaces = stackFacesForTeam(team)
@@ -2798,7 +2840,7 @@ export default function AgentSidebar({
   const renderRemoteRow = (remote: RemoteEntry, hidden: boolean, spillSlot?: number) => {
     const name = remote.title
     const hideId = remoteHideId(remote.id)
-    const active = selectedRemoteId === remote.id
+    const active = Boolean(activeRail) && activeRail === hideId
     const dragging = draggingId === hideId
     const sessions = sessionsForRemote(remote)
     const rawFaces = stackFacesForRemote(remote)
@@ -3050,14 +3092,33 @@ export default function AgentSidebar({
             data-testid="rail-resize-handle"
             onPointerDown={handleResizeStart}
             onKeyDown={handleResizeKeyDown}
-          />
+          >
+            {/* #555: collapse/expand lives on the divider, not in the pane
+                header — the bee mark was doing the brand mark's job and the
+                collapse button's job at once, and read as a logo that
+                happened to collapse the pane. The pill overlays the edge (no
+                width taken from the pane) and stays in the tab order: it
+                reveals on hover *and* on focus, plus unconditionally on
+                coarse pointers where hover does not exist. Its own
+                pointerdown never reaches the resizer, so a drag that starts
+                on the pill cannot resize. */}
+            <span
+              className="os-rail-divider-pill"
+              data-testid="rail-divider-pill"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              {isAvatarOnly ? (
+                <SidebarExpandButton onClick={expandSidebar} />
+              ) : (
+                <SidebarConcealButton onClick={concealSidebar} />
+              )}
+            </span>
+          </div>
         ) : null}
-        <div className="flex items-center justify-between gap-2 px-3 pt-3">
-          {isAvatarOnly ? (
-            <SidebarExpandButton onClick={expandSidebar} />
-          ) : (
-            <SidebarConcealButton onClick={concealSidebar} />
-          )}
+        {/* #555: the top of the pane is content now (search, sections, rows).
+            Only the narrow-overlay drawer keeps a header, and only for its
+            dismiss affordance. */}
+        <div className="flex items-center justify-end gap-2 px-3 pt-3 lg:hidden">
           <button
             type="button"
             className="btn btn-ghost btn-xs btn-circle lg:hidden"
@@ -3142,7 +3203,7 @@ export default function AgentSidebar({
             const pinName = live ? agentLabel(live) : pinTeam?.name || pin.name || pin.id
             const role = live ? agentRole(live) : 'default'
             const badge = live ? roleBadgeLabel(role) : ''
-            const pinActive = Boolean(selectedId && selectedId === pin.id)
+            const pinActive = Boolean(activeRail && activeRail === pin.id)
             const pinUnread = unreadIds.includes(pin.id)
             const pinTeamPlan = pinTeam
               ? (() => {
@@ -3494,7 +3555,13 @@ export default function AgentSidebar({
               aria-haspopup="dialog"
               aria-label={`Hidden Bots ${hiddenCount} (${hiddenCount} hidden)`}
               data-testid="os-hidden-bots-button"
-              onClick={() => openSearchPalette({ filterHidden: true })}
+              onClick={() =>
+                openSearchPalette({
+                  filterHidden: true,
+                  hiddenIds: resolvedHiddenIds,
+                  hiddenRows: hiddenRailRows,
+                })
+              }
               onMouseEnter={() => setHoveringHidden(true)}
               onMouseLeave={() => setHoveringHidden(false)}
             >

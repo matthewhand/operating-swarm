@@ -351,6 +351,34 @@ async function unhideFromSearch(label: string, agentId: string) {
   window.dispatchEvent(new Event('storage'))
 }
 
+function railRow(id: string): Element | null {
+  return document.querySelector(`[data-rail-id="${id}"]`)
+}
+
+/**
+ * `data-rail-id` sits on the row for team/remote rows and on the wrapping
+ * `<li>` for section rows, so the active class may be one level down.
+ */
+function isRowActive(id: string): boolean {
+  const node = railRow(id)
+  if (!node) return false
+  if (node.classList.contains('os-agent-row--active')) return true
+  return Boolean(node.querySelector('.os-agent-row--active'))
+}
+
+/**
+ * #542: pins are where the active state actually broke. `pinActive` compared
+ * against `selectedId`, which team/remote scopes blanked out to `''` — so no
+ * pin could ever light up once the pane was on a team or a remote.
+ */
+function pinTile(id: string): Element | null {
+  return document.querySelector(`.os-fav-tile[data-agent-id="${id}"]`)
+}
+
+function isPinActive(id: string): boolean {
+  return Boolean(pinTile(id)?.classList.contains('os-fav-tile--active'))
+}
+
 function storedRailOrder(): string[] {
   return JSON.parse(localStorage.getItem(RAIL_ORDER_STORAGE_KEY) || '[]')
 }
@@ -2080,6 +2108,39 @@ describe('AgentSidebar favourite kind hrefs (REQ-171B #608)', () => {
     expect(screen.getByTestId('os-test-search')).toHaveTextContent('remote=omb')
     expect(screen.getByTestId('os-test-search')).not.toHaveTextContent('blueprint=')
   })
+
+  it('#542 highlights the pinned team when the pane is on that team', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([
+        { id: 'team:demo', name: 'Demo' },
+        { id: 'remote:omb', name: 'OpenMousBot' },
+        { id: 'codey', name: 'Codey' },
+      ]),
+    )
+    renderSidebar('/chat?team=demo')
+    await screen.findByTestId('agent-fav-grid')
+    await waitFor(() => expect(pinTile('team:demo')).toBeTruthy())
+    expect(isPinActive('team:demo')).toBe(true)
+    expect(isPinActive('remote:omb')).toBe(false)
+    expect(isPinActive('codey')).toBe(false)
+  })
+
+  it('#542 highlights the pinned remote when the pane is on that remote', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([
+        { id: 'team:demo', name: 'Demo' },
+        { id: 'remote:omb', name: 'OpenMousBot' },
+        { id: 'codey', name: 'Codey' },
+      ]),
+    )
+    renderSidebar('/chat?remote=omb')
+    await screen.findByTestId('agent-fav-grid')
+    await waitFor(() => expect(pinTile('remote:omb')).toBeTruthy())
+    expect(isPinActive('remote:omb')).toBe(true)
+    expect(isPinActive('team:demo')).toBe(false)
+  })
 })
 
 describe('AgentSidebar Django prefs (REQ-144)', () => {
@@ -2781,6 +2842,48 @@ describe('AgentSidebar REQ-861 conceal', () => {
     resetCliRunState()
   })
 
+  it('#542 keeps the seat row active for a blueprint scope', async () => {
+    renderSidebar('/chat?blueprint=stewie')
+    await waitFor(() => expect(railRow('stewie')).toBeTruthy())
+    expect(isRowActive('stewie')).toBe(true)
+  })
+
+  it('#549 lists a hidden team in the hidden view so the badge and the list agree', async () => {
+    localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify(['team:research']))
+    renderSidebar()
+    const button = await screen.findByTestId('os-hidden-bots-button')
+    // The badge counts it…
+    expect(button.getAttribute('aria-label')).toContain('Hidden Bots 1')
+    fireEvent.click(button)
+    // …and now the list it opens shows the same thing, instead of nothing.
+    const dialog = await screen.findByRole('dialog', { name: 'Search' })
+    await waitFor(() => expect(within(dialog).getByText('Research')).toBeInTheDocument())
+    expect(within(dialog).getByTestId('unhide-team:research')).toBeInTheDocument()
+  })
+
+  it('#555 keeps the collapse control out of the pane header and on the divider pill', async () => {
+    renderSidebar()
+    const pill = await screen.findByTestId('rail-divider-pill')
+    // The pill is the only collapse affordance now…
+    const conceal = within(pill).getByRole('button', { name: 'Collapse sidebar' })
+    expect(conceal).toHaveAttribute('data-testid', 'sidebar-conceal')
+    // …and it lives inside the resizer, which owns the divider.
+    const handle = screen.getByTestId('rail-resize-handle')
+    expect(handle.contains(pill)).toBe(true)
+
+    // A drag starting on the pill must not reach the resizer, or clicking to
+    // collapse would also begin a resize.
+    fireEvent.pointerDown(pill, { clientX: 100 })
+    expect(handle.className).not.toContain('os-rail-resizer--active')
+    fireEvent.pointerDown(handle, { clientX: 100 })
+    expect(handle.className).toContain('os-rail-resizer--active')
+
+    // Collapsed state stays recoverable from the same divider.
+    fireEvent.click(conceal)
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+  })
+
   it('renders a bee collapse button that collapses the desktop rail (#417)', async () => {
     renderSidebar()
     const conceal = await screen.findByRole('button', { name: 'Collapse sidebar' })
@@ -2823,7 +2926,11 @@ describe('AgentSidebar REQ-861 conceal', () => {
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
   })
 
-  it('conceals the mobile drawer via the logo button and backdrop', async () => {
+  it('conceals the mobile drawer via the close button and backdrop', async () => {
+    // #555: the narrow overlay's dismiss is the dedicated close button. The
+    // divider pill (and so the collapse/expand control) only exists on the
+    // desktop rail, because the drawer has no divider to ride — previously a
+    // second control did the same `onClose()` the close button already does.
     const onClose = vi.fn()
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -2835,8 +2942,10 @@ describe('AgentSidebar REQ-861 conceal', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    const conceal = await screen.findByRole('button', { name: 'Collapse sidebar' })
-    fireEvent.click(conceal)
+    expect(screen.queryByTestId('rail-divider-pill')).not.toBeInTheDocument()
+    // [0] is the backdrop, [1] is the drawer's own close button.
+    const drawerClose = screen.getAllByRole('button', { name: 'Close agents sidebar' })[1]
+    fireEvent.click(drawerClose)
     expect(onClose).toHaveBeenCalledTimes(1)
 
     const backdrop = screen.getAllByRole('button', { name: 'Close agents sidebar' })[0]

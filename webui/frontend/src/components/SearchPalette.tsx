@@ -37,10 +37,37 @@ export type SearchPaletteTab = (typeof SEARCH_PALETTE_TABS)[number]
 
 export const OPEN_SEARCH_EVENT = 'swarm:open-search'
 
+/**
+ * #549: a hidden rail row the palette cannot derive from `/v1/blueprints/`.
+ *
+ * The rail badge counts **agents + teams + remotes**, assembled from blueprints,
+ * rosters, remotes, cli and herdr feeds — but the palette's universe is
+ * `railSeatAgents(blueprints)`, i.e. recipes only. So "Hidden Bots 3" could
+ * open on an empty list whenever the hidden things were a team, a remote or a
+ * CLI/herdr seat. The rail knows those rows, so it hands them over.
+ */
+export interface HiddenRailRow {
+  /** The rail/pin id — a bare agent id, or `team:<id>` / `remote:<id>`. */
+  id: string
+  name: string
+  description?: string
+  href?: string
+  avatarPath?: string | null
+  tab?: 'Bots' | 'Groups'
+}
+
 export interface SearchPaletteOptions {
   filterHidden?: boolean
   tab?: SearchPaletteTab
   query?: string
+  /**
+   * #549: the **reconciled** hidden ids the rail badge counted (local storage
+   * plus server prefs). The palette used to seed from localStorage alone, so
+   * the count could exceed the list for an id hidden only on the server.
+   */
+  hiddenIds?: string[]
+  /** #549: non-catalog hidden rows — teams, remotes, herdr and CLI seats. */
+  hiddenRows?: HiddenRailRow[]
 }
 
 export function openSearchPalette(options?: SearchPaletteOptions): void {
@@ -196,12 +223,37 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     return [...botRows, ...actionRows]
   }, [agents])
 
+  /**
+   * #549: rail-supplied hidden rows. Merged in only for the hidden view — normal
+   * search keeps its existing recipe-only universe, because widening that is a
+   * separate change to what search *means*.
+   */
+  const extraHiddenRows = useMemo<PaletteRow[]>(() => {
+    const rows: HiddenRailRow[] = options?.hiddenRows ?? []
+    return rows.map((row) => ({
+      id: `hidden-rail-${row.id}`,
+      tab: row.tab ?? 'Bots',
+      name: row.name,
+      description: row.description || 'Hidden from the rail',
+      href: row.href,
+      agentId: row.id,
+      avatarPath: row.avatarPath ?? null,
+    }))
+  }, [options?.hiddenRows])
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return rows.filter((row) => {
+    // #549: the hidden view lists the same universe the badge counted.
+    const universe = hiddenOnly ? [...extraHiddenRows, ...rows] : rows
+    // Rail rows win a duplicate id: they carry the live href/avatar the
+    // blueprints feed may not have.
+    const seen = new Set<string>()
+    return universe.filter((row) => {
       if (hiddenOnly) {
         if (row.tab !== 'Bots') return false
         if (!row.agentId || !hiddenIds.includes(row.agentId)) return false
+        if (seen.has(row.agentId)) return false
+        seen.add(row.agentId)
       } else {
         if (tab !== 'All' && row.tab !== tab) return false
       }
@@ -211,7 +263,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         row.description.toLowerCase().includes(q)
       )
     })
-  }, [query, rows, tab, hiddenOnly, hiddenIds])
+  }, [query, rows, extraHiddenRows, tab, hiddenOnly, hiddenIds])
 
   useEffect(() => {
     setActiveIdx(0)
@@ -219,7 +271,9 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
 
   useEffect(() => {
     if (!open) return
-    const ids = loadHiddenAgentIds()
+    // #549: prefer the rail's reconciled list when it supplied one, so the
+    // count and the list read from one source instead of two.
+    const ids = options?.hiddenIds ?? loadHiddenAgentIds()
     setHiddenIds(ids)
     if (options?.filterHidden) {
       setHiddenOnly(true)
@@ -242,6 +296,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         setTab(detail.tab)
       }
       if (detail?.query !== undefined) setQuery(detail.query)
+      if (detail?.hiddenIds) setHiddenIds(detail.hiddenIds)
     }
     window.addEventListener(OPEN_SEARCH_EVENT, handleOpen)
     return () => window.removeEventListener(OPEN_SEARCH_EVENT, handleOpen)
