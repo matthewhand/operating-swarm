@@ -75,6 +75,7 @@ import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
+import ApiSessionSwitcher from '../components/ApiSessionSwitcher'
 import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
 import SessionPicker from '../components/SessionPicker'
 import {
@@ -3718,6 +3719,15 @@ const ChatPage = () => {
             <CliSessionSwitcher
               agentId={selectedBlueprint}
               cli={currentCli}
+              agentName={selectedAgentName}
+            />
+          ) : null}
+          {productModes.api && isApiAgent ? (
+            /* #580: the rail offers Select/New session on API seats — the
+               navbar now keeps that promise via the same declared capability
+               (seatCapabilities), not a re-derived per-surface predicate. */
+            <ApiSessionSwitcher
+              agentId={selectedBlueprint}
               agentName={selectedAgentName}
             />
           ) : null}

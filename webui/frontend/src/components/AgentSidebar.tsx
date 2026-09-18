@@ -157,6 +157,7 @@ import {
   type AgentSession,
 } from '../lib/scaleOutSessions'
 import { agentLabel, defaultBlueprintId, isSupportAgent } from '../lib/supportAgent'
+import { seatHasSessions } from '../lib/seatCapabilities'
 import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId, type TeamRoster } from '../lib/teamRosters'
@@ -2507,8 +2508,9 @@ export default function AgentSidebar({
         hidden: menu.hidden,
         unread: unreadIds.includes(menu.agentId),
         hasSelectAgent: shouldShowSelectAgent(menu.sessions),
-        hasSelectSession: menu.kind === 'api' || menu.kind === 'cli' || Boolean(menu.isCli),
-        hasNewSession: menu.kind === 'api' || menu.kind === 'cli' || Boolean(menu.isCli),
+        // #580: one declared capability drives the rail menu AND the navbar.
+        hasSelectSession: seatHasSessions(menu),
+        hasNewSession: seatHasSessions(menu),
         notifyEnabled: notifyIds.includes(menu.agentId),
         canCopyId:
           menu.kind === 'cli' || menu.kind === 'remote'
