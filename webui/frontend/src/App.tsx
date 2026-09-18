@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import ChatPage from './pages/ChatPage'
 import AgentRouterPage from './pages/AgentRouterPage'
 import AgentSidebar from './components/AgentSidebar'
@@ -52,6 +52,31 @@ applyDocumentTheme(resolveTheme(initialTheme()))
 export function chatPathWithSearch(search: string): string {
   if (!search) return '/chat'
   return search.startsWith('?') ? `/chat${search}` : `/chat?${search}`
+}
+
+/**
+ * #524: normalize a `/teams/<id>` deep link onto the `?team=<id>` query form
+ * ChatPage already implements. Both `/teams/demo-team` and the literal
+ * `/teams/#demo-team` (fragment form — the id never reaches the router's
+ * pathname) resolve to `/chat?team=demo-team`; other query params survive.
+ * Returns null when there is no id (plain `/teams/`), which falls back to `/`.
+ */
+export function teamsPathSearch(pathname: string, search = '', hash = ''): string | null {
+  const rest = pathname.replace(/^\/teams\/?/, '')
+  let id = decodeURIComponent(rest.replace(/\/+$/, '')).trim()
+  if (!id && hash) id = decodeURIComponent(hash.replace(/^#/, '')).trim()
+  if (!id) return null
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  params.set('team', id)
+  return `/chat?${params.toString()}`
+}
+
+/** Route element: bounce /teams/<id> onto the canonical ?team= form. */
+function TeamPathRedirect() {
+  const location = useLocation()
+  const target = teamsPathSearch(location.pathname, location.search, location.hash)
+  if (!target) return <Navigate to="/" replace />
+  return <Navigate to={target} replace />
 }
 
 /**
@@ -258,6 +283,8 @@ function App() {
                     <Route path="/" element={<ChatPage />} />
                     <Route path="/chat" element={<ChatPage />} />
                     <Route path="/chat/*" element={<ChatPage />} />
+                    <Route path="/teams" element={<TeamPathRedirect />} />
+                    <Route path="/teams/*" element={<TeamPathRedirect />} />
                     <Route path="/agents" element={<AgentRouterPage />} />
                     <Route path="/agents/*" element={<AgentRouterPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
