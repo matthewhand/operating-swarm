@@ -196,6 +196,7 @@ import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsP
 import { PrOpenedCard } from '../components/PrOpenedCard'
 import { TeammateTaskCard } from '../components/TeammateTaskCard'
 import { SuggestionChips } from '../components/SuggestionChips'
+import ComposerPluginsBadge from '../components/ComposerPluginsBadge'
 import { DemoTourBanner } from '../components/DemoTourBanner'
 import { isDemoMode } from '../lib/demo/mode'
 import { demoSuggestionChips } from '../lib/demo/scenarios'
@@ -4278,6 +4279,7 @@ const ChatPage = () => {
               onChoose={chooseSuggestion}
             />
           ) : null}
+          <ComposerPluginsBadge />
           {status !== 'open' ? (
             <div
               className="os-conn-status"
