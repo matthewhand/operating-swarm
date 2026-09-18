@@ -3,6 +3,8 @@ import fs from 'fs'
 import path from 'path'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { ChatBubbleBody, ChatMessageBubble } from '../ChatMessageBubble'
+import MessageRowActions from '../MessageRowActions'
+import { ToastProvider } from '../DaisyUI'
 import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
 import { STREAM_REPLIES_STORAGE_KEY } from '../../lib/streamReplies'
 import { BUBBLE_THEME_STORAGE_KEY } from '../../lib/bubbleTheme'
@@ -215,20 +217,17 @@ describe('REQ-117: Fenced code blocks collapse, hover expand, copy, re-collapse'
 
 describe('REQ-121: Start context from here hover action', () => {
   it('shows Start context from here when strategy is cull', () => {
+    // REQ-869 moved the context action from the bubble to MessageRowActions.
     const onStart = vi.fn()
     render(
-      <ChatMessageBubble
-        role="user"
-        agentName="You"
-        text="later turn"
-        streaming={false}
-        canCompress={true}
-        contextStrategy="cull"
-        editing={false}
-        onCancelEdit={() => {}}
-        onSaveEdit={() => {}}
-        onCompressToHere={onStart}
-      />,
+      <ToastProvider>
+        <MessageRowActions
+          text="later turn"
+          canCompress={true}
+          contextStrategy="cull"
+          onCompressToHere={onStart}
+        />
+      </ToastProvider>,
     )
     const button = screen.getByRole('button', { name: 'Start context from here' })
     expect(button).toHaveAttribute('title', 'Start context from here.')
@@ -240,19 +239,16 @@ describe('REQ-121: Start context from here hover action', () => {
 
 describe('REQ-87: Compress to here hover action', () => {
   it('shows Compress to here on hover when canCompress is set', () => {
+    // REQ-869 moved the context action from the bubble to MessageRowActions.
     const onCompress = vi.fn()
     render(
-      <ChatMessageBubble
-        role="user"
-        agentName="You"
-        text="older turn"
-        streaming={false}
-        canCompress={true}
-        editing={false}
-        onCancelEdit={() => {}}
-        onSaveEdit={() => {}}
-        onCompressToHere={onCompress}
-      />,
+      <ToastProvider>
+        <MessageRowActions
+          text="older turn"
+          canCompress={true}
+          onCompressToHere={onCompress}
+        />
+      </ToastProvider>,
     )
     const button = screen.getByRole('button', { name: 'Compress to here' })
     fireEvent.click(button)

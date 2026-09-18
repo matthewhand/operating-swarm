@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import ChatPage from '../ChatPage'
@@ -13,6 +13,8 @@ import * as clipboard from '../../lib/clipboard'
 // ChatMessageActions asserts it renders none). This page-level test pins the
 // invariant that matters to the report: for one assistant message in the main
 // chat there is exactly ONE copy control, and it copies that message's text.
+// (#259 / REQ-869 also mounts MessageRowActions on user rows, so the
+// assertion is scoped to the assistant's row — #608.)
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -114,9 +116,20 @@ describe('ChatPage single Copy control (#70)', () => {
     // The hydrated assistant turn is on screen…
     expect(await screen.findByText('assistant reply body')).toBeInTheDocument()
 
-    // …with a single copy affordance (no second one from the bubble/summary card).
-    const copies = screen.getAllByLabelText('Copy message')
+    // …with a single copy affordance inside its own row (#608: user rows
+    // carry their own MessageRowActions since #259 / REQ-869 — only the
+    // assistant turn is under test here).
+    // eslint-disable-next-line testing-library/no-node-access -- the row wrapper exposes no testid; its stable class is the contract
+    const assistantRow = screen.getByText('assistant reply body').closest('div.group\\/osrow')
+    expect(assistantRow).toBeTruthy()
+    const copies = within(assistantRow as HTMLElement).getAllByLabelText('Copy message')
     expect(copies).toHaveLength(1)
+
+    // The user row has its own actions, but no duplicate within it either.
+    // eslint-disable-next-line testing-library/no-node-access -- same row-wrapper contract as above
+    const userRow = screen.getByText('hello there').closest('div.group\\/osrow')
+    expect(userRow).toBeInTheDocument()
+    expect(within(userRow as HTMLElement).getAllByLabelText('Copy message')).toHaveLength(1)
 
     fireEvent.click(copies[0])
     await waitFor(() => {
