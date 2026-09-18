@@ -42,6 +42,8 @@ import {
   type LlmTaskClass,
 } from '../lib/api'
 import { formatStoreSize } from '../lib/localStore'
+import { parseRemotes } from '../lib/remotesCatalog'
+import { providerDependents, providerUsageLabel } from '../lib/providerUsage'
 import { RemoteSelect } from './RemoteSelect'
 import { RemoteOperatePane } from './RemotesSettings'
 import {
@@ -1189,6 +1191,15 @@ function RemotesCatalogPane({
   const catalog = remotesQuery.data
   const configured = configuredRemotes(catalog)
   const kinds = remoteKinds(catalog)
+  // #642: the Remove control locks while agents depend on the remote. The
+  // backend stamps dependent agents onto each row; persisted per-agent
+  // bindings (localStorage) count too. Catalog rows must be parsed so those
+  // `agents` lists survive into `configured`.
+  const catalogEntries = parseRemotes(catalog)
+  const remoteUsage = (remoteId: string) => {
+    const count = providerDependents.remote(catalogEntries, remoteId)
+    return { count, locked: count > 0, tip: providerUsageLabel(count) }
+  }
 
   useEffect(() => {
     if (!selectedId && configured[0]) setSelectedId(configured[0].id)
@@ -1354,8 +1365,14 @@ function RemotesCatalogPane({
                       type="button"
                       variant="ghost"
                       size="xs"
-                      onClick={() => removeMutation.mutate(remote.id)}
-                      disabled={removeMutation.isPending}
+                      data-testid={`remote-remove-${remote.id}`}
+                      onClick={() => {
+                        const usage = remoteUsage(remote.id)
+                        if (!usage.locked) removeMutation.mutate(remote.id)
+                      }}
+                      disabled={removeMutation.isPending || remoteUsage(remote.id).locked}
+                      aria-disabled={remoteUsage(remote.id).locked ? 'true' : undefined}
+                      title={remoteUsage(remote.id).locked ? remoteUsage(remote.id).tip : undefined}
                     >
                       Remove
                     </Button>

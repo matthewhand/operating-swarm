@@ -26,6 +26,7 @@ import {
   type HopMode,
 } from '../lib/sessionHopPrefs'
 import ProviderRateLimitFields from './ProviderRateLimitFields'
+import { providerDependents, providerUsageLabel } from '../lib/providerUsage'
 
 function statusLabel(status: CompactCliStatus): string {
   return status === 'not-detected' ? 'not detected' : status
@@ -396,6 +397,12 @@ export default function CliAgentsSettingsPane({
 
   const loading = configQuery.isPending || catalogQuery.isPending
   const failed = configQuery.isError && catalogQuery.isError
+  // #642: a configured CLI whose rail seats still reference it cannot be
+  // removed — greyed with the reason until the last dependent is gone.
+  const cliUsage = (cliName: string) => {
+    const count = providerDependents.cli(catalogQuery.data, cliName)
+    return { count, locked: count > 0, tip: providerUsageLabel(count) }
+  }
 
   const knownClis = catalogQuery.data?.known ?? catalogQuery.data?.clis ?? []
   const unconfiguredDrivers = knownClis.filter((c) => !configured.includes(c))
@@ -464,15 +471,25 @@ export default function CliAgentsSettingsPane({
                       </Button>
                     ) : null}
                     {row.status === 'configured' ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => removeMutation.mutate(row.name)}
-                        disabled={removeMutation.isPending}
-                      >
-                        Remove
-                      </Button>
+                      (() => {
+                        const usage = cliUsage(row.name)
+                        return (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            data-testid={`cli-remove-${row.name}`}
+                            onClick={() => {
+                              if (!usage.locked) removeMutation.mutate(row.name)
+                            }}
+                            disabled={removeMutation.isPending || usage.locked}
+                            aria-disabled={usage.locked ? 'true' : undefined}
+                            title={usage.locked ? usage.tip : undefined}
+                          >
+                            Remove
+                          </Button>
+                        )
+                      })()
                     ) : null}
                     {row.status !== 'not-detected' ? (
                       <CliRowSettings

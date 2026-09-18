@@ -50,6 +50,33 @@ class RemotesListView(APIView):
         else:
             activity = rail_activity_index(user_key="u0")
 
+        # #642: Settings greys a remote's Remove control while agents are
+        # registered on it. The blueprint library's custom seats carry the
+        # binding (``remote: {id, kind}``), so the list payload stamps an
+        # ``agents`` row-list per remote; a remote with no dependents stays
+        # without the key (honest absence — the control behaves as before).
+        from swarm.views.blueprint_library_views import get_user_blueprint_library
+
+        dependents: dict[str, list[dict[str, str]]] = {}
+        try:
+            for row in (get_user_blueprint_library().get("custom") or []):
+                if not isinstance(row, dict):
+                    continue
+                binding = row.get("remote")
+                if not isinstance(binding, dict):
+                    continue
+                remote_id = str(binding.get("id") or "").strip()
+                if not remote_id:
+                    continue
+                dependents.setdefault(remote_id, []).append(
+                    {
+                        "id": str(row.get("id") or "").strip(),
+                        "name": str(row.get("name") or row.get("id") or "").strip(),
+                    }
+                )
+        except Exception:
+            logger.debug("remotes list could not read blueprint library", exc_info=True)
+
         def _stamped(spec):
             payload = spec.public_dict()
             # Store stems slugify ':' → '-', so a remote seat's thread file is
@@ -57,6 +84,9 @@ class RemotesListView(APIView):
             instant = activity.get(f"remote-{spec.id}")
             if instant:
                 payload["last_message_at"] = instant
+            agents = dependents.get(spec.id)
+            if agents:
+                payload["agents"] = agents
             return payload
 
         return Response(
