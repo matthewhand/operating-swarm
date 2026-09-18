@@ -19,6 +19,44 @@ export const TEAM_STACK_FACE_LIMIT = 2
 /** Team stacks show every member up to this count — no +N chip (#57). */
 export const TEAM_STACK_ALL_MAX = 3
 
+/** #523: the pinned team tile's front-face size in px. */
+export const PIN_STACK_BASE_PX = 40
+
+/** #523: the size step per depth behind the front face. */
+export const PIN_STACK_STEP_PX = 6
+
+/** #523: chat stacking preference — the idle ordering for pinned team stacks. */
+export type StackOrderPreference = 'first' | 'last'
+
+/**
+ * #523: order the pin's faces most-recently-active first. With no activity
+ * (every `startedAt` at/below 0) fall back to the chat stacking preference:
+ * `first` keeps roster order, `last` reverses it. Non-mutating.
+ */
+export function orderedFacesByRecency<T extends StackFace>(
+  faces: readonly T[],
+  preference: StackOrderPreference = 'first',
+): T[] {
+  const hasActivity = faces.some((face) => face.startedAt > 0)
+  if (!hasActivity) {
+    return preference === 'last' ? [...faces].reverse() : [...faces]
+  }
+  return [...faces].sort((a, b) => b.startedAt - a.startedAt)
+}
+
+/**
+ * #523: graduated sizes for a pinned team stack — front face is
+ * {@link PIN_STACK_BASE_PX}, each depth behind steps down by
+ * {@link PIN_STACK_STEP_PX}, never below 12px so faces stay readable.
+ */
+export function pinStackSizes(count: number): number[] {
+  const sizes: number[] = []
+  for (let depth = 0; depth < count; depth += 1) {
+    sizes.push(Math.max(12, PIN_STACK_BASE_PX - depth * PIN_STACK_STEP_PX))
+  }
+  return sizes
+}
+
 /**
  * Team **ordering** helper (#458): while any member is working, order faces
  * most-recently-active first; when idle, preserve stable roster order.
