@@ -11,7 +11,18 @@ import {
 } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calendar, ChevronRight, Plug, Plus, Search, Server, Trash2, Users, X } from 'lucide-react'
+import {
+  Calendar,
+  ChevronRight,
+  EyeOff,
+  Plug,
+  Plus,
+  Search,
+  Server,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
 import AgentCalendarView from './AgentCalendarView'
 export const OPEN_CALENDAR_EVENT = 'open-calendar-view'
 import AddAgentWizard, { type AgentKind } from './AddAgentWizard'
@@ -45,7 +56,12 @@ import {
   loadDynamicSubagents,
   type DynamicSubagent,
 } from '../lib/dynamicSubagents'
-import { resolveProductModes } from '../lib/productModes'
+import {
+  PRODUCT_MODE_KEYS,
+  PRODUCT_MODE_LABELS,
+  productModesWhenSettled,
+  type ProductMode,
+} from '../lib/productModes'
 import { useOptionalToast } from './DaisyUI'
 import {
   CLI_PROCESS_STOPPED_TOAST,
@@ -1145,9 +1161,19 @@ export default function AgentSidebar({
   const visibleCount = visibleAgents.length + visibleTeams.length + visibleRemotes.length
   const loadingList = !propBlueprints && blueprintsQuery.isPending && teamsQuery.isPending
   const loadFailed = blueprintsQuery.isError && teamsQuery.isError && visibleCount === 0
+  /* #594: `cliQuery` carries the product modes and has no `initialData`, so
+     reading it while it is still in flight used to mean "a legacy server that
+     advertises nothing" — every surface on. The rail therefore painted
+     CLI + API + blueprint + team + remote rows and then dropped the gated
+     groups a moment later. Start from the narrowest rail and grow. */
   const productModes = useMemo(
-    () => resolveProductModes(cliQuery.data),
-    [cliQuery.data],
+    () =>
+      productModesWhenSettled({
+        data: cliQuery.data,
+        settled: !cliQuery.isPending,
+        failed: cliQuery.isError,
+      }),
+    [cliQuery.data, cliQuery.isPending, cliQuery.isError],
   )
   const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
   const cliAgents = productModes.cli
@@ -1201,6 +1227,36 @@ export default function AgentSidebar({
       pins,
     )
   }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins, productModes])
+  /* #594: a mode-gated row is not Hidden — it is withheld by a surface switch,
+     so it appears in neither the Hidden Bots count nor the row context menu and
+     the user has no route from "my agents vanished" to product modes. Report the
+     withheld surfaces by *name*, and only when a mode is actually costing the
+     user rows: telling a CLI-only install that Remote is off, with no remotes
+     configured, would imply rows were taken away when none were. */
+  const withheldModes = useMemo(() => {
+    const byMode: Record<ProductMode, number> = {
+      cli: visibleAgents.filter((agent) => isCliRailAgent(agent)).length,
+      api: visibleAgents.filter((agent) => isApiRailAgent(agent)).length,
+      blueprint: visibleAgents.filter(
+        (agent) =>
+          !isSupportAgent(agent) &&
+          !isCliRailAgent(agent) &&
+          !isApiRailAgent(agent) &&
+          !isHerdrAgent(agent),
+      ).length,
+      team: visibleRootTeams.length,
+      remote:
+        visibleRemotes.length + visibleAgents.filter((agent) => isHerdrAgent(agent)).length,
+    }
+    const labels: string[] = []
+    let rows = 0
+    for (const key of PRODUCT_MODE_KEYS) {
+      if (productModes[key] === true || byMode[key] === 0) continue
+      labels.push(PRODUCT_MODE_LABELS[key])
+      rows += byMode[key]
+    }
+    return { labels, rows }
+  }, [productModes, visibleAgents, visibleRootTeams, visibleRemotes])
   const orderedRows = useMemo(
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],
@@ -3412,6 +3468,30 @@ export default function AgentSidebar({
               openPaneMenuAt(event.clientX, event.clientY)
             }}
           >
+            {withheldModes.labels.length > 0 && (
+              <button
+                type="button"
+                className="os-rail-mode-notice mb-1 flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                data-testid="rail-mode-notice"
+                data-withheld-rows={withheldModes.rows}
+                /* #594: name the mechanism and offer the route. The rows are not
+                   Hidden, so they appear in neither the Hidden Bots count nor
+                   the row context menu — this is the only path from "my agents
+                   vanished" to the product-mode switch. */
+                title={`${withheldModes.labels.join(' · ')} hidden by product modes — enable in Settings`}
+                aria-label={`${withheldModes.labels.join(', ')} hidden by product modes. Open Rail settings to enable them.`}
+                onClick={() => {
+                  openSettingsSheet({ section: 'rail' })
+                  onClose?.()
+                }}
+              >
+                <EyeOff className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="os-rail-mode-notice-label min-w-0">
+                  <span className="font-medium">{withheldModes.labels.join(' · ')}</span> hidden by
+                  product modes — enable in Settings
+                </span>
+              </button>
+            )}
             <div
               className={`os-agent-list ${listDropActive ? 'os-agent-list--unfav' : ''}`}
               data-testid="agent-list-drop"

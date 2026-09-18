@@ -377,7 +377,7 @@ import {
   preferredChatCli,
   MANAGE_CLI_VALUE,
 } from '../lib/cliAgentContext'
-import { resolveProductModes } from '../lib/productModes'
+import { productModesWhenSettled } from '../lib/productModes'
 import { isHiddenRoutingLabel } from '../lib/routingPath'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
@@ -966,9 +966,17 @@ const ChatPage = () => {
     tags: (selectedAgent as { tags?: string[] })?.tags,
   }) || Boolean(selectedRemote)
 
+  /* #594: same loading-state contract as the rail — `cliQuery` has no
+     `initialData`, so reading it before it settles must not be read as "this
+     server advertises nothing". */
   const productModes = useMemo(
-    () => resolveProductModes(cliQuery.data),
-    [cliQuery.data],
+    () =>
+      productModesWhenSettled({
+        data: cliQuery.data,
+        settled: !cliQuery.isPending,
+        failed: cliQuery.isError,
+      }),
+    [cliQuery.data, cliQuery.isPending, cliQuery.isError],
   )
   const showRemotesControl =
     Boolean(remoteFromUrl) ||

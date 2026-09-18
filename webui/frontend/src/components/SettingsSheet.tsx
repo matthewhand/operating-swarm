@@ -79,7 +79,7 @@ import {
   PRODUCT_MODE_KEYS,
   PRODUCT_MODE_LABELS,
   PRODUCT_MODE_LIMITATIONS,
-  resolveProductModes,
+  productModesWhenSettled,
   type ProductModes,
 } from '../lib/productModes'
 import { HOSTNAME_CHANGED_EVENT, dispatchHostnameChanged } from '../lib/hostname'
@@ -1934,7 +1934,14 @@ function RailPane({
     queryFn: fetchCliAgents,
     retry: 1,
   })
-  const modes = resolveProductModes(modesQuery.data)
+  /* #594: read the modes only once the fetch has settled. Before that the
+     checkboxes would paint all-on and then flip, and a toggle pressed during
+     that window would persist a default as if it were the user's choice. */
+  const modes = productModesWhenSettled({
+    data: modesQuery.data,
+    settled: !modesQuery.isPending,
+    failed: modesQuery.isError,
+  })
   const limitations = modesQuery.data?.mode_limitations ?? PRODUCT_MODE_LIMITATIONS
   const saveModes = useMutation({
     mutationFn: (next: ProductModes) =>
@@ -1968,7 +1975,7 @@ function RailPane({
               type="checkbox"
               className="toggle mt-0.5"
               checked={modes[key]}
-              disabled={saveModes.isPending}
+              disabled={saveModes.isPending || modesQuery.isPending}
               aria-label={`Manage ${PRODUCT_MODE_LABELS[key]}`}
               onChange={(event) =>
                 saveModes.mutate({ ...modes, [key]: event.target.checked })
