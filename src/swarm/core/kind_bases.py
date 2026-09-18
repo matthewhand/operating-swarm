@@ -12,9 +12,10 @@ into CLI or remote sessions.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
 import logging
 import os
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from swarm.core.blueprint_base import BlueprintBase
@@ -108,7 +109,7 @@ class ApiKindBase(KindBase):
                 response = getattr(result, "final_output", str(result))
                 yield {"messages": [{"role": "assistant", "content": response}], "final": True}
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error("Agent run timed out after %.1fs", timeout)
                 yield {
                     "messages": [{
@@ -135,6 +136,23 @@ class ApiKindBase(KindBase):
         }
 
 
+@dataclass(frozen=True)
+class CliSlashCommand:
+    """A CLI-native slash command a provider declares (REQ-910 / #641).
+
+    Each CLI harness declares its own commands on ``CliKindBase`` subclasses;
+    the webui composer derives its slash popup from the published catalog —
+    never a hardcoded list in JSX. ``available=False`` marks a command the CLI
+    itself cannot run in our non-interactive (print-mode) sessions: the popup
+    greys it with ``unavailable_reason`` and it is never sent as chat text.
+    """
+
+    name: str
+    description: str = ""
+    available: bool = True
+    unavailable_reason: str = ""
+
+
 class CliKindBase(KindBase):
     """CLI-backed template.
 
@@ -144,6 +162,21 @@ class CliKindBase(KindBase):
     """
 
     kind: ClassVar[str] = KIND_CLI
+
+    #: Provider-declared native slash commands, keyed by bare command name.
+    cli_slash_commands: ClassVar[dict[str, CliSlashCommand]] = {}
+
+    @classmethod
+    def slash_command(cls, name: str) -> CliSlashCommand | None:
+        """The declaration for ``name`` (leading slash / case tolerated)."""
+        key = (name or "").strip().lstrip("/").lower()
+        return cls.cli_slash_commands.get(key)
+
+    @classmethod
+    def supports_slash_command(cls, name: str) -> bool:
+        """True only when the command is declared *and* actually runnable."""
+        cmd = cls.slash_command(name)
+        return bool(cmd and cmd.available)
 
 
 class RemoteKindBase(KindBase):
@@ -178,6 +211,7 @@ __all__ = [
     "ALLOWED_BLUEPRINT_BASE_NAMES",
     "ApiKindBase",
     "CliKindBase",
+    "CliSlashCommand",
     "KIND_API",
     "KIND_BASE_NAMES",
     "KIND_CLI",

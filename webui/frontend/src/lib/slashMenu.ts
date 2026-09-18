@@ -3,7 +3,15 @@
  * for the Composer slash popup (REQ-169).
  */
 
-export type SlashItemKind = 'action' | 'skill'
+export type SlashItemKind = 'action' | 'skill' | 'cli'
+
+/** #641: `slash_commands` row from GET /v1/cli-agents/ — provider-declared. */
+export interface CliSlashCommandSpec {
+  name: string
+  description?: string
+  available?: boolean
+  unavailable_reason?: string
+}
 
 export interface SlashItem {
   id: string
@@ -13,6 +21,8 @@ export interface SlashItem {
   title: string
   description: string
   iconName?: string
+  /** #641: set when the CLI cannot run this command non-interactively. */
+  unavailableReason?: string
 }
 
 export const RECENT_SLASH_STORAGE_KEY = 'open_swarm_recent_slash_commands'
@@ -125,10 +135,12 @@ export const DEFAULT_SKILLS: SlashItem[] = [
 
 /**
  * Builds the complete slash catalog by combining default actions with default
- * skills and any dynamic skills discovered from the backend.
+ * skills, any dynamic skills discovered from the backend, and — #641 — the
+ * selected CLI seat's own declared commands from the cli-agents catalog.
  */
 export function buildSlashCatalog(
   dynamicSkills?: { name: string; description?: string }[],
+  cliSlashCommands?: CliSlashCommandSpec[],
 ): SlashItem[] {
   const items: SlashItem[] = [...DEFAULT_ACTIONS]
   const seenSkills = new Set<string>()
@@ -157,6 +169,32 @@ export function buildSlashCatalog(
       seenSkills.add(s.name)
       items.push(s)
     }
+  }
+
+  // #641: the CLI seat's own declared commands (data-driven, never hardcoded
+  // in JSX). A command whose verb already exists as a default action replaces
+  // it — the CLI-native row is the honest one for a CLI seat.
+  for (const cmd of cliSlashCommands ?? []) {
+    const name = (cmd.name || '').trim().replace(/^\//, '')
+    if (!name) continue
+    const command = `/${name}`
+    const existingIdx = items.findIndex(
+      (entry) => entry.kind === 'action' && entry.command === command,
+    )
+    if (existingIdx !== -1) items.splice(existingIdx, 1)
+    items.push({
+      id: `cli-${name}`,
+      kind: 'cli',
+      name,
+      command,
+      title: formatSkillTitle(name),
+      description:
+        cmd.available === false
+          ? cmd.unavailable_reason || 'Not available in non-interactive mode'
+          : cmd.description || formatSkillTitle(name),
+      iconName: 'Terminal',
+      unavailableReason: cmd.available === false ? cmd.unavailable_reason || 'Not available in non-interactive mode' : undefined,
+    })
   }
 
   return items
@@ -230,12 +268,15 @@ export function filterSlashItems(
     const recents: SlashItem[] = []
     const actions: SlashItem[] = []
     const skills: SlashItem[] = []
+    const cliCommands: SlashItem[] = []
 
     for (const item of items) {
       if (recentMap.has(item.id)) {
         recents.push(item)
       } else if (item.kind === 'action') {
         actions.push(item)
+      } else if (item.kind === 'cli') {
+        cliCommands.push(item)
       } else {
         skills.push(item)
       }
@@ -246,8 +287,9 @@ export function filterSlashItems(
     // Sort rest alphabetically
     actions.sort((a, b) => a.title.localeCompare(b.title))
     skills.sort((a, b) => a.title.localeCompare(b.title))
+    cliCommands.sort((a, b) => a.title.localeCompare(b.title))
 
-    return [...recents, ...actions, ...skills]
+    return [...recents, ...actions, ...cliCommands, ...skills]
   }
 
   // Filter matching items
@@ -301,12 +343,15 @@ export function groupSlashItems(
     const recents: SlashItem[] = []
     const actions: SlashItem[] = []
     const skills: SlashItem[] = []
+    const cliCommands: SlashItem[] = []
 
     for (const item of items) {
       if (recentSet.has(item.id)) {
         recents.push(item)
       } else if (item.kind === 'action') {
         actions.push(item)
+      } else if (item.kind === 'cli') {
+        cliCommands.push(item)
       } else {
         skills.push(item)
       }
@@ -319,6 +364,9 @@ export function groupSlashItems(
     if (actions.length > 0) {
       groups.push({ label: 'Actions', items: actions })
     }
+    if (cliCommands.length > 0) {
+      groups.push({ label: 'CLI Commands', items: cliCommands })
+    }
     if (skills.length > 0) {
       groups.push({ label: 'Skills', items: skills })
     }
@@ -328,10 +376,14 @@ export function groupSlashItems(
   // When filtered by query, group by kind
   const actions = items.filter((item) => item.kind === 'action')
   const skills = items.filter((item) => item.kind === 'skill')
+  const cliCommands = items.filter((item) => item.kind === 'cli')
 
   const groups: SlashGroup[] = []
   if (actions.length > 0) {
     groups.push({ label: 'Actions', items: actions })
+  }
+  if (cliCommands.length > 0) {
+    groups.push({ label: 'CLI Commands', items: cliCommands })
   }
   if (skills.length > 0) {
     groups.push({ label: 'Skills', items: skills })

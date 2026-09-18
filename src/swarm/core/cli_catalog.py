@@ -64,6 +64,48 @@ import os
 import shutil
 from typing import Any
 
+from swarm.core.kind_bases import CliSlashCommand
+
+# REQ-910 / #641: per-CLI **native slash commands**, declared by the provider
+# (ADR-005 ``CliKindBase`` capability) and published verbatim in
+# ``GET /v1/cli-agents/`` as ``slash_commands`` so the webui composer derives
+# its popup from data — never a hardcoded list in JSX.
+#
+# Blocking investigation recorded in #641: **omp print mode does not dispatch
+# slash commands.** oh-my-pi's own docs (``slash-command-internals.md`` §2)
+# dispatch built-ins only in *TUI and ACP/RPC modes*; ``cli-reference.md``
+# shows no ``--compress``/compaction launch flag; and the ``omp compress``
+# *subcommand* is an unrelated file-to-prompt-register tool. omp therefore
+# declares ``/compress`` with ``available=False``: the popup greys it with the
+# reason and it is never sent as chat text (the server-side compact flow is
+# #636's surface).
+CLI_SLASH_COMMANDS: dict[str, tuple[CliSlashCommand, ...]] = {
+    "omp": (
+        CliSlashCommand(
+            name="compress",
+            description="Compact this omp session's context",
+            available=False,
+            unavailable_reason="omp cannot compress in non-interactive (print) mode",
+        ),
+    ),
+}
+
+
+def cli_slash_commands_payload() -> dict[str, list[dict[str, Any]]]:
+    """JSON-safe ``slash_commands`` rows for ``GET /v1/cli-agents/``."""
+    return {
+        cli: [
+            {
+                "name": cmd.name,
+                "description": cmd.description,
+                "available": cmd.available,
+                "unavailable_reason": cmd.unavailable_reason,
+            }
+            for cmd in commands
+        ]
+        for cli, commands in CLI_SLASH_COMMANDS.items()
+    }
+
 # User-local bins Daphne often misses when started with PATH=/usr/bin:/bin.
 _EXTRA_BIN_REL = (
     (".local", "bin"),
@@ -1146,6 +1188,7 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
             if has_list_models(name)
         },
         "list_sessions": list_sessions_catalog(),
+        "slash_commands": cli_slash_commands_payload(),
         "remote": _remote_catalog_payload(),
         "remote_boxes": _remote_boxes_payload(config),
     }

@@ -3003,7 +3003,20 @@ const ChatPage = () => {
     }
   }, [])
 
-  const slashCatalog = useMemo(() => buildSlashCatalog(dynamicSkills), [dynamicSkills])
+  // #641: the CLI seat's own declared slash commands, straight from the
+  // cli-agents catalog (`slash_commands[<cli>]`). A non-CLI seat resolves no
+  // CLI here, so API/team/remote composers keep their existing catalog.
+  const cliSlashCommands = useMemo(() => {
+    if (!isCliAgent) return undefined
+    const cliName = currentCli || selectedCli?.cli || ''
+    if (!cliName) return undefined
+    return cliQuery.data?.slash_commands?.[cliName]
+  }, [isCliAgent, currentCli, selectedCli, cliQuery.data])
+
+  const slashCatalog = useMemo(
+    () => buildSlashCatalog(dynamicSkills, cliSlashCommands),
+    [dynamicSkills, cliSlashCommands],
+  )
   const isSlashOpen = input.startsWith('/') && !slashDismissed
   const slashQuery = input.startsWith('/') ? input.slice(1) : ''
   const filteredSlashItems = useMemo(
@@ -3440,6 +3453,16 @@ const ChatPage = () => {
 
   const handleSelectSlashItem = useCallback(
     (item: SlashItem) => {
+      // #641: an unavailable CLI command is never sent as chat text.
+      if (item.unavailableReason) {
+        addToast({
+          type: 'warning',
+          title: item.title,
+          message: item.unavailableReason,
+        })
+        setSlashDismissed(true)
+        return
+      }
       recordRecentSlashId(item.id)
       setRecentSlashIds(getRecentSlashIds())
       setSlashDismissed(true)
@@ -3454,7 +3477,7 @@ const ChatPage = () => {
         composerRef.current?.focus()
       }, 0)
     },
-    [handleCompact],
+    [handleCompact, addToast],
   )
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {

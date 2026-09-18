@@ -1,10 +1,10 @@
-/**
- * Minimal typed fetch wrapper for the Operating Swarm backend API.
+/** Minimal typed fetch wrapper for the Operating Swarm backend API.
  *
  * In dev, requests to /v1/* are proxied to the Django backend by Vite
  * (see vite.config.ts). An optional bearer token is read from localStorage
  * under the key "swarm_api_token".
  */
+import type { CliSlashCommandSpec } from './slashMenu'
 
 export const API_TOKEN_STORAGE_KEY = 'swarm_api_token'
 
@@ -1554,6 +1554,8 @@ export interface CliAgentsInfo {
   /** Argv table for list-models probes — not live model ids. */
   list_models?: Record<string, string[]>
   list_sessions?: Record<string, unknown>
+  /** #641: per-CLI provider-declared native slash commands. */
+  slash_commands?: Record<string, CliSlashCommandSpec[]>
   /** Issue #180: per-CLI remote/headless capability (serve / ssh / api / none). */
   remote?: Record<string, {
     capability?: string
