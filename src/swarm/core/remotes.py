@@ -564,6 +564,14 @@ class RemoteSpec:
 
         kind = self.kind or kind_of_instance(self.id)
         is_instance = self.id != kind
+        # #503: a configured title is the picker label for named instances —
+        # two instances of one kind must be distinguishable without hand-reading
+        # ids. Bare kinds keep the kind label (their default titles are catalog
+        # prose like "Hermes Agent (dev-worker-gpu)", not picker names).
+        if is_instance:
+            label = (self.title or "").strip() or f"{kind_label(kind)} ({self.id})"
+        else:
+            label = kind_label(self.id)
         payload: dict[str, Any] = {
             "id": self.id,
             "title": self.title,
@@ -579,7 +587,7 @@ class RemoteSpec:
             "impl": kind,
             "instance": self.id if is_instance else "",
             "user_kind": "remote",
-            "label": f"{kind_label(kind)} ({self.id})" if is_instance else kind_label(self.id),
+            "label": label,
             "source": self.source,
             "api_key_env": self.api_key_env,
             "session_cookie_env": self.session_cookie_env,
@@ -1494,6 +1502,7 @@ def persist_remote(
     remote_id: str,
     *,
     kind: str | None = None,
+    title: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     api_key_env: str | None = None,
@@ -1575,6 +1584,10 @@ def persist_remote(
             raise RemoteError(
                 "Refusing to persist a plaintext API key. Use api_key_env or ${ENV}."
             )
+    if title is not None:
+        # #503: an instance may be named from Settings. Empty/whitespace clears
+        # the override so the derived "Kind (id)" label returns.
+        entry["title"] = str(title).strip()
     if ui_url is not None:
         entry["ui_url"] = _normalize_ui_url(ui_url) if ui_url else ""
     if session_cookie_env is not None:

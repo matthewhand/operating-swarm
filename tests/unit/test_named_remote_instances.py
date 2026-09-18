@@ -299,3 +299,81 @@ def test_health_reports_instance_id():
     result = remotes.check_health("trueforge-9", config=_cfg())
     assert result.ok is False
     assert "trueforge-9" in str(result.detail) or result.state in ("UNKNOWN", "DEGRADED", "DOWN")
+
+
+# --- #503: a configured title becomes the picker label -----------------------
+
+
+def test_named_title_becomes_label():
+    """The live #503 case: title is configured, label must follow."""
+    cfg = _cfg(
+        **{
+            "trueforge-2": {"base_url": "http://tf-a.example.test:8791", "title": "TrueForge (ubuntu-gtx)"},
+        },
+    )
+    spec = remotes.load_remote("trueforge-2", cfg)
+    d = spec.public_dict()
+    assert d["title"] == "TrueForge (ubuntu-gtx)"
+    assert d["label"] == "TrueForge (ubuntu-gtx)"
+
+
+def test_unnamed_instance_keeps_derived_label():
+    """No regression: unnamed instances still report Kind (id)."""
+    cfg = _cfg()
+    spec = remotes.load_remote("trueforge-2", cfg)
+    d = spec.public_dict()
+    assert d["label"] == "TrueForge (trueforge-2)"
+    assert d["title"] == "TrueForge (trueforge-2)"
+
+
+def test_bare_kind_ignores_default_title_for_label():
+    """A bare kind keeps the kind label even though its default spec has a title."""
+    cfg = _cfg()
+    monkeypatch_free = dict(cfg)
+    spec = remotes.load_remote("trueforge", monkeypatch_free)
+    d = spec.public_dict()
+    assert d["label"] == "TrueForge"
+
+
+def test_whitespace_title_falls_back_to_derived_label():
+    cfg = _cfg(
+        **{
+            "trueforge_lab": {"base_url": "http://tf-b.example.test:8791", "title": "   "},
+        },
+    )
+    spec = remotes.load_remote("trueforge_lab", cfg)
+    d = spec.public_dict()
+    assert d["label"] == "TrueForge (trueforge_lab)"
+
+
+def test_persist_remote_accepts_and_clears_title(tmp_path, monkeypatch):
+    """Settings path: persist a title, then clear it back to derived."""
+    import json
+
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg_path = tmp_path / "swarm_config.json"
+    cfg_path.write_text(json.dumps({"remotes": {}}), encoding="utf-8")
+    spec, _ = remotes.persist_remote(
+        "trueforge-2",
+        base_url="http://tf-a.example.test:8791",
+        title="TrueForge (ubuntu-gtx)",
+        config_path=cfg_path,
+    )
+    assert spec.title == "TrueForge (ubuntu-gtx)"
+    on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert on_disk["remotes"]["trueforge-2"]["title"] == "TrueForge (ubuntu-gtx)"
+
+    # Reload from disk and confirm the label projection follows.
+    spec2 = remotes.load_remote("trueforge-2", json.loads(cfg_path.read_text(encoding="utf-8")))
+    assert spec2.public_dict()["label"] == "TrueForge (ubuntu-gtx)"
+
+    # Clearing restores the derived label.
+    spec3, _ = remotes.persist_remote("trueforge-2", title="   ", config_path=cfg_path)
+    assert "trueforge-2" == spec3.id
+    on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert not (on_disk["remotes"]["trueforge-2"].get("title") or "").strip()
+    d3 = remotes.load_remote(
+        "trueforge-2",
+        {"remotes": {"trueforge-2": on_disk["remotes"]["trueforge-2"]}},
+    ).public_dict()
+    assert d3["label"] == "TrueForge (trueforge-2)"

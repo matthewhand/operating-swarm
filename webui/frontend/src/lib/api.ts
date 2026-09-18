@@ -806,6 +806,7 @@ export interface RemotesListResponse {
 export interface AddRemoteRequest {
   kind: string
   id?: string
+  title?: string
   base_url?: string
   api_key_env?: string
   api_key?: string
@@ -891,6 +892,14 @@ export function createRemote(remote: CreateRemoteRequest): Promise<RemoteConnect
 
 export function deleteRemote(remoteId: string): Promise<void> {
   return apiDelete(`/v1/remotes/${encodeURIComponent(remoteId)}/`)
+}
+
+/** PATCH /v1/remotes/<id>/ — #503: name (or clear the name of) an instance. */
+export function patchRemote(
+  remoteId: string,
+  body: { title?: string },
+): Promise<RemoteConnection> {
+  return apiPatch<RemoteConnection>(`/v1/remotes/${encodeURIComponent(remoteId)}/`, body)
 }
 
 export function probeRemoteHealth(remoteId: string): Promise<RemoteHealthResult> {

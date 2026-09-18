@@ -422,3 +422,65 @@ describe('AddRemoteForm pre-save test connection (REQ-889)', () => {
     })
   })
 })
+
+describe('#503 naming remote instances', () => {
+  it('AddRemoteForm sends the optional name as title', async () => {
+    const addSpy = vi.spyOn(api, 'addRemote').mockResolvedValue({
+      id: 'trueforge-2',
+      kind: 'trueforge',
+      title: 'TrueForge (gtx)',
+      label: 'TrueForge (gtx)',
+      base_url: 'http://127.0.0.1:8791',
+    } as any)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <AddRemoteForm kinds={[{ id: 'trueforge', label: 'TrueForge' }]} onAdded={() => {}} />
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: 'TrueForge (gtx)' } })
+    fireEvent.change(screen.getByLabelText(/Base URL/i), { target: { value: 'http://127.0.0.1:8791' } })
+    fireEvent.click(screen.getByRole('button', { name: /add remote/i }))
+    await waitFor(() => {
+      expect(addSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'TrueForge (gtx)' }))
+    })
+  })
+
+  it('RemoteOperatePane offers rename and PATCHes the new title', async () => {
+    const patchSpy = vi.spyOn(api, 'patchRemote').mockResolvedValue({
+      id: 'trueforge-2',
+      kind: 'trueforge',
+      title: 'Forge B',
+      label: 'Forge B',
+      base_url: 'http://127.0.0.1:8791',
+    } as any)
+    renderPane({ id: 'trueforge-2', label: 'TrueForge (trueforge-2)', title: 'TrueForge (trueforge-2)', base_url: 'http://127.0.0.1:8791' } as any)
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+    fireEvent.change(screen.getByLabelText(/Instance name/i), { target: { value: 'Forge B' } })
+    fireEvent.click(screen.getByRole('button', { name: /save name/i }))
+    await waitFor(() => {
+      expect(patchSpy).toHaveBeenCalledWith('trueforge-2', { title: 'Forge B' })
+    })
+  })
+
+  it('RemoteOperatePane can clear the name back to the derived label', async () => {
+    const patchSpy = vi.spyOn(api, 'patchRemote').mockResolvedValue({
+      id: 'trueforge-2',
+      kind: 'trueforge',
+      title: '',
+      label: 'TrueForge (trueforge-2)',
+      base_url: 'http://127.0.0.1:8791',
+    } as any)
+    renderPane({ id: 'trueforge-2', label: 'Forge B', title: 'Forge B', base_url: 'http://127.0.0.1:8791' } as any)
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+    fireEvent.change(screen.getByLabelText(/Instance name/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /save name/i }))
+    await waitFor(() => {
+      expect(patchSpy).toHaveBeenCalledWith('trueforge-2', { title: '' })
+    })
+  })
+})

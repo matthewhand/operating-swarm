@@ -173,6 +173,35 @@ class TestRemoteDetail:
         resp = api_client.patch("/v1/remotes/hermes/", {}, format="json")
         assert resp.status_code == 400
 
+    @patch("swarm.views.remotes_api.remotes_core.persist_remote")
+    def test_patch_title_round_trips_as_label(self, mock_persist, api_client):
+        """#503: PATCH a title, GET-style payload reports it as label."""
+        named = _spec("hermes-2")
+        named.kind = "hermes"
+        named.title = "Hermes (box-a)"
+        mock_persist.return_value = (named, "/tmp/swarm_config.json")
+        resp = api_client.patch(
+            "/v1/remotes/hermes-2/",
+            {"title": "Hermes (box-a)"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        # The title reached persist_remote, not dropped on the floor.
+        assert mock_persist.call_args.kwargs.get("title") == "Hermes (box-a)"
+        assert resp.json()["label"] == "Hermes (box-a)"
+
+    @patch("swarm.views.remotes_api.remotes_core.persist_remote")
+    def test_patch_title_clear_restores_derived_label(self, mock_persist, api_client):
+        """#503: clearing the title (empty string) re-derives the label."""
+        derived = _spec()
+        derived.title = "Hermes Agent (hermes)"
+        mock_persist.return_value = (derived, "/tmp/swarm_config.json")
+        resp = api_client.patch("/v1/remotes/hermes/", {"title": ""}, format="json")
+        assert resp.status_code == 200
+        assert mock_persist.call_args.kwargs.get("title") == ""
+        # _spec has no instance id, so the bare-kind label is used.
+        assert resp.json()["label"] != "TrueForge (box-a)"
+
     @patch("swarm.views.remotes_api.remotes_core.delete_remote")
     def test_delete(self, mock_delete, api_client):
         mock_delete.return_value = ("omb", "/tmp/swarm_config.json")

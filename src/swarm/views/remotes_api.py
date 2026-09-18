@@ -60,6 +60,7 @@ class RemotesListView(APIView):
             fields={
                 "kind": serializers.CharField(required=False, help_text="hermes, omb, rakazo, herdr, swarm"),
                 "id": serializers.CharField(required=False),
+                "title": serializers.CharField(required=False, allow_blank=True, help_text="#503: human-readable instance name — becomes the picker label"),
                 "base_url": serializers.CharField(required=False, allow_blank=True),
                 "api_key": serializers.CharField(required=False, allow_blank=True),
                 "api_key_env": serializers.CharField(required=False, allow_blank=True),
@@ -89,6 +90,7 @@ class RemotesListView(APIView):
         if kind:
             kwargs["kind"] = str(kind)
         for field in (
+            "title",
             "base_url",
             "api_key",
             "api_key_env",
@@ -142,6 +144,7 @@ class RemoteDetailView(APIView):
         request=inline_serializer(
             name="RemotePatchRequest",
             fields={
+                "title": serializers.CharField(required=False, allow_blank=True, help_text="#503: human-readable instance name — becomes the picker label; empty clears it"),
                 "base_url": serializers.CharField(required=False, allow_blank=True),
                 "api_key": serializers.CharField(required=False, allow_blank=True),
                 "api_key_env": serializers.CharField(required=False, allow_blank=True),
@@ -162,6 +165,7 @@ class RemoteDetailView(APIView):
         body = request.data if isinstance(request.data, dict) else {}
         kwargs: dict = {}
         for field in (
+            "title",
             "base_url",
             "api_key",
             "api_key_env",

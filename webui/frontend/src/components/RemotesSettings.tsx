@@ -9,6 +9,7 @@ import {
   OPERATE_LIST_TIMEOUT_MS,
   OPERATE_SEND_TIMEOUT_MS,
   operateRemote,
+  patchRemote,
   probeRemoteHealth,
   testRemoteCandidate,
   type RemoteConnection,
@@ -63,6 +64,7 @@ export function AddRemoteForm({
       ]
   const [kind, setKind] = useState(options[0]?.id ?? 'omb')
   const [remoteId, setRemoteId] = useState('')
+  const [title, setTitle] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [herdrMode, setHerdrMode] = useState<'local' | 'ssh'>('local')
@@ -78,6 +80,9 @@ export function AddRemoteForm({
       addRemote({
         kind,
         ...(remoteId.trim() ? { id: remoteId.trim() } : {}),
+        // #503: an optional human name makes two instances of one kind
+        // distinguishable in the picker/rail without editing config JSON.
+        ...(title.trim() ? { title: title.trim() } : {}),
         ...(herdr
           ? {
               herdr_mode: herdrMode,
@@ -265,6 +270,15 @@ export function AddRemoteForm({
       ) : (
         <>
           <Input
+            label="Name (optional)"
+            name="remote-title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="e.g. Forge B — shown in pickers when you run two of a kind"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Input
             label="Base URL"
             name="remote-base-url"
             value={baseUrl}
@@ -403,8 +417,22 @@ export function humanizeCron(cron: string): string {
 }
 
 export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
-  const { error } = useToast()
+  const { error, success } = useToast()
+  const queryClient = useQueryClient()
   const label = remoteKindLabel(remote.id, remote.label || remote.title)
+  // #503: null = form closed; string = the draft being edited.
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
+  const renameMutation = useMutation({
+    mutationFn: () => patchRemote(remote.id, { title: nameDraft?.trim() ?? '' }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: REMOTES_QUERY_KEY })
+      setNameDraft(null)
+      success('Instance renamed', remoteKindLabel(updated.id, updated.label || updated.title))
+    },
+    onError: (err: Error) => {
+      error('Rename failed', err.message)
+    },
+  })
   const isOmb = isOpenMousBotKind(remote.id)
   const isHerdr = isHerdrKind(remote.id)
   // Herdr's send hard-requires a target (src/swarm/core/remotes.py), so Send
@@ -542,7 +570,44 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-lg font-semibold">{label}</h4>
+        <div className="flex items-start justify-between gap-2">
+          <h4 className="text-lg font-semibold">{label}</h4>
+          {/* #503: name an instance in the product — no config-JSON hand-editing. */}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs"
+            onClick={() => setNameDraft(remote.title || '')}
+          >
+            Rename
+          </button>
+        </div>
+        {nameDraft !== null && (
+          <form
+            className="mt-2 space-y-2 rounded-lg border border-base-300 bg-base-200/40 p-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              renameMutation.mutate()
+            }}
+          >
+            <Input
+              label="Instance name"
+              name="remote-instance-name"
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              placeholder="Shown in pickers and the rail; empty reverts to Kind (id)"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <div className="flex items-center gap-2">
+              <Button type="submit" variant="primary" size="sm" loading={renameMutation.isPending}>
+                Save name
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setNameDraft(null)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
         <p className="mt-1 text-sm text-base-content/70">
           {isHerdr
             ? herdrLocationLabel(remote)
