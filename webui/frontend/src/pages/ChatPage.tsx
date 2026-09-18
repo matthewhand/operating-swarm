@@ -2397,6 +2397,10 @@ const ChatPage = () => {
   const hasSendableDraft =
     !pendingAttachments.some((item) => item.status === 'uploading') &&
     (input.trim().length > 0 || readyAttachIds.length > 0)
+  // #595: one signal for the composer's trailing controls — the Stop button
+  // swaps into the microphone's slot while a turn is in flight, so the row
+  // keeps a constant control count and never shifts under the pointer.
+  const composerBusy = status === 'open' && generationIsInFlight(messages, awaitingAssistant)
 
   const enqueueComposerFiles = useCallback((files: File[]) => {
     if (files.length === 0) return
@@ -4467,23 +4471,19 @@ const ChatPage = () => {
                       Esc
                     </kbd>
                   )}
-                  <button
-                    type="button"
-                    className="os-composer__icon"
-                    aria-label={sttListening ? 'Stop voice input' : 'Voice input'}
-                    aria-pressed={sttListening}
-                    data-testid="composer-mic"
-                    data-stt-path={sttPathUsed ?? undefined}
-                    onClick={handleMic}
-                  >
-                    <Mic className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                  {sttPathUsed ? (
-                    <span className="sr-only" data-testid="stt-path">
-                      Voice input used {describeSpeechPath(sttPathUsed, 'stt')}
-                    </span>
-                  ) : null}
-                  {status === 'open' && generationIsInFlight(messages, awaitingAssistant) ? (
+                  {!composerBusy ? (
+                    <button
+                      type="button"
+                      className="os-composer__icon"
+                      aria-label={sttListening ? 'Stop voice input' : 'Voice input'}
+                      aria-pressed={sttListening}
+                      data-testid="composer-mic"
+                      data-stt-path={sttPathUsed ?? undefined}
+                      onClick={handleMic}
+                    >
+                      <Mic className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  ) : (
                     <button
                       type="button"
                       className="os-composer__icon os-composer__stop"
@@ -4494,6 +4494,11 @@ const ChatPage = () => {
                     >
                       <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
                     </button>
+                  )}
+                  {sttPathUsed ? (
+                    <span className="sr-only" data-testid="stt-path">
+                      Voice input used {describeSpeechPath(sttPathUsed, 'stt')}
+                    </span>
                   ) : null}
                   {hasSendableDraft ? (
                     <button

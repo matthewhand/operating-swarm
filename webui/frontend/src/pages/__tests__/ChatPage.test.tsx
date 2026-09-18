@@ -1749,7 +1749,10 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     expect(composer).toHaveValue('')
     expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
+    // #595: the send puts the turn in flight — Stop now occupies the mic's
+    // slot (swap, not an extra icon), so the mic is gone until it settles.
+    expect(screen.queryByRole('button', { name: 'Voice input' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('composer-stop')).toBeInTheDocument()
   })
 
   it('ghosts composer shortcut chips until hover or focus, swapping Enter/Esc by draft', async () => {
