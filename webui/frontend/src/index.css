@@ -2286,6 +2286,16 @@ button.os-agent-row {
   background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
   color: var(--color-base-content);
 }
+/* #634: the scope row is keyboard-reachable (←/↑ from the top of the list). */
+.os-search-palette__scope--focus {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: 0.35rem;
+}
+.os-search-palette__scope-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+  outline-offset: 1px;
+}
 .os-routing-menu__back,
 .os-routing-menu__empty,
 .os-routing-menu__loading,

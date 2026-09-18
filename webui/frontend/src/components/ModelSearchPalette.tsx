@@ -55,7 +55,12 @@ export default function ModelSearchPalette({
   // the chip — a fresh open re-tightens the list, matching "scoped by default".
   const [scopeCleared, setScopeCleared] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
+  // #634: keyboard focus lives either on the result rows or on the scope row
+  // (chip / reveal control), so ← and ↑ from the top of the list can reach it.
+  const [focusMode, setFocusMode] = useState<'rows' | 'scope'>('rows')
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const chipRef = useRef<HTMLSpanElement | null>(null)
+  const scopeClearRef = useRef<HTMLButtonElement | null>(null)
 
   const scopeOn = Boolean(scopeLabel) && !scopeCleared
   // #504: the option set itself swaps — scoped list by default, the full
@@ -70,12 +75,16 @@ export default function ModelSearchPalette({
 
   useEffect(() => {
     setActiveIdx(0)
+    setFocusMode('rows')
+    descendFromRef.current = null
   }, [query, effectiveModels, open])
 
   useEffect(() => {
     if (!open) return
     setQuery('')
     setScopeCleared(false)
+    setFocusMode('rows')
+    descendFromRef.current = null
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [open])
 
@@ -101,6 +110,50 @@ export default function ModelSearchPalette({
   activeIdxRef.current = activeIdx
   const visibleRef = useRef(visible)
   visibleRef.current = visible
+  const groupsRef = useRef(groups)
+  groupsRef.current = groups
+  const scopeOnRef = useRef(scopeOn)
+  scopeOnRef.current = scopeOn
+  const focusModeRef = useRef(focusMode)
+  focusModeRef.current = focusMode
+  // #634: agent row the user descended from (agent row → its model group).
+  const descendFromRef = useRef<number | null>(null)
+
+  /** First visible row index of the given group (groups are contiguous). */
+  const groupStart = useCallback((groupIdx: number) => {
+    let start = 0
+    for (let i = 0; i < groupIdx && i < groupsRef.current.length; i += 1) {
+      start += groupsRef.current[i].models.length
+    }
+    return start
+  }, [])
+
+  /**
+   * #634: the model group an agent row descends into. Groups nest by the
+   * `Parent · child` naming convention (the picker emits `CLI · agy models`),
+   * so prefer the selection's own subgroup; with exactly two groups the other
+   * one is unambiguous.
+   */
+  const descendTargetGroup = useCallback((provider: string, label: string) => {
+    const groups = groupsRef.current
+    const own = groups.findIndex((g) => g.name === provider)
+    const ownName = own >= 0 ? groups[own].name : provider
+    const byLabel = groups.findIndex(
+      (g) => g.name === `${ownName} · ${label} models` || g.name.startsWith(`${ownName} · ${label}`),
+    )
+    if (byLabel >= 0) return byLabel
+    const byPrefix = groups.findIndex((g) => g.name.startsWith(`${ownName} ·`))
+    if (byPrefix >= 0) return byPrefix
+    if (groups.length === 2 && own >= 0) return 1 - own
+    return -1
+  }, [])
+
+  const focusScope = useCallback(() => {
+    const el = scopeOnRef.current ? chipRef.current : scopeClearRef.current
+    if (!el) return
+    setFocusMode('scope')
+    el.focus()
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -113,16 +166,75 @@ export default function ModelSearchPalette({
       }
       if (event.key === 'ArrowDown') {
         event.preventDefault()
+        setFocusMode('rows')
         setActiveIdx((i) => Math.min(i + 1, Math.max(0, items.length - 1)))
         return
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault()
+        // #634: from the very top, ↑ reaches the scope row (chip / reveal).
+        if (activeIdxRef.current === 0 && focusModeRef.current === 'rows' && scopeLabel) {
+          focusScope()
+          return
+        }
+        setFocusMode('rows')
         setActiveIdx((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (event.key === 'Home') {
+        event.preventDefault()
+        setFocusMode('rows')
+        setActiveIdx(0)
+        return
+      }
+      if (event.key === 'End') {
+        event.preventDefault()
+        setFocusMode('rows')
+        setActiveIdx(Math.max(0, items.length - 1))
+        return
+      }
+      // #634: ←/→ mirror the reading direction. Inline-end descends from an
+      // agent row into its model group (and exits the scope row); inline-start
+      // returns from a descent, or reaches the scope row from the very top.
+      const rtl = document.documentElement.getAttribute('dir') === 'rtl'
+      const inlineEnd = rtl ? 'ArrowLeft' : 'ArrowRight'
+      const inlineStart = rtl ? 'ArrowRight' : 'ArrowLeft'
+      if (event.key === inlineEnd) {
+        event.preventDefault()
+        if (focusModeRef.current === 'scope') {
+          setFocusMode('rows')
+          setActiveIdx(0)
+          return
+        }
+        const current = items[activeIdxRef.current]
+        const provider = (current?.provider || '').trim()
+        const isAgentRow = Boolean(current?.kind) && scopeOnRef.current && provider !== ''
+        if (!isAgentRow) return
+        const groupIdx = descendTargetGroup(provider, current?.label || '')
+        if (groupIdx < 0) return
+        descendFromRef.current = activeIdxRef.current
+        setFocusMode('rows')
+        setActiveIdx(groupStart(groupIdx))
+        return
+      }
+      if (event.key === inlineStart) {
+        event.preventDefault()
+        if (activeIdxRef.current === 0 && descendFromRef.current === null) {
+          focusScope()
+          return
+        }
+        if (focusModeRef.current === 'rows') {
+          const from = descendFromRef.current
+          if (from !== null && items[from]) {
+            descendFromRef.current = null
+            setActiveIdx(from)
+          }
+        }
         return
       }
       if (event.key === 'Enter') {
         if (event.target instanceof HTMLButtonElement) return
+        if (focusModeRef.current === 'scope') return // scope row handles its own activation
         event.preventDefault()
         choose(items[activeIdxRef.current])
         return
@@ -134,7 +246,7 @@ export default function ModelSearchPalette({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [choose, onClose, open])
+  }, [choose, onClose, open, groupStart, descendTargetGroup, focusScope, scopeLabel])
 
   if (!open) return null
 
@@ -177,16 +289,36 @@ export default function ModelSearchPalette({
         </div>
 
         {scopeLabel ? (
-          <div className="os-search-palette__scope" data-testid="os-palette-scope-row">
+          <div
+            className={[
+              'os-search-palette__scope',
+              focusMode === 'scope' ? 'os-search-palette__scope--focus' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            data-testid="os-palette-scope-row"
+          >
             <span
+              ref={chipRef}
+              tabIndex={scopeCleared ? -1 : 0}
               className="os-search-palette__scope-chip"
               data-testid="os-palette-scope"
               title="Showing options for the current context only"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setScopeCleared(true)
+                  onClearScope?.()
+                  setFocusMode('rows')
+                }
+              }}
             >
               {scopeLabel}
             </span>
             <button
               type="button"
+              ref={scopeClearRef}
               className="os-search-palette__scope-clear"
               data-testid="os-palette-scope-clear"
               aria-label={
@@ -194,8 +326,9 @@ export default function ModelSearchPalette({
               }
               aria-pressed={scopeCleared}
               onClick={() => {
-                setScopeCleared(true)
-                onClearScope?.()
+                // The label promises 'restore scope' — make the toggle real.
+                if (!scopeCleared) onClearScope?.()
+                setScopeCleared(!scopeCleared)
               }}
             >
               {scopeCleared ? 'Showing all — restore scope' : 'Show all configured options ✕'}
