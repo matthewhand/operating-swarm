@@ -68,11 +68,13 @@ describe('REQ-210: Unread blue dot (replaces timestamp) + Mark as unread', () =>
     const unreadDots = await screen.findAllByTestId('rail-unread-dot')
     expect(unreadDots.length).toBeGreaterThan(0)
 
-    // Verify stewie row has unread dot with group-hover/row:hidden class for Alt swap
+    // Verify stewie row has the unread dot.
+    // #500: it no longer carries `group-hover/row:hidden` — the Alt swap is now
+    // opacity-only on the layered tip, so the dot's own box is never swapped.
     const stewieRow = screen.getByRole('link', { name: /stewie/i })
     const dotInStewie = stewieRow.querySelector('[data-testid="rail-unread-dot"]')
     expect(dotInStewie).toBeInTheDocument()
-    expect(dotInStewie?.className).toContain('group-hover/row:hidden')
+    expect(dotInStewie?.className).not.toContain('group-hover/row:hidden')
     expect(dotInStewie?.className).toContain('bg-sky-500')
 
     // Verify timestamp is replaced (no rail-row-timestamp inside stewie row)

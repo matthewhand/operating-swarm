@@ -262,6 +262,7 @@ import {
   DEFAULT_RAIL_WIDTH,
 } from '../lib/railResize'
 import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
+import RailRowSlot from './RailRowSlot'
 
 const EMPTY_BLUEPRINTS: Blueprint[] = []
 
@@ -2542,37 +2543,17 @@ export default function AgentSidebar({
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="os-rail-row-name text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
-            <span className="flex items-center gap-1 shrink-0 relative">
-              {spillSlot ? (
-                <span
-                  className="os-rail-shortcut text-[10px] font-mono text-base-content/40 opacity-70 group-hover/row:inline-block hidden"
-                  aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${spillSlot}`}
-                  data-testid="spill-hotkey"
-                >
-                  {isMac ? `⌥${spillSlot}` : `Alt+${spillSlot}`}
-                </span>
-              ) : null}
-              {unread ? (
-                <span
-                  className={`os-rail-unread-dot inline-block h-2 w-2 rounded-full bg-sky-500 shrink-0 ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  aria-label="Unread"
-                  data-testid="rail-unread-dot"
-                />
-              ) : roleBadgeNode ? (
-                roleBadgeNode
-              ) : timestampLabel ? (
-                <span
-                  className={`os-rail-timestamp text-xs text-base-content/40 tabular-nums ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  data-testid="rail-row-timestamp"
-                >
-                  {timestampLabel}
-                </span>
-              ) : null}
+            {/* #500/#501: name and slot share one line, so the tip layers over
+                the time instead of occupying a line of its own. */}
+            <span className="os-rail-name-line text-sm font-semibold leading-5">
+              <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
+              <RailRowSlot
+                spillSlot={spillSlot}
+                isMac={isMac}
+                unread={unread}
+                badge={roleBadgeNode}
+                timestampLabel={timestampLabel}
+              />
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
@@ -2829,35 +2810,14 @@ export default function AgentSidebar({
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="os-rail-row-name text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
-            <span className="flex items-center gap-1 shrink-0 relative">
-              {spillSlot ? (
-                <span
-                  className="os-rail-shortcut text-[10px] font-mono text-base-content/40 opacity-70 group-hover/row:inline-block hidden"
-                  aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${spillSlot}`}
-                  data-testid="spill-hotkey"
-                >
-                  {isMac ? `⌥${spillSlot}` : `Alt+${spillSlot}`}
-                </span>
-              ) : null}
-              {unread ? (
-                <span
-                  className={`os-rail-unread-dot inline-block h-2 w-2 rounded-full bg-sky-500 shrink-0 ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  aria-label="Unread"
-                  data-testid="rail-unread-dot"
-                />
-              ) : teamTimestampLabel ? (
-                <span
-                  className={`os-rail-timestamp shrink-0 text-xs text-base-content/40 tabular-nums ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  data-testid="rail-row-timestamp"
-                >
-                  {teamTimestampLabel}
-                </span>
-              ) : null}
+            <span className="os-rail-name-line text-sm font-semibold leading-5">
+              <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
+              <RailRowSlot
+                spillSlot={spillSlot}
+                isMac={isMac}
+                unread={unread}
+                timestampLabel={teamTimestampLabel}
+              />
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
@@ -2968,35 +2928,14 @@ export default function AgentSidebar({
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="os-rail-row-name text-sm font-semibold leading-5" title={name} data-testid="rail-agent-name">{name}</span>
-            <span className="flex items-center gap-1 shrink-0 relative">
-              {spillSlot ? (
-                <span
-                  className="os-rail-shortcut text-[10px] font-mono text-base-content/40 opacity-70 group-hover/row:inline-block hidden"
-                  aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${spillSlot}`}
-                  data-testid="spill-hotkey"
-                >
-                  {isMac ? `⌥${spillSlot}` : `Alt+${spillSlot}`}
-                </span>
-              ) : null}
-              {unread ? (
-                <span
-                  className={`os-rail-unread-dot inline-block h-2 w-2 rounded-full bg-sky-500 shrink-0 ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  aria-label="Unread"
-                  data-testid="rail-unread-dot"
-                />
-              ) : remoteTimestampLabel ? (
-                <span
-                  className={`os-rail-timestamp text-xs text-base-content/40 tabular-nums ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  data-testid="rail-row-timestamp"
-                >
-                  {remoteTimestampLabel}
-                </span>
-              ) : null}
+            <span className="os-rail-name-line text-sm font-semibold leading-5">
+              <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
+              <RailRowSlot
+                spillSlot={spillSlot}
+                isMac={isMac}
+                unread={unread}
+                timestampLabel={remoteTimestampLabel}
+              />
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">

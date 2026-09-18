@@ -1322,6 +1322,80 @@ button.os-agent-row {
   color: color-mix(in srgb, var(--color-base-content) 45%, transparent);
   white-space: nowrap;
 }
+
+/* #500 / #501: the name line owns the row's right slot.
+
+   The ⌥N tip used to occupy its own line inside the label column, so a row
+   whose slot was otherwise empty collapsed to zero height there and grew on
+   hover. The tip is now layered over the slot, which makes revealing it an
+   opacity change with no box in the flow — it can add neither height nor a
+   claim on the name's width. */
+.os-rail-name-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+/* The name wins the remaining space and is cut with the #556 fade. */
+.os-rail-name-line .os-rail-row-name {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+.os-rail-slot {
+  position: relative;
+  /* One owner's height, so a tenant swap cannot resize the line. */
+  min-height: 1rem;
+}
+.os-rail-slot__badge,
+.os-rail-slot__time {
+  display: inline-flex;
+  align-items: center;
+  transition: opacity 0.12s ease;
+}
+.os-rail-shortcut--layered {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+/* Visibility only. No `display` swap, no `hidden`→`inline-block` — that swap is
+   the regression #500 records. Focus also reveals it, so the tip is reachable
+   without a pointer. */
+.os-agent-row:hover .os-rail-shortcut--layered,
+.os-agent-row:focus-visible .os-rail-shortcut--layered,
+.os-rail-slot:focus-within .os-rail-shortcut--layered {
+  opacity: 1;
+}
+/* The tip sits *over* the time rather than replacing it in a way that reflows:
+   the time fades out on hover and the two never both hold the box. */
+.os-agent-row:hover .os-rail-slot--has-tip .os-rail-slot__time,
+.os-agent-row:hover .os-rail-slot--has-tip .os-rail-slot__badge {
+  opacity: 0;
+}
+
+/* #500 / #501 progressive disclosure, in yield order: the tip goes first, then
+   the static badge, and the time survives longest because it is the slot's
+   owner. The name is never a tenant here — it keeps `flex: 1 1 0%` throughout,
+   so it survives all three thresholds. The narrowest rule sits above the
+   avatar-only width (96px), where the label column is gone entirely. */
+@container (max-width: 150px) {
+  .os-rail-shortcut--layered {
+    display: none;
+  }
+}
+@container (max-width: 128px) {
+  .os-rail-slot__badge {
+    display: none;
+  }
+}
+@container (max-width: 112px) {
+  .os-rail-slot__time {
+    display: none;
+  }
+}
 .os-agent-row-wrap {
   display: flex;
   align-items: flex-start;
