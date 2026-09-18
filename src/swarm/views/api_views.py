@@ -743,6 +743,45 @@ class BlueprintSourceView(APIView):
 
     patch = put
 
+    @extend_schema(summary="Format blueprint source (proposal)", request=_source_update_request)
+    def post(self, request, blueprint_id, *_args, **_kwargs):
+        """#537: pretty-print the posted draft and return it as a proposal.
+
+        The draft is the request body — nothing is read from or written to
+        disk, so the user's unsaved edits stay theirs until they press Save
+        (which runs the full validation gate). Non-``.py`` files are 400.
+        No formatter on the host is an honest 501.
+        """
+        body = request.data or {}
+        content = body.get("content")
+        if content is None:
+            return Response(
+                {"error": "content is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not isinstance(content, str):
+            return Response(
+                {"error": "content must be a string"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        file_name = body.get("file") or request.query_params.get("file")
+        if isinstance(file_name, str):
+            file_name = file_name.strip() or None
+        else:
+            file_name = None
+
+        from swarm.core.blueprint_source import format_python_source
+
+        result = format_python_source(content, file_name)
+        if not result.available:
+            no_formatter = "formatter is available" in (result.detail or "")
+            return Response(
+                {"error": result.detail or "formatting unavailable"},
+                status=status.HTTP_501_NOT_IMPLEMENTED if no_formatter
+                else status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"formatted": result.formatted, "file": file_name})
+
 
 def _swarm_runtime_config() -> dict:
     """App-cached swarm_config, or an empty dict. Never raises."""

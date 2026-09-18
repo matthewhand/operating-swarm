@@ -7,6 +7,10 @@ read-only. Never execs source; validation is ``compile`` + AST sandbox.
 
 from __future__ import annotations
 
+import shutil
+import subprocess  # noqa: S404 - fixed argv, no shell, stdin-only (see format_python_source)
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -284,6 +288,72 @@ def _custom_disk_dir(item: dict[str, Any], blueprint_id: str) -> Path | None:
     if user_dir is not None and user_dir.is_dir():
         return user_dir
     return None
+
+
+@dataclass(frozen=True)
+class FormatResult:
+    """Outcome of a formatter pass (#537). A proposal — never a save."""
+
+    available: bool
+    formatted: str | None = None
+    detail: str | None = None
+
+
+def _format_via_ruff(source: str, filename: str) -> str | None:
+    """Format with the ruff CLI when present. Returns None when unusable.
+
+    The formatter runs as a fixed-argv subprocess reading stdin (no shell,
+    no network, source never touches disk), so a formatter bug cannot write
+    anything the save path would not already accept.
+    """
+    exe = shutil.which("ruff") or shutil.which(str(Path(sys.executable).parent / "ruff"))
+    if not exe:
+        try:
+            import ruff  # noqa: F401 - availability probe only
+        except ImportError:
+            return None
+        exe = str(Path(sys.executable).parent / "ruff")
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv is fixed below
+            [exe, "format", "--stdin-filename", filename, "-"],
+            input=source,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    return proc.stdout
+
+
+def format_python_source(source: str, filename: str | None = None) -> FormatResult:
+    """Pretty-print Python source for the Definition editor (#537).
+
+    A proposal, not a save: the caller fills the draft and the user still
+    presses Save (which runs the full ``validate_writable_source`` gate).
+    Python-only — markdown/json/… must not be "formatted". When no formatter
+    is importable the result is honestly ``available=False``.
+    """
+    name = (filename or "blueprint.py").rsplit("/", 1)[-1]
+    suffix = ""
+    if "." in name:
+        suffix = "." + name.rsplit(".", 1)[-1].lower()
+    if suffix and suffix != ".py":
+        return FormatResult(
+            available=False,
+            detail=f"Formatting is Python-only — {suffix or 'this file type'} is not formatted.",
+        )
+    if not isinstance(source, str) or not source.strip():
+        return FormatResult(available=False, detail="Nothing to format.")
+    formatted = _format_via_ruff(source, name)
+    if formatted is None:
+        return FormatResult(
+            available=False,
+            detail="No Python formatter is available on this host (install ruff or black).",
+        )
+    return FormatResult(available=True, formatted=formatted)
 
 
 def validate_writable_source(content: str, filename: str | None) -> None:

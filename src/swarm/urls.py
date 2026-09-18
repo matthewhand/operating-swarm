@@ -237,6 +237,9 @@ urlpatterns = [
     # Slash + no-slash twins (same pattern as /v1/responses and /v1/chat/completions).
     path("v1/blueprints/<str:blueprint_id>/source", BlueprintSourceView.as_view(), name="blueprint-source"),
     path("v1/blueprints/<str:blueprint_id>/source/", BlueprintSourceView.as_view(), name="blueprint-source-slash"),
+    # #537: format is a proposal endpoint on the same view (POST method).
+    path("v1/blueprints/<str:blueprint_id>/source/format", BlueprintSourceView.as_view(), name="blueprint-source-format"),
+    path("v1/blueprints/<str:blueprint_id>/source/format/", BlueprintSourceView.as_view(), name="blueprint-source-format-slash"),
     path("v1/blueprints/<str:blueprint_id>/personas", BlueprintPersonasView.as_view(), name="blueprint-personas"),
     path(
         "v1/blueprints/<str:blueprint_id>/personas/",

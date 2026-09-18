@@ -298,3 +298,53 @@ def test_cli_agent_models_all(client, monkeypatch):
     data = resp.json()
     assert data[0]["models"] == []
     assert data[1] == {"cli": "opencode", "models": ["opencode/big-pickle"]}
+
+
+# --- #537: POST /v1/blueprints/<id>/source/format — a proposal, not a save ---
+
+
+@pytest.mark.django_db
+def test_format_endpoint_pretty_prints_a_proposal(client, monkeypatch):
+    """Formatting fills the draft — it must never write to disk."""
+    monkeypatch.setenv("SWARM_USER_DATA_DIR", "/tmp/format-537-must-not-exist")
+    from swarm.core.paths import get_user_blueprints_dir
+
+    bp_dir = get_user_blueprints_dir() / "user_recipe_fmt"
+    bp_dir.mkdir(parents=True, exist_ok=True)
+    target = bp_dir / "blueprint_user_recipe_fmt.py"
+    original = "def f( a,b ):\n  return a+b  # keep\n"
+    target.write_text(original)
+
+    resp = client.post(
+        "/v1/blueprints/user_recipe_fmt/source/format",
+        data={"content": original, "file": "blueprint_user_recipe_fmt.py"},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["formatted"] != original
+    assert "def f(a, b):" in body["formatted"]
+    assert "# keep" in body["formatted"]
+    # Proposal, not a save:
+    assert target.read_text() == original
+
+
+@pytest.mark.django_db
+def test_format_endpoint_rejects_non_python_files(client):
+    resp = client.post(
+        "/v1/blueprints/cli_fusion/source/format",
+        data={"content": "# md", "file": "README.md"},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400
+    assert "python" in resp.json()["error"].lower()
+
+
+@pytest.mark.django_db
+def test_format_endpoint_requires_content(client):
+    resp = client.post(
+        "/v1/blueprints/cli_fusion/source/format",
+        data={},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400

@@ -1472,6 +1472,21 @@ export function updateBlueprintSource(
   })
 }
 
+/**
+ * POST /v1/blueprints/<id>/source/format — #537 pretty-print proposal.
+ * Returns the formatted draft; the caller fills the editor and the user
+ * still presses Save. Rejects with ApiError (400/501) otherwise.
+ */
+export function formatBlueprintSource(
+  id: string,
+  body: { content: string; file?: string },
+): Promise<{ formatted: string; file?: string | null }> {
+  return apiPost<{ formatted: string; file?: string | null }>(
+    `/v1/blueprints/${encodeURIComponent(id)}/source/format`,
+    { content: body.content, ...(body.file ? { file: body.file } : {}) },
+  )
+}
+
 /** GET /v1/blueprints/<id>/personas — declared openai-agents roster (REQ-81). */
 export interface BlueprintPersonas {
   object: 'blueprint.personas'
