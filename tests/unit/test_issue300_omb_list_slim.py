@@ -62,7 +62,24 @@ def test_omb_list_401_is_honest_auth_not_timeout():
 
 
 def test_omb_list_403_is_honest_auth():
+    """#541: with a key configured, a bare 403 must not demand a key — it is
+    not a config fault; the server refused the request for another reason."""
     spec = _spec(api_key="wrong")
+    with patch("swarm.core.remotes.http_json") as mock_http:
+        mock_http.return_value = HttpResult(
+            status=403,
+            error="http 403",
+            url="http://198.51.100.32:8800/api/bots?messages=0",
+        )
+        res = _omb_list(spec, timeout=5.0)
+    assert res.ok is False
+    assert res.http_status == 403
+    assert "OMB_API_KEY" not in res.detail
+    assert "forbidden" in res.detail.lower()
+
+
+def test_omb_list_403_without_key_still_advises():
+    spec = _spec(api_key="")
     with patch("swarm.core.remotes.http_json") as mock_http:
         mock_http.return_value = HttpResult(
             status=403,

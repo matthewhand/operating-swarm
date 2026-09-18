@@ -1949,11 +1949,15 @@ def _check_health_spec(
             url=health_url,
         )
     if result.status in _AUTH:
+        # #541: a pairing/loopback policy rejection is not "auth required" —
+        # say so, so "up but unpaired" is distinguishable at a glance.
+        policy = _pairing_policy_reason(result)
+        note = "pairing/loopback policy refuses this host" if policy else "auth required — endpoint is alive"
         return HealthResult(
             remote=spec.id,
             ok=True,
             state="UP",
-            detail=f"tcp {tcp_ms}ms · http {result.status} (auth required — endpoint is alive)",
+            detail=f"tcp {tcp_ms}ms · http {result.status} ({note})",
             http_status=result.status,
             version=version or {"auth_required": True},
             latency_ms=result.latency_ms,
@@ -2496,6 +2500,58 @@ def _omb_poll_assistant(
         time.sleep(min(max(_OMB_POLL_INTERVAL_S, 0.0), remaining))
 
 
+_OMB_PAIRING_MARKERS = ("loopback host required", "pair this device", "device pairing", "loopback")
+
+
+def _pairing_policy_reason(result: HttpResult) -> str:
+    """The harness's own pairing/loopback reason, or '' (#541).
+
+    Lets health keep reachability and authorisation as separate facts: "up but
+    unpaired" must be distinguishable from "down" at a glance.
+    """
+    body = result.body if isinstance(result.body, dict) else {}
+    for key in ("error", "message", "detail", "reason"):
+        val = body.get(key)
+        if isinstance(val, str) and any(m in val.lower() for m in _OMB_PAIRING_MARKERS):
+            return val.strip()
+    return ""
+
+
+def _omb_auth_rejection_detail(spec: RemoteSpec, result: HttpResult, op_label: str) -> str:
+    """Honest sentence for an OMB 401/403 — names the real cause (#541).
+
+    - The harness's own reason is carried through when the body carries one;
+      our text is fallback only.
+    - A pairing/loopback policy rejection never mentions keys or settings:
+      the key was accepted, so "set OMB_API_KEY" is misinformation that sends
+      the operator to a fix that cannot work.
+    - A genuinely missing key still gets the classic, correct hint.
+    """
+    body = result.body if isinstance(result.body, dict) else {}
+    harness_reason = ""
+    for key in ("error", "message", "detail", "reason"):
+        val = body.get(key)
+        if isinstance(val, str) and val.strip():
+            harness_reason = val.strip()
+            break
+    lowered = harness_reason.lower()
+    key_set = bool((spec.api_key or "").strip()) and not _is_unresolved_placeholder(spec.api_key)
+    if harness_reason and any(marker in lowered for marker in _OMB_PAIRING_MARKERS):
+        return (
+            f"OpenMousBot refused this host: {harness_reason}. "
+            "Pair this device with OpenMousBot, call it from its own host "
+            "(loopback), or front it with a proxy. Your key is not the problem."
+        )
+    if not key_set:
+        return f"OpenMousBot {op_label} requires auth. Set remotes.omb.api_key or OMB_API_KEY."
+    if result.status == 401:
+        return (
+            f"OpenMousBot {op_label} rejected the configured key (http 401). "
+            "Check remotes.omb.api_key / OMB_API_KEY."
+        )
+    return f"OpenMousBot {op_label} forbidden (http 403)" + (f": {harness_reason}" if harness_reason else "")
+
+
 def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
     base_url = (spec.base_url or "").rstrip("/")
     timeout_s = min(float(timeout or _OPERATE_TIMEOUT_S), 10.0)
@@ -2520,7 +2576,9 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
             remote="omb",
             op="list",
             ok=False,
-            detail="OpenMousBot /api/bots requires auth. Set remotes.omb.api_key or OMB_API_KEY.",
+            # #541: distinguish "key missing" from "policy refused this host"
+            # instead of always claiming the config is at fault.
+            detail=_omb_auth_rejection_detail(spec, result, "list"),
             http_status=result.status,
             data=result.body,
             gap=OMB_BOT_REQUIRED_GAP,
@@ -2582,6 +2640,16 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
         timeout=timeout_s,
     )
     if result.status not in _UP:
+        if result.status in _AUTH:
+            # #541: same honest classification as list — pairing policy vs key.
+            return OperateResult(
+                remote="omb",
+                op="send",
+                ok=False,
+                detail=_omb_auth_rejection_detail(spec, result, "send"),
+                http_status=result.status,
+                data=result.body or result.text,
+            )
         return OperateResult(
             remote="omb",
             op="send",
