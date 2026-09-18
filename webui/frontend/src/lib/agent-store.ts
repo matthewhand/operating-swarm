@@ -13,7 +13,10 @@ import {
   type OversightRole,
   type RoleAssignments,
 } from './agent-roles'
-import { assignUniqueLooks } from './agent-utils'
+import {
+  assignUniqueLooks,
+  applyAvatarThemeChoice,
+} from './agent-utils'
 import {
   agentsForTeam,
   captureTeam,
@@ -45,6 +48,7 @@ import {
   AVATAR_THEME_SET_EVENT,
   AVATAR_THEMES_ENABLED_EVENT,
   dispatchAvatarTheme,
+  loadAvatarThemeChoice,
   loadEnabledAvatarThemes,
   stripDisabledAvatarThemes,
 } from './avatarTheme'
@@ -154,6 +158,8 @@ interface AgentStoreState {
   unpinFavourite: (agentId: string) => void
   setAgentRole: (subjectId: string, role: OversightRole, assigneeId: string | null) => void
   shuffleLooks: () => void
+  /** #563: stamp every agent with the persisted default-theme choice. */
+  applyDefaultThemeChoice: () => void
   saveAsTeam: (name: string) => string | null
   loadTeam: (teamId: string) => void
 }
@@ -785,6 +791,31 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         avatarThemeByAgent: looks.themes,
         avatarEyesByAgent: looks.eyes,
       }
+    }),
+
+  /** #563: stamp every agent with the persisted default-theme choice. */
+  applyDefaultThemeChoice: () =>
+    set((state) => {
+      const choice = loadAvatarThemeChoice()
+      if (choice === 'mixed') {
+        const looks = assignUniqueLooks(
+          state.agents.map((a) => a.agent_id),
+          state.avatarThemeByAgent,
+          state.avatarEyesByAgent,
+          { reassignAll: true, themes: loadEnabledAvatarThemes() },
+        )
+        saveStored('agent_avatar_theme_by_agent', looks.themes)
+        saveStored('agent_avatar_eyes_by_agent', looks.eyes)
+        return { avatarThemeByAgent: looks.themes, avatarEyesByAgent: looks.eyes }
+      }
+      const looks = applyAvatarThemeChoice(
+        state.agents.map((a) => a.agent_id),
+        choice,
+        loadEnabledAvatarThemes(),
+      )
+      saveStored('agent_avatar_theme_by_agent', looks.themes)
+      saveStored('agent_avatar_eyes_by_agent', looks.eyes)
+      return { avatarThemeByAgent: looks.themes, avatarEyesByAgent: looks.eyes }
     }),
 
   saveAsTeam: (name) => {

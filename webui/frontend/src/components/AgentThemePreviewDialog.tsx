@@ -48,7 +48,8 @@ export default function AgentThemePreviewDialog({
     <Modal isOpen={isOpen} onClose={onClose} title="Choose theme" size="md">
       {families.length === 0 ? (
         <p className="text-sm text-base-content/70" data-testid="agent-theme-preview-empty">
-          Enable at least one theme in Settings → Rail → Installed themes.
+          Enable at least one theme in Settings → Rail → Installed themes (or
+          pick the Default theme there for agents without an explicit pick).
         </p>
       ) : (
         <div className="flex flex-col gap-3" data-testid="agent-theme-preview">
