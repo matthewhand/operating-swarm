@@ -210,3 +210,25 @@ async def test_omp_smoke_run_never_stamps_store(tmp_path, monkeypatch):
 
 def test_default_omp_sessions_dir_is_agent_bucket():
     assert DEFAULT_OMP_SESSIONS_DIR == "~/.omp/agent/sessions"
+
+
+# ── real-world id shape (#640 skeptic fix) ──────────────────────────────────
+
+
+def test_latest_omp_session_id_accepts_hyphenated_uuid(tmp_path):
+    """Real omp ids are hyphenated UUIDs — they must not be filtered out."""
+    real = "01a0b694-440e-740c-aa3a-cfa4e89c4847"
+    _make_omp_session(tmp_path, real, age=1.0)
+    assert latest_omp_session_id(str(tmp_path)) == real
+
+
+def test_latest_omp_session_id_still_ignores_junk_stems(tmp_path):
+    _make_omp_session(tmp_path, "01a0b694-440e-740c-aa3a-cfa4e89c4847", age=9.0)
+    bucket = tmp_path / "-home-me-proj"
+    (bucket / "20260919_0800_not-an-id.jsonl").write_text("{}", encoding="utf-8")
+    (bucket / "20260919_0800_partial.jsonl").write_text("{}", encoding="utf-8")
+    (bucket / "README.txt").write_text("x", encoding="utf-8")
+    assert (
+        latest_omp_session_id(str(tmp_path))
+        == "01a0b694-440e-740c-aa3a-cfa4e89c4847"
+    )

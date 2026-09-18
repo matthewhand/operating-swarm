@@ -225,7 +225,13 @@ def read_qwen_transcript(
 
 # omp session ids are hex strings (16 chars in current builds; accept 8+ so
 # older/shorter schemes still resolve without letting prose through).
-_OMP_ID_RE = re.compile(r"[0-9a-fA-F]{8,}")
+# omp session ids are hyphenated UUIDs (e.g. 01a0b694-440e-740c-aa3a-
+# cfa4e89c4847, seen live in ~/.omp/agent/sessions). The original fullmatch on
+# [0-9a-f]{8,} rejected every real id (hyphens), so the lister filtered out all
+# sessions and #640 never resumed. Accept compact hex too — fixture shape and
+# tolerant of omp id-format drift — but still demand hex-only segments so junk
+# stems ("partial", "not-an-id") never look like ids.
+_OMP_ID_RE = re.compile(r"[0-9a-fA-F]{8,}(?:-[0-9a-fA-F]{4,})*")
 
 
 def list_omp_sessions(store_dir: str | Path | None) -> list[dict[str, Any]]:
