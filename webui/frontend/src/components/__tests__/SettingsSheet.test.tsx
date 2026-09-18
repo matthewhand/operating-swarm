@@ -198,16 +198,16 @@ describe('SettingsSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
     expect(await screen.findByRole('button', { name: /Add remote/i })).toBeInTheDocument()
     expect(screen.getByText(/No remotes configured/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Hermes' })).not.toBeInTheDocument()
+    // #573: kinds are not enumerated on the page — they live behind Add remote.
+    expect(screen.queryByTestId('remotes-kind-popup')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('remotes-add-button'))
+    expect(await screen.findByTestId('remotes-kind-popup')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'OMB' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Rakazo' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Swarm' })).not.toBeInTheDocument()
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Add remote/i }))
-    fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), {
-      target: { value: 'swarm' },
-    })
+    // #573: swarm is chosen in the popup (already open from above); the form
+    // then shows its nested-swarm copy.
+    fireEvent.click(screen.getByTestId('remote-kind-swarm'))
     expect(screen.getByText(/do not add this instance as its own remote/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Retention' }))
@@ -381,15 +381,15 @@ describe('SettingsSheet', () => {
     )
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
-    fireEvent.click(await screen.findByRole('button', { name: /Add remote/i }))
-    const kindSelect = await screen.findByRole('combobox', { name: 'Kind' })
-    expect(within(kindSelect).getByRole('option', { name: 'OpenMousBot' })).toBeInTheDocument()
-    fireEvent.change(kindSelect, { target: { value: 'omb' } })
-    expect(kindSelect).toHaveValue('omb')
+    // #573: Add remote opens the kind picker; pick OpenMousBot there.
+    fireEvent.click(await screen.findByTestId('remotes-add-button'))
+    const kindPopup = screen.getByTestId('remotes-kind-popup')
+    expect(kindPopup).toBeInTheDocument()
+    fireEvent.click(within(kindPopup).getByTestId('remote-kind-omb'))
     fireEvent.change(screen.getByRole('textbox', { name: 'URL' }), {
       target: { value: 'http://127.0.0.1:8802' },
     })
-    fireEvent.submit(kindSelect.closest('form') as HTMLFormElement)
+    fireEvent.submit(screen.getByLabelText('Add remote form'))
 
     const rows = await screen.findByRole('list', { name: 'Configured remotes' })
     expect(within(rows).getByText('OpenMousBot')).toBeInTheDocument()
@@ -482,6 +482,60 @@ describe('SettingsSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     expect(await screen.findByText(/started OpenMousBot turn/)).toBeInTheDocument()
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
+  })
+
+  // #573 acceptance: a configured kind stays visible in the popup but disabled
+  // with its reason, not omitted (the #511 read).
+  it('kind popup disables configured kinds with a reason and enables free ones', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          object: 'list',
+          kinds: [
+            { id: 'hermes', label: 'Hermes' },
+            { id: 'omb', label: 'OpenMousBot' },
+            { id: 'trueforge', label: 'TrueForge' },
+          ],
+          configured: [
+            {
+              id: 'omb',
+              kind: 'omb',
+              label: 'OpenMousBot',
+              title: 'OpenMousBot',
+              host_label: '',
+              base_url: 'http://127.0.0.1:8802',
+              source: 'config',
+            },
+            {
+              id: 'trueforge_a',
+              kind: 'trueforge',
+              label: 'TrueForge',
+              title: 'TrueForge A',
+              host_label: '',
+              base_url: 'http://127.0.0.1:8791',
+              source: 'config',
+            },
+          ],
+          data: [],
+        }),
+      } as Response),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
+    fireEvent.click(await screen.findByTestId('remotes-add-button'))
+
+    const omb = screen.getByTestId('remote-kind-omb')
+    expect(omb).toBeDisabled()
+    expect(omb.getAttribute('title') || '').toMatch(/already configured/i)
+    // trueforge is deliberately multi-instance (#503): one instance configured
+    // does not disable adding another.
+    const trueforge = screen.getByTestId('remote-kind-trueforge')
+    expect(trueforge).toBeEnabled()
+    const hermes = screen.getByTestId('remote-kind-hermes')
+    expect(hermes).toBeEnabled()
   })
 
   it('reloads the pane when the Remote picker changes, so one remote never keeps another\'s targets (#453)', async () => {

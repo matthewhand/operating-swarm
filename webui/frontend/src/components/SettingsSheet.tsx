@@ -45,7 +45,6 @@ import {
   isHerdrKind,
   remoteKindLabel,
   remoteKinds,
-  unusedRemoteKinds,
 } from '../lib/remotes'
 import {
   TASK_CLASS_LABELS,
@@ -1079,6 +1078,10 @@ function RemotesCatalogPane({
   const [sshIdentityEnv, setSshIdentityEnv] = useState('')
   const [sshAgent, setSshAgent] = useState(true)
   const [selectedId, setSelectedId] = useState('')
+  // #573: the available kinds live in a picker popup behind `+ Add remote`, not
+  // in an always-visible form on the page. The page shows what is configured;
+  // the popup is the single place a kind choice is made.
+  const [kindPickerOpen, setKindPickerOpen] = useState(false)
   const addingHerdr = isHerdrKind(kind)
 
   const remotesQuery = useQuery({
@@ -1089,18 +1092,15 @@ function RemotesCatalogPane({
   const catalog = remotesQuery.data
   const configured = configuredRemotes(catalog)
   const kinds = remoteKinds(catalog)
-  const unused = unusedRemoteKinds(catalog)
-
-  useEffect(() => {
-    if (!kind && unused[0]) setKind(unused[0].id)
-  }, [kind, unused])
 
   useEffect(() => {
     if (!selectedId && configured[0]) setSelectedId(configured[0].id)
   }, [selectedId, configured])
 
   useEffect(() => {
-    if (startAdding) setAdding(true)
+    // #573: the bind path (zero remotes elsewhere) opens the kind picker, not
+    // a pre-selected form — the kind choice always happens in the popup.
+    if (startAdding) setKindPickerOpen(true)
   }, [startAdding])
 
   const addMutation = useMutation({
@@ -1273,27 +1273,25 @@ function RemotesCatalogPane({
               result panes leak into the next one (#453 follow-up). */}
           {selected ? <RemoteOperatePane key={selected.id} remote={selected} /> : null}
 
-          {adding ? (
-            <form className="space-y-3 rounded-box border border-base-300 p-3" onSubmit={handleAdd}>
-              <Select
-                label="Kind"
-                name="remote-kind"
-                size="sm"
-                value={kind}
-                onChange={(event) => setKind(event.target.value)}
-              >
-                {unused.length === 0 ? (
-                  <option value="" disabled>
-                    All kinds added
-                  </option>
-                ) : (
-                  unused.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))
-                )}
-              </Select>
+          {adding && kind ? (
+            <form
+              className="space-y-3 rounded-box border border-base-300 p-3"
+              aria-label="Add remote form"
+              onSubmit={handleAdd}
+            >
+              <p className="text-sm text-base-content/70" data-testid="remotes-add-kind">
+                Kind: <strong>{remoteKindLabel(kind, kinds)}</strong>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs ml-2"
+                  onClick={() => {
+                    setKind('')
+                    setKindPickerOpen(true)
+                  }}
+                >
+                  Change
+                </button>
+              </p>
               <Input
                 label="Remote ID (optional)"
                 name="remote-id"
@@ -1437,11 +1435,76 @@ function RemotesCatalogPane({
               </div>
             </form>
           ) : (
-            <Button type="button" variant="outline" size="sm" onClick={() => setAdding(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-haspopup="dialog"
+              aria-expanded={kindPickerOpen}
+              data-testid="remotes-add-button"
+              onClick={() => setKindPickerOpen((open) => !open)}
+            >
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add remote
             </Button>
           )}
+
+          {kindPickerOpen ? (
+            <div
+              role="dialog"
+              aria-label="Available remote kinds"
+              data-testid="remotes-kind-popup"
+              className="space-y-2 rounded-box border border-base-300 p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h5 className="text-sm font-semibold">Add a remote</h5>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  aria-label="Close remote kinds popup"
+                  onClick={() => setKindPickerOpen(false)}
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+              <ul className="space-y-1">
+                {kinds.map((item) => {
+                  // #573: a kind already configured stays visible but disabled
+                  // with the reason on hover (the #511 read), except trueforge,
+                  // which is deliberately multi-instance (#503).
+                  const alreadyConfigured = configured.some(
+                    (remote) => (remote.kind || remote.id) === item.id,
+                  )
+                  const available = !alreadyConfigured || item.id === 'trueforge'
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm w-full justify-between ${available ? '' : 'btn-disabled'}`}
+                        disabled={!available}
+                        title={
+                          available
+                            ? `Add a ${item.label} remote`
+                            : `${item.label} is already configured — remove it first or pick another kind`
+                        }
+                        data-testid={`remote-kind-${item.id}`}
+                        onClick={() => {
+                          setKind(item.id)
+                          setAdding(true)
+                          setKindPickerOpen(false)
+                        }}
+                      >
+                        <span>{item.label}</span>
+                        {alreadyConfigured ? (
+                          <span className="badge badge-ghost badge-sm">configured</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ) : null}
         </>
       )}
     </div>

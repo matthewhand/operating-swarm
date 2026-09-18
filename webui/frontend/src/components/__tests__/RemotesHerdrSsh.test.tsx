@@ -81,8 +81,8 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Add remote/i }))
 
-    const kindSelect = screen.getByLabelText(/Kind/i)
-    fireEvent.change(kindSelect, { target: { value: 'herdr' } })
+    // #573: kind is picked in the popup now
+    fireEvent.click(screen.getByTestId('remote-kind-herdr'))
 
     expect(screen.getByText(/not HTTP/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/^URL$/i)).not.toBeInTheDocument()
