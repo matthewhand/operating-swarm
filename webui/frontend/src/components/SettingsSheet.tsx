@@ -153,6 +153,8 @@ export interface OpenSettingsDetail {
   definitionId?: string
   /** Open the Remotes pane already on the add form (zero-remotes bind path). */
   addRemote?: boolean
+  /** #494: open Remotes focused on this remote instance (auth-gap remedy). */
+  remoteId?: string
   /** REQ-88: jump to that provider's rate-limit fields. */
   providerId?: string
   focusRateLimits?: boolean
@@ -271,6 +273,8 @@ export interface SettingsSheetProps {
   initialAddRemote?: boolean
   initialProviderId?: string | null
   focusRateLimits?: boolean
+  /** #494: remote instance to focus when opening on the Remotes section. */
+  initialRemoteId?: string | null
 }
 
 /**
@@ -292,6 +296,7 @@ export default function SettingsSheet({
   initialAddRemote = false,
   initialProviderId = null,
   focusRateLimits = false,
+  initialRemoteId = null,
 }: SettingsSheetProps) {
   const { success, error: toastError } = useToast()
   const [section, setSection] = useState<SettingsSection>('retention')
@@ -355,6 +360,9 @@ export default function SettingsSheet({
       if (kind === 'cli') setSection('cli-agents')
       else if (kind === 'remote') setSection('remotes')
       else setSection('llm-profiles')
+    } else if (initialRemoteId) {
+      // #494: deep-link from the picker's auth-gap fix button.
+      setSection('remotes')
     } else if (blueprintId) {
       setSection('blueprint')
       setSelectedBlueprintId(blueprintId)
@@ -366,7 +374,7 @@ export default function SettingsSheet({
     return () => {
       cancelled = true
     }
-  }, [isOpen, blueprintId, initialSection, initialProviderId])
+  }, [isOpen, blueprintId, initialSection, initialProviderId, initialRemoteId])
 
   useEffect(() => {
     const onHostnameChanged = (event: Event) => {

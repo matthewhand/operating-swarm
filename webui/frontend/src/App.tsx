@@ -236,6 +236,7 @@ function App() {
           definitionId={settingsDetail?.definitionId}
           initialAddRemote={settingsDetail?.addRemote}
           initialProviderId={settingsDetail?.providerId}
+          initialRemoteId={settingsDetail?.remoteId}
           focusRateLimits={settingsDetail?.focusRateLimits}
         />
         <AgentEditor

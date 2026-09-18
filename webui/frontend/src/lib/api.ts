@@ -841,6 +841,13 @@ export interface RemoteOperateResult {
   http_status?: number | null
   data?: unknown
   gap?: string
+  /** #494: machine-readable remedy for a classified failure (absent otherwise). */
+  action?: {
+    kind: 'settings'
+    section: 'remotes'
+    remote?: string
+    field?: string
+  } | null
 }
 
 export function fetchRemotes(): Promise<RemotesListResponse> {

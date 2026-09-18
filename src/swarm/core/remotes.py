@@ -646,9 +646,24 @@ class OperateResult:
     http_status: int | None = None
     data: Any = None
     gap: str = ""
+    # #494: machine-readable remedy for a known failure class — e.g.
+    # {"kind": "settings", "section": "remotes", "remote": "omb",
+    #  "field": "api_key_env"}. Frontend renders it as a link; absent action
+    # degrades to today's text (no regression for unmapped codes).
+    action: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _settings_action(remote_id: str, field: str = "api_key_env") -> dict[str, Any]:
+    """The one click that fixes an auth gap: Settings → Remotes, focused (#494)."""
+    return {
+        "kind": "settings",
+        "section": "remotes",
+        "remote": remote_id,
+        "field": field,
+    }
 
 
 @dataclass
@@ -2543,11 +2558,16 @@ def _omb_auth_rejection_detail(spec: RemoteSpec, result: HttpResult, op_label: s
             "(loopback), or front it with a proxy. Your key is not the problem."
         )
     if not key_set:
-        return f"OpenMousBot {op_label} requires auth. Set remotes.omb.api_key or OMB_API_KEY."
+        # #494: the field only accepts an env-var name (or ${PLACEHOLDER}) —
+        # never a literal key. Name the variable to set, not the field to fill.
+        return (
+            f"OpenMousBot {op_label} requires auth. Name the env var in "
+            "Settings → Remotes (e.g. OMB_API_KEY) and export it before calling."
+        )
     if result.status == 401:
         return (
             f"OpenMousBot {op_label} rejected the configured key (http 401). "
-            "Check remotes.omb.api_key / OMB_API_KEY."
+            "Check the env var named in Settings → Remotes (OMB_API_KEY)."
         )
     return f"OpenMousBot {op_label} forbidden (http 403)" + (f": {harness_reason}" if harness_reason else "")
 
@@ -2582,6 +2602,9 @@ def _omb_list(spec: RemoteSpec, timeout: float) -> OperateResult:
             http_status=result.status,
             data=result.body,
             gap=OMB_BOT_REQUIRED_GAP,
+            # #494: only the missing-key case is fixed by Settings. A policy
+            # refusal must not send the operator to a settings field.
+            action=None if _pairing_policy_reason(result) else _settings_action("omb"),
         )
     return OperateResult(
         remote="omb",
@@ -2995,13 +3018,20 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
             data={**payload, "rows_are": "agents", "resume_key": "session_id"},
         )
     if result.status in _AUTH:
+        env_var = spec.api_key_env or f"{spec.id.upper()}_API_KEY"
         return OperateResult(
             remote=spec.id,
             op="list",
             ok=False,
-            detail=f"TrueForge /api/v1/agents requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
+            # #494: name the env var to export — never "set remotes.<id>.api_key",
+            # which reads like the field takes a literal key (persist_remote refuses).
+            detail=(
+                f"TrueForge /api/v1/agents requires auth. Name the env var in "
+                f"Settings → Remotes (e.g. {env_var}) and export it before calling."
+            ),
             http_status=result.status,
             data=result.body,
+            action=_settings_action(spec.id),
         )
     return OperateResult(
         remote=spec.id,
@@ -3077,9 +3107,10 @@ def _trueforge_create_session(
             remote=spec.id,
             op="send",
             ok=False,
-            detail=f"TrueForge POST /api/v1/sessions requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
+            detail=f"TrueForge POST /api/v1/sessions requires auth. Name the env var in Settings → Remotes (e.g. {spec.api_key_env or 'TRUEFORGE_API_KEY'}) and export it before calling.",
             http_status=sess_resp.status,
             data=sess_resp.body,
+            action=_settings_action(spec.id),
         )
     if sess_resp.status not in _UP and sess_resp.status != 201:
         return "", OperateResult(
@@ -3151,9 +3182,10 @@ def _trueforge_send(
             remote=spec.id,
             op="send",
             ok=False,
-            detail=f"TrueForge POST /turns requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
+            detail=f"TrueForge POST /turns requires auth. Name the env var in Settings → Remotes (e.g. {spec.api_key_env or 'TRUEFORGE_API_KEY'}) and export it before calling.",
             http_status=turn_resp.status,
             data=turn_resp.body,
+            action=_settings_action(spec.id),
         )
     if turn_resp.status not in _UP and turn_resp.status not in (201, 202):
         if requested_session and turn_resp.status == 404:
@@ -3243,6 +3275,7 @@ def _trueforge_send(
                 detail="TrueForge turn poll requires auth.",
                 http_status=poll_resp.status,
                 data=poll_resp.body,
+                action=_settings_action(spec.id),
             )
         if poll_resp.status in _UP:
             turn_data = (
@@ -3355,9 +3388,10 @@ def _trueforge_routines(spec: RemoteSpec, timeout: float = _OPERATE_TIMEOUT_S) -
             remote=spec.id,
             op="routines",
             ok=False,
-            detail=f"TrueForge /api/v1/schedules requires auth. Set remotes.{spec.id}.api_key or {spec.api_key_env or 'TRUEFORGE_API_KEY'}.",
+            detail=f"TrueForge /api/v1/schedules requires auth. Name the env var in Settings → Remotes (e.g. {spec.api_key_env or 'TRUEFORGE_API_KEY'}) and export it before calling.",
             http_status=result.status,
             data={"routines": []},
+            action=_settings_action(spec.id),
         )
     if result.status not in _UP:
         return OperateResult(
@@ -3464,9 +3498,10 @@ def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None 
                 remote="herdr",
                 op="list",
                 ok=False,
-                detail="Herdr GET /agents requires auth. Set remotes.herdr.api_key or HERDR_API_KEY.",
+                detail="Herdr GET /agents requires auth. Name the env var in Settings → Remotes (e.g. HERDR_API_KEY) and export it before calling.",
                 http_status=result.status,
                 data=result.body,
+                action=_settings_action("herdr"),
             )
         return OperateResult(
             remote="herdr",

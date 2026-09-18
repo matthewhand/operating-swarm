@@ -260,6 +260,20 @@ import {
 } from '../lib/ombBots'
 import { isOpenMousBotKind } from '../lib/remoteKinds'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId } from '../lib/remotesCatalog'
+
+/** #494: machine-readable remedy the backend stamps on classified failures. */
+interface RemoteAction {
+  kind: 'settings'
+  section: 'remotes'
+  remote?: string
+  field?: string
+}
+
+function isRemoteAction(value: unknown): value is RemoteAction {
+  if (!value || typeof value !== 'object') return false
+  const rec = value as Record<string, unknown>
+  return rec.kind === 'settings' && rec.section === 'remotes'
+}
 import {
   ADD_REMOTE_VALUE,
   configuredRemotes,
@@ -3534,6 +3548,13 @@ const ChatPage = () => {
           modelOptions={remoteNavbarAgents}
           selectedModel={ombSelectedBotId || sessionFromUrl}
           modelWarning={remoteAgentWarning}
+          modelWarningAction={
+            remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
+              ? isRemoteAction(remoteAgentsQuery.data.action)
+                ? remoteAgentsQuery.data.action
+                : null
+              : null
+          }
           footerAction={{
             id: ADD_REMOTE_VALUE,
             label: 'Manage Remote',

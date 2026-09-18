@@ -73,12 +73,18 @@ def test_plain_403_with_key_set_does_not_demand_a_key():
 
 
 def test_missing_key_still_advises_the_env_var():
-    """No key configured + auth-shaped rejection → the classic, correct hint."""
+    """No key configured + auth-shaped rejection → name the env var (#494).
+
+    The copy deliberately no longer says "set remotes.omb.api_key": that
+    field only accepts an env-var name, so the honest instruction names the
+    variable and where it lives.
+    """
     res = _list_with_status_and_body(401, {"error": "Unauthorized"}, _spec(api_key=""))
     assert res.ok is False
     assert res.http_status == 401
-    assert "remotes.omb.api_key" in res.detail
+    assert "remotes.omb.api_key" not in res.detail
     assert "OMB_API_KEY" in res.detail
+    assert "export" in res.detail
 
 
 def test_loopback_403_keeps_body_out_of_the_bubble():

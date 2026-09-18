@@ -39,6 +39,7 @@ import {
   type RoutingSeatKind,
 } from '../lib/routingPath'
 import { OverlayFocusTrap } from './OverlayFocusTrap'
+import { openSettingsSheet } from './SettingsSheet'
 
 export interface RoutingAgentOption {
   id: string
@@ -69,6 +70,14 @@ export interface NavbarRoutingPickerProps {
   /** Nested options with labels (OpenMousBot bots, etc.). Ids feed `models`. */
   modelOptions?: RoutingAgentOption[]
   modelWarning?: string | null
+  /** #494: machine-readable remedy stamped by the backend (REQ-890 taxonomy).
+   * When present, the warning renders with a "Fix in Settings" link. */
+  modelWarningAction?: {
+    kind: 'settings'
+    section: 'remotes'
+    remote?: string
+    field?: string
+  } | null
   preferredEffort?: string
   onChange: (next: RoutingPathChange) => void
   footerAction?: RoutingFooterAction
@@ -111,6 +120,7 @@ export function NavbarRoutingPicker({
   selectedModel,
   modelOptions,
   modelWarning,
+  modelWarningAction,
   preferredEffort,
   onChange,
   footerAction,
@@ -657,6 +667,23 @@ export function NavbarRoutingPicker({
         {isModel && modelWarning && families.length === 0 && !modelsLoading ? (
           <div className="os-routing-menu__warning" data-testid="routing-model-warning" role="status">
             {modelWarning}
+            {modelWarningAction ? (
+              // #494: the failure names a config gap the backend has classified —
+              // give the prose a click target instead of a dead end.
+              <button
+                type="button"
+                className="btn btn-xs btn-primary mt-1"
+                data-testid="routing-model-warning-action"
+                onClick={() =>
+                  openSettingsSheet({
+                    section: modelWarningAction.section,
+                    remoteId: modelWarningAction.remote,
+                  })
+                }
+              >
+                Fix in Settings
+              </button>
+            ) : null}
           </div>
         ) : null}
         {items.length === 0 &&

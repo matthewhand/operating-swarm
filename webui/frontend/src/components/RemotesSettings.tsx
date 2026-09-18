@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import type { ReactElement } from 'react'
 import { filterRemoteSessionRows, sessionsFromOperateResult } from '../lib/remoteSessions'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, Plus, Server } from 'lucide-react'
@@ -22,6 +23,63 @@ import { isOpenMousBotKind, OPENMOUSBOT_LABEL, remoteKindLabel } from '../lib/re
 import { herdrLocationLabel, isHerdrKind } from '../lib/remotes'
 
 export const REMOTES_QUERY_KEY = ['settings-remotes'] as const
+
+/**
+ * #494 scope 3 — the "i" affordance next to the API-key story: names the env
+ * var this seat reads, whether it is currently set, and the *actual*
+ * precedence relationship from provenance (env does not blanket-override).
+ * Also corrects the standing misconception: this field takes an env-var NAME,
+ * never a literal key (persist_remote refuses plaintext).
+ */
+export function ApiKeyInfo({ remote }: { remote: RemoteConnection }): ReactElement {
+  const [open, setOpen] = useState(false)
+  const envVar = remote.api_key_env || ''
+  const badge = remote.provenance?.api_key
+  const badgeLine = badge?.label || ''
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        className="btn btn-ghost btn-xs px-1 gap-1 text-base-content/60"
+        data-testid="remote-api-key-info-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+        How API keys work here
+      </button>
+      {open ? (
+        <div
+          className="mt-1 rounded-box bg-base-200/60 p-2 text-xs leading-relaxed text-base-content/80"
+          data-testid="remote-api-key-info"
+        >
+          <p>
+            Auth reads the environment variable{' '}
+            {envVar ? (
+              <code className="rounded bg-base-300 px-1">{envVar}</code>
+            ) : (
+              'named in the API key env field'
+            )}
+            {remote.api_key_set ? ' — currently set.' : ' — currently not set.'}
+          </p>
+          {badgeLine ? (
+            <p className="mt-1">Precedence: {badgeLine}.</p>
+          ) : (
+            <p className="mt-1">
+              Precedence: the stored env-var name is used unless an override forces
+              the environment value (see the badge on each field).
+            </p>
+          )}
+          <p className="mt-1">
+            This field takes an env var <strong>name</strong> (or{' '}
+            <code className="rounded bg-base-300 px-1">${'{{PLACEHOLDER}}'}</code>) — a literal key
+            can never be stored here. Export the variable on this host, then retry.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 export function configuredRemoteSection(id: string): `remotes-${string}` {
   return `remotes-${id}`
@@ -613,6 +671,7 @@ export function RemoteOperatePane({ remote }: { remote: RemoteConnection }) {
             ? herdrLocationLabel(remote)
             : `${remote.base_url || 'No base URL'}${remote.api_key_env ? ` · env ${remote.api_key_env}` : ''}`}
         </p>
+        <ApiKeyInfo remote={remote} />
         {isHerdr ? (
           <p className="mt-1 text-sm text-base-content/70">
             Remote Herdr is SSH-shaped — not an HTTP remote like OpenMousBot / Hermes / Rakazo.
