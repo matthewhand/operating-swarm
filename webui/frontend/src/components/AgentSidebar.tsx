@@ -2561,7 +2561,7 @@ export default function AgentSidebar({
     const { snippet, timestamp } = getRowLastMessage(
       agent.id,
       sessions,
-      agent as any,
+      agent, // #601: typed RowActivityMeta — no `as any`
       cliActivityByAgent[agent.id] ?? null,
     )
     const timestampLabel = formatRailTimestamp(timestamp)
@@ -2838,8 +2838,8 @@ export default function AgentSidebar({
       )
     const { snippet: teamSnippet, timestamp: teamTime } = getRowLastMessage(
       teamHideId(team.id),
-      sessions as any,
-      team as any,
+      sessions,
+      team, // #601: TeamRoster.lastMessageAt — no `as any`
     )
     const teamTimestampLabel = formatRailTimestamp(teamTime)
     const unread = unreadIds.includes(hideId)
@@ -2949,8 +2949,8 @@ export default function AgentSidebar({
       )
     const { snippet: remoteSnippet, timestamp: remoteTime } = getRowLastMessage(
       hideId,
-      sessions as any,
-      remote as any,
+      sessions,
+      remote, // #601: RemoteEntry.lastMessageAt — no `as any`
     )
     const remoteTimestampLabel = formatRailTimestamp(remoteTime)
     const unread = unreadIds.includes(hideId)

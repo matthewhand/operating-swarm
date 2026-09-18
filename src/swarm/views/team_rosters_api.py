@@ -84,7 +84,26 @@ class TeamRostersAPIView(APIView):
     def get(self, request, *_args, **_kwargs):
         try:
             rosters = list(load_team_rosters().values())
-            data = [_public_roster(r) for r in rosters]
+            # #601: the rail's team-row time slot needs an honest instant.
+            # Team threads persist under ``team:<id>`` in the chat store.
+            from swarm.core.chat_store import rail_activity_index
+
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                from swarm.core.chat_store import user_key_for
+
+                activity = rail_activity_index(user_key=user_key_for(user))
+            else:
+                activity = rail_activity_index(user_key="u0")
+            data = []
+            for roster in rosters:
+                payload = _public_roster(roster)
+                # Store stems slugify ':' → '-': team threads persist as
+                # 'team-<id>.json', matching teamThreadId() on the SPA side.
+                instant = activity.get(f"team-{payload.get('id', '')}")
+                if instant:
+                    payload["last_message_at"] = instant
+                data.append(payload)
             return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
         except Exception:
             logger.exception("Error retrieving team rosters.")

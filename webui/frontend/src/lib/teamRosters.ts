@@ -84,6 +84,8 @@ export interface TeamRoster {
   blueprint?: string
   persona_count?: number
   personas?: Array<{ name: string }>
+  /** #601: server-stamped activity instant (epoch ms), absent when unknown. */
+  lastMessageAt?: number
 }
 
 /** One-team fixture so the sidepane stays visible without a live roster file. */
@@ -197,7 +199,19 @@ function parseRoster(raw: unknown): TeamRoster | null {
     ...(blueprintId ? { blueprintId, blueprint: blueprintId } : {}),
     ...(personaCount != null ? { persona_count: personaCount } : {}),
     ...(personas ? { personas } : {}),
+    ...parseRosterLastMessageAt(rec),
   }
+}
+
+/** #601: server stamps ISO-8601 or epoch-ms; normalise to epoch ms or absent. */
+function parseRosterLastMessageAt(rec: Record<string, unknown>): { lastMessageAt: number } | Record<string, never> {
+  const raw = rec.last_message_at ?? rec.lastMessageAt
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return { lastMessageAt: raw }
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = Date.parse(raw)
+    if (Number.isFinite(parsed)) return { lastMessageAt: parsed }
+  }
+  return {}
 }
 
 /** Accept list envelopes, `{ teams: [...] }`, or a bare array. */

@@ -39,15 +39,35 @@ class RemotesListView(APIView):
     def get(self, _request, *_args, **_kwargs):
         specs = remotes_core.load_all_remotes()
         configured = remotes_core.list_configured_remotes()
+        # #601: the rail's time slot needs an honest instant per remote row.
+        # The chat store is the source that actually knows; a remote with no
+        # persisted thread stays without the key (no fabricated "now").
+        from swarm.core.chat_store import rail_activity_index, user_key_for
+
+        user = getattr(_request, "user", None)
+        if user is not None and getattr(user, "is_authenticated", False):
+            activity = rail_activity_index(user_key=user_key_for(user))
+        else:
+            activity = rail_activity_index(user_key="u0")
+
+        def _stamped(spec):
+            payload = spec.public_dict()
+            # Store stems slugify ':' → '-', so a remote seat's thread file is
+            # 'remote-<id>.json' — matching the SPA's own thread keys.
+            instant = activity.get(f"remote-{spec.id}")
+            if instant:
+                payload["last_message_at"] = instant
+            return payload
+
         return Response(
             {
                 "object": "list",
                 "kinds": remotes_core.list_remote_kinds(),
                 "vocabulary": remotes_core.TEAM_VOCABULARY,
                 # ``data`` stays the operate trio (defaults included) for REQ-11 clients.
-                "data": [spec.public_dict() for spec in specs.values()],
+                "data": [_stamped(spec) for spec in specs.values()],
                 # Settings / dropdowns use ``configured`` — empty until the user adds one.
-                "configured": [spec.public_dict() for spec in configured],
+                "configured": [_stamped(spec) for spec in configured],
                 "team_members": remotes_core.list_team_members(),
             }
         )

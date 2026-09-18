@@ -35,6 +35,8 @@ export interface RemoteEntry {
   configured: boolean
   agents: RemoteAgent[]
   capabilities?: { sessions?: boolean; list?: boolean; send?: boolean }
+  /** #601: server-stamped activity instant (epoch ms), absent when unknown. */
+  lastMessageAt?: number
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -130,7 +132,26 @@ export function parseRemote(raw: unknown): RemoteEntry | null {
         send: capsRec.send === true,
       }
     : undefined
-  return { id, kind, title, configured, agents, capabilities }
+  return {
+    id,
+    kind,
+    title,
+    configured,
+    agents,
+    capabilities,
+    ...parseLastMessageAt(rec),
+  }
+}
+
+/** #601: server stamps ISO-8601 or epoch-ms; normalise to epoch ms or absent. */
+function parseLastMessageAt(rec: Record<string, unknown>): { lastMessageAt: number } | Record<string, never> {
+  const raw = rec.last_message_at ?? rec.lastMessageAt
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return { lastMessageAt: raw }
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = Date.parse(raw)
+    if (Number.isFinite(parsed)) return { lastMessageAt: parsed }
+  }
+  return {}
 }
 
 /**

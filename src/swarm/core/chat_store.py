@@ -507,6 +507,45 @@ def list_sessions(
     return items
 
 
+def rail_activity_index(
+    *,
+    base_dir: Path | None = None,
+    user_key: str = "u0",
+) -> dict[str, str]:
+    """Newest ``updated_at`` per seat id across every persisted thread (#601).
+
+    One directory listing serves the whole rail: keys are the thread ids the
+    store already uses (``team:<id>``, ``remote:<id>``, bare agent ids),
+    values are the ISO-8601 ``updated_at`` each ``save()`` stamps. Sessions
+    of one seat (``<id>__<sid>`` files) collapse into the newest. Honest
+    absence — a seat with no persisted thread is simply not in the map;
+    callers must not fabricate "now".
+    """
+    uk = _safe_id(user_key)
+    if uk is None:
+        return {}
+    root = store_dir(base_dir=base_dir) / "active" / uk
+    if not root.is_dir():
+        return {}
+    newest: dict[str, tuple[float, str]] = {}
+    for path in root.glob("*.json"):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        seat = path.stem.split("__", 1)[0]
+        record = _read_json(path) or {}
+        updated = record.get("updated_at")
+        if not (isinstance(updated, str) and updated.strip()):
+            continue
+        instant = _parse_iso(updated)
+        rank = instant.timestamp() if instant is not None else mtime
+        current = newest.get(seat)
+        if current is None or rank >= current[0]:
+            newest[seat] = (rank, updated)
+    return {seat: updated for seat, (_rank, updated) in newest.items()}
+
+
 def normalize_cli_sessions(raw: Any) -> dict[str, str]:
     """``{cli_name: session_id}`` with unsafe keys/values dropped (no secrets)."""
     from swarm.core.cli_sessions import sanitize_cli_session_id
