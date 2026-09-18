@@ -851,6 +851,20 @@ const ChatPage = () => {
     ? declaredRosterForTeam(selectedTeam, blueprintsQuery.data?.data ?? [])
     : null
   const selectedRemote = remotes.find((remote) => remote.id === remoteFromUrl) ?? null
+  // #528: a team selection loses the navbar avatar that single agents get. The
+  // member to show is "the one you are talking to": the navbar's explicit member
+  // when one is targeted, else `defaultSessionForTeam`'s rule (chief_of_staff_id,
+  // else CoS role, else first) — the same rule the rail's team row reads, so the
+  // two surfaces cannot disagree about which face represents the team.
+  const teamChatMemberId =
+    teamFromUrl && selectedTeam
+      ? memberTarget && memberTarget !== ALL_MEMBERS_TARGET
+        ? memberTarget
+        : (defaultSessionForTeam(selectedTeam)?.memberId ?? '')
+      : ''
+  const headerFaceAgentId = teamFromUrl
+    ? teamChatMemberId || teamFromUrl
+    : agentIdFromBlueprint(selectedBlueprint) || selectedBlueprint || ''
   const selectedRemoteSession = selectedRemote?.agents.find((agent) => agent.id === sessionFromUrl)
   const selectedTeamSession = selectedTeam?.members.find((member) => member.id === sessionFromUrl)
   // #108: only rail rows whose kind is actually 'cli' may drive the CLI
@@ -3407,22 +3421,33 @@ const ChatPage = () => {
                 label={`${selectedAgentName} declared members`}
                 size="md"
               />
-            ) : !teamFromUrl ? (
+            ) : (
+              // #528: a team without a declared roster used to render nothing
+              // here, so the navbar showed a bare name where a single agent gets
+              // an avatar. It now shows the team's chat face. The button form is
+              // only used when there is an agent to open generations *for* —
+              // otherwise a clickable control would lead nowhere.
               <button
                 type="button"
                 className="os-chat-header__avatar-btn shrink-0"
-                aria-label={`Show ${selectedAgentName} generations`}
-                aria-haspopup="dialog"
-                aria-expanded={generationsOpen}
-                data-testid="header-avatar-generations"
+                aria-label={
+                  teamFromUrl && !teamChatMemberId
+                    ? `${selectedAgentName} team`
+                    : `Show ${selectedAgentName} generations`
+                }
+                {...(teamFromUrl && !teamChatMemberId
+                  ? { 'aria-hidden': true as const, tabIndex: -1, disabled: true }
+                  : { 'aria-haspopup': 'dialog' as const, 'aria-expanded': generationsOpen })}
+                data-testid={teamFromUrl ? 'header-team-avatar' : 'header-avatar-generations'}
+                data-face-agent-id={teamFromUrl ? teamChatMemberId || undefined : undefined}
                 onClick={(event) => {
                   event.stopPropagation()
                   setGenerationsOpen((prev) => !prev)
                 }}
               >
                 <AgentAvatar
-                  src={selectedAgent?.avatar_path}
-                  agentId={agentIdFromBlueprint(selectedBlueprint)}
+                  src={teamFromUrl ? undefined : selectedAgent?.avatar_path}
+                  agentId={headerFaceAgentId}
                   active={isWorking}
                   status={isWorking ? 'working' : 'idle'}
                   size="lg"
@@ -3430,7 +3455,7 @@ const ChatPage = () => {
                   className="os-chat-header__avatar"
                 />
               </button>
-            ) : null}
+            )}
             <div className="os-navbar-identity-text min-w-0 flex-1">
               <h1 className="os-navbar-identity-label min-w-0 flex-1 text-base font-semibold tracking-tight">
                 <button
@@ -4655,7 +4680,7 @@ const ChatPage = () => {
       <GenerationsPanel
         open={generationsOpen}
         onClose={() => setGenerationsOpen(false)}
-        agentId={agentIdFromBlueprint(selectedBlueprint) || selectedBlueprint || ''}
+        agentId={headerFaceAgentId}
         agentName={selectedAgentName || 'Agent'}
         contexts={generationContexts}
         activeContextId={conversationId}

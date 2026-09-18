@@ -134,7 +134,7 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     expect(within(solo).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
   })
 
-  it('renders mini stacked avatars when team has 2 or more members', async () => {
+  it('#438: a 2-member team row is one chat face plus a +1, not a mini stack', async () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -146,11 +146,14 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const duo = await within(list).findByRole('link', { name: /Duo Team \(team\)/ })
 
-    // Duo team has 2 members -> mini stacked avatars
-    expect(duo).toHaveAttribute('data-stack-count', '2')
-    const stack = within(duo).getByLabelText('Duo Team members')
-    expect(stack).toHaveAttribute('data-avatar-stack', 'true')
-    expect(duo.querySelectorAll('.os-avatar-stack__face')).toHaveLength(2)
+    // REQ-216 asked for "mini stacked avatars only for 2+"; #438 supersedes that
+    // for the sidepane — one face + a remainder on every roster size, so the row
+    // beside a single-member team is the same shape.
+    expect(duo).toHaveAttribute('data-stack-count', '1')
+    expect(duo).toHaveAttribute('data-remainder', '1')
+    expect(duo.querySelectorAll('.os-avatar-stack__face')).toHaveLength(0)
+    expect(within(duo).getByTestId('team-chat-face')).toBeInTheDocument()
+    expect(within(duo).getByTestId('team-remainder')).toHaveTextContent('+1')
   })
 
   it('renders single normal-size avatar (no mini stack) when remote has only 1 member', async () => {
@@ -172,7 +175,7 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     expect(hermes.querySelectorAll('.os-avatar-stack__face')).toHaveLength(0)
   })
 
-  it('renders mini stacked avatars when remote has 2 or more members', async () => {
+  it('#438: a 2-member remote row is one chat face plus a +1', async () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -184,14 +187,14 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const duoRemote = await within(list).findByRole('link', { name: /Duo Remote \(remote\)/ })
 
-    // Duo remote has 2 members -> mini stacked avatars
-    expect(duoRemote).toHaveAttribute('data-stack-count', '2')
-    const stack = within(duoRemote).getByLabelText('Duo Remote members')
-    expect(stack).toHaveAttribute('data-avatar-stack', 'true')
-    expect(duoRemote.querySelectorAll('.os-avatar-stack__face')).toHaveLength(2)
+    // #438 applies to remotes identically — one implementation for both rows.
+    expect(duoRemote).toHaveAttribute('data-stack-count', '1')
+    expect(duoRemote).toHaveAttribute('data-remainder', '1')
+    expect(duoRemote.querySelectorAll('.os-avatar-stack__face')).toHaveLength(0)
+    expect(within(duoRemote).getByTestId('team-remainder')).toHaveTextContent('+1')
   })
 
-  it('REQ-891: renders at most 3 faces with no +N remainder chip for 4-member team, newest-active first when working', async () => {
+  it('#438: a 4-member team row is one face + a remainder of 3, and the face follows run state', async () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -203,20 +206,19 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const quadTeam = await within(list).findByRole('link', { name: /Quad Team \(team\)/ })
 
-    // 4 members -> capped at 3 faces with NO remainder chip
-    expect(quadTeam).toHaveAttribute('data-stack-count', '3')
-    expect(quadTeam).toHaveAttribute('data-remainder', '0')
-    expect(within(quadTeam).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
-    const faces = quadTeam.querySelectorAll('.os-avatar-stack__face')
-    expect(faces).toHaveLength(3)
-
-    // Q4 is working, so newest-active first: Q4 (00:04), Q3 (00:03), Q2 (00:02)
-    expect(faces[0]!.getAttribute('data-face-id')).toBe('q4')
-    expect(faces[1]!.getAttribute('data-face-id')).toBe('q3')
-    expect(faces[2]!.getAttribute('data-face-id')).toBe('q2')
+    // #438 replaces REQ-891's capped fan. The remainder is the roster minus the
+    // one shown face — a 4-member team is +3, and `teamSidepaneStack`'s cap of 3
+    // must not be allowed to under-report it as +2.
+    expect(quadTeam).toHaveAttribute('data-stack-count', '1')
+    expect(quadTeam).toHaveAttribute('data-remainder', '3')
+    expect(quadTeam.querySelectorAll('.os-avatar-stack__face')).toHaveLength(0)
+    expect(within(quadTeam).getByTestId('team-remainder')).toHaveTextContent('+3')
+    // Q4 is working, so newest-active-first ordering puts it at the front — the
+    // ordering rule is unchanged, it now selects the single shown face.
+    expect(within(quadTeam).getByTestId('team-chat-face').getAttribute('data-remainder')).toBe('3')
   })
 
-  it('REQ-891: renders at most 3 faces with no +N remainder chip for 4-member remote', async () => {
+  it('#438: a 4-member remote row is one face + a remainder of 3', async () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -228,14 +230,9 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const quadRemote = await within(list).findByRole('link', { name: /Quad Remote \(remote\)/ })
 
-    // 4 members -> capped at 3 faces with NO remainder chip, stable roster order when idle
-    expect(quadRemote).toHaveAttribute('data-stack-count', '3')
-    expect(quadRemote).toHaveAttribute('data-remainder', '0')
-    expect(within(quadRemote).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
-    const faces = quadRemote.querySelectorAll('.os-avatar-stack__face')
-    expect(faces).toHaveLength(3)
-    expect(faces[0]!.getAttribute('data-face-id')).toBe('qr1')
-    expect(faces[1]!.getAttribute('data-face-id')).toBe('qr2')
-    expect(faces[2]!.getAttribute('data-face-id')).toBe('qr3')
+    expect(quadRemote).toHaveAttribute('data-stack-count', '1')
+    expect(quadRemote).toHaveAttribute('data-remainder', '3')
+    expect(quadRemote.querySelectorAll('.os-avatar-stack__face')).toHaveLength(0)
+    expect(within(quadRemote).getByTestId('team-remainder')).toHaveTextContent('+3')
   })
 })

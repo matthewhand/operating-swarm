@@ -155,7 +155,12 @@ import {
   getChatConnection,
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
-import { markStackWorking, teamSidepaneStack, type StackFace } from '../lib/avatarStack'
+import {
+  markStackWorking,
+  teamChatFaceStack,
+  teamSidepaneStack,
+  type StackFace,
+} from '../lib/avatarStack'
 import {
   defaultSessionForRemote,
   defaultSessionForTeam,
@@ -250,7 +255,6 @@ import { useCurrentAgent, isSwarmOwnedSeat } from '../lib/currentAgent'
 import { ConfirmModal } from './DaisyUI'
 import RailContextMenu from './RailContextMenu'
 import RailSectionHeader, { RailSectionEmpty } from './RailSectionHeader'
-import AvatarStack from './AvatarStack'
 import StackedAvatars from './StackedAvatars'
 import {
   clampRailWidth,
@@ -2670,52 +2674,59 @@ export default function AgentSidebar({
     )
   }
 
+  /**
+   * #438: one face — the member you are talking to — plus a compact `+N` for
+   * everyone else. No fan of overlapping faces at rail size. `remainder` is
+   * omitted entirely for a one-member team, and a team whose roster has not
+   * resolved keeps the generic team mark rather than inventing a member.
+   */
   const renderTeamAvatar = ({
     name,
-    totalMembers,
-    singleFace,
-    stacked,
+    face,
+    remainder,
     declared,
     teamId,
-    animate = true,
   }: {
     name: string
-    totalMembers: number
-    singleFace?: StackFace
-    stacked: { faces: StackFace[]; remainder: number }
+    face?: StackFace | null
+    remainder: number
     declared?: DeclaredTeamRoster | null
     teamId?: string
-    animate?: boolean
   }) => {
     if (declared) {
       return <PersonaRoster roster={declared} groupId={teamId || name} label={`${name} declared members`} />
     }
-    if (totalMembers >= 2) {
+    if (!face) {
       return (
-        <AvatarStack
-          faces={stacked.faces}
-          remainder={stacked.remainder}
-          animate={animate}
-          label={`${name} members`}
-        />
-      )
-    }
-    if (totalMembers === 1 && singleFace) {
-      return (
-        <AgentAvatar
-          src={singleFace.avatarSrc || singleFace.src}
-          agentId={singleFace.id}
-          alt={singleFace.name || name}
-          size="sm"
-        />
+        <span
+          className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
+          aria-hidden="true"
+        >
+          <Users className="h-3.5 w-3.5" />
+        </span>
       )
     }
     return (
       <span
-        className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
-        aria-hidden="true"
+        className="os-team-face relative inline-flex shrink-0 items-center justify-center"
+        data-testid="team-chat-face"
+        data-remainder={String(remainder)}
       >
-        <Users className="h-3.5 w-3.5" />
+        <AgentAvatar
+          src={face.avatarSrc || face.src}
+          agentId={face.agentId || face.id}
+          alt={face.name || name}
+          size="sm"
+        />
+        {remainder > 0 ? (
+          <span
+            className="os-team-face__remainder"
+            data-testid="team-remainder"
+            aria-hidden="true"
+          >
+            +{remainder}
+          </span>
+        ) : null}
       </span>
     )
   }
@@ -2736,8 +2747,17 @@ export default function AgentSidebar({
       cliRunningIds.has(hideId) ||
       peekCliRunning(hideId),
     )
-    const declaredFaces = declared ? null : teamSidepaneStack(marked.faces, teamWorkerBusy)
-    const stacked = declaredFaces || { faces: [], remainder: 0 }
+    // #438: the face is the team's chat target — `chief_of_staff_id`, else the
+    // CoS-roled member, else the first. `defaultSessionForTeam` already owns
+    // that rule, so the rail reads it rather than inventing a second one.
+    const chatTargetId = defaultSessionForTeam(team)?.memberId ?? ''
+    // NOTE: `teamSidepaneStack` caps the list at STACK_FACE_LIMIT, so it cannot
+    // be the source of the remainder — a 5-member team would report +2. The
+    // remainder is the *roster* minus the one face, which is what #438 specifies.
+    const chatFace = declared
+      ? null
+      : teamChatFaceStack(teamSidepaneStack(marked.faces, teamWorkerBusy).faces, chatTargetId)
+        .face
     const totalMembers = declared
       ? declared.parsed
         ? declared.count
@@ -2746,13 +2766,18 @@ export default function AgentSidebar({
         ? team.members.length
         : rawFaces.length
     const singleMember = !declared && totalMembers === 1
-    const singleFace = rawFaces[0] || stacked.faces[0]
+    const teamRemainder = declared || totalMembers <= 1 ? 0 : totalMembers - 1
     const dragging = draggingId === hideId
     const dropping = dropTargetId === hideId
+    // #438: the roster is no longer fanned into faces, so "needs approval" is the
+    // chat face's state (the member the row represents) rather than any member.
     const teamNeedsApproval =
       approvalWaitIds.has(teamHideId(team.id)) ||
       peekApprovalWait(teamHideId(team.id)) ||
-      stacked.faces.some((face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id))
+      Boolean(
+        chatFace &&
+          (approvalWaitIds.has(chatFace.id) || peekApprovalWait(chatFace.id)),
+      )
     const { snippet: teamSnippet, timestamp: teamTime } = getRowLastMessage(
       teamHideId(team.id),
       sessions as any,
@@ -2776,8 +2801,8 @@ export default function AgentSidebar({
         data-agent-id={hideId}
         data-kind="team"
         data-hotkey={spillSlot}
-        data-stack-count={String(declared ? (declared.parsed ? declared.count : 1) : (singleMember ? 1 : stacked.faces.length))}
-        data-remainder={String(declared ? 0 : stacked.remainder)}
+        data-stack-count={String(declared ? (declared.parsed ? declared.count : 1) : singleMember ? 1 : chatFace ? 1 : 0)}
+        data-remainder={String(teamRemainder)}
         data-persona-count={declared ? String(declared.parsed ? declared.count : 1) : undefined}
         data-roster={declared ? 'declared' : undefined}
         draggable={!hidden}
@@ -2800,12 +2825,10 @@ export default function AgentSidebar({
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
           {renderTeamAvatar({
             name,
-            totalMembers,
-            singleFace,
-            stacked,
+            face: chatFace,
+            remainder: teamRemainder,
             declared,
             teamId: team.id,
-            animate: teamWorkerBusy,
           })}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
@@ -2849,14 +2872,23 @@ export default function AgentSidebar({
       cliRunningIds.has(hideId) ||
       peekCliRunning(hideId),
     )
-    const stacked = teamSidepaneStack(marked.faces, remoteWorkerBusy)
+    // #438: a remote has no CoS concept, so its chat face is the default talk-to
+    // member — first, in the ordering the working-aware stack already produced.
+    // The remainder comes from the member total, never from the capped list.
+    const chatFace = teamChatFaceStack(
+      teamSidepaneStack(marked.faces, remoteWorkerBusy).faces,
+      defaultSessionForRemote(remote)?.memberId ?? '',
+    ).face
     const totalMembers = remote.agents ? remote.agents.length : rawFaces.length
     const singleMember = totalMembers === 1
-    const singleFace = rawFaces[0] || stacked.faces[0]
+    const remoteRemainder = totalMembers <= 1 ? 0 : totalMembers - 1
     const remoteNeedsApproval =
       approvalWaitIds.has(hideId) ||
       peekApprovalWait(hideId) ||
-      stacked.faces.some((face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id))
+      Boolean(
+        chatFace &&
+          (approvalWaitIds.has(chatFace.id) || peekApprovalWait(chatFace.id)),
+      )
     const { snippet: remoteSnippet, timestamp: remoteTime } = getRowLastMessage(
       hideId,
       sessions as any,
@@ -2882,8 +2914,8 @@ export default function AgentSidebar({
         data-kind="remote"
         data-hotkey={spillSlot}
         data-remote-id={remote.id}
-        data-stack-count={String(singleMember ? 1 : stacked.faces.length)}
-        data-remainder={String(stacked.remainder)}
+        data-stack-count={String(singleMember ? 1 : chatFace ? 1 : 0)}
+        data-remainder={String(remoteRemainder)}
         draggable={!hidden}
         onDragStart={(event) => beginRowDrag(event, { id: hideId, name })}
         onDragEnd={finishDrag}
@@ -2919,11 +2951,9 @@ export default function AgentSidebar({
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
           {renderTeamAvatar({
             name,
-            totalMembers,
-            singleFace,
-            stacked,
+            face: chatFace,
+            remainder: remoteRemainder,
             teamId: remote.id,
-            animate: remoteWorkerBusy,
           })}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
@@ -3192,8 +3222,19 @@ export default function AgentSidebar({
                       cliRunningIds.has(pin.id) ||
                       peekCliRunning(pin.id),
                   )
-                  const stacked = teamSidepaneStack(marked.faces, busy)
-                  return { ...marked, anyWorking: busy, faces: stacked.faces, remainder: stacked.remainder }
+                  // The remainder is the roster minus the one shown face — not
+                  // the capped stack length, which would under-report.
+                  const memberTotal = pinTeam.members ? pinTeam.members.length : marked.faces.length
+                  const face = teamChatFaceStack(
+                    teamSidepaneStack(marked.faces, busy).faces,
+                    defaultSessionForTeam(pinTeam)?.memberId ?? '',
+                  ).face
+                  return {
+                    ...marked,
+                    anyWorking: busy,
+                    remainder: memberTotal > 1 ? memberTotal - 1 : 0,
+                    face,
+                  }
                 })()
               : null
             const pinWorkerBusy = Boolean(
@@ -3204,8 +3245,10 @@ export default function AgentSidebar({
             const pinNeedsApproval = Boolean(
               approvalWaitIds.has(pin.id) ||
                 peekApprovalWait(pin.id) ||
-                pinTeamPlan?.faces.some(
-                  (face) => approvalWaitIds.has(face.id) || peekApprovalWait(face.id),
+                Boolean(
+                  pinTeamPlan?.face &&
+                    (approvalWaitIds.has(pinTeamPlan.face.id) ||
+                      peekApprovalWait(pinTeamPlan.face.id)),
                 ),
             )
             const pinClass = `os-fav-tile group/tile ${
@@ -3254,24 +3297,33 @@ export default function AgentSidebar({
                     {badge}
                   </span>
                 ) : null}
-                {pinTeamPlan && pinTeamPlan.faces.length >= 2 ? (
-                  <AvatarStack
-                    faces={pinTeamPlan.faces}
-                    remainder={pinTeamPlan.remainder}
-                    animate={pinWorkerBusy}
-                    label={`${pinName} members`}
-                  />
-                ) : (
+                {/* #438: one full-size face + a corner `+N` overlay — not a fan of
+                    overlapping xs faces, which at pin size read as a sliver
+                    blob with extra marks. */}
+                <span
+                  className="os-fav-tile__face relative inline-flex shrink-0 items-center justify-center"
+                  data-testid="pin-team-face"
+                  data-remainder={String(pinTeamPlan?.remainder ?? 0)}
+                >
                   <AgentAvatar
-                    src={pinTeamPlan?.faces[0]?.avatarSrc || pinTeamPlan?.faces[0]?.src || live?.avatar_path}
-                    agentId={pinTeamPlan?.faces[0]?.agentId || pinTeamPlan?.faces[0]?.id || pin.id}
-                    alt={pinTeamPlan?.faces[0]?.name || pinName}
+                    src={pinTeamPlan?.face?.avatarSrc || pinTeamPlan?.face?.src || live?.avatar_path}
+                    agentId={pinTeamPlan?.face?.agentId || pinTeamPlan?.face?.id || pin.id}
+                    alt={pinTeamPlan?.face?.name || pinName}
                     size="lg"
                     className="os-fav-tile__avatar"
                     status={pinWorkerBusy ? 'working' : 'idle'}
                     active={pinWorkerBusy}
                   />
-                )}
+                  {pinTeamPlan && pinTeamPlan.remainder > 0 ? (
+                    <span
+                      className="os-fav-tile__remainder"
+                      data-testid="pin-team-remainder"
+                      aria-hidden="true"
+                    >
+                      +{pinTeamPlan.remainder}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="os-fav-tile__name">{pinName}</span>
                 {pinIdx < 9 && (
                   <span

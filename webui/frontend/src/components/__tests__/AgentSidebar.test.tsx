@@ -1643,7 +1643,7 @@ describe('AgentSidebar teams', () => {
     expect(within(team).queryByText('Team')).not.toBeInTheDocument()
   })
 
-  it('shows three declared persona faces on a team row (REQ-81)', async () => {
+  it('shows one declared persona face plus a remainder on a team row (REQ-81, #438)', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo) => {
@@ -1713,11 +1713,16 @@ describe('AgentSidebar teams', () => {
     const team = await within(list).findByRole('link', { name: /Squad \(team\)/ })
     expect(team).toHaveAttribute('data-persona-count', '3')
     expect(team).toHaveAttribute('data-roster', 'declared')
-    expect(within(team).getByTestId('declared-roster')).toHaveAttribute('data-persona-count', '3')
-    expect(within(team).getByTestId('declared-roster')).toHaveAttribute(
-      'aria-label',
-      'Squad declared members',
-    )
+    const rosterEl = within(team).getByTestId('declared-roster')
+    expect(rosterEl).toHaveAttribute('data-persona-count', '3')
+    // #438: one face (the chat target) plus the remainder, not three fanned
+    // faces. `aria-label` also names the remainder, so it is not a bare glyph.
+    expect(rosterEl).toHaveAttribute('data-stack-count', '1')
+    expect(rosterEl).toHaveAttribute('data-remainder', '2')
+    expect(rosterEl).toHaveAttribute('aria-label', 'Squad declared members, +2')
+    expect(within(team).getByTestId('team-remainder')).toHaveTextContent('+2')
+    // The declared roster keeps every persona name reachable, just not drawn.
+    expect(rosterEl).toHaveTextContent('Researcher, Writer, Reviewer')
   })
 
   it('#525: a team row renders no Team badge and no definition-pane button', async () => {
@@ -2355,29 +2360,30 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     localStorage.clear()
   })
 
-  it('shows at most 3 team faces with no +N remainder for a 5-member roster, newest-active first when working (REQ-891)', async () => {
+  it('#438: a 5-member team row shows one chat face and +4, not a fan of 3 faces', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
-    // 5-member roster: at most 3 faces, no +N remainder chip.
-    expect(team).toHaveAttribute('data-stack-count', '3')
-    expect(team).toHaveAttribute('data-remainder', '0')
-    const stack = within(team).getByLabelText('Scale Out members')
-    expect(stack).toHaveAttribute('data-avatar-stack', 'true')
-    expect(stack).toHaveAttribute('data-stack-count', '3')
-    expect(within(team).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
-    const faces = team.querySelectorAll('.os-avatar-stack__face')
-    expect(faces).toHaveLength(3)
-    // Working stack: newest-active first (Dee, Cyd, Bea)
-    expect(faces[0]!.getAttribute('data-face-id')).toBe('dee')
-    expect(faces[1]!.getAttribute('data-face-id')).toBe('cyd')
-    expect(faces[2]!.getAttribute('data-face-id')).toBe('bea')
-    expect(faces[0]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
-    expect(faces[1]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
-    expect(faces[2]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
-    const delays = [...faces].map((face) => (face as HTMLElement).style.animationDelay)
-    expect(new Set(delays).size).toBe(3)
-    expect(delays).toContain('0ms')
+    // #438 supersedes REQ-891's sidepane stack: one face for the member you are
+    // talking to, plus a +N for the rest. The old assertion here pinned
+    // "at most 3 faces with no +N remainder" and three `.os-avatar-stack__face`
+    // nodes with staggered pulse delays — the fan this ticket removes.
+    expect(team).toHaveAttribute('data-stack-count', '1')
+    expect(team).toHaveAttribute('data-remainder', '4')
+    expect(team.querySelector('.os-avatar-stack__face')).toBeNull()
+    expect(within(team).getByTestId('team-chat-face')).toBeInTheDocument()
+    expect(within(team).getByTestId('team-remainder')).toHaveTextContent('+4')
+  })
+
+  it('#438: the team row face is the chat target, not an arbitrary first face', async () => {
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
+    // `defaultSessionForTeam` owns "chief_of_staff_id, else CoS-role, else first"
+    // — the rail reads that rule rather than re-deriving a member to show.
+    const face = within(team).getByTestId('team-chat-face')
+    expect(face).toHaveAttribute('data-remainder', '4')
+    expect(face.querySelector('[data-agent-avatar]')).toBeInTheDocument()
   })
 
   it('keeps a single-agent remote as one normal avatar (no mini stack)', async () => {
@@ -2398,9 +2404,11 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     const omb = await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ })
     expect(omb).toHaveTextContent('OpenMousBot')
     expect(omb).not.toHaveTextContent(/\bOMB\b/)
-    expect(omb).toHaveAttribute('data-stack-count', '3')
-    expect(omb).toHaveAttribute('data-remainder', '0')
-    expect(within(omb).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+    // #438: one face + a +N for the remaining members (this asserted a 3-face
+    // fan with no remainder before — the fan REQ-891 asked for and #438 removes).
+    expect(omb).toHaveAttribute('data-stack-count', '1')
+    expect(omb).toHaveAttribute('data-remainder', '4')
+    expect(within(omb).getByTestId('team-remainder')).toHaveTextContent('+4')
     expect(within(list).getByRole('link', { name: /Rakazo \(remote\)/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Lab swarm \(remote\)/ })).toBeInTheDocument()
 

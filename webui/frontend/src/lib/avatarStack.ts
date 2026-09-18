@@ -20,10 +20,14 @@ export const TEAM_STACK_FACE_LIMIT = 2
 export const TEAM_STACK_ALL_MAX = 3
 
 /**
- * Team sidepane stack (REQ-891 #458 #438): shows at most {@link STACK_FACE_LIMIT} (3)
- * faces with NO remainder (+N) chip.
- * When `anyWorking` is true: orders faces most-recently-active first (`startedAt` desc).
- * When idle: preserves stable roster order.
+ * Team **ordering** helper (#458): while any member is working, order faces
+ * most-recently-active first; when idle, preserve stable roster order.
+ *
+ * #438 moved the rail off fanning a team into overlapping faces — it now shows
+ * one face plus a `+N` via {@link teamChatFaceStack}. This helper is still the
+ * owner of the *ordering* rule, so callers that need a list (the member
+ * sessions picker, and `teamChatFaceStack`'s default when no chat target is
+ * supplied) sort through it rather than re-deriving the rule.
  */
 export function teamSidepaneStack<T extends StackFace>(
   faces: readonly T[],
@@ -41,6 +45,36 @@ export function teamSidepaneStack<T extends StackFace>(
     faces: ordered.slice(0, STACK_FACE_LIMIT),
     remainder: 0,
   }
+}
+
+/**
+ * #438: the team's **rail face** — the member the operator will actually chat
+ * with, plus a `+N` for everyone else.
+ *
+ * The rail used to fan a team into overlapping faces: all of them for 1–3
+ * members (`TEAM_STACK_ALL_MAX`) and `2 faces + +(n-2)` for 4+. At rail sizes a
+ * pinned 3-member team rendered as overlapping slivers that were not
+ * individually readable (Live Demo Team read as a red blob with extra marks),
+ * and the row's job is not to enumerate the roster — it is to say *who you are
+ * talking to* and *how many others there are*.
+ *
+ * `chatTargetId` is the team's default talk-to member, or the navbar's current
+ * member when one is targeted specifically. If it names nobody in `faces` (a
+ * stale id, or a roster read that has not settled) the first face is used rather
+ * than inventing one — see `#438`'s "do not invent members".
+ *
+ * Remainder is `max(0, faces.length - 1)`: a one-member team has no `+N`.
+ */
+export function teamChatFaceStack<T extends StackFace>(
+  faces: readonly T[],
+  chatTargetId?: string | null,
+): { face: T | null; remainder: number } {
+  const target = (chatTargetId ?? '').trim()
+  const face =
+    (target ? faces.find((item) => item.id === target || item.agentId === target) : undefined) ??
+    faces[0] ??
+    null
+  return { face, remainder: Math.max(0, faces.length - 1) }
 }
 
 /** Matches `.os-scale-out-pulse` / `.os-stacked-avatar--pulse` (1.4s). */

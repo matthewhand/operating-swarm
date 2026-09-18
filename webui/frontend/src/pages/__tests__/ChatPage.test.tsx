@@ -2292,6 +2292,63 @@ describe('ChatPage team member dropdown', () => {
     expect(screen.getByRole('heading', { name: 'Demo Team' })).toBeInTheDocument()
   })
 
+  it('#528: the navbar shows the team chat face where a single agent gets an avatar', async () => {
+    renderChat('/chat?team=demo-team')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    // Previously this rendered nothing for a team without a declared roster, so
+    // the header showed a bare name where a single agent gets an avatar.
+    const button = await screen.findByTestId('header-team-avatar')
+    // The face is the member you are talking to — the seat default (first
+    // roster member, #169) resolved through `defaultSessionForTeam`.
+    expect(button).toHaveAttribute('data-face-agent-id', 'codey')
+    expect(within(button).getByRole('img', { hidden: true })).toBeTruthy()
+    expect(screen.queryByTestId('header-avatar-generations')).not.toBeInTheDocument()
+
+    // Switching the active member updates the face.
+    const select = await screen.findByRole('combobox', { name: 'Team members' })
+    fireEvent.change(select, { target: { value: 'stewie' } })
+    await waitFor(() => {
+      expect(screen.getByTestId('header-team-avatar')).toHaveAttribute(
+        'data-face-agent-id',
+        'stewie',
+      )
+    })
+  })
+
+  it('#528: the avatar is not a dead-end control when no member resolves', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('team_rosters') || url.includes('team-rosters')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [{ id: 'empty-team', name: 'Empty', members: [] }] }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderChat('/chat?team=empty-team')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    const button = await screen.findByTestId('header-team-avatar')
+    // No member to open generations for, so the control must not claim to open
+    // anything: disabled, out of the tab order, and named after the team.
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('tabindex', '-1')
+    expect(button).not.toHaveAttribute('aria-haspopup', 'dialog')
+    // It claims no member face, because there is no member — the mark falls back
+    // to the team's own id rather than naming a member that does not exist.
+    expect(button).not.toHaveAttribute('data-face-agent-id')
+  })
+
   it('shows Mode A kind-clear names in the team chat header dropdown', async () => {
     vi.stubGlobal(
       'fetch',

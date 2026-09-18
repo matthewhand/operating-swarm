@@ -4,6 +4,7 @@ import {
   TEAM_STACK_FACE_LIMIT,
   STACK_PULSE_MS,
   isAvatarStack,
+  teamChatFaceStack,
   parseStartedAt,
   selectStackedFaces,
   stackAnimationDelayMs,
@@ -33,6 +34,31 @@ describe('avatarStack', () => {
     expect(plan.faces).toHaveLength(2)
     expect(plan.remainder).toBe(2)
     expect(plan.faces.map((row) => row.id)).toEqual(['m4', 'm3'])
+  })
+
+  it('#438: teamChatFaceStack keeps the chat target and counts the rest from the roster', () => {
+    const five = [1, 2, 3, 4, 5].map((n) => face(`m${n}`, n * 100))
+    // The remainder is the roster minus the one face — never the capped list
+    // length, which would report +2 for a 5-member team.
+    expect(teamChatFaceStack(five, 'm3').remainder).toBe(4)
+    expect(teamChatFaceStack(five, 'm3').face?.id).toBe('m3')
+    expect(teamChatFaceStack(five).face?.id).toBe('m1')
+  })
+
+  it('#438: teamChatFaceStack never invents a member', () => {
+    const faces = [face('m1', 100), face('m2', 200)]
+    // A stale chat-target id falls back to the first real face…
+    expect(teamChatFaceStack(faces, 'ghost').face?.id).toBe('m1')
+    expect(teamChatFaceStack(faces, '  ').face?.id).toBe('m1')
+    // …and an empty roster yields no face at all rather than a placeholder.
+    expect(teamChatFaceStack([], 'm1').face).toBeNull()
+    expect(teamChatFaceStack([], 'm1').remainder).toBe(0)
+  })
+
+  it('#438: teamChatFaceStack matches on agentId too, and a one-member team has no remainder', () => {
+    const faces = [{ ...face('m1', 100), agentId: 'blueprint-1' }, face('m2', 200)]
+    expect(teamChatFaceStack(faces, 'blueprint-1').face?.id).toBe('m1')
+    expect(teamChatFaceStack([face('only', 1)], 'only').remainder).toBe(0)
   })
 
   it('teamSidepaneStack (REQ-891): shows at most 3 faces with no remainder chip; preserves roster order when idle', () => {

@@ -1279,6 +1279,60 @@ html:not([data-theme="light"]) .os-composer,
   align-self: flex-start;
   margin-top: 0.125rem;
 }
+/* #438: one rail face plus a compact `+N`.
+
+   The +N is a corner overlay on the avatar rather than a second face: the row's
+   job is to say *who you are talking to* and *how many others*, and overlapping
+   slivers at rail size were not individually readable (a pinned 3-member team
+   read as a blob with extra marks). It must not change the avatar's box, so it
+   is absolutely positioned and the wrapper stays `shrink-0`. */
+.os-team-face {
+  position: relative;
+}
+.os-team-face__remainder {
+  position: absolute;
+  right: -0.25rem;
+  bottom: -0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0.95rem;
+  height: 0.95rem;
+  padding: 0 0.15rem;
+  border-radius: 9999px;
+  background: var(--color-base-300, #3f3f46);
+  color: var(--color-base-content, #fafafa);
+  font-size: 0.55rem;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 0 0 1px var(--color-base-100, #18181b);
+  pointer-events: none;
+}
+
+/* The pinned tile's overlay sits on the full-size avatar's corner. */
+.os-fav-tile__face {
+  position: relative;
+}
+.os-fav-tile__remainder {
+  position: absolute;
+  right: -0.2rem;
+  bottom: -0.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.2rem;
+  border-radius: 9999px;
+  background: var(--color-base-300, #3f3f46);
+  color: var(--color-base-content, #fafafa);
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 0 0 1px var(--color-base-100, #18181b);
+  pointer-events: none;
+}
+
 /* #556: the label column clips. The leaf name already had `truncate`, but the
    row's second line is a `shrink-0` cluster whose ⌥N member appears on hover —
    so the row's intrinsic width grew exactly when the pointer was over the rail,
