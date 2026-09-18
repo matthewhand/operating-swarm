@@ -180,6 +180,7 @@ import {
   markStackWorking,
   orderedFacesByRecency,
   pinStackSizes,
+  railTeamStackLayout,
   teamChatFaceStack,
   teamSidepaneStack,
   type StackFace,
@@ -2758,12 +2759,18 @@ export default function AgentSidebar({
     remainder,
     declared,
     teamId,
+    recencyFaces,
+    collapsed,
   }: {
     name: string
     face?: StackFace | null
     remainder: number
     declared?: DeclaredTeamRoster | null
     teamId?: string
+    /** #639: recency-ordered faces for the graduated mini row (wide rail). */
+    recencyFaces?: StackFace[]
+    /** #639: collapsed (avatar-width) rail — one face only. */
+    collapsed?: boolean
   }) => {
     if (declared) {
       return <PersonaRoster roster={declared} groupId={teamId || name} label={`${name} declared members`} />
@@ -2778,18 +2785,71 @@ export default function AgentSidebar({
         </span>
       )
     }
+    // #639 (REQ-909): collapsed rail renders exactly ONE face — the team's
+    // most recently active member (recency rule, not the chat target). Wide
+    // rail renders the large chat-target face plus the most recent members
+    // as graduated minis beside it (deduped against the face itself).
+    const layout = railTeamStackLayout(recencyFaces ?? [], Boolean(collapsed))
+    if (collapsed) {
+      const solo = layout.faces[0] ?? face
+      return (
+        <span
+          className="os-team-face relative inline-flex shrink-0 items-center justify-center"
+          data-testid="team-chat-face"
+          data-remainder="0"
+          data-stack-count="1"
+          data-rail-collapsed="true"
+        >
+          <AgentAvatar
+            src={solo.avatarSrc || solo.src}
+            agentId={solo.agentId || solo.id}
+            alt={solo.name || name}
+            size="sm"
+            status={solo.working ? 'working' : 'idle'}
+            active={Boolean(solo.working)}
+          />
+        </span>
+      )
+    }
+    const minis = layout.faces.filter((row) => row.id !== face.id)
     return (
       <span
         className="os-team-face relative inline-flex shrink-0 items-center justify-center"
         data-testid="team-chat-face"
         data-remainder={String(remainder)}
+        data-stack-count={String(minis.length + 1)}
+        data-rail-collapsed="false"
       >
-        <AgentAvatar
-          src={face.avatarSrc || face.src}
-          agentId={face.agentId || face.id}
-          alt={face.name || name}
-          size="sm"
-        />
+        <span className="inline-flex items-end justify-center">
+          <span
+            className="relative inline-flex shrink-0"
+            style={{ width: 32, height: 32 }}
+          >
+            <AgentAvatar
+              src={face.avatarSrc || face.src}
+              agentId={face.agentId || face.id}
+              alt={face.name || name}
+              size="sm"
+              className="os-team-face__large"
+            />
+          </span>
+          {minis.map((mini, depth) => (
+            <span
+              key={`${mini.id}-${depth}`}
+              className="os-team-face__mini relative inline-flex shrink-0 rounded-full"
+              style={{ width: 18, height: 18, marginLeft: depth === 0 ? -8 : -6, zIndex: minis.length - depth }}
+            >
+              <AgentAvatar
+                src={mini.avatarSrc || mini.src}
+                agentId={mini.agentId || mini.id}
+                alt={mini.name || mini.id}
+                size="sm"
+                status={mini.working ? 'working' : 'idle'}
+                active={Boolean(mini.working)}
+              />
+            </span>
+          ))}
+        </span>
         {remainder > 0 ? (
           <span
             className="os-team-face__remainder"
@@ -2857,6 +2917,10 @@ export default function AgentSidebar({
     )
     const teamTimestampLabel = formatRailTimestamp(teamTime)
     const unread = unreadIds.includes(hideId)
+    // #639 (REQ-909): recency-ordered faces for the width-adaptive avatar —
+    // collapsed rail shows one face (the most recently active member), wide
+    // rail shows the large face plus 3 graduated recency minis.
+    const teamRecencyFaces = orderedFacesByRecency(marked.faces)
     // #525: no `Team` badge. Team membership is not a role, so the pill was
     // claiming role status — same reason #496 removed `Remote`. The right slot
     // now falls through to the row's timestamp.
@@ -2901,6 +2965,8 @@ export default function AgentSidebar({
             remainder: teamRemainder,
             declared,
             teamId: team.id,
+            recencyFaces: teamRecencyFaces,
+            collapsed: isAvatarOnly,
           })}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">

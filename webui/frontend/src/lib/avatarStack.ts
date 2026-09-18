@@ -19,8 +19,9 @@ export const TEAM_STACK_FACE_LIMIT = 2
 /** Team stacks show every member up to this count — no +N chip (#57). */
 export const TEAM_STACK_ALL_MAX = 3
 
-/** #523: the pinned team tile's front-face size in px. */
-export const PIN_STACK_BASE_PX = 40
+/** #523: the pinned team tile's front-face size in px. #639: 48 so the wide
+ * rail's 80/20 layout (large face + mini row) keeps faces readable. */
+export const PIN_STACK_BASE_PX = 48
 
 /** #523: the size step per depth behind the front face. */
 export const PIN_STACK_STEP_PX = 6
@@ -113,6 +114,42 @@ export function teamChatFaceStack<T extends StackFace>(
     faces[0] ??
     null
   return { face, remainder: Math.max(0, faces.length - 1) }
+}
+
+/** #639: how many recency faces the wide rail shows beside/behind the face. */
+export const RAIL_TEAM_MINI_FACES = 3
+
+/** #639: faces per team row when the rail is collapsed to avatar width. */
+export const RAIL_TEAM_COLLAPSED_FACES = 1
+
+/**
+ * #639 (REQ-909): width-adaptive team rail stack.
+ *
+ * Collapsed rail (`isAvatarOnly`): exactly one face — the team's most recently
+ * active member (`orderedFacesByRecency`, roster order when idle). Wide rail:
+ * `RAIL_TEAM_MINI_FACES` recency faces at graduated sizes beside/behind the
+ * large face; the large face itself stays the chat target.
+ *
+ * Faces come pre-marked (`working` set by the caller); ordering is the same
+ * recency rule the #523 pin stack uses.
+ */
+export function railTeamStackLayout(
+  faces: readonly StackFace[],
+  collapsed: boolean,
+): { faces: StackFace[]; count: number; collapsed: boolean } {
+  const ordered = orderedFacesByRecency(faces)
+  if (collapsed) {
+    return {
+      faces: ordered.slice(0, RAIL_TEAM_COLLAPSED_FACES),
+      count: RAIL_TEAM_COLLAPSED_FACES,
+      collapsed,
+    }
+  }
+  return {
+    faces: ordered.slice(0, RAIL_TEAM_MINI_FACES),
+    count: RAIL_TEAM_MINI_FACES,
+    collapsed,
+  }
 }
 
 /** Matches `.os-scale-out-pulse` / `.os-stacked-avatar--pulse` (1.4s). */
