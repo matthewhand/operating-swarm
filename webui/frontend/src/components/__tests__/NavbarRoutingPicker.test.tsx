@@ -164,7 +164,7 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     modelWarning: 'grok: no models advertised',
   }
 
-  it('narrow sheet keeps an explicit Model request when no families are known yet (#275)', () => {
+  it('narrow sheet keeps an explicit Model request when no families are known yet (#275)', async () => {
     const mq = {
       matches: true,
       media: '(max-width: 1023px)',
@@ -182,18 +182,18 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
     fireEvent.click(screen.getByTestId('routing-pill-model'))
     expect(screen.getByTestId('routing-sheet')).toBeInTheDocument()
     expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
-    expect(screen.getByTestId('routing-model-warning')).toHaveTextContent(
+    expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
       'grok: no models advertised',
     )
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
   })
 
-  it('wide flyout keeps an explicit Model request when no families are known yet (#275)', () => {
+  it('wide flyout keeps an explicit Model request when no families are known yet (#275)', async () => {
     renderPicker(emptyModelsNoFamilies)
     fireEvent.click(screen.getByTestId('routing-pill-model'))
     expect(screen.queryByTestId('routing-sheet')).not.toBeInTheDocument()
     expect(screen.getByTestId('routing-menu-model')).toBeInTheDocument()
-    expect(screen.getByTestId('routing-model-warning')).toHaveTextContent(
+    expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
       'grok: no models advertised',
     )
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
@@ -404,5 +404,56 @@ describe('NavbarRoutingPicker (REQ-200)', () => {
         model: 'desk-1',
       }),
     )
+  })
+
+  describe('#584 composer routing pill resting and hover states', () => {
+    it('resting routing face has transparent chrome and gains --hot when hovered/open', () => {
+      renderPicker({
+        seatKind: 'cli',
+        agents: [{ id: 'grok', label: 'grok' }],
+        selectedAgent: 'grok',
+        models: ['grok-4.5'],
+        selectedModel: 'grok-4.5',
+      })
+      const face = screen.getByTestId('routing-face')
+      const agentPill = screen.getByTestId('routing-pill-agent')
+      expect(face).not.toHaveClass('os-routing-face--hot')
+      expect(agentPill).not.toHaveClass('os-routing-pill--hot')
+
+      fireEvent.mouseEnter(agentPill)
+      expect(face).toHaveClass('os-routing-face--hot')
+      expect(agentPill).toHaveClass('os-routing-pill--hot')
+
+      fireEvent.keyDown(screen.getByTestId('navbar-routing-picker'), { key: 'Escape' })
+      expect(face).not.toHaveClass('os-routing-face--hot')
+      expect(agentPill).not.toHaveClass('os-routing-pill--hot')
+    })
+
+    it('enforces transparent resting border and fill in index.css to guarantee zero layout shift', () => {
+      const { readFileSync } = require('node:fs')
+      const { resolve } = require('node:path')
+      const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+
+      // Resting face is transparent with 1px transparent border to reserve space without paint
+      expect(css).toContain('.os-routing-face {')
+      expect(css).toContain('border: 1px solid transparent;')
+      expect(css).toContain('background: transparent;')
+
+      // Sibling separator has transparent inline start border
+      expect(css).toContain('.os-routing-pill + .os-routing-pill {')
+      expect(css).toContain('border-inline-start: 1px solid transparent;')
+
+      // Hover, focus-within, and hot state apply border color and background without changing border width
+      expect(css).toContain('.os-routing-face:hover,')
+      expect(css).toContain('.os-routing-face:focus-within,')
+      expect(css).toContain('.os-routing-face--hot,')
+
+      // Composer positioning opens upward and rounds full
+      expect(css).toContain('.os-composer .os-routing-picker')
+      expect(css).toContain('.os-composer .os-routing-face {')
+      expect(css).toContain('border-radius: 999px;')
+      expect(css).toContain('.os-composer .os-routing-flyout {')
+      expect(css).toContain('inset-block-end: calc(100% + 0.35rem);')
+    })
   })
 })

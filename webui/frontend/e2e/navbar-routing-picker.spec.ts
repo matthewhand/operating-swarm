@@ -154,6 +154,7 @@ test('the routing flyout is not clipped by the chat header (#445)', async ({ pag
 
   // The header stopped clipping, so the title contract has to hold on its own:
   // the label clamps, and nothing escapes sideways.
+  await page.setViewportSize({ width: 1024, height: 800 })
   await page.goto('/chat?blueprint=cli_agent_long&mode=cli&cli=agy&model=gemini-3.8-flash-medium')
   const title = page.locator('.os-navbar-identity-label')
   await expect(title).toBeVisible()

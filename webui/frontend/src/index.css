@@ -2136,9 +2136,17 @@ button.os-agent-row {
 .os-routing-face {
   max-width: 100%;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  border: 1px solid transparent;
   border-radius: 0.5rem;
   overflow: hidden;
+  background: transparent;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.os-routing-face:hover,
+.os-routing-face:focus-within,
+.os-routing-face--hot,
+.os-routing-face:has(.os-routing-pill--hot) {
+  border-color: color-mix(in srgb, var(--color-base-content) 14%, transparent);
   background: var(--color-base-100);
 }
 .os-routing-pill {
@@ -2156,7 +2164,14 @@ button.os-agent-row {
   line-height: 1.2;
 }
 .os-routing-pill + .os-routing-pill {
-  border-inline-start: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  border-inline-start: 1px solid transparent;
+  transition: border-color 150ms ease;
+}
+.os-routing-face:hover .os-routing-pill + .os-routing-pill,
+.os-routing-face:focus-within .os-routing-pill + .os-routing-pill,
+.os-routing-face--hot .os-routing-pill + .os-routing-pill,
+.os-routing-face:has(.os-routing-pill--hot) .os-routing-pill + .os-routing-pill {
+  border-inline-start-color: color-mix(in srgb, var(--color-base-content) 12%, transparent);
 }
 .os-routing-pill__label {
   overflow: hidden;
@@ -2177,6 +2192,29 @@ button.os-agent-row {
 .os-routing-picker--narrow .os-routing-pill__chevron {
   opacity: 0.7;
 }
+
+/* #584: composer placement beside microphone */
+.os-composer .os-routing-picker {
+  display: flex;
+  align-items: center;
+  margin-inline-end: 0.1rem;
+}
+.os-composer .os-routing-face {
+  border-radius: 999px;
+}
+.os-composer .os-routing-pill {
+  height: 1.85rem;
+  font-size: 0.75rem;
+  padding-inline: 0.45rem;
+  max-width: 7.5rem;
+}
+.os-composer .os-routing-flyout {
+  inset-block-start: auto;
+  inset-block-end: calc(100% + 0.35rem);
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+
 .os-routing-flyout,
 .os-routing-sheet {
   position: absolute;
