@@ -211,6 +211,33 @@ describe('SearchPalette', () => {
     expect(screen.getByRole('tab', { name: 'Actions' })).toBeInTheDocument()
   })
 
+  it('#568: the dialog resolves to a concrete height, and the list absorbs the slack', async () => {
+    // #568 was fixed by REQ-910 (#509) — the shell took a real `height` instead
+    // of only a `max-height`, so it is no longer content-driven and cannot jump
+    // as a tab changes its row count. This guards the mechanism, because the
+    // symptom (a dialog that resizes under the pointer) comes straight back if
+    // either half is dropped. Assertable without a browser: a fixed height on
+    // the shell, and a flex child with `min-height: 0` inside it.
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+
+    const shell = css.split('.os-search-palette {')[1]?.split('}')[0] ?? ''
+    // A concrete height, not a ceiling — a `max-height` alone is what made the
+    // dialog content-driven in the first place.
+    expect(shell).toMatch(/\bheight:/)
+    expect(shell).toMatch(/flex-direction:\s*column/)
+
+    const list = css.split('.os-search-palette__list {')[1]?.split('}')[0] ?? ''
+    expect(list).toMatch(/flex:\s*1 1 auto/)
+    // Without this the flex child refuses to shrink and overflows the shell.
+    expect(list).toMatch(/min-height:\s*0/)
+    expect(list).toMatch(/overflow-y:\s*auto/)
+    // The list must not reintroduce its own ceiling — that was the other half of
+    // the old content-driven height (`max-height: min(32rem, 60vh)`).
+    expect(list).not.toMatch(/max-height:\s*min\(32rem/)
+  })
+
   it('Actions tab lists theme + Django operator destinations, not live remotes (REQ-17 / #322)', () => {
     const toggled: string[] = []
     const onToggle = () => toggled.push('theme')

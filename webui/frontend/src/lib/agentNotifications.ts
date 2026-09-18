@@ -82,6 +82,56 @@ export function disableAgentNotify(id: string, current?: string[]): string[] {
   return saveNotifyAgentIds(list.filter((item) => item !== id))
 }
 
+/**
+ * #546: the outcome of asking for notification permission, in the four states
+ * that need four different answers.
+ *
+ * The UI forked on `permission !== 'granted'` and rendered one sentence —
+ * "notifications are blocked, enable them in the browser site settings" — which
+ * is only true for `denied`. `default` means the prompt **never happened**, and
+ * `unsupported` means there is no Notification API in this context at all, so
+ * site settings cannot help. Sending the user to the wrong fix is the same
+ * dead-end-prose class as #494 and #541.
+ */
+export type NotifyEnableOutcome = 'granted' | 'denied' | 'never-asked' | 'unsupported'
+
+export function notifyEnableOutcome(
+  permission: NotificationPermission | 'unsupported',
+): NotifyEnableOutcome {
+  if (permission === 'granted') return 'granted'
+  if (permission === 'denied') return 'denied'
+  if (permission === 'unsupported') return 'unsupported'
+  return 'never-asked'
+}
+
+/**
+ * #546: the honest answer per non-granted state. `unsupported` names the real
+ * fix (a secure context) rather than pointing at a setting that cannot exist.
+ */
+export const NOTIFY_HINT_COPY: Record<
+  Exclude<NotifyEnableOutcome, 'granted'>,
+  string
+> = {
+  denied:
+    'Notifications are blocked. Enable them in the browser site settings for this page.',
+  'never-asked':
+    'The browser never asked for permission — the prompt didn’t appear. Try again.',
+  unsupported:
+    'Notifications can’t work here: browsers only expose the Notification API in a secure context (HTTPS or localhost). This page is on a plain-HTTP address, so no site setting can enable it.',
+}
+
+/**
+ * #546: whether the Notification API exists in this context at all, so the UI
+ * can say why rather than reporting a permission problem.
+ */
+export function notificationContextSupported(): boolean {
+  try {
+    return typeof Notification !== 'undefined'
+  } catch {
+    return false
+  }
+}
+
 export function notificationPermission(): NotificationPermission | 'unsupported' {
   try {
     if (typeof Notification === 'undefined') return 'unsupported'
@@ -91,25 +141,47 @@ export function notificationPermission(): NotificationPermission | 'unsupported'
   }
 }
 
+export interface NotifyPermissionRequest {
+  permission: NotificationPermission | 'unsupported'
+  /**
+   * #546: the request itself threw. Previously the catch returned the current
+   * permission, which made a failed prompt **indistinguishable from a denial** —
+   * whatever actually went wrong was discarded.
+   */
+  requestFailed: boolean
+}
+
+export async function requestNotificationPermissionDetailed(): Promise<NotifyPermissionRequest> {
+  try {
+    if (typeof Notification === 'undefined') {
+      return { permission: 'unsupported', requestFailed: false }
+    }
+    if (Notification.permission !== 'default') {
+      return { permission: Notification.permission, requestFailed: false }
+    }
+    const permission = await Notification.requestPermission()
+    return { permission, requestFailed: false }
+  } catch {
+    return { permission: notificationPermission(), requestFailed: true }
+  }
+}
+
+/** Kept for existing callers: the permission alone. */
 export async function requestNotificationPermission(): Promise<
   NotificationPermission | 'unsupported'
 > {
-  try {
-    if (typeof Notification === 'undefined') return 'unsupported'
-    if (Notification.permission !== 'default') return Notification.permission
-    return await Notification.requestPermission()
-  } catch {
-    return notificationPermission()
-  }
+  return (await requestNotificationPermissionDetailed()).permission
 }
 
 /** Persist On, then request permission once (browser will not re-prompt if denied). */
 export async function enableAgentNotifications(id: string): Promise<{
   ids: string[]
   permission: NotificationPermission | 'unsupported'
+  outcome: NotifyEnableOutcome
+  requestFailed: boolean
 }> {
-  const permission = await requestNotificationPermission()
-  return { ids: enableAgentNotify(id), permission }
+  const { permission, requestFailed } = await requestNotificationPermissionDetailed()
+  return { ids: enableAgentNotify(id), permission, outcome: notifyEnableOutcome(permission), requestFailed }
 }
 
 export function redactNotificationSecrets(text: string): string {

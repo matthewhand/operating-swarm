@@ -103,6 +103,7 @@ import {
 import {
   FOCUS_AGENT_EVENT,
   NOTIFY_CHANGED_EVENT,
+  NOTIFY_HINT_COPY,
   chatHrefForRowId,
   disableAgentNotify,
   enableAgentNotifications,
@@ -110,6 +111,7 @@ import {
   loadNotifyAgentIds,
   maybeNotifyAgentTurn,
 } from '../lib/agentNotifications'
+import type { NotifyEnableOutcome } from '../lib/agentNotifications'
 import {
   BUMP_COMPLETED_EVENT,
   BUMP_SCOPE_EVENT,
@@ -332,6 +334,13 @@ type RailRow =
 
 function isHerdrAgent(agent: { id: string; kind?: string | null }): boolean {
   return agent.kind === 'herdr' || String(agent.id).startsWith('herdr:')
+}
+
+/** #546: which permission outcome to explain, and for which seat. */
+interface NotifyOutcomeHint {
+  agentId: string
+  outcome: Exclude<NotifyEnableOutcome, 'granted'>
+  requestFailed: boolean
 }
 
 function sidebarHref(agent: { id: string; kind?: string | null }): string {
@@ -590,7 +599,10 @@ export default function AgentSidebar({
   const sessionsByAgent = useMemo(() => loadAllAgentSessions(), [sessionTick])
   const [unreadIds, setUnreadIds] = useState<string[]>(() => loadUnreadAgentIds())
   const [notifyIds, setNotifyIds] = useState<string[]>(() => loadNotifyAgentIds())
-  const [notifyDeniedHint, setNotifyDeniedHint] = useState(false)
+  // #546: the *outcome*, not a boolean. `permission !== 'granted'` collapsed
+  // "blocked", "never asked" and "no API here" into one message that was only
+  // correct for the first.
+  const [notifyHint, setNotifyHint] = useState<NotifyOutcomeHint | null>(null)
   const currentTargetId = selectedTeamId || selectedRemoteId || selectedId
   const prevTargetRef = useRef(currentTargetId)
 
@@ -603,10 +615,13 @@ export default function AgentSidebar({
   }, [])
 
   useEffect(() => {
-    if (!notifyDeniedHint) return
-    const timer = window.setTimeout(() => setNotifyDeniedHint(false), 6000)
+    if (!notifyHint) return
+    // #546: `never-asked` and `unsupported` carry an action (try again, or the
+    // real reason), so they get longer on screen than the old 6s denial toast.
+    const ttl = notifyHint.outcome === 'denied' ? 6000 : 15000
+    const timer = window.setTimeout(() => setNotifyHint(null), ttl)
     return () => window.clearTimeout(timer)
-  }, [notifyDeniedHint])
+  }, [notifyHint])
 
   useEffect(() => {
     const onFocusAgent = (event: Event) => {
@@ -1407,12 +1422,33 @@ export default function AgentSidebar({
       const result = await enableAgentNotifications(agentId)
       setNotifyIds(result.ids)
       closeMenu()
-      if (result.permission !== 'granted') {
-        setNotifyDeniedHint(true)
+      if (result.outcome !== 'granted') {
+        setNotifyHint({
+          agentId,
+          outcome: result.outcome,
+          requestFailed: result.requestFailed,
+        })
       }
     },
     [closeMenu, notifyIds],
   )
+
+  /** #546: re-ask. `never-asked` means the prompt did not appear, so it is worth
+   *  another attempt rather than a dead-end sentence. */
+  const retryNotifyPermission = useCallback(async () => {
+    if (!notifyHint) return
+    const result = await enableAgentNotifications(notifyHint.agentId)
+    setNotifyIds(result.ids)
+    if (result.outcome === 'granted') {
+      setNotifyHint(null)
+      return
+    }
+    setNotifyHint({
+      agentId: notifyHint.agentId,
+      outcome: result.outcome,
+      requestFailed: result.requestFailed,
+    })
+  }, [notifyHint])
 
   const openPalette = useCallback(() => {
     onOpenSearch?.()
@@ -3869,13 +3905,38 @@ export default function AgentSidebar({
           </p>
         </ConfirmModal>
       )}
-      {notifyDeniedHint ? (
+      {notifyHint ? (
         <div
           role="status"
           data-testid="notify-permission-hint"
+          data-outcome={notifyHint.outcome}
           className="fixed bottom-4 right-4 z-50 max-w-xs rounded-lg border border-base-300 bg-neutral px-3 py-2 text-sm shadow-xl"
         >
-          Notifications are blocked. Enable them in the browser site settings for this page.
+          <span className="block">
+            {notifyHint.requestFailed
+              ? 'The browser blocked the permission request before it could show a prompt. Try again.'
+              : NOTIFY_HINT_COPY[notifyHint.outcome]}
+          </span>
+          <span className="mt-1 flex items-center gap-2">
+            {notifyHint.outcome === 'never-asked' ? (
+              <button
+                type="button"
+                className="link link-primary text-xs"
+                data-testid="notify-permission-retry"
+                onClick={() => void retryNotifyPermission()}
+              >
+                Try again
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="link text-xs opacity-70"
+              data-testid="notify-permission-dismiss"
+              onClick={() => setNotifyHint(null)}
+            >
+              Dismiss
+            </button>
+          </span>
         </div>
       ) : null}
       <AddAgentWizard
