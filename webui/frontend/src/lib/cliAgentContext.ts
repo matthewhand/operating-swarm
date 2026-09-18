@@ -27,6 +27,45 @@ export function isCliBlueprintId(id: string): boolean {
   return (KNOWN_CLI_NAMES as readonly string[]).includes(norm)
 }
 
+/**
+ * #566: where a seat's CLI came from. `inferred` is the fallback that picks an
+ * installed CLI for a seat that declares none — it must never be presented as
+ * fact, only ever shown/recorded as "inferred". `none` means the seat resolved
+ * no CLI at all (every non-CLI seat, and a CLI seat with nothing installed).
+ */
+export type CliResolutionSource = 'param' | 'persisted' | 'declared' | 'inferred' | 'none'
+
+export interface CliResolution {
+  cli: string
+  source: CliResolutionSource
+}
+
+/**
+ * #566: the single CLI resolution chain, extracted so the send path, the
+ * labels, and the audit log cannot drift. A seat that is not a CLI seat never
+ * resolves a CLI — that rule is the fix for remote agents presenting a CLI
+ * name ("qwen") they do not use.
+ */
+export function resolveCurrentCli(options: {
+  isCliSeat: boolean
+  param: string
+  persisted: string
+  declared: string
+  discovered: string[]
+  preferred: (discovered: string[]) => string
+}): CliResolution {
+  if (!options.isCliSeat) return { cli: '', source: 'none' }
+  const param = options.param.trim()
+  if (param) return { cli: param, source: 'param' }
+  const persisted = options.persisted.trim()
+  if (persisted) return { cli: persisted, source: 'persisted' }
+  const declared = options.declared.trim()
+  if (declared) return { cli: declared, source: 'declared' }
+  const inferred = options.preferred(options.discovered)
+  if (inferred) return { cli: inferred, source: 'inferred' }
+  return { cli: '', source: 'none' }
+}
+
 /** True when ChatPage should list host CLIs instead of the blueprint catalog. */
 export function isCliAgentContext(options: {
   blueprintId?: string | null

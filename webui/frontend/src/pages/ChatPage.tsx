@@ -388,9 +388,11 @@ import {
   isCliAgentContext,
   isCliBlueprintId,
   preferredChatCli,
+  resolveCurrentCli,
   MANAGE_CLI_VALUE,
 } from '../lib/cliAgentContext'
 import { productModesWhenSettled } from '../lib/productModes'
+import { recordBackendUse } from '../lib/backendAudit'
 import { isHiddenRoutingLabel } from '../lib/routingPath'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
@@ -1152,13 +1154,25 @@ const ChatPage = () => {
       ),
     [cliQuery.data, searchParams, persistedDropdown.cli, selectedCli],
   )
-  const currentCli = useMemo(() => {
-    const fromParam = (searchParams.get('cli') ?? '').trim()
-    if (fromParam) return fromParam
-    if (persistedDropdown.cli) return persistedDropdown.cli
-    if (selectedCli?.cli) return selectedCli.cli
-    return preferredChatCli(discoveredClis, '')
-  }, [searchParams, persistedDropdown.cli, selectedCli, discoveredClis])
+  // #566: one resolution chain, shared with the audit log. `cliSource` says
+  // where the value came from — an `inferred` pick is a fallback guess and must
+  // never be presented as the seat's own choice; a non-CLI seat resolves no CLI
+  // at all, so a remote agent can no longer end up labelled with a CLI it does
+  // not use.
+  const cliResolution = useMemo(
+    () =>
+      resolveCurrentCli({
+        isCliSeat: isCliAgent,
+        param: searchParams.get('cli') ?? '',
+        persisted: persistedDropdown.cli ?? '',
+        declared: selectedCli?.cli ?? '',
+        discovered: discoveredClis,
+        preferred: (clis) => preferredChatCli(clis, ''),
+      }),
+    [isCliAgent, searchParams, persistedDropdown.cli, selectedCli, discoveredClis],
+  )
+  const currentCli = cliResolution.cli
+  const currentCliSource = cliResolution.source
 
   /** The agent's own configured remote endpoint, if any. */
   const agentRemote = useMemo(
@@ -2628,7 +2642,7 @@ const ChatPage = () => {
         isApiAgent && loadElicitQuestions(agentIdForInference)
           ? { elicit_questions: true }
           : undefined
-      const cliParams = isCliAgent
+      const cliParams = isCliAgent && currentCli
         ? {
             ...cliAgentChatParams(currentCli, selectedModelParam),
             ...(sessionRemote ? { cli_remote: sessionRemote } : {}),
@@ -2678,6 +2692,15 @@ const ChatPage = () => {
           attachArg,
         ),
       )
+      // #566: audit from the value the frame actually carries — the log is a
+      // record of this send, not a parallel derivation of it.
+      recordBackendUse({
+        agentId: agentIdForInference,
+        agentName: selectedAgentName,
+        kind: isCliAgent ? 'cli' : isApiAgent ? 'api' : agentKind,
+        backend: isCliAgent ? (currentCli || '(none)') : (selectedModelParam || 'default'),
+        cliSource: isCliAgent ? currentCliSource : null,
+      })
       clearPendingAttachments()
       return true
     },
@@ -2687,11 +2710,14 @@ const ChatPage = () => {
       selectedCli,
       isCliAgent,
       currentCli,
+      currentCliSource,
       currentCliModel,
       persistedDropdown.model,
       persistedDropdown.cli,
       persistedDropdown.api,
       isApiAgent,
+      agentKind,
+      selectedAgentName,
       searchParams,
       teamFromUrl,
       memberTarget,

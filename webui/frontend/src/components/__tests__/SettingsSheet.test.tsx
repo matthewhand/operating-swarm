@@ -484,6 +484,47 @@ describe('SettingsSheet', () => {
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
   })
 
+  // #566: the Settings audit pane renders what the send path recorded —
+  // newest first, with the provenance reason, and a clear action.
+  it('backend audit pane lists recorded sends with their reasons (#566)', async () => {
+    const { recordBackendUse, BACKEND_AUDIT_STORAGE_KEY } = await import('../../lib/backendAudit')
+    window.localStorage.removeItem(BACKEND_AUDIT_STORAGE_KEY)
+    recordBackendUse({
+      agentId: 'codey',
+      agentName: 'Codey',
+      kind: 'cli',
+      backend: 'pi',
+      cliSource: 'declared',
+    })
+    recordBackendUse({
+      agentId: 'herdr',
+      agentName: 'Herdr',
+      kind: 'remote',
+      backend: '(none)',
+      cliSource: null,
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ object: 'list', data: [] }),
+    } as Response))
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Backend audit' }))
+
+    const rows = await screen.findAllByTestId('backend-audit-row')
+    expect(rows).toHaveLength(2)
+    // Newest first: Herdr was recorded after Codey.
+    expect(rows[0]).toHaveTextContent('Herdr')
+    expect(rows[0]).toHaveTextContent('remote provider')
+    expect(rows[1]).toHaveTextContent('Codey')
+    expect(rows[1]).toHaveTextContent('pi')
+    expect(rows[1]).toHaveTextContent('declares this CLI')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear log' }))
+    expect(screen.getByText('No sends recorded yet.'))
+    expect(window.localStorage.getItem(BACKEND_AUDIT_STORAGE_KEY)).toBeNull()
+  })
+
   // #573 acceptance: a configured kind stays visible in the popup but disabled
   // with its reason, not omitted (the #511 read).
   it('kind popup disables configured kinds with a reason and enables free ones', async () => {

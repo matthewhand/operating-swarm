@@ -15,6 +15,11 @@ import SpeechPane from './SpeechSettings'
 import RolesSettingsPane from './RolesSettingsPane'
 import SandboxesSettingsPane from './SandboxesSettingsPane'
 import {
+  BACKEND_AUDIT_STORAGE_KEY,
+  readBackendAudit,
+  type BackendAuditEntry,
+} from '../lib/backendAudit'
+import {
   EMPTY_LOCAL_STORE,
   createRemote,
   deleteRemote,
@@ -133,6 +138,7 @@ export type SettingsSection =
   | 'cli-agents'
   | 'roles'
   | 'sandboxes'
+  | 'backend-audit'
   | 'rail'
   | 'image-gen'
   | 'speech'
@@ -168,6 +174,7 @@ const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'cli-agents',
   'roles',
   'sandboxes',
+  'backend-audit',
   'rail',
   'image-gen',
   'speech',
@@ -472,6 +479,18 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
+                  {matchSearch('Backend audit', ['audit', 'backend', 'activity', 'log', 'diagnostics']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'backend-audit' ? 'menu-active' : undefined}
+                        aria-current={section === 'backend-audit' ? 'page' : undefined}
+                        onClick={() => setSection('backend-audit')}
+                      >
+                        Backend audit
+                      </button>
+                    </li>
+                  ) : null}
                 </>
               ) : null}
 
@@ -687,6 +706,7 @@ export default function SettingsSheet({
           )}
           {section === 'roles' && <RolesSettingsPane />}
           {section === 'sandboxes' && <SandboxesSettingsPane />}
+          {section === 'backend-audit' && <BackendAuditPane />}
           {section === 'rail' && (
             <RailPane
               bumpCompleted={bumpCompleted}
@@ -1505,6 +1525,80 @@ function RemotesCatalogPane({
               </ul>
             </div>
           ) : null}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * #566: per-agent backend audit — what backend each send actually used and why
+ * it resolved that way. Read-only: the log is written by the send path, so the
+ * pane only ever shows what really happened. Newest first.
+ */
+function BackendAuditPane() {
+  const [rows, setRows] = useState<BackendAuditEntry[]>([])
+
+  useEffect(() => {
+    const sync = () => setRows(readBackendAudit())
+    sync()
+    window.addEventListener('storage', sync)
+    window.addEventListener('swarm:backend-audit', sync)
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener('swarm:backend-audit', sync)
+    }
+  }, [])
+
+  const clearAll = () => {
+    try {
+      window.localStorage.removeItem(BACKEND_AUDIT_STORAGE_KEY)
+    } catch {
+      /* best-effort */
+    }
+    setRows([])
+  }
+
+  return (
+    <div className="space-y-3" data-testid="backend-audit-pane">
+      <div>
+        <h4 className="text-lg font-semibold">Backend audit</h4>
+        <p className="mt-1 text-sm text-base-content/70">
+          What backend each send actually used, recorded by the send path — not
+          what a label claims. An <em>inferred</em> CLI is a fallback guess for
+          a seat that declares none; it is never the seat's own choice.
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <Alert type="info" icon={<Server className="h-5 w-5" />}>
+          <span className="text-sm">No sends recorded yet.</span>
+        </Alert>
+      ) : (
+        <>
+          <ul className="space-y-1" aria-label="Backend audit log">
+            {rows.map((row, index) => (
+              <li
+                key={`${row.at}-${row.agentId}-${index}`}
+                className="flex items-start justify-between gap-3 rounded-lg border border-base-300 bg-base-200/60 px-3 py-2"
+                data-testid="backend-audit-row"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {row.agentName}{' '}
+                    <span className="badge badge-ghost badge-sm">{row.kind}</span>
+                  </p>
+                  <p className="font-mono text-xs text-base-content/70">{row.backend}</p>
+                  <p className="text-xs text-base-content/60">{row.reason}</p>
+                </div>
+                <time className="shrink-0 text-xs text-base-content/50">
+                  {new Date(row.at).toLocaleTimeString()}
+                </time>
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="ghost" size="sm" onClick={clearAll}>
+            Clear log
+          </Button>
         </>
       )}
     </div>
