@@ -35,6 +35,82 @@ export function isAuthError(error: unknown): error is ApiAuthError {
   return error instanceof ApiAuthError
 }
 
+/** #581: typed 429 — carries the retry countdown, never the raw DRF prose. */
+export class ApiThrottleError extends ApiError {
+  /** Seconds until the throttle window frees up (0 when unknown). */
+  retryAfterSeconds: number
+
+  constructor(status: number, message: string, retryAfterSeconds: number) {
+    super(status, message)
+    this.name = 'ApiThrottleError'
+    this.retryAfterSeconds = retryAfterSeconds
+  }
+}
+
+export function isThrottleError(error: unknown): error is ApiThrottleError {
+  return error instanceof ApiThrottleError
+}
+
+/** Seconds from a Retry-After header, or 0. */
+function retryAfterFromHeader(response: Response): number {
+  const raw = Number(response.headers.get('Retry-After'))
+  return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
+}
+
+/** Seconds from DRF's "Expected available in N seconds." prose, or 0. */
+function retryAfterFromDetail(detail: string): number {
+  const match = detail.match(/Expected available in (\d+) seconds?/i)
+  const raw = match ? Number(match[1]) : 0
+  return Number.isFinite(raw) && raw > 0 ? raw : 0
+}
+
+/**
+ * #581: build the thrown error for a failed API response. A 429 becomes a
+ * typed ApiThrottleError whose message is friendly UI prose — the raw DRF
+ * line ("Request was throttled. Expected available in N seconds.") must
+ * never reach the UI.
+ */
+export async function classifyApiError(
+  path: string,
+  response: Response,
+): Promise<ApiError> {
+  let detail = ''
+  try {
+    const body = await response.json()
+    detail = body?.error ?? body?.detail ?? ''
+  } catch {
+    // Non-JSON error body; fall through to generic message.
+  }
+  const message =
+    detail || `Request to ${path} failed with status ${response.status}`
+
+  if (response.status === 429) {
+    const retryAfterSeconds = retryAfterFromHeader(response) || retryAfterFromDetail(detail)
+    const wait = retryAfterSeconds > 0 ? `${retryAfterSeconds}s` : 'a moment'
+    return new ApiThrottleError(
+      response.status,
+      `Too many requests — the server is busy. Please try again in ${wait}.`,
+      retryAfterSeconds,
+    )
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    const eventDetail: AuthErrorDetail = { status: response.status, message }
+    try {
+      window.dispatchEvent(
+        new CustomEvent<AuthErrorDetail>(AUTH_ERROR_EVENT, {
+          detail: eventDetail,
+        }),
+      )
+    } catch {
+      // Non-browser environment (tests); the typed error below still surfaces.
+    }
+    return new ApiAuthError(response.status, message)
+  }
+
+  return new ApiError(response.status, message)
+}
+
 export interface AuthErrorDetail {
   status: number
   message: string
@@ -80,31 +156,7 @@ function buildHeaders(hasBody: boolean): Record<string, string> {
 }
 
 async function throwApiError(path: string, response: Response): Promise<never> {
-  let detail = ''
-  try {
-    const body = await response.json()
-    detail = body?.error ?? body?.detail ?? ''
-  } catch {
-    // Non-JSON error body; fall through to generic message.
-  }
-  const message =
-    detail || `Request to ${path} failed with status ${response.status}`
-
-  if (response.status === 401 || response.status === 403) {
-    const eventDetail: AuthErrorDetail = { status: response.status, message }
-    try {
-      window.dispatchEvent(
-        new CustomEvent<AuthErrorDetail>(AUTH_ERROR_EVENT, {
-          detail: eventDetail,
-        }),
-      )
-    } catch {
-      // Non-browser environment (tests); the typed error below still surfaces.
-    }
-    throw new ApiAuthError(response.status, message)
-  }
-
-  throw new ApiError(response.status, message)
+  throw await classifyApiError(path, response)
 }
 
 /** Session/bearer fetch used by Agent Router (`agent-api.ts`). */
@@ -791,7 +843,42 @@ export interface RemoteOperateResult {
 }
 
 export function fetchRemotes(): Promise<RemotesListResponse> {
-  return apiGet<RemotesListResponse>('/v1/remotes/')
+  // #581: coalesced — concurrent callers and TTL-window repeats share one GET.
+  return coalescedRemotesFetch()
+}
+
+/**
+ * #581: coalescing cache for GET /v1/remotes/.
+ *
+ * Selecting a remote seat fires several reads in one tick (remotes list,
+ * configured-remotes, catalog merge). Without dedupe that volley multiplies
+ * against every mount and retry, spending the anon throttle budget on
+ * identical GETs. Concurrent calls and calls within the short TTL share one
+ * network GET; failures are not cached (the next caller retries).
+ */
+const REMOTES_CACHE_TTL_MS = 5_000
+let remotesCachePromise: Promise<RemotesListResponse> | null = null
+let remotesCacheAt = 0
+
+/** Test hook: drop the coalescing cache between cases. */
+export function resetRemotesFetchCacheForTests(): void {
+  remotesCachePromise = null
+  remotesCacheAt = 0
+}
+
+export function coalescedRemotesFetch(): Promise<RemotesListResponse> {
+  const now = Date.now()
+  if (remotesCachePromise && now - remotesCacheAt < REMOTES_CACHE_TTL_MS) {
+    return remotesCachePromise
+  }
+  remotesCacheAt = now
+  remotesCachePromise = apiGet<RemotesListResponse>('/v1/remotes/').catch((err: unknown) => {
+    // Do not cache failures — the next caller retries the GET.
+    remotesCachePromise = null
+    remotesCacheAt = 0
+    throw err
+  })
+  return remotesCachePromise
 }
 
 export function addRemote(body: AddRemoteRequest): Promise<RemoteConnection> {

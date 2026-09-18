@@ -127,6 +127,7 @@ import {
   fetchLlmProfiles,
   fetchRemotes,
   fetchSpeechSettings,
+  isThrottleError,
   operateRemote,
 } from '../lib/api'
 import {
@@ -852,7 +853,10 @@ const ChatPage = () => {
   })
   const remotesListQuery = useQuery({
     queryKey: ['remotes-list'],
+    // #581: coalesced GET /v1/remotes/ — same network call as the
+    // 'configured-remotes' query, no duplicate volley on seat selection.
     queryFn: fetchRemotes,
+    staleTime: 5_000,
     retry: 1,
   })
   const speechQuery = useQuery({
@@ -1041,7 +1045,11 @@ const ChatPage = () => {
     ? null
     : remoteAgentsQuery.isError
       ? remoteAgentsQuery.error instanceof Error
-        ? remoteAgentsQuery.error.message
+        ? // #581: throttle errors get a friendly toast (see effect below) and
+          // never raw throttler prose in the picker warning.
+          isThrottleError(remoteAgentsQuery.error)
+          ? ''
+          : remoteAgentsQuery.error.message
         : 'Remote agent list failed'
       : remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
         ? remoteAgentsQuery.data.detail || 'No agents listed on this remote'
@@ -1049,6 +1057,21 @@ const ChatPage = () => {
           ? OMB_NO_AGENTS_WARNING
           : null
   const ombSelectedBotId = ombSendTarget(sessionFromUrl, ombRemoteId || remoteFromUrl)
+  // #581: any failed remote query that trips the throttle shows one friendly
+  // retry toast with the countdown — never the raw DRF line.
+  const throttleToastRef = useRef(0)
+  useEffect(() => {
+    const err = remoteAgentsQuery.error
+    if (!isThrottleError(err)) return
+    const now = Date.now()
+    if (now - throttleToastRef.current < 10_000) return
+    throttleToastRef.current = now
+    addToast({
+      type: 'error',
+      title: 'Slow down a moment',
+      message: err.message,
+    })
+  }, [remoteAgentsQuery.error, addToast])
 
   const isCliAgent = Boolean(
     !teamFromUrl &&
@@ -1649,6 +1672,17 @@ const ChatPage = () => {
     const hadMessages = (threadsRef.current[bucketKey] ?? []).length > 0
     const detail = err instanceof Error ? err.message.trim() : ''
     const fallback = 'The transcript could not be fetched.'
+    // #581: a 429 shows the friendly retry toast (with countdown), never
+    // raw throttler prose — the typed message from lib/api is already clean.
+    if (isThrottleError(err)) {
+      addToast({
+        type: 'error',
+        title: 'Slow down a moment',
+        message: err.message,
+      })
+      setThreadReady(true)
+      return
+    }
     addToast({
       type: 'error',
       title: 'Could not load chat',

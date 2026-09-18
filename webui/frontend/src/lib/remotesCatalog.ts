@@ -9,6 +9,7 @@
  */
 
 import { parseStartedAt } from './avatarStack'
+import { coalescedRemotesFetch } from './api'
 
 export const REMOTES_URL = '/v1/remotes/'
 /** Optional local fixture (no LAN). Checked before GET /v1/remotes/. */
@@ -170,15 +171,23 @@ export function parseRailRemotes(payload: unknown): RemoteEntry[] {
  * (no live LAN).
  */
 export async function fetchConfiguredRemotes(): Promise<RemoteEntry[]> {
-  for (const url of [REMOTES_FIXTURE_URL, REMOTES_URL]) {
-    try {
-      const response = await fetch(url, { headers: { Accept: 'application/json' } })
-      if (!response.ok) continue
+  // #581: optional fixture first (static file — not throttled), then the
+  // shared coalesced GET /v1/remotes/ instead of an independent fetch.
+  try {
+    const response = await fetch(REMOTES_FIXTURE_URL, {
+      headers: { Accept: 'application/json' },
+    })
+    if (response.ok) {
       const parsed = parseRailRemotes(await response.json())
       if (parsed.length > 0) return parsed
-    } catch {
-      // Try the next candidate; empty list is the last resort.
     }
+  } catch {
+    // Fixture is optional; fall through to the API.
   }
-  return []
+  try {
+    const payload = await coalescedRemotesFetch()
+    return parseRailRemotes(payload)
+  } catch {
+    return []
+  }
 }

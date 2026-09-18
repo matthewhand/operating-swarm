@@ -1,8 +1,18 @@
+import { afterEach } from 'vitest'
+import { resetRemotesFetchCacheForTests } from './lib/api'
+
 import '@testing-library/jest-dom';
 import { resetChatConnection } from './lib/chatConnection';
 import { resetExpectedSpaVersion } from './lib/spaHello';
 import { resetGithubReleaseCache } from './lib/githubRelease';
 import { setBakedSpaVersionForTests } from './lib/spaVersion';
+
+// #581: drop the coalesced /v1/remotes/ cache after every test — the
+// module-level TTL cache must never leak a previous test's remotes payload
+// into the next mount (that made the remote-backed-teams test order-dependent).
+afterEach(() => {
+    resetRemotesFetchCacheForTests()
+})
 
 afterEach(() => {
     resetChatConnection();
