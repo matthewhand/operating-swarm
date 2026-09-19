@@ -33,17 +33,17 @@ def _gateway_env(monkeypatch):
 
 
 def test_ui_url_rewrites_in_container_when_override_set(monkeypatch):
-    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "10.0.0.36")
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "203.0.113.77")
     monkeypatch.setattr(remotes_core, "_running_in_container", lambda: True)
     assert (
         remotes_core._normalize_ui_url(f"http://{ALIAS}:8791")
-        == "http://10.0.0.36:8791"
+        == "http://203.0.113.77:8791"
     )
 
 
 def test_base_url_preserved_in_container_even_with_override(monkeypatch):
     """Server-side fetches keep the alias: it resolves from inside."""
-    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "10.0.0.36")
+    monkeypatch.setenv("SWARM_HOST_GATEWAY_EXTERNAL", "203.0.113.77")
     monkeypatch.setattr(remotes_core, "_running_in_container", lambda: True)
     assert (
         remotes_core._normalize_base_url(f"http://{ALIAS}:8791")

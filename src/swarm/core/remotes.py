@@ -3452,6 +3452,11 @@ def _trueforge_send(
             "turn_id": turn_id,
             "turn": turn_data,
             "events": events_data,
+            # #686: the parsed human reply rides in ``text`` — the chat
+            # renderer renders send results from this key and must never fall
+            # back to dumping the transport payload (turn + every event) as a
+            # raw JSON blob into the conversation.
+            "text": reply_text,
             **({"session_created_for": created_for} if created_for else {}),
         },
     )

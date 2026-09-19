@@ -1163,3 +1163,83 @@ def test_unreachable_copy_names_gateway_override(monkeypatch):
     result = remotes_core.HttpResult(status=None, error="Connection refused", url="http://x:1")
     detail = remotes_core._unreachable_detail(result, "Chat")
     assert "SWARM_HOST_GATEWAY_EXTERNAL" in detail
+
+
+def test_trueforge_send_reply_is_parsed_not_dumped_as_json(tf_server, monkeypatch):
+    """#686: a successful TrueForge send renders ONLY the human reply.
+
+    The chat canvas must never show the transport payload (turn dict + every
+    event). The reply comes from data.text/detail; the turn/events stay
+    inspectable data, never message text.
+    """
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (200, {"data": {"id": "sess-tf-686"}}),
+        ("POST", "/api/v1/sessions/sess-tf-686/turns"): (
+            200,
+            {"data": {"id": "turn-tf-686", "state": "RUNNING"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-tf-686/turns/turn-tf-686"): (
+            200,
+            {"data": {"id": "turn-tf-686", "state": "done"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-tf-686/turns/turn-tf-686/events"): (
+            200,
+            {
+                "data": [
+                    {"type": "user.message", "content": "hello"},
+                    {
+                        "type": "model.message",
+                        "content": [{"type": "text", "text": "Clean human reply."}],
+                    },
+                ]
+            },
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+    sent = remotes_core.operate("trueforge", "send", prompt="hello", config=cfg)
+    assert sent.ok is True
+    assert sent.data["text"] == "Clean human reply."
+
+    from swarm.blueprints.remote_harness.blueprint_remote_harness import _render_operate
+
+    rendered = _render_operate(sent)
+    assert rendered == "Clean human reply."
+    # No transport JSON anywhere in the message text.
+    assert "turn-tf-686" not in rendered
+    assert '"events"' not in rendered
+    assert "user.message" not in rendered
+
+
+def test_trueforge_send_with_no_reply_text_never_renders_payload_json(tf_server, monkeypatch):
+    """#686: even with an empty reply, the send render stays a sentence."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (200, {"data": {"id": "sess-tf-687"}}),
+        ("POST", "/api/v1/sessions/sess-tf-687/turns"): (
+            200,
+            {"data": {"id": "turn-tf-687", "state": "RUNNING"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-tf-687/turns/turn-tf-687"): (
+            200,
+            {"data": {"id": "turn-tf-687", "state": "done"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-tf-687/turns/turn-tf-687/events"): (
+            200,
+            {"data": [{"type": "tool.call", "content": "{}"}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+    sent = remotes_core.operate("trueforge", "send", prompt="hi", config=cfg)
+    assert sent.ok is True
+
+    from swarm.blueprints.remote_harness.blueprint_remote_harness import _render_operate
+
+    rendered = _render_operate(sent)
+    # No JSON, no payload keys — just the adapter's completion sentence.
+    assert "{" not in rendered
+    assert '"events"' not in rendered
+    assert "user.message" not in rendered
+    assert rendered == "TrueForge turn completed"

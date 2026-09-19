@@ -180,10 +180,19 @@ def _gap_line(gap: str) -> str:
 
 
 def _render_operate(result: remotes_core.OperateResult) -> str:
-    if result.ok and result.op == "send" and isinstance(result.data, dict):
-        text = str(result.data.get("text") or result.data.get("response") or "").strip()
+    if result.ok and result.op == "send":
+        # #686: a successful send renders ONLY its human reply. The reply may
+        # live in data.text / data.response (adapters that parse payloads) or
+        # in detail (e.g. TrueForge, which always parses server events). It
+        # must NEVER fall through to the generic data dump below — a send's
+        # data is a transport payload (turns, events, ids), not prose.
+        text = ""
+        if isinstance(result.data, dict):
+            text = str(result.data.get("text") or result.data.get("response") or "").strip()
+        text = text or result.detail.strip()
         if text:
             return text
+        return f"{result.remote} send: completed (no reply text returned)."
     if not result.ok and remotes_core.NOT_ADDED_MARKER in result.detail:
         # Never-added catalog seat: the detail is already a complete, actionable
         # sentence — do not wrap it in "{remote} {op}: FAIL —" (issue #129).
