@@ -3550,6 +3550,18 @@ export default function AgentSidebar({
               ) : (
                 <ul className="os-rail-sections space-y-1">
                   {sectionBlocks.map((block) => {
+                    // #688: an emptied Unassigned section is not a permanent
+                    // empty block. It hides until it has rows again — or until
+                    // a drag starts, when it reappears as a drop target (its
+                    // drop handler below is live the whole time). "Move to →
+                    // Unassigned" in the context menu works either way.
+                    if (
+                      isUnassignedSection(block.id) &&
+                      block.rows.length === 0 &&
+                      !draggingId
+                    ) {
+                      return null
+                    }
                     const showMembers = isAvatarOnly || !block.collapsed
                     return (
                       <li
