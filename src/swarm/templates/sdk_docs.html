@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Blueprint SDK{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-4xl px-4 py-6">
+  <h1 class="mb-4 text-xl font-bold">Blueprint SDK reference</h1>
+  <p class="mb-4 text-sm text-base-content/60">
+    The contract for Open Swarm recipes (REQ-921). Source of truth:
+    <code>docs/sdk/BLUEPRINT_SDK.md</code> — pinned against the code by
+    <code>tests/unit/test_req921_sdk_docs.py</code>. Worked examples:
+    <code>src/swarm/blueprints/example_*</code> (REQ-920).
+  </p>
+  <pre class="whitespace-pre-wrap rounded-lg border border-base-300 bg-base-200/40 p-4 text-sm leading-relaxed">{{ doc }}</pre>
+</div>
+{% endblock %}

@@ -198,6 +198,17 @@ export default function DefinitionPane({
       <div data-testid="definition-explanation" className="space-y-2">
         <h5 className="text-sm font-semibold">How it works</h5>
         <p className="text-sm leading-relaxed text-base-content/80">{brief}</p>
+        {/* REQ-921 / #540: the SDK reference is reachable from the same place
+            the per-blueprint explanation lives. Auth required, opens a tab. */}
+        <a
+          href="/sdk-docs/"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-block text-xs link link-hover"
+          data-testid="definition-sdk-docs-link"
+        >
+          Blueprint SDK reference →
+        </a>
       </div>
 
       <div data-testid="definition-summary" className="space-y-2">

@@ -5,6 +5,7 @@ Handles blueprint browsing, library management, and custom blueprint creation.
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from django.conf import settings as dj_settings
@@ -200,6 +201,24 @@ def blueprint_source_page(request, blueprint_name):
         **payload,
         "prism_lang": prism_language(payload.get("selected")),
     })
+
+
+@login_required
+@require_GET
+def sdk_docs(request):
+    """Serve the Blueprint SDK reference (REQ-921 / #540).
+
+    Browsable at /sdk-docs/ and linked from the agent Definition pane. The
+    markdown source is rendered as pre-wrapped text (no markdown dependency
+    in the venv) — headings and tables stay readable, and the on-disk file
+    remains the single source of truth that the docs-rot test pins.
+    """
+    doc_path = Path(__file__).resolve().parents[2] / "docs" / "sdk" / "BLUEPRINT_SDK.md"
+    try:
+        content = doc_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        content = "Blueprint SDK reference is unavailable on this install."
+    return render(request, "sdk_docs.html", {"doc": content})
 
 
 @login_required

@@ -75,6 +75,7 @@ from swarm.views.blueprint_library_views import (
     add_blueprint_to_library,
     blueprint_creator,
     blueprint_library,
+    sdk_docs,
     blueprint_requirements_status,
     blueprint_source_page,
     check_comfyui_status,
@@ -694,6 +695,8 @@ urlpatterns = [
     ),
     # Blueprint Library endpoints
     path("blueprint-library/", blueprint_library, name="blueprint_library"),
+    # REQ-921 / #540: browsable Blueprint SDK reference, linked from the Definition pane.
+    path("sdk-docs/", sdk_docs, name="sdk_docs"),
     path("blueprint-library/creator/", blueprint_creator, name="blueprint_creator"),
     path(
         "blueprint-library/<str:blueprint_name>/source/",
