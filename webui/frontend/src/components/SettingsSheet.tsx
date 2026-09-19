@@ -91,6 +91,12 @@ import {
 import { HOSTNAME_CHANGED_EVENT, dispatchHostnameChanged } from '../lib/hostname'
 import { agentLabel, catalogLabel } from '../lib/supportAgent'
 import {
+  applyDemoSectionProfile,
+  isDemoProfileActive,
+  removeDemoSectionProfile,
+} from '../lib/demoSections'
+import { loadRailSections } from '../lib/railSections'
+import {
   DEFAULT_AUTO_COMPRESS_PCT,
   applyHostnameOverride,
   fetchUserPrefs,
@@ -323,6 +329,21 @@ export default function SettingsSheet({
   const [contextStrategy, setContextStrategy] = useState<'compress' | 'cull'>('compress')
   const [cullTriggerPct, setCullTriggerPct] = useState(90)
   const [cullFractionPct, setCullFractionPct] = useState(50)
+  // #544: seats for the Showcase profile, from the same catalog query the
+  // blueprints pane uses (fetched here at sheet scope).
+  const showcaseCatalogQuery = useQuery({
+    queryKey: ['blueprints'],
+    queryFn: fetchBlueprints,
+    retry: 1,
+  })
+  const demoRows = useMemo(
+    () =>
+      (showcaseCatalogQuery.data?.data ?? EMPTY_BLUEPRINTS).map((item) => ({
+        id: item.id,
+        kind: item.kind ?? null,
+      })),
+    [showcaseCatalogQuery.data],
+  )
   const [selectedBlueprintId, setSelectedBlueprintId] = useState(blueprintId || '')
   const [bumpCompleted, setBumpCompleted] = useState(() => loadBumpCompleted())
   const [bumpScope, setBumpScope] = useState<BumpScope>(() => loadBumpScope())
@@ -772,6 +793,7 @@ export default function SettingsSheet({
                 setCullFractionPct(clamped)
                 void saveUserPrefs({ context_cull_fraction_pct: clamped })
               }}
+              demoRows={demoRows}
             />
           )}
           {section === 'aesthetics' && <AestheticsPane />}
@@ -2049,6 +2071,53 @@ function AestheticsPane() {
   )
 }
 
+/**
+ * #544 / REQ-922 — the Showcase control in Settings → General. The state is
+ * derived from the live rail rows at apply time, so the toggle reflects the
+ * layout the rail will show. No rows yet → the control explains that.
+ */
+function DemoSectionProfileControl({
+  rows,
+}: {
+  rows: Array<{ id: string; kind?: string | null }>
+}) {
+  const [active, setActive] = useState<boolean>(() => isDemoProfileActive(loadRailSections()))
+  const usable = rows.length > 0
+
+  const apply = () => {
+    applyDemoSectionProfile(rows)
+    setActive(true)
+  }
+  const remove = () => {
+    removeDemoSectionProfile()
+    setActive(false)
+  }
+
+  return (
+    <div className="form-control w-full">
+      <label className="label cursor-pointer justify-start gap-4">
+        <input
+          type="checkbox"
+          className="toggle"
+          checked={active}
+          disabled={!usable}
+          onChange={(e) => (e.target.checked ? apply() : remove())}
+          aria-label="Showcase rail sections"
+          data-testid="demo-sections-toggle"
+        />
+        <span className="label-text">Showcase rail sections</span>
+      </label>
+      <p className="text-xs text-base-content/60" data-testid="demo-sections-hint">
+        {usable
+          ? active
+            ? 'CLI / API / Remote / Fancy sections are applied. Turn off to restore your previous layout.'
+            : 'Section the rail as CLI / API / Remote / Fancy for screenshots and demos. Your current layout is backed up.'
+          : 'Load the rail first — the showcase derives its sections from your seats.'}
+      </p>
+    </div>
+  )
+}
+
 function GeneralPane({
   autoCompressPct,
   onAutoCompressPct,
@@ -2058,6 +2127,7 @@ function GeneralPane({
   onCullTriggerPct,
   cullFractionPct,
   onCullFractionPct,
+  demoRows,
 }: {
   autoCompressPct: number
   onAutoCompressPct: (next: number) => void
@@ -2067,6 +2137,8 @@ function GeneralPane({
   onCullTriggerPct: (next: number) => void
   cullFractionPct: number
   onCullFractionPct: (next: number) => void
+  /** #544: seats the showcase derives its sections from. */
+  demoRows?: Array<{ id: string; kind?: string | null }>
 }) {
   const [themePref, setThemePref] = useState<Theme>(initialTheme)
   const [navbarVisible, setNavbarVisible] = useState<boolean>(initialNavbarThemeVisible)
@@ -2178,6 +2250,19 @@ function GeneralPane({
               : 'The current bubble theme does not support streaming.'}
           </p>
         </div>
+      </section>
+
+      <section aria-labelledby="os-showcase-heading" className="space-y-3">
+        <h5
+          id="os-showcase-heading"
+          className="text-base font-semibold border-b border-base-200 pb-1"
+        >
+          Showcase
+        </h5>
+        {/* #544 / REQ-922: the demo section profile. Apply derives CLI / API /
+            Remote / Fancy sections from the seats present right now and backs
+            up the current layout; Remove restores it. Never first-run seeds. */}
+        <DemoSectionProfileControl rows={demoRows ?? []} />
       </section>
 
       <section aria-labelledby="os-context-heading" className="space-y-4">

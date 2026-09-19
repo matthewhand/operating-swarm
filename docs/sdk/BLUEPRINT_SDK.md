@@ -168,8 +168,9 @@ through `validate_writable_source()`:
    trusted — the frontend gate re-checks (`isCatalogRailSeat`).
 
 Tracked-file hygiene is separately enforced by
-`tests/test_tracked_files_sanitization.py` (no LAN IPs, no host names like
-`ubuntu-gtx`/`ubuntu-max`, no secrets) — your blueprint must pass it too.
+`tests/test_tracked_files_sanitization.py` — no LAN IPs and no internal
+host names from any dev/prod box (the test's ban list is the source of
+truth) and no secrets. Your blueprint must pass it too.
 
 ---
 
