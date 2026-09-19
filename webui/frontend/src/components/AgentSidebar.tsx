@@ -178,7 +178,6 @@ import {
 import {
   markStackWorking,
   orderedFacesByRecency,
-  pinStackSizes,
   railTeamStackLayout,
   teamChatFaceStack,
   teamSidepaneStack,
@@ -3364,17 +3363,6 @@ export default function AgentSidebar({
             } ${dropTargetId === pin.id ? 'os-fav-tile--drop' : ''} ${
               pinActive ? 'os-fav-tile--active' : ''
             } ${pinWorkerBusy ? 'os-fav-tile--working-stack' : ''}`
-            // #523: recency-ordered faces for the pin's graduated stack — most
-            // recently active member first (largest); roster order when the
-            // team has no activity (chat stacking preference, default First).
-            const pinTeamStackFaces = pinTeam
-              ? orderedFacesByRecency(
-                  stackFacesForTeam(pinTeam).map((row) => ({
-                    ...row,
-                    working: row.working || cliRunningIds.has(row.id) || peekCliRunning(row.id),
-                  })),
-                ).slice(0, 3)
-              : []
             const pinFace = (
               <>
                 {pinNeedsApproval ? (
@@ -3416,45 +3404,17 @@ export default function AgentSidebar({
                     {badge}
                   </span>
                 ) : null}
-                {/* #438: one full-size face + a corner `+N` overlay — not a fan of
-                    overlapping xs faces, which at pin size read as a sliver
-                    blob with extra marks. #523: for teams the face is the most
-                    recently active member, with the roster stepped down in size
-                    behind it (roster order when there is no activity). */}
+                {/* #438: one full-size face + a corner `+N` overlay.
+                    #689 (supersedes #523's graduated stack): exactly ONE
+                    avatar + the +N counter on pinned team seats — the second
+                    face read as a second agent at pin size. The face is
+                    still the most recently active member (#523 ordering),
+                    just no longer stacked. */}
                 <span
                   className="os-fav-tile__face relative inline-flex shrink-0 items-center justify-center"
                   data-testid="pin-team-face"
                   data-remainder={String(pinTeamPlan?.remainder ?? 0)}
                 >
-                  {pinTeamStackFaces.length > 1 ? (
-                    <span
-                      className="relative inline-flex items-end justify-center"
-                      data-testid="pin-team-avatar-stack"
-                    >
-                      {pinTeamStackFaces.map((stackFace, depth) => (
-                        <span
-                          key={`${stackFace.id}-${depth}`}
-                          className="relative inline-flex rounded-full"
-                          style={{
-                            width: pinStackSizes(pinTeamStackFaces.length)[depth],
-                            height: pinStackSizes(pinTeamStackFaces.length)[depth],
-                            marginLeft: depth === 0 ? 0 : -(pinStackSizes(pinTeamStackFaces.length)[depth] - 12),
-                            zIndex: pinTeamStackFaces.length - depth,
-                          }}
-                        >
-                          <AgentAvatar
-                            src={stackFace.avatarSrc || stackFace.src}
-                            agentId={stackFace.agentId || stackFace.id}
-                            alt={stackFace.name || stackFace.id}
-                            size="sm"
-                            className="os-fav-tile__avatar"
-                            status={pinWorkerBusy && stackFace.working ? 'working' : 'idle'}
-                            active={pinWorkerBusy && Boolean(stackFace.working)}
-                          />
-                        </span>
-                      ))}
-                    </span>
-                  ) : (
                   <AgentAvatar
                     src={pinTeamPlan?.face?.avatarSrc || pinTeamPlan?.face?.src || live?.avatar_path}
                     agentId={pinTeamPlan?.face?.agentId || pinTeamPlan?.face?.id || pin.id}
@@ -3464,7 +3424,6 @@ export default function AgentSidebar({
                     status={pinWorkerBusy ? 'working' : 'idle'}
                     active={pinWorkerBusy}
                   />
-                  )}
                   {pinTeamPlan && pinTeamPlan.remainder > 0 ? (
                     <span
                       className="os-fav-tile__remainder"
