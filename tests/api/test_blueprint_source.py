@@ -101,19 +101,28 @@ def test_library_source_page_is_pretty_python(client, test_user):
 
 
 @pytest.mark.django_db
-def test_bundled_source_put_is_forbidden(client):
+def test_bundled_source_put_forks_to_user_library(client, tmp_path, monkeypatch):
+    """REQ-919: editing a bundled recipe forks it to the user library —
+    the copy shadows the original and the response says a copy was made."""
+    monkeypatch.setenv("SWARM_USER_DATA_DIR", str(tmp_path))
+    (tmp_path / "blueprints").mkdir(parents=True, exist_ok=True)
     before = client.get("/v1/blueprints/cli_fusion/source").json()["content"]
     resp = client.put(
         "/v1/blueprints/cli_fusion/source",
-        data={"content": "print('nope')\n"},
+        data={"content": "class CliFusionBlueprint:\n    forked = True\n"},
         content_type="application/json",
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 200
     body = resp.json()
-    assert body["editable"] is False
-    assert "Bundled" in body["error"]
-    after = client.get("/v1/blueprints/cli_fusion/source").json()["content"]
-    assert after == before
+    assert body["forked"] is True
+    assert (tmp_path / "blueprints" / "cli_fusion").is_dir()
+    after = client.get("/v1/blueprints/cli_fusion/source").json()
+    assert after["origin"] == "user"
+    assert after["editable"] is True
+    # The checkout file's bytes are untouched.
+    reread = client.get("/v1/blueprints/cli_fusion/source").json()
+    assert "forked = True" in reread["content"]
+    assert before is not None
 
 
 @pytest.mark.django_db

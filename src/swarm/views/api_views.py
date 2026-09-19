@@ -11,20 +11,20 @@ from rest_framework.views import APIView
 from swarm.auth import api_permission_classes
 from swarm.core.agent_kind import API_AGENT_BLUEPRINT_ID, API_AGENT_RAIL_ID
 from swarm.core.agent_roles import blueprint_role_fields, is_webui_blueprint
-from swarm.core.kind_bases import ApiKindBase
 from swarm.core.blueprint_source import (
     ALLOWED_SOURCE_SUFFIXES,
     load_blueprint_source,
     save_blueprint_source,
 )
 from swarm.core.blueprint_source import custom_blueprint_code as _custom_blueprint_code
+from swarm.core.kind_bases import ApiKindBase
+from swarm.core.persona_parse import parse_openai_agent_personas, serialize_personas
 from swarm.core.rail_seats import (
     CustomSeatError,
+    build_custom_rail_item,
     custom_library_to_blueprint_rows,
     metadata_rail,
-    build_custom_rail_item,
 )
-from swarm.core.persona_parse import parse_openai_agent_personas, serialize_personas
 from swarm.services import github_topics_service as gh_service
 from swarm.settings import (
     ENABLE_GITHUB_MARKETPLACE,
@@ -781,6 +781,76 @@ class BlueprintSourceView(APIView):
                 else status.HTTP_400_BAD_REQUEST,
             )
         return Response({"formatted": result.formatted, "file": file_name})
+
+    @extend_schema(summary="Delete a blueprint from the install", request=None)
+    def delete(self, _request, blueprint_id, *_args, **_kwargs):
+        """REQ-919: every blueprint is deletable.
+
+        A user-dir recipe's tree is removed. A bundled recipe is tombstoned —
+        hidden from listings/loads while the checkout stays pristine (a file
+        delete would dirty the repo and resurrect on ``git pull``).
+        """
+        from swarm.core.blueprint_source import delete_blueprint
+
+        payload, code = delete_blueprint(blueprint_id)
+        return Response(payload, status=code)
+
+
+@extend_schema(summary="Upload a blueprint (.py or .zip/.tar archive)")
+class BlueprintUploadView(APIView):
+    """POST /v1/blueprints/upload — REQ-919's upload gate.
+
+    Multipart ``file`` + ``id`` (or a JSON body {id, filename, content_b64}
+    for tests/CLI). One ``.py`` becomes a user-dir recipe; a zip/tar extracts
+    into ``get_user_blueprints_dir()/<id>/`` after confinement, suffix, size,
+    and sandbox validation — all before anything is written. Id collision is
+    409: refuse or fork, never silently overwrite.
+    """
+
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def post(self, request, *_args, **_kwargs):
+        import base64
+
+        from swarm.core.blueprint_source import (
+            MAX_UPLOAD_BYTES,
+            upload_blueprint_archive,
+        )
+
+        uploaded = request.FILES.get("file")
+        blueprint_id = str(
+            request.data.get("id") or request.query_params.get("id") or ""
+        ).strip()
+        if uploaded is not None:
+            filename = getattr(uploaded, "name", "") or ""
+            data = uploaded.read()
+            # Multipart clients may omit a filename — a bare ``.py`` upload is
+            # still unambiguous from the id (blueprint_<id>.py).
+            if not filename:
+                filename = f"blueprint_{blueprint_id}.py" if blueprint_id else ""
+        else:
+            body = request.data or {}
+            filename = str(body.get("filename") or "")
+            encoded = body.get("content_b64")
+            if not isinstance(encoded, str):
+                return Response(
+                    {"error": "file (multipart) or content_b64 is required"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                data = base64.b64decode(encoded, validate=True)
+            except Exception:
+                return Response(
+                    {"error": "content_b64 is not valid base64"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if not blueprint_id:
+            return Response({"error": "id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(data) > MAX_UPLOAD_BYTES:
+            return Response({"error": "upload exceeds the size cap"}, status=413)
+        payload, code = upload_blueprint_archive(blueprint_id, data, filename)
+        return Response(payload, status=code)
 
 
 def _swarm_runtime_config() -> dict:

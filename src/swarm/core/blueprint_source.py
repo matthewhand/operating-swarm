@@ -7,6 +7,8 @@ read-only. Never execs source; validation is ``compile`` + AST sandbox.
 
 from __future__ import annotations
 
+import io
+import json
 import shutil
 import subprocess  # noqa: S404 - fixed argv, no shell, stdin-only (see format_python_source)
 import sys
@@ -28,14 +30,59 @@ ORIGIN_MARKETPLACE = "marketplace"
 
 READONLY_REASONS = {
     ORIGIN_BUNDLED: (
-        "Bundled checkout recipe — not writable from Settings or the library."
+        "Bundled checkout recipe — editing copies it to your library first."
     ),
     ORIGIN_MARKETPLACE: (
-        "Marketplace listing — install or copy to your library to edit."
+        "Marketplace listing — editing copies it to your library first."
     ),
 }
 
 _EDITABLE_ORIGINS = {ORIGIN_USER, ORIGIN_CUSTOM}
+
+# REQ-919: which origins fork-on-write instead of refusing?
+_FORK_ON_WRITE_ORIGINS = {ORIGIN_BUNDLED, ORIGIN_MARKETPLACE}
+
+# REQ-919 upload caps. MAX_UPLOAD_BYTES bounds the request body;
+# MAX_EXTRACTED_BYTES bounds what an archive may expand to (zip-bomb guard).
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 10 * 1024 * 1024
+
+# REQ-919 tombstones: bundled recipes the user hid from their install.
+# Stored as a JSON file under the user data dir — survives restarts, is
+# per-install, and never touches the checkout itself.
+TOMBSTONES_FILENAME = ".blueprint_tombstones.json"
+
+
+def _tombstones_path() -> Path:
+    base = get_user_blueprints_dir()
+    return base / TOMBSTONES_FILENAME
+
+
+def _tombstones() -> set[str]:
+    try:
+        raw = _tombstones_path().read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return {str(x) for x in parsed if isinstance(x, str)}
+    except Exception:
+        pass
+    return set()
+
+
+def _add_tombstone(blueprint_id: str) -> None:
+    current = _tombstones()
+    current.add(blueprint_id)
+    try:
+        path = _tombstones_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sorted(current)), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def tombstoned_ids() -> set[str]:
+    """Public read for listing surfaces (rail, library) to filter."""
+    return set(_tombstones())
 
 
 def _bundled_base() -> Path:
@@ -112,7 +159,12 @@ def _marketplace_item(blueprint_id: str) -> Any | None:
 
 
 def resolve_blueprint_origin(blueprint_id: str) -> str | None:
-    """Return origin class, preferring writable stores over bundled/marketplace."""
+    """Return origin class, preferring writable stores over bundled/marketplace.
+
+    Tombstoned bundled recipes resolve to ``None`` — hidden is hidden (REQ-919).
+    """
+    if blueprint_id in _tombstones():
+        return None
     user_dir = _confined_dir(_user_base(), blueprint_id)
     if user_dir is not None and user_dir.is_dir():
         return ORIGIN_USER
@@ -443,16 +495,74 @@ def _target_in_dir(bp_dir: Path, file_name: str | None) -> Path | None:
     return cand
 
 
+def _fork_to_user_dir(blueprint_id: str) -> Path | None:
+    """Copy a bundled/marketplace recipe's tree into the user dir (REQ-919).
+
+    The copy shadows the original via existing precedence. Only files whose
+    names survive ``_safe_entry_name`` are copied, so the fork cannot become a
+    second path around the upload gates. Returns the new dir, or None when the
+    origin has no copyable tree.
+    """
+    source_dir: Path | None = None
+    origin = resolve_blueprint_origin(blueprint_id)
+    if origin == ORIGIN_BUNDLED:
+        source_dir = _confined_dir(_bundled_base(), blueprint_id)
+    elif origin == ORIGIN_MARKETPLACE:
+        # A marketplace listing is a single code template, not a tree.
+        item = _marketplace_item(blueprint_id)
+        if item is None:
+            return None
+        user_dir = _confined_dir(_user_base(), blueprint_id)
+        if user_dir is None:
+            return None
+        user_dir.mkdir(parents=True, exist_ok=True)
+        name = f"blueprint_{blueprint_id}.py"
+        if not _safe_entry_name(name):
+            return None
+        _write_text(user_dir / name, getattr(item, "code_template", "") or "")
+        return user_dir
+    if source_dir is None or not source_dir.is_dir():
+        return None
+    user_dir = _confined_dir(_user_base(), blueprint_id)
+    if user_dir is None:
+        return None
+    user_dir.mkdir(parents=True, exist_ok=True)
+    for entry in sorted(source_dir.iterdir()):
+        if not entry.is_file():
+            continue
+        if entry.suffix not in ALLOWED_SOURCE_SUFFIXES:
+            continue
+        if not _safe_entry_name(entry.name):
+            continue
+        shutil.copyfile(entry, user_dir / entry.name)
+    return user_dir
+
+
 def save_blueprint_source(
     blueprint_id: str, content: str, file_name: str | None = None
 ) -> tuple[dict[str, Any], int]:
-    """Persist source for a writable blueprint. Read-only origins return 403.
+    """Persist source for a blueprint (REQ-919: every blueprint is editable).
 
-    Validation runs before any write. On failure the prior source is unchanged.
+    User/custom blueprints edit in place. Bundled/marketplace recipes
+    **fork-on-write**: the tree is copied into the user blueprints dir (which
+    shadows the original via existing precedence), the edit lands on the copy,
+    and the response says a copy was made (``forked: true``) so it is never
+    silent. Validation runs before any write; on failure the prior source —
+    and the absence of a fork — is unchanged.
     """
     origin = resolve_blueprint_origin(blueprint_id)
     if origin is None:
         return {"error": "blueprint not found"}, 404
+    forked = False
+    if origin in _FORK_ON_WRITE_ORIGINS:
+        try:
+            validate_writable_source(content, file_name)
+        except ValueError as exc:
+            return {"error": str(exc)}, 400
+        if _fork_to_user_dir(blueprint_id) is None:
+            return {"error": "failed to copy the recipe to your library"}, 500
+        forked = True
+        origin = resolve_blueprint_origin(blueprint_id)
     if origin not in _EDITABLE_ORIGINS:
         reason = READONLY_REASONS.get(origin, "This blueprint is read-only.")
         return {
@@ -493,4 +603,165 @@ def save_blueprint_source(
     except OSError:
         return {"error": "failed to persist"}, 500
 
-    return load_blueprint_source(blueprint_id, file_name)
+    payload, code = load_blueprint_source(blueprint_id, file_name)
+    if forked and code == 200:
+        payload["forked"] = True
+        payload["fork_note"] = (
+            "Saved as a copy in your library — the bundled recipe is untouched."
+        )
+    return payload, code
+
+
+def delete_blueprint(blueprint_id: str) -> tuple[dict[str, Any], int]:
+    """Remove a blueprint from the install (REQ-919).
+
+    A **user** recipe's tree is deleted. A **bundled** recipe is tombstoned:
+    hidden from every listing and load while the checkout file stays pristine
+    (a file delete would dirty the repo and resurrect on ``git pull``).
+    Custom-library removal keeps its own existing endpoint.
+    """
+    origin = resolve_blueprint_origin(blueprint_id)
+    if origin is None:
+        if blueprint_id in _tombstones():
+            return {"id": blueprint_id, "tombstoned": True}, 404
+        return {"error": "blueprint not found"}, 404
+    if origin == ORIGIN_USER:
+        user_dir = _confined_dir(_user_base(), blueprint_id)
+        if user_dir is None or not user_dir.is_dir():
+            return {"error": "blueprint not found"}, 404
+        shutil.rmtree(user_dir)
+        return {"id": blueprint_id, "deleted": True, "origin": ORIGIN_USER}, 200
+    if origin == ORIGIN_BUNDLED:
+        _add_tombstone(blueprint_id)
+        return {"id": blueprint_id, "tombstoned": True, "origin": ORIGIN_BUNDLED}, 200
+    return {
+        "error": "Use the library endpoint to delete a custom-library blueprint.",
+        "origin": origin,
+    }, 409
+
+
+def _safe_entry_name(name: str) -> bool:
+    """An archive entry name that stays inside the extraction dir."""
+    if not name or name.startswith("/") or "\\" in name:
+        return False
+    if name.startswith("."):
+        return False
+    parts = name.split("/")
+    return not any(part in ("", ".", "..") for part in parts)
+
+
+def _extract_zip(data: bytes, dest: Path) -> tuple[list[str], int]:
+    import zipfile
+
+    written: list[str] = []
+    total = 0
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            if not _safe_entry_name(info.filename):
+                raise ValueError(
+                    f"unsafe archive entry refused: {info.filename!r} "
+                    "(path traversal, absolute, or hidden paths are not allowed)"
+                )
+            if Path(info.filename).suffix not in ALLOWED_SOURCE_SUFFIXES:
+                raise ValueError(f"file type not allowed: {info.filename!r}")
+            total += info.file_size
+            if total > MAX_EXTRACTED_BYTES:
+                raise ValueError("archive expands beyond the extracted-size cap")
+            written.append(info.filename)
+    # Second pass: read and validate Python BEFORE anything lands on disk.
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for name in written:
+            content = zf.read(name)
+            if Path(name).suffix == ".py":
+                validate_writable_source(content.decode("utf-8", errors="strict"), name)
+        for name in written:
+            target = dest / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(zf.read(name))
+    return written, total
+
+
+def _extract_tar(data: bytes, dest: Path) -> tuple[list[str], int]:
+    import tarfile
+
+    written: list[str] = []
+    total = 0
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
+        members = [m for m in tf.getmembers() if m.isfile()]
+        for info in members:
+            if not _safe_entry_name(info.name):
+                raise ValueError(
+                    f"unsafe archive entry refused: {info.name!r} "
+                    "(path traversal, absolute, or hidden paths are not allowed)"
+                )
+            if Path(info.name).suffix not in ALLOWED_SOURCE_SUFFIXES:
+                raise ValueError(f"file type not allowed: {info.name!r}")
+            total += info.size
+            if total > MAX_EXTRACTED_BYTES:
+                raise ValueError("archive expands beyond the extracted-size cap")
+            written.append(info.name)
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
+        payloads = {info.name: tf.extractfile(info).read() for info in members}
+    for name in written:
+        if Path(name).suffix == ".py":
+            validate_writable_source(payloads[name].decode("utf-8", errors="strict"), name)
+    for name in written:
+        target = dest / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payloads[name])
+    return written, total
+
+
+def upload_blueprint_archive(
+    blueprint_id: str, data: bytes, filename: str | None = None
+) -> tuple[dict[str, Any], int]:
+    """Create a user-dir recipe from an uploaded ``.py`` or zip/tar (REQ-919).
+
+    Every gate runs before anything is committed to disk: id shape, size cap,
+    entry-name confinement, suffix filter, and the same ``compile`` + AST
+    sandbox the save path uses. An id collision is a 409 — never a silent
+    overwrite.
+    """
+    if not blueprint_id or "/" in blueprint_id or "\\" in blueprint_id or " " in blueprint_id:
+        return {"error": "invalid blueprint id"}, 400
+    if len(data) > MAX_UPLOAD_BYTES:
+        return {"error": "upload exceeds the size cap"}, 413
+    if resolve_blueprint_origin(blueprint_id) is not None:
+        return {"error": f"a blueprint named {blueprint_id!r} already exists"}, 409
+
+    name = (filename or "").strip()
+    lower = name.lower()
+    dest = _confined_dir(_user_base(), blueprint_id)
+    if dest is None:
+        return {"error": "invalid blueprint id"}, 400
+
+    try:
+        if lower.endswith(".py"):
+            if not _safe_entry_name(name):
+                return {"error": "invalid file name"}, 400
+            text = data.decode("utf-8", errors="strict")
+            validate_writable_source(text, name)
+            dest.mkdir(parents=True, exist_ok=True)
+            _write_text(dest / f"blueprint_{blueprint_id}.py", text)
+        elif lower.endswith(".zip"):
+            _extract_zip(data, dest)
+        elif lower.endswith((".tar", ".tar.gz", ".tgz")):
+            _extract_tar(data, dest)
+        else:
+            return {
+                "error": "unsupported upload — use a .py file, or a .zip/.tar archive"
+            }, 400
+    except (ValueError, UnicodeDecodeError) as exc:
+        shutil.rmtree(dest, ignore_errors=True)
+        return {"error": str(exc)}, 400
+    except (OSError, EOFError) as exc:
+        shutil.rmtree(dest, ignore_errors=True)
+        return {"error": f"could not read the archive: {exc}"}, 400
+
+    return {
+        "id": blueprint_id,
+        "uploaded": True,
+        "origin": ORIGIN_USER,
+    }, 201

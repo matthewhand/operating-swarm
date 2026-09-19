@@ -16,6 +16,8 @@
 | [ADR-012](./012-swarm-cli-tui.md) | `os-cli tui` — Herdr-like rail + chat over the same API as WebUI (REQ-111 / #481) |
 | [ADR-013](./013-agent-initiated-questions.md) | Agent-initiated multi-choice questions — `ask_user` tool + WS elicit (spike, #221) |
 | [ADR-014](./014-herdr-kind-cli-vs-remote.md) | Herdr's kind — CLI subtype vs. Remote implementation (proposed: keep Remote, drop Team-member composition) |
+| [ADR-015](./015-identity-vs-provider-binding.md) | Identity and provider binding are separate axes — provider changes are inert (REQ-904 / #502) |
+| [ADR-016](./016-seat-capabilities.md) | Seat capabilities are declared by the kind base and published as data (#551, ADR-005 enforcement) |
 
 ADR-006 **amends** ADR-005’s `ApiKindBase` slot: user-facing kinds become CLI | API | Blueprint | Remote.
 

@@ -10,6 +10,7 @@ Remote implementation, not a fifth kind.
 | **OpenMousBot** | `omb` | HTTP | health, list, send | yes — stub (`computer-status` / `computer-screenshot`) until ADR-007 Phase 3 |
 | **Rakazo** | `rakazo` | HTTP | health, list, send | yes — stub until ADR-007 Phase 3 |
 | **Herdr** | `herdr` | CLI local / SSH remote | health, list, send, interrogate | no |
+| **Slack (NemoHermes)** | `slack` | Slack Web API | health, list, send | no |
 | **Nested open-swarm** | `swarm` (`open-swarm`) | HTTP | health, list, send | no |
 | **TrueForge** | `trueforge` | HTTP | health, list, send, routines | no |
 | **Open WebUI** | `openwebui` (`open-webui`) | HTTP | health, list, send | no — **external** Open WebUI, not OS WebUI |

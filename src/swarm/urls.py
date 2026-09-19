@@ -21,49 +21,56 @@ from swarm.views.agent_creator_views import (
     team_creator_page,
     validate_agent_code,
 )
-from swarm.views.api_views import (
-    BlueprintsListView,
-    BlueprintPersonasView,
-    BlueprintSourceView,
-    BlueprintToolsView,
-    ChatRetentionStatsView,
-    CliAgentCandidatesView,
-    CliAgentDriversView,
-    CliAgentModelsView,
-    CliAgentTestView,
-    CliAgentsView,
-    ConfigOptionsView,
-    SkillDetailView,
-    SkillsListView,
-    CustomBlueprintDetailView,
-    CustomBlueprintsView,
-    MarketplaceGitHubBlueprintsView,
-    MarketplaceGitHubMCPConfigsView,
-    SupportContextView,
+from swarm.views.agent_mcp_api import (
+    AgentMcpAPIView,
+    AgentMcpToolDetailAPIView,
+    AgentMcpToolExecuteAPIView,
+    AgentMcpToolsAPIView,
 )
-from swarm.views.definition_views import DefinitionDetailView, DefinitionSummarizeView
-from swarm.views.api_views import ModelsListView as OpenAIModelsView
 from swarm.views.agent_router_page import agent_router_page
 from swarm.views.agent_router_views import (
     agent_context_view,
     agent_conversations_view,
     agent_delegations_view,
     create_designed_agent,
-    delete_designed_agent,
-    list_designed_agents,
     delegate_agent_view,
+    delete_designed_agent,
+    generate_agent_quickstarts,
     get_agent_info,
     get_agent_status_view,
-    generate_agent_quickstarts,
     get_routing_options,
+    launch_remote_framework,
     list_agents,
     list_cli_catalog,
+    list_designed_agents,
     list_llm_profiles,
-    launch_remote_framework,
     list_remote_catalog,
     route_message,
     send_to_agent,
 )
+from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
+from swarm.views.api_views import (
+    BlueprintPersonasView,
+    BlueprintsListView,
+    BlueprintSourceView,
+    BlueprintToolsView,
+    BlueprintUploadView,
+    ChatRetentionStatsView,
+    CliAgentCandidatesView,
+    CliAgentDriversView,
+    CliAgentModelsView,
+    CliAgentsView,
+    CliAgentTestView,
+    ConfigOptionsView,
+    CustomBlueprintDetailView,
+    CustomBlueprintsView,
+    MarketplaceGitHubBlueprintsView,
+    MarketplaceGitHubMCPConfigsView,
+    SkillDetailView,
+    SkillsListView,
+    SupportContextView,
+)
+from swarm.views.api_views import ModelsListView as OpenAIModelsView
 from swarm.views.blueprint_library_views import (
     add_blueprint_to_library,
     blueprint_creator,
@@ -75,34 +82,6 @@ from swarm.views.blueprint_library_views import (
     my_blueprints,
     remove_blueprint_from_library,
 )
-from swarm.views.chat_views import ChatCompletionsView, HealthCheckView
-from swarm.views.runtime_views import BrowserControlView, RuntimeModeView
-from swarm.views.herdr_api import (
-    HerdrAgentDetailAPIView,
-    HerdrAgentsAPIView,
-    HerdrDiscoverAPIView,
-)
-from swarm.views.config_ownership_api import ConfigOwnershipView, ConfigSectionView
-from swarm.views.mcp_plugins_api import (
-    McpPluginDetailView,
-    McpPluginDiscoverView,
-    McpPluginsView,
-)
-from swarm.views.llm_profiles_api import LlmProfilesTestView, LlmProfilesView
-from swarm.views.sandbox_settings_api import SandboxSettingsTestView, SandboxSettingsView
-from swarm.views.rate_limits_api import RateLimitsView
-from swarm.views.preferences_api import UserPreferencesView
-from swarm.views.library_api import LibraryAPIView, LibraryDetailAPIView
-from swarm.views.responses_views import (
-    ResponsesCancelView,
-    ResponsesDetailView,
-    ResponsesView,
-)
-from swarm.views.session_explorer import (
-    session_detail,
-    session_explorer,
-    session_list_api,
-)
 from swarm.views.chat_persist_views import (
     chat_attachment_upload,
     chat_compact,
@@ -113,12 +92,38 @@ from swarm.views.chat_persist_views import (
     chat_summary_toggle_context,
     chat_thread,
 )
-from swarm.views.system_views import LocalStoreView
-from swarm.views.settings_views import (
-    environment_variables,
-    settings_api,
-    settings_dashboard,
+from swarm.views.chat_views import ChatCompletionsView, HealthCheckView
+from swarm.views.cli_runs_api import CliRunStatusAPIView, CliRunTerminateAPIView
+from swarm.views.cli_session_hop_api import CliSessionHopAPIView
+from swarm.views.cli_sessions_api import CliSessionListAPIView, CliSessionSelectAPIView
+from swarm.views.config_ownership_api import ConfigOwnershipView, ConfigSectionView
+from swarm.views.definition_views import DefinitionDetailView, DefinitionSummarizeView
+from swarm.views.herdr_api import (
+    HerdrAgentDetailAPIView,
+    HerdrAgentsAPIView,
+    HerdrDiscoverAPIView,
 )
+from swarm.views.image_gen_api import AgentAvatarGenerateView, ImageGenSettingsView
+from swarm.views.library_api import LibraryAPIView, LibraryDetailAPIView
+from swarm.views.llm_profiles_api import LlmProfilesTestView, LlmProfilesView
+from swarm.views.mailbox_acl_api import (
+    MailboxAclAgentAPIView,
+    MailboxAclRoleAPIView,
+    MailboxAclStoreAPIView,
+)
+from swarm.views.marketplace_api import (
+    MarketplaceCatalogView,
+    MarketplaceInstallView,
+    MarketplacePreviewView,
+    MarketplaceScanView,
+)
+from swarm.views.mcp_plugins_api import (
+    McpPluginDetailView,
+    McpPluginDiscoverView,
+    McpPluginsView,
+)
+from swarm.views.preferences_api import UserPreferencesView
+from swarm.views.rate_limits_api import RateLimitsView
 from swarm.views.remotes_api import (
     AgentTeamView,
     RemoteDetailView,
@@ -128,52 +133,55 @@ from swarm.views.remotes_api import (
     RemoteRoutinesView,
     RemotesListView,
 )
-from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
-from swarm.views.agent_mcp_api import (
-    AgentMcpAPIView,
-    AgentMcpToolDetailAPIView,
-    AgentMcpToolExecuteAPIView,
-    AgentMcpToolsAPIView,
+from swarm.views.responses_views import (
+    ResponsesCancelView,
+    ResponsesDetailView,
+    ResponsesView,
 )
-from swarm.views.mailbox_acl_api import (
-    MailboxAclAgentAPIView,
-    MailboxAclRoleAPIView,
-    MailboxAclStoreAPIView,
-)
+from swarm.views.roles_api import RolesAPIView
 from swarm.views.routines_api import (
     AgentRoutineDetailAPIView,
-    AgentRoutinesAPIView,
     AgentRoutineRunNowAPIView,
+    AgentRoutinesAPIView,
     AgentRoutineTestRunAPIView,
     AllRoutinesAPIView,
     GithubRoutineEventsAPIView,
     GithubRoutineMergeAPIView,
     MailboxRoutineMessageAPIView,
 )
-from swarm.views.test_schedules_api import (
-    TestScheduleDetailAPIView,
-    TestScheduleRunNowAPIView,
-    TestSchedulesAPIView,
-    TestScheduleStatusAPIView,
+from swarm.views.runtime_views import BrowserControlView, RuntimeModeView
+from swarm.views.sandbox_settings_api import (
+    SandboxSettingsTestView,
+    SandboxSettingsView,
 )
-from swarm.views.cli_runs_api import CliRunStatusAPIView, CliRunTerminateAPIView
-from swarm.views.cli_sessions_api import CliSessionListAPIView, CliSessionSelectAPIView
-from swarm.views.cli_session_hop_api import CliSessionHopAPIView
+from swarm.views.session_explorer import (
+    session_detail,
+    session_explorer,
+    session_list_api,
+)
+from swarm.views.settings_views import (
+    environment_variables,
+    settings_api,
+    settings_dashboard,
+)
+from swarm.views.speech_api import (
+    SpeechSettingsView,
+    SpeechSpeakView,
+    SpeechTranscribeView,
+)
 from swarm.views.suggestions_api import AgentSuggestionsAPIView
-from swarm.views.image_gen_api import AgentAvatarGenerateView, ImageGenSettingsView
-from swarm.views.speech_api import SpeechSettingsView, SpeechSpeakView, SpeechTranscribeView
+from swarm.views.system_views import LocalStoreView
 from swarm.views.team_rosters_api import (
     TeamAgentsAPIView,
     TeamRosterDetailAPIView,
     TeamRostersAPIView,
 )
-from swarm.views.roles_api import RolesAPIView
 from swarm.views.teams_api import TeamDetailAPIView, TeamsAPIView
-from swarm.views.marketplace_api import (
-    MarketplaceCatalogView,
-    MarketplaceInstallView,
-    MarketplacePreviewView,
-    MarketplaceScanView,
+from swarm.views.test_schedules_api import (
+    TestScheduleDetailAPIView,
+    TestScheduleRunNowAPIView,
+    TestSchedulesAPIView,
+    TestScheduleStatusAPIView,
 )
 from swarm.views.web_views import (
     asgi_file_response,
@@ -240,6 +248,9 @@ urlpatterns = [
     # #537: format is a proposal endpoint on the same view (POST method).
     path("v1/blueprints/<str:blueprint_id>/source/format", BlueprintSourceView.as_view(), name="blueprint-source-format"),
     path("v1/blueprints/<str:blueprint_id>/source/format/", BlueprintSourceView.as_view(), name="blueprint-source-format-slash"),
+    # REQ-919: upload creates a user-dir recipe from a .py or zip/tar archive.
+    path("v1/blueprints/upload", BlueprintUploadView.as_view(), name="blueprint-upload"),
+    path("v1/blueprints/upload/", BlueprintUploadView.as_view(), name="blueprint-upload-slash"),
     path("v1/blueprints/<str:blueprint_id>/personas", BlueprintPersonasView.as_view(), name="blueprint-personas"),
     path(
         "v1/blueprints/<str:blueprint_id>/personas/",
