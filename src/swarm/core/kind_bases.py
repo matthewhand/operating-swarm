@@ -178,6 +178,21 @@ class CliKindBase(KindBase):
         cmd = cls.slash_command(name)
         return bool(cmd and cmd.available)
 
+    #: #636: optional provider-native compact argv template, ``{session_id}``
+    #: interpolated. ``None`` until a CLI's real compact command is verified.
+    cli_compact: ClassVar[str | None] = None
+
+    @classmethod
+    def supports_cli_compact(cls) -> bool:
+        """True when the provider compacts itself (no default API needed)."""
+        return bool(cls.cli_compact)
+
+    @classmethod
+    def cli_compact_argv(cls, session_id: str) -> str:
+        """The compact command for ``session_id`` (placeholder tolerated)."""
+        template = cls.cli_compact or ""
+        return template.replace("{session_id}", session_id)
+
 
 class RemoteKindBase(KindBase):
     """Remote-backed template.

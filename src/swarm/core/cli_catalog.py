@@ -106,6 +106,17 @@ def cli_slash_commands_payload() -> dict[str, list[dict[str, Any]]]:
         for cli, commands in CLI_SLASH_COMMANDS.items()
     }
 
+
+# #636: per-CLI provider-native compact hooks, populated as providers verify
+# their CLI's real compact command on a CliKindBase subclass. Ships empty —
+# an unverified argv template would be the dishonest surface #641 walked back.
+CLI_COMPACT_HOOKS: dict[str, str] = {}
+
+
+def cli_compact_payload() -> dict[str, str]:
+    """JSON-safe ``cli_compact`` rows for ``GET /v1/cli-agents/``."""
+    return dict(CLI_COMPACT_HOOKS)
+
 # User-local bins Daphne often misses when started with PATH=/usr/bin:/bin.
 _EXTRA_BIN_REL = (
     (".local", "bin"),
@@ -1189,6 +1200,7 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
         },
         "list_sessions": list_sessions_catalog(),
         "slash_commands": cli_slash_commands_payload(),
+        "cli_compact": cli_compact_payload(),
         "remote": _remote_catalog_payload(),
         "remote_boxes": _remote_boxes_payload(config),
     }

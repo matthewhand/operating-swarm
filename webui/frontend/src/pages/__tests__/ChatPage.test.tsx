@@ -1663,12 +1663,13 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     const compact = screen.getByRole('menuitem', { name: 'Compact' })
     // Visible-but-disabled rather than silently absent: the user just opened
-    // this menu, so the reason has to be reachable (#511's precedent).
+    // this menu, so the reason has to be reachable (#511's precedent). #636:
+    // the reason names the missing API, not the provider transcript.
     expect(compact).toHaveAttribute('aria-disabled', 'true')
-    expect(compact.getAttribute('title')).toMatch(/server-side history/i)
+    expect(compact.getAttribute('title')).toMatch(/no api is configured/i)
 
     fireEvent.click(compact)
-    expect(await screen.findByText(/server-side history/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no api is configured/i)).toBeInTheDocument()
     // A refusal must not leave the menu hanging open.
     expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
   })

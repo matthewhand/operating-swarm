@@ -30,6 +30,10 @@ export interface ComposerMenuSeat {
   isApi?: boolean
   isCli?: boolean
   isRemote?: boolean
+  /** #636: a default API profile is configured (`/v1/llm-profiles/` `default_llm_ready`). */
+  defaultLlmReady?: boolean
+  /** #636: the CLI provider declares a native `cli_compact` hook (catalog `cli_compact`). */
+  cliCompactCapable?: boolean
 }
 
 export interface ComposerMenuItemCapability {
@@ -46,6 +50,13 @@ export const ATTACH_DISABLED_REASON =
 export const COMPACT_DISABLED_REASON =
   'Compact summarises server-side history — CLI and remote seats keep their transcript in the provider'
 
+/** #636: what a greyed CLI Compact says — the gate is the missing API. */
+export const COMPACT_NO_API_REASON =
+  'No API is configured — compacting a CLI seat needs a default API profile (Settings → LLM)'
+
+export const COMPACT_REMOTE_REASON =
+  'Compact is not available for remote seats — the transcript belongs to the remote provider'
+
 export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCapabilities {
   // One owner for the attach rule: the same helper the composer uses to decide
   // whether the paperclip is live, so the menu cannot disagree with the input.
@@ -57,8 +68,20 @@ export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCa
   // `!isCli && !isRemote`, because a seat that is none of the three (an
   // unresolved blueprint, say) must not silently gain the action.
   const compact = Boolean(seat.isApi)
+  // #636: a CLI seat can compact too — the server summarises via the default
+  // API, or the provider compacts itself through its declared native hook.
+  // Remote seats stay out: their transcript is the provider's, and the server
+  // has no summariser for it.
+  const cliCompact =
+    Boolean(seat.isCli) && (Boolean(seat.defaultLlmReady) || Boolean(seat.cliCompactCapable))
+  const compactReason = seat.isRemote
+    ? COMPACT_REMOTE_REASON
+    : COMPACT_NO_API_REASON
   return {
     addFiles: { enabled: addFiles, reason: ATTACH_DISABLED_REASON },
-    compact: { enabled: compact, reason: COMPACT_DISABLED_REASON },
+    compact: {
+      enabled: compact || cliCompact,
+      reason: compact || cliCompact ? '' : compactReason,
+    },
   }
 }

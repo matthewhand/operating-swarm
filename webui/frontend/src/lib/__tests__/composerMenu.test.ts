@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  COMPACT_DISABLED_REASON,
+  COMPACT_NO_API_REASON,
   COMPOSER_MENU_ITEM_IDS,
   composerMenuCapabilities,
 } from '../composerMenu'
@@ -20,9 +20,11 @@ describe('composerMenu (#550)', () => {
   })
 
   it('keeps a disabled item visible with its reason rather than dropping it', () => {
+    // #636: a CLI seat without a default API names the missing API as the
+    // reason (the old provider-transcript copy was the wrong explanation).
     const cli = composerMenuCapabilities({ isCli: true })
     expect(cli.compact.enabled).toBe(false)
-    expect(cli.compact.reason).toBe(COMPACT_DISABLED_REASON)
+    expect(cli.compact.reason).toBe(COMPACT_NO_API_REASON)
     expect(cli.compact.reason.length).toBeGreaterThan(20)
   })
 
@@ -35,11 +37,15 @@ describe('composerMenu (#550)', () => {
   it('declares a capability for every item id, so a new item cannot be added ungated', () => {
     // The return type is Record<ComposerMenuItemId, …>, so this is enforced by
     // the compiler too — the assertion pins the runtime shape for the menu.
-    const capabilities = composerMenuCapabilities({ isApi: true })
+    // #636: a reason is required wherever an item is disabled (the reachable
+    // "why" from #511); enabled items may carry an empty string.
+    const capabilities = composerMenuCapabilities({ isCli: true })
     for (const id of COMPOSER_MENU_ITEM_IDS) {
       expect(capabilities[id]).toBeDefined()
       expect(typeof capabilities[id].enabled).toBe('boolean')
-      expect(capabilities[id].reason).toBeTruthy()
+      if (!capabilities[id].enabled) {
+        expect(capabilities[id].reason).toBeTruthy()
+      }
     }
     expect(Object.keys(capabilities).sort()).toEqual([...COMPOSER_MENU_ITEM_IDS].sort())
   })

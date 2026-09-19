@@ -1556,6 +1556,8 @@ export interface CliAgentsInfo {
   list_sessions?: Record<string, unknown>
   /** #641: per-CLI provider-declared native slash commands. */
   slash_commands?: Record<string, CliSlashCommandSpec[]>
+  /** #636: per-CLI provider-native compact hooks (argv templates). */
+  cli_compact?: Record<string, string>
   /** Issue #180: per-CLI remote/headless capability (serve / ssh / api / none). */
   remote?: Record<string, {
     capability?: string

@@ -398,7 +398,9 @@ import {
   switchedSessionNotice,
 } from '../lib/sessionRestore'
 import { CLI_SESSION_SWITCHED_EVENT } from '../lib/cliSessions'
-import { CLI_SESSION_HOPPED_EVENT, hopCliSession } from '../lib/cliSessionHop'
+import { CLI_SESSION_HOPPED_EVENT, dispatchCliSessionHopped, hopCliSession } from '../lib/cliSessionHop'
+// #636: CLI-seat compact orchestration (summary + fresh session carrying it).
+import { compactCliThread } from '../lib/cliCompact'
 import {
   SUGGESTION_CHIP_EVENT,
   generationIsInFlight,
@@ -1206,13 +1208,6 @@ const ChatPage = () => {
       !isRemoteAgent &&
       !isCliAgent,
   )
-  // #550: the composer `+` menu's contents are derived from the seat rather than
-  // hardcoded per item, so an item cannot be added ungated. See lib/composerMenu.
-  const composerMenu = composerMenuCapabilities({
-    isApi: isApiAgent,
-    isCli: isCliAgent,
-    isRemote: isRemoteAgent || isRemoteBackedTeam,
-  })
   const showContextUsage = isApiAgent || agentKind === 'blueprint'
 
   useEffect(() => {
@@ -1272,6 +1267,23 @@ const ChatPage = () => {
   )
   const currentCli = cliResolution.cli
   const currentCliSource = cliResolution.source
+
+  // #550: the composer `+` menu's contents are derived from the seat rather than
+  // hardcoded per item, so an item cannot be added ungated. See lib/composerMenu.
+  // #636: CLI Compact lights up when a default API is configured (the same
+  // `default_llm_ready` signal DefaultLlmTip consumes) or when the seat's CLI
+  // declares a native cli_compact hook in the catalog.
+  const composerMenu = composerMenuCapabilities({
+    isApi: isApiAgent,
+    isCli: isCliAgent,
+    isRemote: isRemoteAgent || isRemoteBackedTeam,
+    defaultLlmReady: llmProfilesQuery.data?.default_llm_ready === true,
+    cliCompactCapable: Boolean(
+      isCliAgent &&
+        currentCli &&
+        (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[currentCli],
+    ),
+  })
 
   /** The agent's own configured remote endpoint, if any. */
   const agentRemote = useMemo(
@@ -3334,6 +3346,50 @@ const ChatPage = () => {
       })
       return
     }
+    // #636: a CLI seat compacts through the same server-side summary and then
+    // starts a fresh CLI session carrying it. The old provider transcript
+    // stays on disk; the new process starts clean with the summary in context.
+    if (isCliAgent) {
+      const cliName = currentCli || selectedCli?.cli || ''
+      if (!cliName) {
+        addToast({
+          type: 'error',
+          title: 'Compact failed',
+          message: 'No CLI is resolved for this seat.',
+        })
+        return
+      }
+      try {
+        const result = await compactCliThread({
+          conversationId,
+          agentId: selectedBlueprint || '',
+          cli: cliName,
+          messages: messages
+            .filter((message) => message.role === 'user' || message.role === 'assistant')
+            .map((message) => ({ role: message.role, content: message.text })),
+          defaultLlmReady: llmProfilesQuery.data?.default_llm_ready === true,
+          cliCompactCapable: Boolean(
+            (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[cliName],
+          ),
+        })
+        dispatchCliSessionHopped({
+          agentId: selectedBlueprint || '',
+          conversationId: result.newConversationId,
+          status: result.status,
+          fromCli: cliName,
+          toCli: cliName,
+        })
+        setConversationId(result.newConversationId)
+      } catch (err) {
+        const detail = err instanceof Error ? err.message.trim() : ''
+        addToast({
+          type: 'error',
+          title: 'Compact failed',
+          message: detail || 'Could not compact this chat. Sign in and try again.',
+        })
+      }
+      return
+    }
     try {
       const result = await compactAgentThread({
         conversationId,
@@ -3358,7 +3414,7 @@ const ChatPage = () => {
         message: detail || 'Could not compact this chat. Sign in and try again.',
       })
     }
-  }, [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey])
+  }, [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey, isCliAgent, currentCli, selectedCli, llmProfilesQuery.data, cliQuery.data])
 
   const handleCompressToHere = useCallback(
     async (message: ChatMessage) => {
@@ -4688,6 +4744,7 @@ const ChatPage = () => {
                       aria-label="Add"
                       aria-haspopup="menu"
                       aria-expanded={plusOpen}
+                      data-testid="composer-plus-button"
                       onClick={() => setPlusOpen((value) => !value)}
                     >
                       <Plus className="h-4 w-4" aria-hidden="true" />
@@ -4738,6 +4795,10 @@ const ChatPage = () => {
                             // visible-but-disabled with the reason (the same read
                             // `Add files` uses one item above, and #511's
                             // precedent) rather than vanishing silently.
+                            // #636: CLI seats now light up when a default API is
+                            // configured or the provider declares cli_compact; a
+                            // greyed CLI item's hover says the API is missing.
+                            data-testid="composer-compact-button"
                             aria-disabled={!composerMenu.compact.enabled}
                             className={`os-plus-menu__item ${
                               !composerMenu.compact.enabled ? 'opacity-60 cursor-not-allowed' : ''
@@ -4752,7 +4813,7 @@ const ChatPage = () => {
                                 addToast({
                                   type: 'info',
                                   title: 'Compact',
-                                  message: `${composerMenu.compact.reason}. Switch to an API agent to compact.`,
+                                  message: composerMenu.compact.reason,
                                 })
                                 setPlusOpen(false)
                                 return
