@@ -20,14 +20,15 @@ describe('Alt Hotkey Tip Position (REQ-182)', () => {
     expect(css).not.toContain('.os-fav-tile:focus-within .os-fav-tile__shortcut')
   })
 
-  it('#579: the pinned role badge holds the top-right corner, not the avatar centre', () => {
+  it('#691 (supersedes #579): the pinned role badge holds the top-LEFT corner, not the avatar centre', () => {
     const cssPath = path.resolve(__dirname, '../../index.css')
     const css = fs.readFileSync(cssPath, 'utf-8')
     const match = css.match(/\.os-fav-tile__badge\s*\{([^}]+)\}/)
     expect(match).not.toBeNull()
     const ruleBody = match![1]
 
-    expect(ruleBody).toMatch(/right:\s*0\.\d+rem/)
+    // #691 flips the corner: left edge, same top.
+    expect(ruleBody).toMatch(/left:\s*0\.\d+rem/)
     expect(ruleBody).toMatch(/top:\s*0\.\d+rem/)
     // Centring over the avatar is what the badge must stop doing.
     expect(ruleBody).not.toMatch(/left:\s*50%/)  

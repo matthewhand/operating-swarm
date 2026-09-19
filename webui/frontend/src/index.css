@@ -1151,7 +1151,9 @@ html:not([data-theme="light"]) .os-composer,
 .os-fav-tile__badge {
   position: absolute;
   top: 0.2rem;
-  right: 0.2rem;
+  /* #691: the role pill lives on the LEFT of pinned tiles; the hover hint
+     owns the right corner and the badge slides right of it (#579 flow). */
+  left: 0.2rem;
   transform: none;
   z-index: 11;
   max-width: calc(100% - 0.4rem);
@@ -1162,7 +1164,7 @@ html:not([data-theme="light"]) .os-composer,
    corner on hover and the badge slides left of it, and the attention band wins
    the top edge outright, pushing the badge below it. */
 .os-fav-tile:hover:has(.os-fav-tile__shortcut) .os-fav-tile__badge {
-  right: 1.6rem;
+  left: 1.6rem;
 }
 .os-fav-tile:has(.os-fav-tile__attention) .os-fav-tile__badge {
   top: 1.1rem;
