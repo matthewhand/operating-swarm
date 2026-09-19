@@ -80,3 +80,57 @@ describe('#581 /v1/remotes/ reads are coalesced', () => {
     expect(remotesGets).toHaveLength(1)
   })
 })
+
+describe('#680 throttled remotes fetch is never cached as empty', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    resetRemotesFetchCacheForTests()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetRemotesFetchCacheForTests()
+  })
+
+  function throttleFetch(statuses: number[]) {
+    let call = 0
+    fetchMock = vi.fn().mockImplementation(async (input: RequestInfo) => {
+      const url = String(input)
+      if (!url.includes('/v1/remotes')) {
+        return { ok: false, status: 404, json: async () => ({}) } as unknown as Response
+      }
+      const status = statuses[Math.min(call, statuses.length - 1)]
+      call += 1
+      if (status === 200) {
+        return { ok: true, status: 200, json: async () => REMOTES_PAYLOAD } as Response
+      }
+      return {
+        ok: false,
+        status,
+        headers: { get: (name: string) => (name.toLowerCase() === 'retry-after' ? '1' : null) },
+        json: async () => ({ detail: 'Request was throttled. Expected available in 1 second.' }),
+      } as unknown as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  }
+
+  it('retries after a 429 and returns the real list — the section self-heals', async () => {
+    throttleFetch([429, 200])
+    const rows = await fetchConfiguredRemotes()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe('omb')
+    expect(fetchMock.mock.calls.filter(([i]) => String(i).includes('/v1/remotes'))).toHaveLength(2)
+  })
+
+  it('re-throws the throttle error after the retry budget — never an empty list', async () => {
+    throttleFetch([429, 429, 429])
+    await expect(fetchConfiguredRemotes()).rejects.toMatchObject({ name: 'ApiThrottleError' })
+  })
+
+  it('still returns [] for a plain server error (non-throttle failure)', async () => {
+    throttleFetch([500])
+    const rows = await fetchConfiguredRemotes()
+    expect(rows).toEqual([])
+  })
+})

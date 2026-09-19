@@ -9,7 +9,7 @@
  */
 
 import { parseStartedAt } from './avatarStack'
-import { coalescedRemotesFetch } from './api'
+import { ApiThrottleError, coalescedRemotesFetch, isThrottleError } from './api'
 
 export const REMOTES_URL = '/v1/remotes/'
 /** Optional local fixture (no LAN). Checked before GET /v1/remotes/. */
@@ -206,9 +206,46 @@ export async function fetchConfiguredRemotes(): Promise<RemoteEntry[]> {
     // Fixture is optional; fall through to the API.
   }
   try {
-    const payload = await coalescedRemotesFetch()
+    const payload = await coalescedRemotesFetchWithThrottleRetry()
     return parseRailRemotes(payload)
-  } catch {
+  } catch (err) {
+    // #680: a swallowed 429 used to be cached by react-query as a truthful
+    // empty list — the rail's Remotes section stayed missing until a manual
+    // reload. Re-throw so the query lands in the error state (retryable),
+    // never fabricate an empty result from a failure.
+    if (isThrottleError(err)) throw err
     return []
+  }
+}
+
+/**
+ * #680: the coalesced GET with bounded throttle patience.
+ *
+ * A 429 means the burst tripped the server throttle — the data exists, we
+ * just asked too fast. Wait out the server's Retry-After (capped) and retry
+ * a bounded number of times so the section self-heals without a manual
+ * reload. A genuine failure still surfaces after the budget is spent.
+ */
+const THROTTLE_RETRY_CAP_SECONDS = 20
+const THROTTLE_MAX_ATTEMPTS = 3
+
+function throttleWaitMs(err: ApiThrottleError, attempt: number): number {
+  const seconds = Math.min(
+    err.retryAfterSeconds > 0 ? err.retryAfterSeconds : 2 ** attempt,
+    THROTTLE_RETRY_CAP_SECONDS,
+  )
+  return seconds * 1_000
+}
+
+export async function coalescedRemotesFetchWithThrottleRetry(): Promise<
+  ReturnType<typeof coalescedRemotesFetch>
+> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await coalescedRemotesFetch()
+    } catch (err) {
+      if (!isThrottleError(err) || attempt >= THROTTLE_MAX_ATTEMPTS - 1) throw err
+      await new Promise((resolve) => setTimeout(resolve, throttleWaitMs(err, attempt)))
+    }
   }
 }
