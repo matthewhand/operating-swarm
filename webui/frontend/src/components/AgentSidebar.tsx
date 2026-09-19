@@ -1088,8 +1088,11 @@ export default function AgentSidebar({
     () =>
       teams.filter(
         (team) =>
+          // #687: team rows answer ONLY to their namespaced rail id
+          // (team:<id>). A bare-id delete belongs to an agent seat — honoring
+          // it here too is how deleting one agent made a same-id team
+          // disappear (1 delete removed >1 seat).
           !isRailIdDeleted(teamHideId(team.id), deletedIds) &&
-          !isRailIdDeleted(team.id, deletedIds) &&
           !resolvedHiddenIds.includes(teamHideId(team.id)),
       ),
     [teams, resolvedHiddenIds, deletedIds],
@@ -1098,8 +1101,8 @@ export default function AgentSidebar({
     () =>
       rootTeams.filter(
         (team) =>
+          // #687: namespaced rail id only — see visibleTeams.
           !isRailIdDeleted(teamHideId(team.id), deletedIds) &&
-          !isRailIdDeleted(team.id, deletedIds) &&
           !resolvedHiddenIds.includes(teamHideId(team.id)),
       ),
     [rootTeams, resolvedHiddenIds, deletedIds],
@@ -1108,8 +1111,8 @@ export default function AgentSidebar({
     () =>
       teams.filter(
         (team) =>
+          // #687: namespaced rail id only — see visibleTeams.
           !isRailIdDeleted(teamHideId(team.id), deletedIds) &&
-          !isRailIdDeleted(team.id, deletedIds) &&
           resolvedHiddenIds.includes(teamHideId(team.id)),
       ),
     [teams, resolvedHiddenIds, deletedIds],
@@ -1118,8 +1121,10 @@ export default function AgentSidebar({
     () =>
       remotes.filter(
         (remote) =>
+          // #687: remote rows answer ONLY to remote:<id>. This bare-id check
+          // is the showstopper: deleting the Hermes *agent* seat marked the
+          // bare id and the Hermes *remote* vanished with it.
           !isRailIdDeleted(remoteHideId(remote.id), deletedIds) &&
-          !isRailIdDeleted(remote.id, deletedIds) &&
           !resolvedHiddenIds.includes(remoteHideId(remote.id)),
       ),
     [remotes, resolvedHiddenIds, deletedIds],
@@ -1128,8 +1133,8 @@ export default function AgentSidebar({
     () =>
       remotes.filter(
         (remote) =>
+          // #687: namespaced rail id only — see visibleRemotes.
           !isRailIdDeleted(remoteHideId(remote.id), deletedIds) &&
-          !isRailIdDeleted(remote.id, deletedIds) &&
           resolvedHiddenIds.includes(remoteHideId(remote.id)),
       ),
     [remotes, resolvedHiddenIds, deletedIds],
@@ -2384,16 +2389,12 @@ export default function AgentSidebar({
       await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
     }
     // CLI: hide-or-remove from rail only — do not uninstall the binary.
-    setDeletedIds((current) => {
-      let next = markRailIdDeleted(hideId, current)
-      if (row.entityId !== hideId) next = markRailIdDeleted(row.entityId, next)
-      return next
-    })
-    setSectionState((current) => {
-      let next = removeSectionMembership(current, hideId)
-      if (row.entityId !== hideId) next = removeSectionMembership(next, row.entityId)
-      return next
-    })
+    // #687 invariant: mark ONLY this row's rail id. The old double-mark of
+    // row.entityId leaked a bare agent id into the shared deleted list, which
+    // the (now namespaced-only) team/remote filters used to honor — deleting
+    // one agent could remove a same-id remote/team row with it.
+    setDeletedIds((current) => markRailIdDeleted(hideId, current))
+    setSectionState((current) => removeSectionMembership(current, hideId))
     setDeleteConfirm(null)
   }
 

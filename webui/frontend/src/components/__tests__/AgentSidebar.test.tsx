@@ -18,6 +18,7 @@ import {
   HOSTNAME_OVERRIDE_KEY,
 } from '../../lib/settingsPrefs'
 import { RAIL_SECTIONS_STORAGE_KEY } from '../../lib/railSections'
+import { DELETED_RAIL_IDS_KEY } from '../../lib/deletedRailIds'
 import { saveAgentSessions, type AgentSession } from '../../lib/scaleOutSessions'
 import { publishChatConnection, resetChatConnection } from '../../lib/chatConnection'
 import { notifyCliRunState, resetCliRunState } from '../../lib/cliRunState'
@@ -3048,3 +3049,120 @@ describe('AgentSidebar #446 awaiting-approval attention', () => {
 })
 
 
+
+describe('#687 one delete removes at most one seat', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/preferences')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: true,
+              favourites: [],
+              hidden_agents: [],
+            }),
+          } as Response
+        }
+        if (url.includes('team_rosters') || url.includes('team-rosters')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [
+                {
+                  id: 'omb',
+                  title: 'OpenMousBot',
+                  configured: true,
+                  agents: [],
+                },
+              ],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/herdr-agents')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/agents/designs')) {
+          // #687: an explicit empty designs list — a blueprint-shaped fallback
+          // here used to mint a designed-agent row per blueprint and duplicate
+          // every name in the rail.
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/cli-agents')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              clis: [],
+              native_consensus: {},
+              catalog: {},
+              rail: [],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'list',
+            data: [
+              ...blueprints,
+              blueprint('omb', 'Hermes', 'Agent sharing its id with a remote'),
+            ],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('deleting the Hermes agent keeps the same-id remote row', async () => {
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const hermesAgent = await within(list).findByRole('link', { name: /Hermes/ })
+    const ombRemote = await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ })
+    expect(hermesAgent).toBeInTheDocument()
+    expect(ombRemote).toBeInTheDocument()
+
+    fireEvent.contextMenu(hermesAgent)
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Delete$/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(within(list).queryByRole('link', { name: /Hermes/ })).not.toBeInTheDocument()
+    })
+    // The showstopper: the remote shares the bare id `omb` with the deleted
+    // agent. It must survive — 1 delete = at most 1 seat lost.
+    expect(
+      await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ }),
+    ).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem(DELETED_RAIL_IDS_KEY) || '[]')).toEqual(['omb'])
+  })
+})
