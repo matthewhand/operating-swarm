@@ -67,13 +67,17 @@ describe('bubbleTheme', () => {
     )
   })
 
-  it('irc theme uses monospace log with fixed-width nick gutter and transparent bubbles (#165)', () => {
+  it('irc theme uses monospace log with a flexing, legible nick gutter and transparent bubbles (#165, #520.3)', () => {
     const css = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '../../index.css'),
       'utf8',
     )
     expect(css).toMatch(/\[data-bubble-theme="irc"\]\s*\{[\s\S]*font-family:\s*ui-monospace/)
-    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*flex:\s*0 0 10ch/)
+    // #520.3: the gutter flexes to the name (min 10ch, capped 16ch) at body-copy size.
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*flex:\s*0 1 auto/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*min-width:\s*10ch/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*max-width:\s*16ch/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*font-size:\s*0\.8125rem/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*text-align:\s*right/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat-end[\s\S]*justify-content:\s*flex-start/)
     expect(css).toMatch(/\[data-timestamp-placement="below"\]/)
@@ -134,6 +138,7 @@ describe('bubbleTheme registry (#217)', () => {
         messageLayout: 'bubble',
         timestampPlacement: 'above',
         actionRowPlacement: 'below',
+        showAvatar: true,
       })
       expect(getBubbleTheme('simple').describe()).toEqual({
         id: 'simple',
@@ -141,6 +146,7 @@ describe('bubbleTheme registry (#217)', () => {
         messageLayout: 'bubble',
         timestampPlacement: 'below',
         actionRowPlacement: 'below',
+        showAvatar: false,
       })
       expect(getBubbleTheme('irc').describe()).toEqual({
         id: 'irc',
@@ -148,6 +154,7 @@ describe('bubbleTheme registry (#217)', () => {
         messageLayout: 'line',
         timestampPlacement: 'inline',
         actionRowPlacement: 'overlay',
+        showAvatar: true,
       })
       expect(getBubbleTheme('feed').describe()).toEqual({
         id: 'feed',
@@ -155,6 +162,7 @@ describe('bubbleTheme registry (#217)', () => {
         messageLayout: 'line',
         timestampPlacement: 'above',
         actionRowPlacement: 'below',
+        showAvatar: true,
       })
     },
   )

@@ -12,6 +12,8 @@ export class SimpleTheme extends BubbleThemeBase {
   readonly id = 'simple' as const
   readonly label = 'Simple'
   override readonly timestampPlacement = 'below' as const
+  /** #520: the beside-bubble avatar and speaker label are noise here. */
+  override readonly showAvatar = false
 }
 
 /** Full-width nick gutter; timestamp sits next to the line. */

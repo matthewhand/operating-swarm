@@ -279,8 +279,12 @@ export function ChatMessageBubble({
       data-action-row-placement={themeDef.actionRowPlacement}
       aria-label={`${speaker} message`}
     >
-      {avatar ? (
-        <div className="chat-image avatar shrink-0" data-testid="chat-avatar">
+      {avatar && themeDef.showAvatar ? (
+        <div
+          className="chat-image avatar shrink-0"
+          data-testid="chat-avatar"
+          data-avatar-anchor="bottom"
+        >
           {avatar}
         </div>
       ) : null}

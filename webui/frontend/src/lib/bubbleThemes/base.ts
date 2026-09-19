@@ -34,6 +34,8 @@ export abstract class BubbleThemeBase {
   readonly timestampPlacement: TimestampPlacement = 'above'
   /** #505: default keeps the row in flow below the bubble (all themes unchanged). */
   readonly actionRowPlacement: ActionRowPlacement = 'below'
+  /** #520: `simple` drops the beside-bubble avatar; every other theme keeps it. */
+  readonly showAvatar = true
 
   formatTimestamp(ts: string | undefined): string {
     return formatBubbleTime(ts)
@@ -61,6 +63,7 @@ export abstract class BubbleThemeBase {
     messageLayout: MessageLayout
     timestampPlacement: TimestampPlacement
     actionRowPlacement: ActionRowPlacement
+    showAvatar: boolean
   } {
     return {
       id: this.id,
@@ -68,6 +71,7 @@ export abstract class BubbleThemeBase {
       messageLayout: this.messageLayout,
       timestampPlacement: this.timestampPlacement,
       actionRowPlacement: this.actionRowPlacement,
+      showAvatar: this.showAvatar,
     }
   }
 }
