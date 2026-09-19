@@ -367,7 +367,9 @@ describe("AgentCalendarView component", () => {
 
     const tuesdayCell = screen.getByTestId("calendar-day-2026-09-01")
     expect(within(tuesdayCell).getByText("API Data Sync")).toBeInTheDocument()
-    expect(within(tuesdayCell).queryByText("CLI Worker Routine")).not.toBeInTheDocument()
+    // REQ-913 / #512: no filter hides non-API rows anymore — every routine
+    // renders; API rows keep their badge/highlight treatment below.
+    expect(within(tuesdayCell).getByText("CLI Worker Routine")).toBeInTheDocument()
 
     const routineCard = within(tuesdayCell).getByText("API Data Sync").closest('[data-testid="routine-card"]') as HTMLElement
     expect(routineCard).toHaveAttribute("data-api-agent", "true")
@@ -381,8 +383,9 @@ describe("AgentCalendarView component", () => {
     const pausedCard = within(dailyCell).getByText("Paused Routine").closest('[data-testid="routine-card"]') as HTMLElement
     expect(within(pausedCard).getByTestId("routine-status")).toHaveTextContent("Paused")
 
-    const filterCheckbox = screen.getByTestId("api-agents-filter")
-    fireEvent.click(filterCheckbox)
+    // REQ-913 / #512: the `API Agents only` checkbox is gone — routines render
+    // regardless of seat kind, with no user-facing filter left to uncheck.
+    expect(screen.queryByTestId("api-agents-filter")).not.toBeInTheDocument()
     expect(within(screen.getByTestId("calendar-day-2026-09-01")).getByText("CLI Worker Routine")).toBeInTheDocument()
   })
 
@@ -521,10 +524,11 @@ describe("AgentCalendarView component", () => {
   it("AgentSidebar footer contains Calendar button that opens AgentCalendarView", () => {
     renderWithProviders(<AgentSidebar open={true} />)
 
+    // REQ-913 / #512: the entry is named Routines; the testid is unchanged.
     const calendarBtn = screen.getByTestId("os-calendar-button")
     expect(calendarBtn).toBeInTheDocument()
-    expect(calendarBtn).toHaveAttribute("title", "Calendar")
-    expect(within(calendarBtn).getByText("Calendar")).toBeInTheDocument()
+    expect(calendarBtn).toHaveAttribute("title", "Routines")
+    expect(within(calendarBtn).getByText("Routines")).toBeInTheDocument()
 
     expect(screen.queryByTestId("agent-calendar-view")).not.toBeInTheDocument()
 

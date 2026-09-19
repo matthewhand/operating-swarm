@@ -3896,15 +3896,19 @@ export default function AgentSidebar({
                 type="button"
                 className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
                 onClick={openCalendar}
-                title={pluginsCalendarSupported ? 'Calendar' : API_ONLY_REASON}
-                aria-label={pluginsCalendarSupported ? 'Calendar' : `Calendar: ${API_ONLY_REASON}`}
+                title={pluginsCalendarSupported ? 'Routines' : API_ONLY_REASON}
+                aria-label={pluginsCalendarSupported ? 'Routines' : `Routines: ${API_ONLY_REASON}`}
                 aria-disabled={pluginsCalendarSupported ? undefined : 'true'}
                 aria-describedby={pluginsCalendarSupported ? undefined : 'os-calendar-gate-reason'}
                 data-testid="os-calendar-button"
                 data-disabled={pluginsCalendarSupported ? undefined : 'true'}
               >
                 <Calendar className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="os-calendar-label">Calendar</span>
+                {/* REQ-913 / #512: the entry reads Routines. The class stays
+                    `os-calendar-label` — index.css's avatar-only rule hides it
+                    in slim mode, and renaming the class without moving that
+                    rule would re-expose the label in the slim rail. */}
+                <span className="os-calendar-label">Routines</span>
               </button>
               <span id="os-calendar-gate-reason" hidden>
                 {API_ONLY_REASON}

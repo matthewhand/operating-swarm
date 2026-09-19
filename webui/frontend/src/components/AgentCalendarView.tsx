@@ -9,7 +9,6 @@ import {
   Loader2,
   MessageSquare,
   Plus,
-  Sparkles,
   X,
   XCircle,
 } from "lucide-react"
@@ -21,6 +20,7 @@ import {
 } from "../lib/routines"
 import { isApiBlueprintId } from "../lib/cliAgentContext"
 import { humanizeCron } from "./RemotesSettings"
+import { Tabs } from "./DaisyUI/Tabs"
 import { OverlayFocusTrap } from "./OverlayFocusTrap"
 import { RoutineEditorDialog } from "./RoutineEditorDialog"
 import { railSelectionFromParams } from "../lib/railActive"
@@ -76,6 +76,7 @@ export interface AgentCalendarViewProps {
   onSelectRoutine?: (routine: Routine) => void
   onSelectAgent?: (agentId: string) => void
   onSelectExecution?: (target: ExecutionChatTarget) => void
+  /** @deprecated REQ-913 / #512: the API-only filter was removed. Ignored. */
   defaultApiOnly?: boolean
   defaultViewMode?: CalendarViewMode
 }
@@ -446,13 +447,14 @@ export const AgentCalendarView = memo(function AgentCalendarView({
   onSelectRoutine,
   onSelectAgent,
   onSelectExecution,
-  defaultApiOnly = true,
   defaultViewMode = "all",
 }: AgentCalendarViewProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const [apiOnly, setApiOnly] = useState(defaultApiOnly)
+  // REQ-913 / #512: the view *shape* (Calendar ↔ List) is the popup's own
+  // tab set; the All/History/Upcoming `viewMode` stays the time-range scope.
+  const [viewShape, setViewShape] = useState<"calendar" | "list">("calendar")
   const [viewMode, setViewMode] = useState<CalendarViewMode>(defaultViewMode)
   const [selectedEntry, setSelectedEntry] = useState<CalendarEntry | null>(null)
   // #513: empty-day creation. The prefill date is the clicked cell; the agent
@@ -483,15 +485,10 @@ export const AgentCalendarView = memo(function AgentCalendarView({
   // REQ-915 / #514: span the whole calendar month (28–31 days), not a fixed 30.
   const days = useMemo(() => getCalendarMonthDays(baseDate, clock), [baseDate, clock])
 
-  const filteredRoutines = useMemo(() => {
-    if (!apiOnly) return rawRoutines
-    return rawRoutines.filter((r) => isApiAgentRoutine(r, agents))
-  }, [rawRoutines, apiOnly, agents])
-
-  const apiCount = useMemo(
-    () => rawRoutines.filter((r) => isApiAgentRoutine(r, agents)).length,
-    [rawRoutines, agents],
-  )
+  // REQ-913 / #512: the `API Agents only` filter is gone — it was an
+  // always-true control. The set is the full routine list; there is no
+  // user-facing filter left to fake.
+  const filteredRoutines = rawRoutines
 
   const selectedRoutine = selectedEntry?.routine ?? null
 
@@ -558,7 +555,7 @@ export const AgentCalendarView = memo(function AgentCalendarView({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Calendar"
+        aria-label="Routines"
         data-testid="agent-calendar-view"
         className="relative flex flex-col w-full max-w-6xl h-[90vh] bg-base-100 rounded-xl shadow-2xl border border-base-300 overflow-hidden"
       >
@@ -569,7 +566,7 @@ export const AgentCalendarView = memo(function AgentCalendarView({
             </div>
             <div>
               <h2 className="text-base font-semibold leading-none flex items-center gap-2">
-                <span>Routines Calendar</span>
+                <span>Routines</span>
                 <span className="badge badge-sm badge-outline">30 Days</span>
               </h2>
               <p className="text-xs text-base-content/60 mt-0.5">
@@ -580,10 +577,13 @@ export const AgentCalendarView = memo(function AgentCalendarView({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* REQ-913 / #512: this group is a time-range scope, not a view
+                shape — relabelled now that a real Calendar/List toggle sits
+                beside it. */}
             <div
               className="join"
               role="group"
-              aria-label="Calendar view"
+              aria-label="Time range"
               data-testid="calendar-view-toggle"
             >
               {(
@@ -606,21 +606,17 @@ export const AgentCalendarView = memo(function AgentCalendarView({
               ))}
             </div>
 
-            <label
-              className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none bg-base-100 px-2.5 py-1.5 rounded-lg border border-base-300 hover:bg-base-200"
-              title="Filter routines for API agents"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-              <span>API Agents only</span>
-              <input
-                type="checkbox"
-                data-testid="api-agents-filter"
-                className="checkbox checkbox-xs checkbox-primary"
-                checked={apiOnly}
-                onChange={(e) => setApiOnly(e.target.checked)}
-              />
-              <span className="badge badge-xs badge-primary">{apiCount}</span>
-            </label>
+            {/* REQ-913 / #512: Calendar ↔ List view-shape tabs. */}
+            <Tabs
+              tabs={[
+                { key: "calendar", label: "Calendar" },
+                { key: "list", label: "List" },
+              ]}
+              activeTab={viewShape}
+              onChange={(key) => setViewShape(key as "calendar" | "list")}
+              size="sm"
+              className="h-fit"
+            />
 
             {onClose && (
               <button
@@ -637,6 +633,18 @@ export const AgentCalendarView = memo(function AgentCalendarView({
         </div>
 
         <div className="flex-1 overflow-auto p-3 sm:p-4 flex gap-4 min-h-0">
+          {viewShape === "list" ? (
+            <RoutinesListView
+              routines={filteredRoutines}
+              days={days}
+              viewMode={viewMode}
+              clock={clock}
+              agents={agents}
+              selectedEntry={selectedEntry}
+              onEntryClick={handleEntryClick}
+              onAgentClick={handleAgentClick}
+            />
+          ) : (
           <div
             data-testid="calendar-grid"
             className="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 auto-rows-fr overflow-y-auto"
@@ -856,6 +864,7 @@ export const AgentCalendarView = memo(function AgentCalendarView({
               )
             })}
           </div>
+          )}
 
           {selectedRoutine && selectedEntry && (
             <div
@@ -1065,3 +1074,235 @@ export const AgentCalendarView = memo(function AgentCalendarView({
 })
 
 export default AgentCalendarView
+
+/** A day-group in the list view: its date label plus the entries for it. */
+interface RoutinesListDayRow {
+  dateKey: string
+  label: string
+  entries: CalendarEntry[]
+}
+
+/**
+ * REQ-913 / #512 — build the List view rows from the same entry pipeline the
+ * calendar grid uses (`calendarEntriesForDay` per day), so both shapes render
+ * the identical set for the identical time-range scope. Days ascend from
+ * today (soonest first), matching the calendar's forward-looking default;
+ * empty days are dropped.
+ */
+export function routinesListRows(
+  routines: Routine[],
+  days: CalendarDay[],
+  viewMode: CalendarViewMode,
+  clock: Date,
+): RoutinesListDayRow[] {
+  const rows: RoutinesListDayRow[] = []
+  for (const day of days) {
+    const entries = calendarEntriesForDay(routines, day, viewMode, clock)
+    if (entries.length === 0) continue
+    rows.push({
+      dateKey: day.dateKey,
+      label: day.isToday
+        ? `Today · ${day.monthName} ${day.dayNumber}`
+        : `${day.weekday} · ${day.monthName} ${day.dayNumber}`,
+      entries,
+    })
+  }
+  return rows
+}
+
+interface RoutinesListViewProps {
+  routines: Routine[]
+  days: CalendarDay[]
+  viewMode: CalendarViewMode
+  clock: Date
+  agents: AgentCalendarViewProps["agents"]
+  selectedEntry: CalendarEntry | null
+  onEntryClick: (entry: CalendarEntry) => void
+  onAgentClick: (agentId: string, e: React.MouseEvent) => void
+}
+
+/** REQ-913 / #512 — the List shape of the Routines popup. */
+function RoutinesListView({
+  routines,
+  days,
+  viewMode,
+  clock,
+  agents,
+  selectedEntry,
+  onEntryClick,
+  onAgentClick,
+}: RoutinesListViewProps) {
+  const rows = useMemo(
+    () => routinesListRows(routines, days, viewMode, clock),
+    [routines, days, viewMode, clock],
+  )
+
+  if (rows.length === 0) {
+    return (
+      <div
+        data-testid="routines-list"
+        className="flex-1 flex items-center justify-center rounded-lg border border-base-300 bg-base-100/60 min-h-[200px]"
+      >
+        <span className="text-sm text-base-content/50 italic">No routines in this time range</span>
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid="routines-list" className="flex-1 space-y-4 overflow-y-auto pr-1 min-w-0">
+      {rows.map((row) => (
+        <section
+          key={row.dateKey}
+          data-testid={`routines-list-day-${row.dateKey}`}
+          className="rounded-lg border border-base-300 bg-base-100/60 p-3"
+        >
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-base-content/60 pb-2 mb-2 border-b border-base-200">
+            {row.label}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {row.entries.map((entry) => {
+              const routine = entry.routine
+              const agentId = routine.agent_id || "api_agent"
+              const agentName =
+                routine.agent_name || agentId
+              const isApi = isApiAgentRoutine(routine, agents)
+              const selected =
+                selectedEntry?.id === entry.id ||
+                (selectedEntry?.kind === entry.kind &&
+                  selectedEntry.routine.id === routine.id &&
+                  (entry.kind !== "executed" ||
+                    (selectedEntry.kind === "executed" &&
+                      selectedEntry.history.id === entry.history.id)))
+
+              if (entry.kind === "executed") {
+                const sourceLabel = executionSourceLabel(routine, entry.history)
+                const clockLabel = formatRunClock(entry.history.ran_at)
+                return (
+                  <div
+                    key={entry.id}
+                    role="button"
+                    tabIndex={0}
+                    data-testid="execution-card"
+                    data-kind="executed"
+                    data-status={entry.history.status}
+                    data-source={entry.history.source}
+                    data-conversation-id={entry.history.conversation_id || ""}
+                    onClick={() => onEntryClick(entry)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") onEntryClick(entry)
+                    }}
+                    className={`group relative flex flex-col gap-1 rounded-md p-2 text-xs text-left cursor-pointer border border-solid transition-all ${executionStatusClass(
+                      entry.history.status,
+                    )} ${selected ? "ring-2 ring-primary" : ""}`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span
+                        data-testid="routine-name"
+                        className="font-semibold truncate text-[11px] text-base-content leading-tight"
+                        title={routine.name}
+                      >
+                        {routine.name}
+                      </span>
+                      <span
+                        data-testid="execution-status"
+                        className={`badge badge-xs shrink-0 text-[9px] ${
+                          entry.history.status === "success"
+                            ? "badge-success"
+                            : entry.history.status === "error"
+                              ? "badge-error"
+                              : isExecutionInProgress(entry.history.status)
+                                ? "badge-warning"
+                                : "badge-ghost"
+                        }`}
+                      >
+                        {entry.history.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px] text-base-content/70">
+                      <ExecutionStatusIcon status={entry.history.status} />
+                      <span data-testid="execution-source" className="truncate" title={sourceLabel}>
+                        {clockLabel ? `${clockLabel} · ${sourceLabel}` : sourceLabel}
+                      </span>
+                    </div>
+                  </div>
+                )
+              }
+
+              const sched = getRoutineScheduleString(routine)
+              const humanSched = humanizeCron(sched) || sched || routine.when_to_run || "Scheduled"
+              return (
+                <div
+                  key={entry.id}
+                  role="button"
+                  tabIndex={0}
+                  data-testid="routine-card"
+                  data-kind="scheduled"
+                  data-api-agent={isApi ? "true" : "false"}
+                  onClick={() => onEntryClick(entry)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onEntryClick(entry)
+                  }}
+                  className={`group relative flex flex-col gap-1 rounded-md p-2 text-xs text-left cursor-pointer border border-dashed transition-all ${
+                    isApi
+                      ? "border-primary/40 bg-primary/10 hover:border-primary hover:shadow-xs"
+                      : "border-base-300 bg-base-200/60 hover:border-base-content/30"
+                  } ${selected ? "ring-2 ring-primary" : ""}`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span
+                      data-testid="routine-name"
+                      className="font-semibold truncate text-[11px] text-base-content leading-tight"
+                      title={routine.name}
+                    >
+                      {routine.name}
+                    </span>
+                    <span
+                      data-testid="routine-status"
+                      className={`badge badge-xs shrink-0 ${
+                        routine.active
+                          ? "badge-success text-[9px]"
+                          : "badge-ghost text-base-content/40 text-[9px]"
+                      }`}
+                    >
+                      {routine.active ? "Active" : "Paused"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-base-content/70">
+                    <Clock className="h-3 w-3 shrink-0 text-base-content/50" />
+                    <span
+                      data-testid="routine-schedule"
+                      className="truncate"
+                      title={scheduledRunLabel(routine)}
+                    >
+                      {humanSched}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1 pt-0.5 mt-0.5 border-t border-base-200/60">
+                    <span
+                      data-testid="routine-agent-badge"
+                      className={`badge badge-xs font-medium truncate max-w-[110px] ${
+                        isApi ? "badge-primary" : "badge-ghost"
+                      }`}
+                    >
+                      {isApi ? `API: ${agentName}` : agentName}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="routine-agent-link"
+                      aria-label={`Chat with ${agentName}`}
+                      onClick={(e) => onAgentClick(agentId, e)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-primary shrink-0 cursor-pointer"
+                      title={`Chat with ${agentName}`}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
