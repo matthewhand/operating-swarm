@@ -117,6 +117,42 @@ def cli_compact_payload() -> dict[str, str]:
     """JSON-safe ``cli_compact`` rows for ``GET /v1/cli-agents/``."""
     return dict(CLI_COMPACT_HOOKS)
 
+
+def seat_capabilities_payload(extra_bases: list[type] | None = None) -> dict[str, dict]:
+    """JSON-safe per-kind seat capabilities for ``GET /v1/cli-agents/`` (#551).
+
+    The published channel: the frontend derives attach/compact/plugins gates
+    from this data instead of comparing kind strings. ``extra_bases`` lets a
+    test (or a plugin host) prove a subclass override flows through unchanged.
+    """
+    from swarm.core.kind_bases import (
+        ApiKindBase,
+        CliKindBase,
+        RemoteKindBase,
+        seat_capabilities,
+    )
+
+    bases: dict[str, type] = {
+        "api": ApiKindBase,
+        "cli": CliKindBase,
+        "remote": RemoteKindBase,
+    }
+    for extra in extra_bases or []:
+        kind = str(getattr(extra, "kind", "") or "").strip().lower()
+        if kind in bases and extra is not bases[kind]:
+            # A subclass overriding axes still publishes under its kind — the
+            # payload reflects what a seat of this kind may declare.
+            merged = seat_capabilities(bases[kind])
+            merged.update(seat_capabilities(extra))
+            bases[kind] = extra
+    return {
+        kind: {
+            name: {"enabled": bool(cap["enabled"]), "reason": str(cap["reason"])}
+            for name, cap in seat_capabilities(base).items()
+        }
+        for kind, base in bases.items()
+    }
+
 # User-local bins Daphne often misses when started with PATH=/usr/bin:/bin.
 _EXTRA_BIN_REL = (
     (".local", "bin"),
@@ -1201,6 +1237,7 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
         "list_sessions": list_sessions_catalog(),
         "slash_commands": cli_slash_commands_payload(),
         "cli_compact": cli_compact_payload(),
+        "seat_capabilities": seat_capabilities_payload(),
         "remote": _remote_catalog_payload(),
         "remote_boxes": _remote_boxes_payload(config),
     }

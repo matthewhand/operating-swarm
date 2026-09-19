@@ -1282,6 +1282,17 @@ const ChatPage = () => {
   // #636: CLI Compact lights up when a default API is configured (the same
   // `default_llm_ready` signal DefaultLlmTip consumes) or when the seat's CLI
   // declares a native cli_compact hook in the catalog.
+  // #551: the kind base's published declarations (GET /v1/cli-agents/), when
+  // the backend publishes them. The seat's own kind row wins; older payloads
+  // leave this undefined and the menu falls back to the kind-derived gates.
+  const declaredCapabilities = useMemo(() => {
+    const payload = cliQuery.data as { seat_capabilities?: Record<string, Record<string, { enabled: boolean; reason: string }>> } | undefined
+    const published = payload?.seat_capabilities
+    if (!published) return undefined
+    const kindKey = isCliAgent ? 'cli' : isRemoteAgent || isRemoteBackedTeam ? 'remote' : 'api'
+    return published[kindKey]
+  }, [cliQuery.data, isCliAgent, isRemoteAgent, isRemoteBackedTeam])
+
   const composerMenu = composerMenuCapabilities({
     isApi: isApiAgent,
     isCli: isCliAgent,
@@ -1296,6 +1307,8 @@ const ChatPage = () => {
     // using the exact seat pair ChatPage publishes (id + kind) so the composer
     // menu cannot disagree with the badge.
     pluginsSwarmOwned: isSwarmOwnedAgent(activeChatAgentId || '', agentKind),
+    // #551: declarations outrank kind-derived gates (one channel, ADR-005).
+    declaredCapabilities,
   })
 
   /** The agent's own configured remote endpoint, if any. */

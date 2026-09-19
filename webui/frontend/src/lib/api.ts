@@ -1558,6 +1558,9 @@ export interface CliAgentsInfo {
   slash_commands?: Record<string, CliSlashCommandSpec[]>
   /** #636: per-CLI provider-native compact hooks (argv templates). */
   cli_compact?: Record<string, string>
+  /** #551: per-kind seat capability declarations — the gate channel for
+   * attach/compact/plugins/routines. Absent capability = not offered. */
+  seat_capabilities?: Record<string, Record<string, { enabled: boolean; reason: string }>>
   /** Issue #180: per-CLI remote/headless capability (serve / ssh / api / none). */
   remote?: Record<string, {
     capability?: string

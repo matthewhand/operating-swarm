@@ -36,6 +36,18 @@ export interface ComposerMenuSeat {
   cliCompactCapable?: boolean
   /** #516: the seat passes the swarm-owned plugins gate (#511's predicate). */
   pluginsSwarmOwned?: boolean
+  /** #551: the kind base's declared capabilities, published as data by
+   * `GET /v1/cli-agents/` (`seat_capabilities`). When absent (older backend),
+   * the menu falls back to the kind-derived gates below. */
+  declaredCapabilities?: Record<string, { enabled: boolean; reason: string }>
+}
+
+/** #551: read one declared capability; `undefined` when not published. */
+export function declaredCapability(
+  seat: ComposerMenuSeat | undefined,
+  name: string,
+): { enabled: boolean; reason: string } | undefined {
+  return seat?.declaredCapabilities?.[name]
 }
 
 export interface ComposerMenuItemCapability {
@@ -87,12 +99,17 @@ export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCa
   // #516: the Plugins entry uses the same swarm-owned reading (#511) the rail
   // footer and the badge already gate on — one predicate, three consumers.
   const plugins = Boolean(seat.pluginsSwarmOwned)
+  // #551: a published declaration outranks every kind-derived gate. When the
+  // backend has not published one, the local predicates above remain the
+  // fallback so an older payload cannot silently widen a seat's powers.
+  const declaredPlugins = declaredCapability(seat, 'plugins')
+  const declaredAttach = declaredCapability(seat, 'attach')
   return {
-    addFiles: { enabled: addFiles, reason: ATTACH_DISABLED_REASON },
+    addFiles: declaredAttach ?? { enabled: addFiles, reason: ATTACH_DISABLED_REASON },
     compact: {
       enabled: compact || cliCompact,
       reason: compact || cliCompact ? '' : compactReason,
     },
-    plugins: { enabled: plugins, reason: PLUGINS_DISABLED_REASON },
+    plugins: declaredPlugins ?? { enabled: plugins, reason: PLUGINS_DISABLED_REASON },
   }
 }

@@ -16,7 +16,7 @@ import logging
 import os
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypedDict
 
 from swarm.core.blueprint_base import BlueprintBase
 
@@ -34,6 +34,49 @@ ALLOWED_BLUEPRINT_BASE_NAMES: tuple[str, ...] = (
 )
 
 
+class SeatCapability(TypedDict):
+    """One declared seat capability (#551). ``enabled`` gates the UI control;
+    ``reason`` explains an offered-but-unusable action."""
+
+    enabled: bool
+    reason: str
+
+
+def _cap(enabled: bool, reason: str = "") -> SeatCapability:
+    return {"enabled": enabled, "reason": reason}
+
+
+def _capability_names() -> tuple[str, ...]:
+    """The declared capability vocabulary (documented for #540)."""
+    return ("attach", "compact", "plugins", "routines")
+
+
+def seat_capability(base: type, name: str) -> SeatCapability:
+    """One capability, resolved. Resolution order:
+
+    1. a per-axis class attribute on the seat's own class — a subclass may
+       override a **single axis** (``attach = {"enabled": True}``) without
+       redeclaring the rest;
+    2. the kind base's ``seat_capabilities`` declaration dict;
+    3. **not offered** — doctrine rule 4: a capability nobody declared is
+       never invented here.
+    """
+    override = getattr(base, name, None)
+    if isinstance(override, dict) and "enabled" in override:
+        return _cap(bool(override.get("enabled")), str(override.get("reason") or ""))
+    declared = getattr(base, "seat_capabilities", None) or {}
+    if isinstance(declared, dict) and name in declared:
+        entry = declared[name]
+        if isinstance(entry, dict) and "enabled" in entry:
+            return _cap(bool(entry.get("enabled")), str(entry.get("reason") or ""))
+    return _cap(False, "Not declared by this seat kind")
+
+
+def seat_capabilities(base: type) -> dict[str, SeatCapability]:
+    """All declared capabilities for a kind base, as JSON-safe rows."""
+    return {name: seat_capability(base, name) for name in _capability_names()}
+
+
 class KindBase(BlueprintBase):
     """Shared parent for the three harness templates. Do not subclass this
     directly unless you are adding a new *documented* kind — prefer
@@ -41,6 +84,12 @@ class KindBase(BlueprintBase):
     """
 
     kind: ClassVar[str] = ""
+
+    #: #551: per-seat capability declarations. The shared root declares
+    #: nothing kind-specific — each kind base below states its own defaults.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(False, "Attachments are not declared for this seat kind"),
+    }
 
     async def run(self, messages: list[dict[str, Any]], **kwargs: Any) -> AsyncGenerator[dict[str, Any], None]:
         """Default run implementation for kind harnesses."""
@@ -66,6 +115,14 @@ class ApiKindBase(KindBase):
     """
 
     kind: ClassVar[str] = KIND_API
+
+    #: #551: API seats run swarm-side, so swarm capabilities are fully theirs.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(True),
+        "compact": _cap(True),
+        "plugins": _cap(True),
+        "routines": _cap(True),
+    }
 
     def get_navbar_items(self=None) -> list[dict]:
         """Returns metadata for navbar items contributed by this blueprint."""
@@ -163,6 +220,22 @@ class CliKindBase(KindBase):
 
     kind: ClassVar[str] = KIND_CLI
 
+    #: #551: a CLI keeps its transcript in the provider and has no swarm-side
+    #: plugin host; attachments are provider-dependent (off by default).
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(
+            False, "File attachments aren’t supported for CLI seats"
+        ),
+        "compact": _cap(
+            False,
+            "Compact needs a default API profile or a provider cli_compact hook",
+        ),
+        "plugins": _cap(
+            False, "Plugins are available on API and blueprint seats"
+        ),
+        "routines": _cap(False, "Routines drive swarm-side scheduling"),
+    }
+
     #: Provider-declared native slash commands, keyed by bare command name.
     cli_slash_commands: ClassVar[dict[str, CliSlashCommand]] = {}
 
@@ -205,6 +278,22 @@ class RemoteKindBase(KindBase):
 
     kind: ClassVar[str] = KIND_REMOTE
 
+    #: #551: the transcript belongs to the remote provider; swarm-side
+    #: capabilities do not apply.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(
+            False, "File attachments aren’t supported for remote seats"
+        ),
+        "compact": _cap(
+            False,
+            "Compact is not available for remote seats — the transcript belongs to the remote provider",
+        ),
+        "plugins": _cap(
+            False, "Plugins are available on API and blueprint seats"
+        ),
+        "routines": _cap(False, "Routines drive swarm-side scheduling"),
+    }
+
 
 def base_class_for_kind(kind: str | None) -> str:
     """Return the base class name a generated blueprint should subclass.
@@ -233,5 +322,8 @@ __all__ = [
     "KIND_REMOTE",
     "KindBase",
     "RemoteKindBase",
+    "SeatCapability",
     "base_class_for_kind",
+    "seat_capabilities",
+    "seat_capability",
 ]
