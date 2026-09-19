@@ -121,6 +121,7 @@ import {
   type PendingAttachment,
 } from '../lib/chatAttachments'
 import { composerMenuCapabilities } from '../lib/composerMenu'
+import { applyRemoteRoutingChange } from '../lib/remoteRouting'
 import { ComposerPluginsPanel } from '../components/ComposerPluginsPanel'
 import {
   type SlashItem,
@@ -305,6 +306,7 @@ import {
   isRemoteKindAgent,
   loadAgentRemoteBinding,
   remotesListForSelect,
+  resolveAgentBindingSubject,
   resolveBoundRemoteId,
   saveAgentRemoteBinding,
 } from '../lib/agentRemote'
@@ -1079,7 +1081,10 @@ const ChatPage = () => {
   const showRemotesControl =
     Boolean(remoteFromUrl) ||
     (productModes.remote && (isRemoteAgent || isRemoteBackedTeam))
-  const bindingAgentId = remoteFromUrl || (showRemotesControl ? selectedBlueprint : '')
+  // REQ-904 / #502: the binding subject is the agent — never the provider.
+  // With `?remote=X` in the URL the user is viewing a remote *seat*; there is
+  // no named agent in context, so nothing may be written under X itself.
+  const bindingAgentId = resolveAgentBindingSubject({ remoteFromUrl, selectedBlueprint })
   const persistedRemote = bindingAgentId ? loadAgentRemoteBinding(bindingAgentId) : null
   const remotesCatalog = remotesListForSelect(
     remotesListQuery.data,
@@ -3745,25 +3750,26 @@ const ChatPage = () => {
           onChange={(next) => {
             const nextId = next.agent
             setSelectedRemoteId(nextId)
-            const remote = configuredRemoteRows.find((row) => row.id === nextId)
-            if (bindingAgentId && remote) {
-              saveAgentRemoteBinding(bindingAgentId, {
-                id: remote.id,
-                kind: remote.kind || remote.id,
+            // REQ-904 / #502: one decision point for both axes. A provider
+            // pick on a named agent is inert on the route; only an identity
+            // pick (viewing a remote seat) may navigate or reset the session.
+            const decision = applyRemoteRoutingChange({
+              next,
+              bindingAgentId,
+              remoteFromUrl,
+              configured: configuredRemoteRows,
+            })
+            if (decision.binding !== undefined) {
+              saveAgentRemoteBinding(bindingAgentId, decision.binding)
+              persistAgentDropdownChoice(bindingAgentId, {
+                remote: decision.binding?.id ?? '',
               })
-              persistAgentDropdownChoice(bindingAgentId, { remote: remote.id })
-            } else if (bindingAgentId && !nextId) {
-              saveAgentRemoteBinding(bindingAgentId, null)
-              persistAgentDropdownChoice(bindingAgentId, { remote: '' })
             }
             setSearchParams((prev) => {
               const params = new URLSearchParams(prev)
-              if (nextId) params.set('remote', nextId)
-              if (next.changed === 'model' && next.model) {
-                params.set('session', next.model)
-              } else if (next.changed === 'agent') {
-                params.delete('session')
-              }
+              if (decision.setRemote) params.set('remote', decision.setRemote)
+              if (decision.setSession) params.set('session', decision.setSession)
+              else if (decision.deleteSession) params.delete('session')
               return params
             })
           }}
