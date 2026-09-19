@@ -771,7 +771,7 @@ def _normalize_ui_url(url: str) -> str:
         host = "127.0.0.1"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     host, port = _rewrite_container_gateway_host(
-        host, port, in_container=_running_in_container()
+        host, port, in_container=_running_in_container(), browser_facing=True
     )
     userinfo = ""
     if parsed.username:
@@ -834,22 +834,32 @@ def _external_gateway_override() -> tuple[str, int | None]:
 
 
 def _rewrite_container_gateway_host(
-    host: str, port: int | None, *, in_container: bool
+    host: str,
+    port: int | None,
+    *,
+    in_container: bool,
+    browser_facing: bool = False,
 ) -> tuple[str, int | None]:
     """REQ-916 / #515: reverse map a container-gateway alias to the external host.
 
     ``SWARM_HOST_GATEWAY_EXTERNAL`` names the FQDN a gateway alias should be
     seen as from outside the container network. Override carries no port →
     the original port is kept; override carries one → it wins (a reverse
-    proxy may move the service). Direction-gated: when this process IS in a
-    container the alias is the *correct* name, so it is preserved — otherwise
-    the forward loopback mapping's own output would be immediately undone.
-    With no override configured nothing is rewritten — no guessing.
+    proxy may move the service). With no override configured nothing is
+    rewritten — no guessing.
+
+    Direction gate (``in_container``):
+    - ``_normalize_base_url`` (server-side fetch consumer): the alias IS the
+      correct name from inside, so it is preserved — otherwise the forward
+      loopback mapping's own output would be immediately undone.
+    - ``_normalize_ui_url`` (browser consumer, #690): the alias is a dead
+      name for a LAN browser on container deployments too. When the operator
+      *explicitly set* the external override, the browser-facing rewrite
+      fires regardless of the container gate — an explicit env var is not a
+      guess. Unset override keeps the #515 no-guess behaviour.
     """
     global _EXTERNAL_GATEWAY_WARNED
     if host not in _CONTAINER_GATEWAY_HOSTS:
-        return host, port
-    if in_container:
         return host, port
     external, external_port = _external_gateway_override()
     if not external:
@@ -863,7 +873,11 @@ def _rewrite_container_gateway_host(
                 host,
             )
         return host, port
-    return external, (external_port if external_port is not None else port)
+    if not in_container or browser_facing:
+        return external, (external_port if external_port is not None else port)
+    # base_url inside a container: the alias resolves fine for server-side
+    # fetches, so the explicit override does not apply there.
+    return host, port
 
 
 def this_server_listen_port() -> int:
