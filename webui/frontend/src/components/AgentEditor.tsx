@@ -5,6 +5,7 @@ import LlmProfileAddForm from './LlmProfileAddForm'
 import InferenceOrderList, { type InferenceCatalogOption } from './InferenceOrderList'
 import {
   fetchBlueprints,
+  fetchBlueprintPersonas,
   fetchSkills,
   fetchCliAgents,
   fetchCliModels,
@@ -15,6 +16,7 @@ import {
   type AgentRole,
   type Blueprint,
 } from '../lib/api'
+import PersonaAvatarThemePicker from './PersonaAvatarThemePicker'
 import { RemoteSelect } from './RemoteSelect'
 import { configuredRemotes } from '../lib/remotes'
 import {
@@ -198,6 +200,19 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     () => assignableBlueprints(exampleRoleAgents(blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS)),
     [blueprintsQuery.data],
   )
+  // #527: a blueprint that declares ≥2 openai-agents personas gets one
+  // avatar picker per persona (single-persona seats have nothing to switch).
+  const editorRecipeId = blueprintId || id
+  const personasQuery = useQuery({
+    queryKey: ['blueprint-personas', editorRecipeId],
+    queryFn: () => fetchBlueprintPersonas(editorRecipeId),
+    enabled: Boolean(editorRecipeId) && isOpen,
+    retry: 1,
+  })
+  const declaredPersonas = useMemo(() => {
+    const list = personasQuery.data?.personas ?? []
+    return list.length >= 2 ? list : []
+  }, [personasQuery.data])
   const agent = catalog.find((item) => item.id === id)
   const catalogName = agent ? agentLabel({ id: agent.id, name: agent.name }) : id
   const title = id ? `Edit ${catalogName}` : 'Edit agent'
@@ -607,6 +622,28 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
                 })}
               </ul>
             )}
+          </div>
+        ) : null}
+
+        {declaredPersonas.length >= 2 ? (
+          <div
+            className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+            data-testid="agent-editor-persona-avatars"
+          >
+            <span className="text-sm font-semibold text-base-content/80">
+              Persona avatars
+            </span>
+            <p className="text-xs text-base-content/60 mt-0.5">
+              One face per openai-agents persona — messages from each mode show
+              its own avatar in the transcript.
+            </p>
+            {declaredPersonas.map((persona) => (
+              <PersonaAvatarThemePicker
+                key={persona.name}
+                agentId={editorRecipeId}
+                persona={persona.name}
+              />
+            ))}
           </div>
         ) : null}
 

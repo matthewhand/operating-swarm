@@ -176,6 +176,8 @@ export interface ChatMessage {
   text: string
   agent?: string
   agent_id?: string
+  /** #527: persona that produced this row (openai-agents blueprint seats). */
+  persona?: string
   streaming?: boolean
   timestamp: Date
   delegatedFrom?: string

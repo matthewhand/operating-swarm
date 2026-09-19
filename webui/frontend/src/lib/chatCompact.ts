@@ -28,6 +28,8 @@ export interface ChatBubble {
   tools?: import('./safety').ToolCallState[]
   /** REQ-859 — inline fan-out block for dynamically spawned subagent turns. */
   subagentFanOut?: import('./subagentFanOut').SubagentFanOutData
+  /** #527 — openai-agents persona that produced the row, when the server says. */
+  persona?: string
 }
 
 export type DisplayItem =

@@ -147,6 +147,8 @@ export interface AgentThreadMessage {
   ts?: string
   /** Terminal CLI/config failure — Chat shows a recovery banner (#274). */
   fatal_config_error?: boolean
+  /** #527: openai-agents persona that produced this row, when the server says. */
+  persona?: string
 }
 
 export interface AgentThread {
@@ -197,6 +199,7 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
     timestamp?: unknown
     created_at?: unknown
     fatal_config_error?: unknown
+    persona?: unknown
   }
   if (typeof row.role !== 'string' || typeof row.content !== 'string') return null
   if (row.edited !== undefined && row.edited !== true) return null
@@ -220,6 +223,7 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
   const ts = row.ts || row.timestamp || row.created_at
   if (typeof ts === 'string' && ts.trim()) parsed.ts = ts.trim()
   if (row.fatal_config_error === true) parsed.fatal_config_error = true
+  if (typeof row.persona === 'string' && row.persona.trim()) parsed.persona = row.persona.trim()
   return parsed
 }
 

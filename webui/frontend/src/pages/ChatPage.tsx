@@ -78,6 +78,7 @@ import {
   type ContextStrategy,
 } from '../lib/contextCull'
 import { persistableMessages, putAgentChatSession } from '../lib/agentChatSessions'
+import { personaForAgentMessage } from '../lib/personaAvatars'
 import { useRailChrome } from '../components/RailChrome'
 import { ComputerControlStub } from '../components/ComputerControlStub'
 import { NavbarRoutingPicker, type RoutingPathChange } from '../components/NavbarRoutingPicker'
@@ -477,6 +478,7 @@ function chatMessageFromThreadRow(
     ts?: string
     rate_limit?: RateLimitWait
     fatal_config_error?: boolean
+    persona?: string
   },
   index: number,
 ): ChatMessage {
@@ -497,6 +499,7 @@ function chatMessageFromThreadRow(
     ts: message.ts,
     rateLimit: isRateLimitWait(message.rate_limit) ? message.rate_limit : undefined,
     fatalConfigError: message.fatal_config_error === true,
+    persona: typeof message.persona === 'string' ? message.persona : undefined,
   }
 }
 
@@ -4450,9 +4453,14 @@ const ChatPage = () => {
             const rawOffset = rawOffsetForMessage(messages, message.key)
             const showStartMarker =
               contextMeta.start_offset > 0 && rawOffset === contextMeta.start_offset
+            const rowPersona =
+              message.role === 'assistant'
+                ? personaForAgentMessage(message, selectedAgent?.personas)
+                : null
             return (
               <div
                 key={message.key}
+                data-persona={rowPersona ?? undefined}
                 className="group/osrow os-chat-row"
                 onContextMenu={(e) => {
                   if (message.role === 'system') return
