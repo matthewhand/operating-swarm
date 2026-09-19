@@ -128,6 +128,9 @@ import {
   loadBubbleTheme,
   saveBubbleTheme,
   type BubbleTheme,
+  agentBubbleThemeOverrides,
+  applyBubbleThemeToAll,
+  overriddenBubbleThemeCount,
 } from '../lib/bubbleTheme'
 import {
   ACTION_ROW_LABELS_CHANGED_EVENT,
@@ -1986,6 +1989,10 @@ function HostnamePane({
 function AestheticsPane() {
   const [bubbleTheme, setBubbleThemePref] = useState<BubbleTheme>(loadBubbleTheme)
   const [labels, setLabels] = useState<boolean>(loadActionRowLabels)
+  // #676: Apply-to-all enablement reads the live override map.
+  const [overrideCount, setOverrideCount] = useState(() =>
+    overriddenBubbleThemeCount(loadBubbleTheme()),
+  )
 
   useEffect(() => {
     const onLabelsChanged = () => setLabels(loadActionRowLabels())
@@ -1999,6 +2006,13 @@ function AestheticsPane() {
 
   const handleBubbleTheme = (next: string) => {
     setBubbleThemePref(saveBubbleTheme(next))
+    setOverrideCount(overriddenBubbleThemeCount(saveBubbleTheme(next)))
+  }
+
+  // #676: bring every overridden agent onto the selected default.
+  const handleApplyToAll = () => {
+    applyBubbleThemeToAll(bubbleTheme)
+    setOverrideCount(0)
   }
 
   return (
@@ -2038,6 +2052,25 @@ function AestheticsPane() {
           </select>
           <p className="text-xs text-base-content/60">
             How chat messages render. Also settable from the chat right-click menu.
+          </p>
+        </div>
+
+        {/* #676: enabled only when some agent overrides the default with a
+            different theme; clicking brings every agent onto this default. */}
+        <div className="space-y-1">
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            data-testid="aesthetics-apply-all"
+            disabled={overrideCount === 0}
+            onClick={handleApplyToAll}
+          >
+            Apply to all{overrideCount > 0 ? ` (${overrideCount} overridden)` : ''}
+          </button>
+          <p className="text-xs text-base-content/60" data-testid="aesthetics-apply-all-hint">
+            {overrideCount === 0
+              ? 'Every agent already follows the default.'
+              : `${overrideCount} agent${overrideCount === 1 ? '' : 's'} use a different theme — applying brings them onto the default.`}
           </p>
         </div>
       </section>

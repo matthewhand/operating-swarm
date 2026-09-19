@@ -97,3 +97,70 @@ export function saveBubbleTheme(value: string): BubbleTheme {
   }
   return next
 }
+
+// --- #676: per-agent overrides + Settings "Apply to all" -------------------
+
+/** localStorage key for the {agentId → theme} override map. */
+export const AGENT_BUBBLE_THEME_STORAGE_KEY = 'os.bubbleThemeByAgent'
+
+/** Read the whole override map ({} when unset/corrupt). */
+export function agentBubbleThemeOverrides(): Record<string, BubbleTheme> {
+  try {
+    const raw = localStorage.getItem(AGENT_BUBBLE_THEME_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+    const out: Record<string, BubbleTheme> = {}
+    for (const [id, theme] of Object.entries(parsed as Record<string, unknown>)) {
+      const t = parseBubbleTheme(theme)
+      if (typeof id === 'string' && id.trim()) out[id.trim()] = t
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** Set (theme) or clear (null) one agent's bubble-theme override. */
+export function setAgentBubbleTheme(agentId: string, theme: BubbleTheme | null): void {
+  const id = agentId.trim()
+  if (!id) return
+  const map = agentBubbleThemeOverrides()
+  if (theme === null) delete map[id]
+  else map[id] = theme
+  try {
+    localStorage.setItem(AGENT_BUBBLE_THEME_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    /* persistence is best-effort */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BUBBLE_THEME_CHANGED_EVENT, { detail: loadBubbleTheme() }))
+  } catch {
+    /* tests / non-browser */
+  }
+}
+
+/** How many agents carry an override that differs from `defaultTheme`. */
+export function overriddenBubbleThemeCount(defaultTheme: BubbleTheme): number {
+  return Object.values(agentBubbleThemeOverrides()).filter((t) => t !== defaultTheme).length
+}
+
+/**
+ * #676: bring every overridden agent onto the default — clears all
+ * overrides; returns how many were cleared (the Apply-to-all toast count).
+ */
+export function applyBubbleThemeToAll(_defaultTheme: BubbleTheme): number {
+  const map = agentBubbleThemeOverrides()
+  const count = Object.keys(map).length
+  try {
+    localStorage.removeItem(AGENT_BUBBLE_THEME_STORAGE_KEY)
+  } catch {
+    /* persistence is best-effort */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BUBBLE_THEME_CHANGED_EVENT, { detail: loadBubbleTheme() }))
+  } catch {
+    /* tests / non-browser */
+  }
+  return count
+}
