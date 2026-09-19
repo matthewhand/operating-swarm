@@ -223,6 +223,7 @@ import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsP
 import { PrOpenedCard } from '../components/PrOpenedCard'
 import { TeammateTaskCard } from '../components/TeammateTaskCard'
 import { SuggestionChips } from '../components/SuggestionChips'
+import ConsumerPills from '../components/ConsumerPills'
 import ComposerPluginsBadge from '../components/ComposerPluginsBadge'
 import { DemoTourBanner } from '../components/DemoTourBanner'
 import { isDemoMode } from '../lib/demo/mode'
@@ -4200,6 +4201,7 @@ const ChatPage = () => {
         </div>
       </header>
 
+      <ConsumerPills providerId={activeChatAgentId} />
       {showRoleTip ? <RoleAgentTip onDismiss={dismissRoleTip} /> : null}
       {showDefaultLlmTip ? <DefaultLlmTip onDismiss={dismissDefaultLlmTip} /> : null}
 

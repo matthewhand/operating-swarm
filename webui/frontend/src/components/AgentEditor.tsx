@@ -80,6 +80,11 @@ import { defaultAvatarPrompt, isImageGenConfigured, parseImageGenSettings } from
 import AgentAvatar from './AgentAvatar'
 import { openSettingsSheet } from './SettingsSheet'
 import MailboxAclEditor from './MailboxAclEditor'
+import {
+  ROLE_CONSUMERS_CHANGED_EVENT,
+  loadRoleConsumers,
+  saveRoleConsumers,
+} from '../lib/roleConsumers'
 import { ContextUsageDetail } from './ContextUsageDetail'
 import { peekConversationIdForAgent } from '../lib/agentChat'
 import CreateRoleModal from './CreateRoleModal'
@@ -103,7 +108,8 @@ export function openAgentEditor(detail: OpenAgentEditorDetail): void {
 }
 
 const ROLE_OPTIONS: { value: AgentRole; label: string }[] = [
-  { value: 'default', label: 'none' },
+  // #532: the default role is a Worker — 'none' read like a misconfiguration.
+  { value: 'default', label: 'Worker (default)' },
   { value: 'support', label: 'support' },
   { value: 'gate', label: 'gate' },
   { value: 'skeptic', label: 'skeptic' },
@@ -136,6 +142,8 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [role, setRole] = useState<AgentRole>('default')
+  // #532: agents wired to *use* this seat for its role (wire-up UI + diagram).
+  const [wiredConsumers, setWiredConsumers] = useState<string[]>([])
   const [blueprintId, setBlueprintId] = useState('')
   const [llmOverride, setLlmOverride] = useState('')
   const [cliOverride, setCliOverride] = useState('')
@@ -167,6 +175,15 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     window.addEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
     return () => window.removeEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
   }, [])
+
+  // #532: wire-ups may change from another editor instance / ChatPage pills.
+  useEffect(() => {
+    const sync = () => {
+      if (id && isOpen) setWiredConsumers(loadRoleConsumers(id, role))
+    }
+    window.addEventListener(ROLE_CONSUMERS_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(ROLE_CONSUMERS_CHANGED_EVENT, sync)
+  }, [id, isOpen, role])
 
   const allRoleOptions = useMemo(() => {
     const options: { value: string; label: string }[] = [
@@ -200,6 +217,14 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     () => assignableBlueprints(exampleRoleAgents(blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS)),
     [blueprintsQuery.data],
   )
+  // #532: friendly seat label for the role diagram / checkbox rows.
+  const labelFor = (seatId: string): string => {
+    if (!seatId) return ''
+    const edited = loadAgentEdit(seatId).name
+    if (edited) return edited
+    const row = catalog.find((item) => item.id === seatId)
+    return row?.name || seatId
+  }
   // #527: a blueprint that declares ≥2 openai-agents personas gets one
   // avatar picker per persona (single-persona seats have nothing to switch).
   const editorRecipeId = blueprintId || id
@@ -312,7 +337,9 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
       (item) => item.id === id,
     )
     setName(edit.name || catalogAgent?.name || id)
-    setRole(edit.role || agentRole({ id, name: catalogAgent?.name, role: catalogAgent?.role }))
+    const resolvedRole = edit.role || agentRole({ id, name: catalogAgent?.name, role: catalogAgent?.role })
+    setRole(resolvedRole)
+    setWiredConsumers(loadRoleConsumers(id, resolvedRole))
     setBlueprintId(edit.blueprintId || id)
     setLlmOverride(edit.llmOverride || '')
     setCliOverride(edit.cliOverride || '')
@@ -410,6 +437,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const persistRole = (next: AgentRole) => {
     setRole(next)
     saveAgentEdit(id, { role: next, roleOverridden: true })
+    if (id) setWiredConsumers(loadRoleConsumers(id, next))
     setAvatarPrompt((current) => {
       const derived = defaultAvatarPrompt(name || catalogName, next)
       if (!current.trim() || current === defaultAvatarPrompt(name || catalogName, role)) {
@@ -540,6 +568,62 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             it.
           </p>
         </div>
+
+        {id && role !== 'default' ? (
+          <div
+            className="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-2"
+            data-testid="role-consumer-wireup"
+          >
+            <p className="text-xs font-semibold">
+              {catalogName || name || id} is the{' '}
+              <span className="uppercase tracking-wide">{role}</span> provider
+            </p>
+            {wiredConsumers.length === 0 ? (
+              <p className="text-xs text-base-content/60" data-testid="role-unused-hint">
+                This role is unused until it has been linked to another agent.
+              </p>
+            ) : (
+              <p className="text-xs text-base-content/80" data-testid="role-verb-diagram">
+                {wiredConsumers.map((cid) => labelFor(cid) || cid).join(', ')}{' '}
+                {wiredConsumers.length === 1 ? 'consults' : 'consult'}{' '}
+                {catalogName || name || id} as its {role} provider.
+              </p>
+            )}
+            <div className="space-y-1">
+              <span className="text-xs text-base-content/70">Wired agents:</span>
+              {catalog.length === 0 ? (
+                <p className="text-xs text-base-content/50">Catalog unavailable.</p>
+              ) : (
+                catalog
+                  .filter((item) => item.id !== id)
+                  .map((item) => {
+                    const checked = wiredConsumers.includes(item.id)
+                    return (
+                      <label
+                        key={item.id}
+                        className="flex cursor-pointer items-center gap-2 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-xs"
+                          checked={checked}
+                          onChange={() => {
+                            if (!id) return
+                            const next = checked
+                              ? wiredConsumers.filter((c) => c !== item.id)
+                              : [...wiredConsumers, item.id]
+                            setWiredConsumers(saveRoleConsumers(id, role, next))
+                          }}
+                          data-testid={`wire-consumer-${item.id}`}
+                        />
+                        <span>{catalogPickerLabel(item)}</span>
+                      </label>
+                    )
+                  })
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {id ? <MailboxAclEditor agentId={id} role={role} /> : null}
 
