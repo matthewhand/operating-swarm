@@ -16,7 +16,6 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import AgentSidebar from '../AgentSidebar'
-import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from '../SettingsSheet'
 import { HIDDEN_AGENTS_STORAGE_KEY } from '../../lib/hiddenAgents'
 import { PINNED_AGENTS_STORAGE_KEY } from '../../lib/pinnedAgents'
 
@@ -187,41 +186,28 @@ describe('#594 product modes settle before they paint the rail', () => {
     for (const id of before) expect(after).toContain(id)
   })
 
-  it('names the withheld surfaces and routes to the Settings pane that owns them', async () => {
-    const opened: OpenSettingsDetail[] = []
-    const onOpen = (event: Event) => opened.push((event as CustomEvent<OpenSettingsDetail>).detail)
-    window.addEventListener(OPEN_SETTINGS_EVENT, onOpen)
-
+  it('#685: a disabled kind is completely absent — no notice, no enable-in-Settings copy', async () => {
     renderRail()
     await settle({ clis: ['grok'], rail: CLI_RAIL, modes: SHIPPED_MODES }, () =>
-      expect(screen.getByTestId('rail-mode-notice').textContent).toContain('API'),
+      expect(rowIds()).toContain('cli_agent'),
     )
 
-    const notice = await screen.findByTestId('rail-mode-notice')
-    expect(notice.textContent).toContain('API')
-    expect(notice.textContent).toContain('Blueprint')
-    expect(notice.textContent).toContain('enable in Settings')
-    // Names the mechanism, not just a count, and carries the same prose as a tip.
-    expect(notice.getAttribute('title')).toContain('hidden by product modes')
-    expect(notice.getAttribute('aria-label')).toContain('Open Rail settings')
-
-    await act(async () => {
-      notice.click()
-    })
-    expect(opened).toEqual([{ section: 'rail' }])
-
-    window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen)
+    expect(rowIds()).not.toContain('codey')
+    expect(rowIds()).not.toContain('api_agent')
+    // The informative-noise pattern #685 bans, gone from every rail surface.
+    expect(screen.queryByTestId('rail-mode-notice')).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('hidden by product modes')
+    expect(document.body.textContent).not.toContain('enable in Settings')
   })
 
   it('never counts a mode-gated row as Hidden — Hide and a surface switch are different axes', async () => {
     renderRail()
     await settle({ clis: ['grok'], rail: CLI_RAIL, modes: SHIPPED_MODES }, () =>
-      expect(screen.getByTestId('rail-mode-notice').textContent).toContain('API'),
+      expect(rowIds()).toContain('cli_agent'),
     )
 
     // `codey` and `api_agent` are gated out of the rows above, yet Hidden stays
     // empty and offers no Unhide — the two reasons a row can be absent stay apart.
-    expect(screen.getByTestId('rail-mode-notice')).toBeInTheDocument()
     expect(screen.getByTestId('hidden-bots-row').getAttribute('data-empty')).toBe('true')
     expect(screen.queryByTestId('os-hidden-bots-count')).not.toBeInTheDocument()
   })
@@ -239,6 +225,5 @@ describe('#594 product modes settle before they paint the rail', () => {
     // keeps every surface, exactly as #149 defined it.
     await waitFor(() => expect(rowIds()).toContain('codey'))
     expect(rowIds()).toContain('api_agent')
-    expect(screen.queryByTestId('rail-mode-notice')).not.toBeInTheDocument()
   })
 })

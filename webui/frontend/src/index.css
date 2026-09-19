@@ -1632,13 +1632,6 @@ button.os-agent-row {
 /* #594: in avatar-only mode the notice keeps its icon and its `title`/aria
    label but drops the prose, which cannot fit — so the explanation stays
    reachable without breaking the narrow rail. */
-.os-agent-sidebar--avatar-only .os-rail-mode-notice {
-  justify-content: center;
-  padding-inline: 0;
-}
-.os-agent-sidebar--avatar-only .os-rail-mode-notice-label {
-  display: none;
-}
 /* #574: `display: none` on the label removes its line-box too, so the footer
    buttons lost height and the whole footer jumped as the rail crossed the
    avatar-only threshold. Pin the height the label was providing instead:

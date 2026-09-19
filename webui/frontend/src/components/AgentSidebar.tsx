@@ -14,7 +14,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Calendar,
   ChevronRight,
-  EyeOff,
   Plug,
   Plus,
   Search,
@@ -1245,36 +1244,6 @@ export default function AgentSidebar({
       pins,
     )
   }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins, productModes])
-  /* #594: a mode-gated row is not Hidden — it is withheld by a surface switch,
-     so it appears in neither the Hidden Bots count nor the row context menu and
-     the user has no route from "my agents vanished" to product modes. Report the
-     withheld surfaces by *name*, and only when a mode is actually costing the
-     user rows: telling a CLI-only install that Remote is off, with no remotes
-     configured, would imply rows were taken away when none were. */
-  const withheldModes = useMemo(() => {
-    const byMode: Record<ProductMode, number> = {
-      cli: visibleAgents.filter((agent) => isCliRailAgent(agent)).length,
-      api: visibleAgents.filter((agent) => isApiRailAgent(agent)).length,
-      blueprint: visibleAgents.filter(
-        (agent) =>
-          !isSupportAgent(agent) &&
-          !isCliRailAgent(agent) &&
-          !isApiRailAgent(agent) &&
-          !isHerdrAgent(agent),
-      ).length,
-      team: visibleRootTeams.length,
-      remote:
-        visibleRemotes.length + visibleAgents.filter((agent) => isHerdrAgent(agent)).length,
-    }
-    const labels: string[] = []
-    let rows = 0
-    for (const key of PRODUCT_MODE_KEYS) {
-      if (productModes[key] === true || byMode[key] === 0) continue
-      labels.push(PRODUCT_MODE_LABELS[key])
-      rows += byMode[key]
-    }
-    return { labels, rows }
-  }, [productModes, visibleAgents, visibleRootTeams, visibleRemotes])
   const orderedRows = useMemo(
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],
@@ -3594,30 +3563,11 @@ export default function AgentSidebar({
               openPaneMenuAt(event.clientX, event.clientY)
             }}
           >
-            {withheldModes.labels.length > 0 && (
-              <button
-                type="button"
-                className="os-rail-mode-notice mb-1 flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
-                data-testid="rail-mode-notice"
-                data-withheld-rows={withheldModes.rows}
-                /* #594: name the mechanism and offer the route. The rows are not
-                   Hidden, so they appear in neither the Hidden Bots count nor
-                   the row context menu — this is the only path from "my agents
-                   vanished" to the product-mode switch. */
-                title={`${withheldModes.labels.join(' · ')} hidden by product modes — enable in Settings`}
-                aria-label={`${withheldModes.labels.join(', ')} hidden by product modes. Open Rail settings to enable them.`}
-                onClick={() => {
-                  openSettingsSheet({ section: 'rail' })
-                  onClose?.()
-                }}
-              >
-                <EyeOff className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="os-rail-mode-notice-label min-w-0">
-                  <span className="font-medium">{withheldModes.labels.join(' · ')}</span> hidden by
-                  product modes — enable in Settings
-                </span>
-              </button>
-            )}
+            {/* #685: a disabled provider kind is COMPLETELY absent — no notice,
+                no badge, no "enable in Settings" copy anywhere outside Settings.
+                The old #594 rail notice advertised the withheld surfaces and was
+                exactly the informative noise this ticket bans. Product modes are
+                still discoverable where they belong: Settings → Rail. */}
             <div
               className={`os-agent-list ${listDropActive ? 'os-agent-list--unfav' : ''}`}
               data-testid="agent-list-drop"
