@@ -338,7 +338,10 @@ export default function SettingsSheet({
   })
   const demoRows = useMemo(
     () =>
-      (showcaseCatalogQuery.data?.data ?? EMPTY_BLUEPRINTS).map((item) => ({
+      (Array.isArray(showcaseCatalogQuery.data?.data)
+        ? showcaseCatalogQuery.data.data
+        : EMPTY_BLUEPRINTS
+      ).map((item) => ({
         id: item.id,
         kind: item.kind ?? null,
       })),
@@ -846,6 +849,7 @@ export default function SettingsSheet({
               }}
               bumpScope={bumpScope}
               onBumpScope={(next) => setBumpScope(saveBumpScope(next))}
+              demoRows={demoRows}
             />
           )}
           {section === 'image-gen' && <ImageGenPane />}
@@ -2385,11 +2389,13 @@ function RailPane({
   onBumpCompleted,
   bumpScope,
   onBumpScope,
+  demoRows,
 }: {
   bumpCompleted: boolean
   onBumpCompleted: (next: boolean) => void
   bumpScope: BumpScope
   onBumpScope: (next: BumpScope) => void
+  demoRows?: Array<{ id: string; kind?: string | null }>
 }) {
   const queryClient = useQueryClient()
   const { success, error: toastError } = useToast()
@@ -2427,6 +2433,18 @@ function RailPane({
           Favourite tiles keep their own order.
         </p>
       </div>
+      {/* #544 / REQ-922: the showcase control belongs beside the rail layout
+          controls — a deep link like /?settings=rail lands here, and the
+          toggle only living under General made it undiscoverable (#674 chase). */}
+      <section aria-labelledby="os-showcase-rail-heading" className="space-y-3">
+        <h5
+          id="os-showcase-rail-heading"
+          className="text-base font-semibold border-b border-base-200 pb-1"
+        >
+          Showcase
+        </h5>
+        <DemoSectionProfileControl rows={demoRows ?? []} />
+      </section>
       <fieldset className="space-y-3" data-testid="product-modes">
         <legend className="text-sm font-semibold">Manage surfaces</legend>
         <p className="text-sm text-base-content/70">

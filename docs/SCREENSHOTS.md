@@ -16,6 +16,7 @@ full-page PNGs.
 
 | File | Page / URL | What it shows | Used in | Captured | Status |
 | --- | --- | --- | --- | --- | --- |
+| `flagship-rail.png` | `/` (React SPA ChatPage) | **Flagship (REQ-852 / #465):** the live rail with the Showcase sections profile applied (Settings → Rail → Showcase toggle; #544) — CLI / API / Remote / Fancy section headers over the real seats. Re-capture with `scripts/capture_flagship_465.py` (drives the demo-profile toggle; never seeds synthetic seats) | README.md, GUIDED_TOUR.md | 2026-09-19 | current |
 | `landing.png` | `/` (React SPA ChatPage) | Grok-like rail + **Support** chat; kickstart chips; composer. **Not** a count dashboard. `os-cli list` **31** dirs ≠ library **49** / **12 of 49** | USER_JOURNEY.md, GUIDED_TOUR.md, README.md | 2026-09-16 | current |
 | `spa-chat.png` | `/chat` (React SPA) | Same ChatPage as `/` after journey login (session cookie + Channels/ASGI `/ws/`). No standing Connected badge. **Unavailable** Sign-in CTA is for close **4401** / no session (not this PNG) | GUIDED_TOUR.md | 2026-09-16 | current |
 | `spa-teams.png` | `/teams` → **`/teams/launch/`** | Django redirect landing (SPA no longer mounts `/teams`; ADR-001) with sticky capture **“Redirected: /teams → /teams/launch/ …”** banner; Team Launcher underneath with **`fs_introspect`** selected | GUIDED_TOUR.md | 2026-09-16 | current (redirect stem) |

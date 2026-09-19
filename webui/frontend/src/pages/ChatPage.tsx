@@ -556,12 +556,21 @@ const ChatPage = () => {
     const detail = settingsDetailFromQuery(settingsQuery)
     if (detail == null) return
     settingsQueryOpenedRef.current = true
-    openSettingsSheet(detail)
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      next.delete('settings')
-      return next
-    }, { replace: true })
+    // #674: this effect runs on the CHILD before App (the sheet owner and
+    // OPEN_SETTINGS_EVENT listener) has subscribed on a cold load, so an
+    // immediate dispatch is dropped. Defer to the next macrotask so the
+    // parent's listener exists first.
+    const timer = window.setTimeout(() => {
+      openSettingsSheet(detail)
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('settings')
+        return next
+      }, { replace: true })
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+    }
   }, [settingsQuery, setSearchParams])
   const selectedBlueprint = teamFromUrl || remoteFromUrl
     ? ''
