@@ -470,6 +470,19 @@ def update_routine(agent_id: str, routine_id: str, patch: dict[str, Any] | None 
     if "trigger" in incoming:
         current["trigger"] = public_trigger(incoming.get("trigger") if isinstance(incoming.get("trigger"), dict) else None)
         current["next_run"] = None
+    if "next_run" in incoming:
+        # #531 / REQ-896: the field was whitelisted but silently dropped, so an
+        # operator/API-supplied next_run (e.g. forcing a schedule due, or
+        # deferring one) never took effect. Apply it after the trigger branch
+        # so an explicit value wins over the trigger-change reset.
+        raw_next = incoming.get("next_run")
+        if raw_next is None or not str(raw_next).strip():
+            current["next_run"] = None
+        else:
+            parsed = parse_dt(raw_next)
+            if parsed is None:
+                raise ValueError("next_run must be an ISO datetime or null.")
+            current["next_run"] = to_iso(parsed)
     rows = [current if row["id"] == current["id"] else row for row in list_routines(agent_id)]
     _persist_agent(agent_id, rows)
     return get_routine(agent_id, routine_id) or current
