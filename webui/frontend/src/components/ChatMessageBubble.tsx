@@ -27,6 +27,7 @@ import {
 import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/streamReplies'
 import { splitLeadingQuote } from '../lib/replyQuote'
 import { QuotedReply } from './QuotedReply'
+import { SpecialStatusCard } from './SpecialCards'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -274,6 +275,7 @@ export function ChatMessageBubble({
       data-message-role={role}
       data-speaker={speaker}
       data-ts={ts || undefined}
+      data-message-theme={themeDef.id}
       data-message-layout={themeDef.messageLayout}
       data-timestamp-placement={placement}
       data-action-row-placement={themeDef.actionRowPlacement}
@@ -351,15 +353,21 @@ export function ChatMessageBubble({
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
           }`}
           data-testid="chat-bubble"
-        >
-          <ChatBubbleBody
-            text={text}
-            streaming={streaming}
-            skillCatalog={skillCatalog}
-            onOpenSkill={onOpenSkill}
-            theme={theme}
-            seatId={seatId}
-          />
+        >          {role === 'status' ? (
+            // #533: status notices (context culls, session restores, hop
+            // chatter) collapse to a one-line card instead of raw text — one
+            // implementation, carried by every bubble theme.
+            <SpecialStatusCard summary={text} />
+          ) : (
+            <ChatBubbleBody
+              text={text}
+              streaming={streaming}
+              skillCatalog={skillCatalog}
+              onOpenSkill={onOpenSkill}
+              theme={theme}
+              seatId={seatId}
+            />
+          )}
           {children}
         </div>
       )}
