@@ -46,6 +46,9 @@ describe('SPA + team composer entry', () => {
     expect(screen.getByTestId('team-drop-zone')).toHaveTextContent(/drop agents here/i)
     expect(screen.getByTestId('team-cos-select')).toBeDisabled()
     expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)
+    // #508: roles/tools live behind tier tabs — absent from the opening frame.
+    expect(screen.queryByTestId('team-roles-pane')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Roles' }))
     expect(screen.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'true')
     // Overlay — Chat route stays mounted (REQ-364 / #364).
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()

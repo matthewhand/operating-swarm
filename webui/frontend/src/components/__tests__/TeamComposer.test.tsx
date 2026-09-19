@@ -81,6 +81,16 @@ function selectAgentKindTab(kind: 'API' | 'CLI' | 'Remote') {
   fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${kind}\\b`, 'i') }))
 }
 
+// #508: roles/tools/catalog moved behind top-level tier tabs.
+function gotoTier(name: 'Essentials' | 'Roles' | 'Tools' | 'Catalog') {
+  fireEvent.click(screen.getByRole('tab', { name }))
+}
+
+// #508: the CoS instructions textarea collapses behind a disclosure button.
+function expandInstructions() {
+  fireEvent.click(screen.getByRole('button', { name: /edit instructions/i }))
+}
+
 async function addAvailableAgent(kind: 'API' | 'CLI' | 'Remote') {
   const available = await screen.findByRole('list', { name: /available agents list/i })
   selectAgentKindTab(kind)
@@ -230,6 +240,7 @@ describe('TeamComposer first-launch overlay', () => {
 
   it('locks the Tools pane until the roster has a member', async () => {
     renderComposer()
+    gotoTier('Tools')
     const pane = await screen.findByTestId('team-tools-pane')
     expect(pane).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByTestId('team-tools-locked-hint')).toHaveTextContent(/add agents first/i)
@@ -237,7 +248,9 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.queryByRole('checkbox', { name: /handoff/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/gate is unwired/i)).not.toBeInTheDocument()
 
+    gotoTier('Essentials')
     await addAvailableAgent('API')
+    gotoTier('Tools')
     expect(screen.getByTestId('team-tools-pane')).toHaveAttribute('aria-disabled', 'false')
     expect(screen.queryByTestId('team-tools-locked-hint')).not.toBeInTheDocument()
     expect(screen.getByRole('list', { name: /available tools list/i })).toBeInTheDocument()
@@ -339,6 +352,7 @@ describe('TeamComposer first-launch overlay', () => {
   it('keeps the Team lead picker disabled until agents are added and defaults to First agent', async () => {
     renderComposer()
     const select = await screen.findByTestId('team-cos-select')
+    expandInstructions()
     expect(select).toBeDisabled()
     expect(select).toHaveDisplayValue('First agent')
     expect(within(screen.getByTestId('team-cos-fieldset')).queryByRole('option', { name: /no chief of staff/i })).not.toBeInTheDocument()
@@ -359,6 +373,7 @@ describe('TeamComposer first-launch overlay', () => {
     await addAvailableAgent('API')
     await addAvailableAgent('CLI')
     await addAvailableAgent('Remote')
+    expandInstructions()
 
     fireEvent.change(screen.getByLabelText(/team name/i), {
       target: { value: 'Research Squad' },
@@ -427,6 +442,7 @@ describe('TeamComposer first-launch overlay', () => {
   it('omits remotes from the CoS picker', async () => {
     renderComposer()
     await addAvailableAgent('Remote')
+    expandInstructions()
     const select = screen.getByTestId('team-cos-select')
     expect(select).toHaveDisplayValue('First agent')
     expect(within(select).queryByRole('option', { name: /acp/i })).not.toBeInTheDocument()
@@ -505,6 +521,7 @@ describe('TeamComposer first-launch overlay', () => {
     renderComposer()
     await addAvailableAgent('API')
     await addAvailableAgent('CLI')
+    expandInstructions()
     fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: 'jeeves' } })
     expect(screen.getByTestId('team-cos-select')).toHaveValue('jeeves')
 
@@ -575,12 +592,15 @@ describe('TeamComposer first-launch overlay', () => {
 
   it('locks the Roles pane until the roster has a member', async () => {
     renderComposer()
+    gotoTier('Roles')
     const pane = await screen.findByTestId('team-roles-pane')
     expect(pane).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByTestId('team-roles-locked-hint')).toHaveTextContent(/add agents first/i)
     expect(screen.queryByRole('list', { name: /available roles list/i })).not.toBeInTheDocument()
 
+    gotoTier('Essentials')
     await addAvailableAgent('API')
+    gotoTier('Roles')
     expect(screen.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'false')
     expect(screen.queryByTestId('team-roles-locked-hint')).not.toBeInTheDocument()
     expect(screen.getByRole('list', { name: /available roles list/i })).toBeInTheDocument()
@@ -589,22 +609,20 @@ describe('TeamComposer first-launch overlay', () => {
 
   it('adds a role slot via drop and Add, and rejects cross-zone drags', async () => {
     renderComposer()
-    const agentZone = await screen.findByTestId('team-drop-zone')
+    await addAvailableAgent('API')
+    // #508: the roster zone (Essentials) and the roles zone (Roles) no longer
+    // share a pane, so cross-zone rejection is asserted per tier.
+    const dropZone = await screen.findByTestId('team-drop-zone')
+    fireEvent.drop(dropZone, {
+      dataTransfer: mockDataTransfer({ [ROLE_DRAG_MIME]: encodeDragRole('gate') }),
+    })
+    const rosterAfterRefusal = screen.getByRole('list', { name: /roster members/i })
+    expect(within(rosterAfterRefusal).getAllByTestId('roster-member')).toHaveLength(1)
+
+    gotoTier('Roles')
     const roleZone = screen.getByTestId('team-roles-drop-zone')
     fireEvent.drop(roleZone, {
-      dataTransfer: mockDataTransfer({ [ROLE_DRAG_MIME]: encodeDragRole('skeptic') }),
-    })
-    expect(screen.queryByTestId('team-role-slot')).not.toBeInTheDocument()
-
-    fireEvent.drop(agentZone, {
-      dataTransfer: mockDataTransfer({ [DRAG_MIME]: encodeDragAgent(AGENTS[0]) }),
-    })
-    fireEvent.drop(roleZone, {
       dataTransfer: mockDataTransfer({ [DRAG_MIME]: encodeDragAgent(AGENTS[1]) }),
-    })
-    expect(screen.queryByRole('list', { name: /role slots/i })).not.toBeInTheDocument()
-    fireEvent.drop(agentZone, {
-      dataTransfer: mockDataTransfer({ [ROLE_DRAG_MIME]: encodeDragRole('gate') }),
     })
     expect(screen.queryByTestId('team-role-slot')).not.toBeInTheDocument()
 
@@ -623,6 +641,7 @@ describe('TeamComposer first-launch overlay', () => {
     renderComposer()
     await addAvailableAgent('API')
     await addAvailableAgent('CLI')
+    gotoTier('Roles')
     fireEvent.click(screen.getByRole('button', { name: /add skeptic role/i }))
     fireEvent.click(screen.getByRole('button', { name: /add gate role/i }))
 
@@ -650,6 +669,7 @@ describe('TeamComposer first-launch overlay', () => {
     await addAvailableAgent('API')
     await addAvailableAgent('CLI')
     await addAvailableAgent('Remote')
+    gotoTier('Roles')
     fireEvent.click(screen.getByRole('button', { name: /add chief_of_staff role/i }))
 
     const slot = screen.getByTestId('team-role-assign-chief_of_staff')
@@ -702,12 +722,15 @@ describe('TeamComposer first-launch overlay', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
 
     fireEvent.change(screen.getByTestId('team-role-assign-chief_of_staff'), { target: { value: '' } })
+    gotoTier('Essentials')
+    expandInstructions()
     expect(screen.getByTestId('team-cos-select')).toHaveValue('')
     expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
   })
 
   it('adds a handoff tool whose target dropdown lists roster members', async () => {
     renderComposer()
+    gotoTier('Tools')
     const toolZone = await screen.findByTestId('team-tools-drop-zone')
     fireEvent.drop(toolZone, {
       dataTransfer: mockDataTransfer({ [TOOL_DRAG_MIME]: encodeDragTool({ type: 'handoff' }) }),
@@ -728,6 +751,7 @@ describe('TeamComposer first-launch overlay', () => {
     const fetchMock = vi.mocked(fetch)
     renderComposer()
     await addAvailableAgent('API')
+    gotoTier('Tools')
     fireEvent.click(screen.getByRole('button', { name: /add handoff tool/i }))
     fireEvent.change(screen.getByTestId('team-tool-handoff-to'), { target: { value: 'jeeves' } })
     fireEvent.click(screen.getByRole('button', { name: /add github mcp tool/i }))

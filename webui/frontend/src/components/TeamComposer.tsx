@@ -124,6 +124,12 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const [status, setStatus] = useState<string | null>(null)
   const [agentKindTab, setAgentKindTab] = useState<AvailableAgentKind>('api')
   const [agentKindTabTouched, setAgentKindTabTouched] = useState(false)
+  // #508: essentials-first — the advanced tiers live behind real tabs, and the
+  // "How to use this team" block collapses so the opening frame stays short.
+  const [tier, setTier] = useState<'essentials' | 'roles' | 'tools' | 'catalog'>(
+    'essentials',
+  )
+  const [instructionsOpen, setInstructionsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const cosChoices = useMemo(() => eligibleCosMembers(members), [members])
   const rolesUnlocked = members.length > 0
@@ -673,8 +679,24 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       onClose={onClose}
       title="New team"
       size="2xl"
-      className="max-h-[90vh] overflow-y-auto"
+      className="max-h-[90vh]"
     >
+      {/* #508: the shell height is set once here; the active pane scrolls
+          internally so switching tabs never resizes the frame (REQ-910). */}
+      <div className="flex h-[70vh] flex-col" data-testid="team-composer-body">
+        <Tabs
+          tabs={[
+            { key: 'essentials', label: 'Essentials' },
+            { key: 'roles', label: 'Roles' },
+            { key: 'tools', label: 'Tools' },
+            { key: 'catalog', label: 'Catalog' },
+          ]}
+          activeTab={tier}
+          onChange={(key) => setTier(key as typeof tier)}
+          size="sm"
+          className="mb-3 shrink-0"
+        />
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       <div className="space-y-4">
         <p className="text-sm text-base-content/60">
           Compose a roster of API, CLI, and remote members. Django{' '}
@@ -776,19 +798,28 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
               First agent is roster #1. Drag members to reorder. Remotes stay off
               this list until runtime can inject a CoS brief.
             </p>
+          )}          {instructionsOpen ? (
+            <Textarea
+              id="team-cos-instructions"
+              data-testid="team-cos-instructions"
+              label="How to use this team"
+              size="sm"
+              rows={3}
+              disabled={!chiefOfStaffId}
+              value={chiefOfStaffId ? cosInstructions : ''}
+              onChange={(event) => setCosInstructions(event.target.value)}
+              placeholder={COS_INSTRUCTIONS_HELPER}
+              aria-label="Chief of Staff instructions"
+            />
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs mt-2"
+              onClick={() => setInstructionsOpen(true)}
+            >
+              Edit instructions…
+            </button>
           )}
-          <Textarea
-            id="team-cos-instructions"
-            data-testid="team-cos-instructions"
-            label="How to use this team"
-            size="sm"
-            rows={3}
-            disabled={!chiefOfStaffId}
-            value={chiefOfStaffId ? cosInstructions : ''}
-            onChange={(event) => setCosInstructions(event.target.value)}
-            placeholder={COS_INSTRUCTIONS_HELPER}
-            aria-label="Chief of Staff instructions"
-          />
         </fieldset>
 
         {saveMutation.isError && (
@@ -962,6 +993,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           </section>
         </div>
 
+        {tier === 'roles' && (
         <div
           className={`grid gap-4 lg:grid-cols-2 ${rolesUnlocked ? '' : 'opacity-60'}`}
           data-testid="team-roles-pane"
@@ -1080,7 +1112,9 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             )}
           </section>
         </div>
+        )}
 
+        {tier === 'tools' && (
         <div
           className={`grid gap-4 lg:grid-cols-2 ${toolsUnlocked ? '' : 'opacity-60'}`}
           data-testid="team-tools-pane"
@@ -1316,10 +1350,14 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             )}
           </section>
         </div>
+        )}
 
-        <div className="border-t border-base-300 pt-3" aria-label="Get more teams">
-          <InstallCatalog surface="teams" />
-        </div>
+        {tier === 'catalog' && (
+          <div className="border-t border-base-300 pt-3" aria-label="Get more teams">
+            <InstallCatalog surface="teams" />
+          </div>
+        )}
+      </div>
       </div>
 
       {menu && (
@@ -1352,6 +1390,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           )}
         </div>
       )}
+      </div>
     </Modal>
   )
 }
