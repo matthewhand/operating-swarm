@@ -20,6 +20,8 @@ export class IrcTheme extends BubbleThemeBase {
   readonly label = 'IRC'
   override readonly messageLayout = 'line' as const
   override readonly timestampPlacement = 'inline' as const
+  /** #505 / REQ-907: overlay the action row onto the bubble line (hover-capable only). */
+  override readonly actionRowPlacement = 'overlay' as const
 }
 
 /** Dense event feed: full-width line, timestamp above with the speaker. */

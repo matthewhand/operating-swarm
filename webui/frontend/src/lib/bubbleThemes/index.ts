@@ -3,6 +3,7 @@ import './themes'
 export {
   BubbleThemeBase,
   formatBubbleTime,
+  type ActionRowPlacement,
   type BubbleTheme,
   type ComposerChrome,
   type MessageLayout,

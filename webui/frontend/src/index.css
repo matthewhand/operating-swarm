@@ -2980,6 +2980,44 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-bubble-theme-item[data-open="true"] > .os-bubble-theme-submenu {
   display: block;
 }
+
+/*
+ * #505 / REQ-907 — IRC overlays the message action/reaction row onto the
+ * bubble line so the row adds no height. The wrapper is anchored to the
+ * message row (the `group/osrow` element, `position: relative` below) and
+ * pinned over the bubble's trailing edge; the row's own background is the
+ * gradient scrim that fades the text beneath the controls instead of
+ * slicing it mid-glyph.
+ *
+ * Hover-scoped: overlay only at md+ on hover-capable pointers — below that
+ * the row stays in flow (the wrapper renders as a plain block) so touch
+ * devices never permanently cover message text.
+ */
+.os-chat-transcript[data-action-row-placement="overlay"] .group\\/osrow {
+  position: relative;
+}
+
+@media (min-width: 48rem) and (hover: hover) {
+  .os-chat-transcript[data-action-row-placement="overlay"] .os-row-actions-overlay-wrap {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    left: auto;
+    width: auto;
+    max-width: 100%;
+  }
+
+  .os-chat-transcript[data-action-row-placement="overlay"] .os-row-actions-overlay-wrap .os-row-actions-overlay {
+    background: linear-gradient(
+      to top,
+      var(--color-base-100) 40%,
+      color-mix(in srgb, var(--color-base-100) 70%, transparent) 75%,
+      transparent
+    );
+    border-radius: 0.375rem 0.375rem 0 0;
+    padding: 0.125rem 0.25rem 0 0.25rem;
+  }
+}
 @media (max-width: 40rem) {
   .os-bubble-theme-submenu {
     left: 0.5rem;

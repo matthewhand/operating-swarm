@@ -3,6 +3,8 @@ import { parseCreatedAtMs } from '../chatTime'
 export type BubbleTheme = 'speech' | 'simple' | 'irc' | 'feed'
 export type MessageLayout = 'bubble' | 'line'
 export type TimestampPlacement = 'below' | 'above' | 'inline'
+/** #505 / REQ-907 — where the message action/reaction row lives. */
+export type ActionRowPlacement = 'below' | 'overlay'
 
 export type ComposerChrome = {
   placeholder: string
@@ -30,6 +32,8 @@ export abstract class BubbleThemeBase {
   abstract readonly label: string
   readonly messageLayout: MessageLayout = 'bubble'
   readonly timestampPlacement: TimestampPlacement = 'above'
+  /** #505: default keeps the row in flow below the bubble (all themes unchanged). */
+  readonly actionRowPlacement: ActionRowPlacement = 'below'
 
   formatTimestamp(ts: string | undefined): string {
     return formatBubbleTime(ts)
@@ -56,12 +60,14 @@ export abstract class BubbleThemeBase {
     label: string
     messageLayout: MessageLayout
     timestampPlacement: TimestampPlacement
+    actionRowPlacement: ActionRowPlacement
   } {
     return {
       id: this.id,
       label: this.label,
       messageLayout: this.messageLayout,
       timestampPlacement: this.timestampPlacement,
+      actionRowPlacement: this.actionRowPlacement,
     }
   }
 }

@@ -14,6 +14,7 @@ export {
   registerBubbleTheme,
   SimpleTheme,
   SpeechTheme,
+  type ActionRowPlacement,
   type ComposerChrome,
   type MessageLayout,
   type TimestampPlacement,
@@ -23,6 +24,8 @@ export type { BubbleTheme } from './bubbleThemes'
 // REQ-844 / #166: 'speech' is the default — tails visible + symmetric gutters.
 export const DEFAULT_BUBBLE_THEME: BubbleTheme = 'speech'
 export const BUBBLE_THEME_STORAGE_KEY = 'os.bubbleTheme'
+/** #506: fired by saveBubbleTheme so mounted transcripts re-read without a remount. */
+export const BUBBLE_THEME_CHANGED_EVENT = 'swarm:bubble-theme-changed'
 
 /** Theme ids in registry insertion order. */
 export const BUBBLE_THEMES = allBubbleThemes().map((theme) => theme.id)
@@ -86,6 +89,11 @@ export function saveBubbleTheme(value: string): BubbleTheme {
     localStorage.setItem(BUBBLE_THEME_STORAGE_KEY, next)
   } catch {
     /* persistence is best-effort */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BUBBLE_THEME_CHANGED_EVENT, { detail: next }))
+  } catch {
+    /* tests / non-browser */
   }
   return next
 }

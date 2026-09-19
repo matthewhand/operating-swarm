@@ -125,31 +125,36 @@ describe('bubbleTheme registry (#217)', () => {
     },
   )
 
-  it('locks per-theme message layout and timestamp placement',
+  it('locks per-theme message layout, timestamp placement, and action-row placement',
     () => {
+      // #505: actionRowPlacement joins the theme contract (default 'below').
       expect(getBubbleTheme('speech').describe()).toEqual({
         id: 'speech',
         label: 'Speech',
         messageLayout: 'bubble',
         timestampPlacement: 'above',
+        actionRowPlacement: 'below',
       })
       expect(getBubbleTheme('simple').describe()).toEqual({
         id: 'simple',
         label: 'Simple',
         messageLayout: 'bubble',
         timestampPlacement: 'below',
+        actionRowPlacement: 'below',
       })
       expect(getBubbleTheme('irc').describe()).toEqual({
         id: 'irc',
         label: 'IRC',
         messageLayout: 'line',
         timestampPlacement: 'inline',
+        actionRowPlacement: 'overlay',
       })
       expect(getBubbleTheme('feed').describe()).toEqual({
         id: 'feed',
         label: 'Feed',
         messageLayout: 'line',
         timestampPlacement: 'above',
+        actionRowPlacement: 'below',
       })
     },
   )

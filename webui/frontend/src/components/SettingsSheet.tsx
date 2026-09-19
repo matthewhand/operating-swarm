@@ -116,9 +116,18 @@ import {
   type Theme,
 } from '../lib/theme'
 import {
+  BUBBLE_THEME_LABELS,
+  BUBBLE_THEMES,
   bubbleThemeSupportsStreaming,
   loadBubbleTheme,
+  saveBubbleTheme,
+  type BubbleTheme,
 } from '../lib/bubbleTheme'
+import {
+  ACTION_ROW_LABELS_CHANGED_EVENT,
+  loadActionRowLabels,
+  saveActionRowLabels,
+} from '../lib/actionRowLabels'
 import {
   STREAM_REPLIES_LABEL,
   STREAM_REPLIES_TOOLTIP,
@@ -130,6 +139,7 @@ export const OPEN_SETTINGS_EVENT = 'swarm:open-settings'
 
 export type SettingsSection =
   | 'general'
+  | 'aesthetics'
   | 'definition'
   | 'blueprint'
   | 'remotes'
@@ -168,6 +178,7 @@ export function openSettingsSheet(detail?: OpenSettingsDetail): void {
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'general',
+  'aesthetics',
   'definition',
   'blueprint',
   'remotes',
@@ -197,8 +208,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
  */
 export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   general: [
-    'theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals',
+    'theme', 'dark', 'light', 'streaming',
     'Show theme control in top bar',
+  ],
+  aesthetics: [
+    'bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance',
+    'Bubble theme', 'Action-row button labels',
   ],
   definition: ['definition', 'explain', 'instructions', 'prompt'],
   blueprint: ['blueprints', 'recipes', 'python', 'custom'],
@@ -455,14 +470,15 @@ export default function SettingsSheet({
           <div className="flex-1 overflow-y-auto os-scrollable-picker-list">
             <ul className="menu menu-md w-full rounded-none p-2 space-y-0.5">
               {/* Category 1: General & Appearance */}
-              {(matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ||
+              {(matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming']) ||
+                matchSearch('aesthetics', 'Aesthetics', ['bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance']) ||
                 matchSearch('hostname', 'Hostname', ['network', 'ip', 'domain', 'host', 'override']) ||
                 matchSearch('rail', 'Rail', ['avatar', 'order', 'bump', 'surfaces'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-1">
                     General & Appearance
                   </li>
-                  {matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming', 'bubbles', 'visuals']) ? (
+                  {matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming']) ? (
                     <li>
                       <button
                         type="button"
@@ -471,6 +487,18 @@ export default function SettingsSheet({
                         onClick={() => setSection('general')}
                       >
                         General
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('aesthetics', 'Aesthetics', ['bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'aesthetics' ? 'menu-active' : undefined}
+                        aria-current={section === 'aesthetics' ? 'page' : undefined}
+                        onClick={() => setSection('aesthetics')}
+                      >
+                        Aesthetics
                       </button>
                     </li>
                   ) : null}
@@ -746,6 +774,7 @@ export default function SettingsSheet({
               }}
             />
           )}
+          {section === 'aesthetics' && <AestheticsPane />}
           {section === 'definition' && (
             <DefinitionPane
               kind={resolvedKind}
@@ -1918,6 +1947,105 @@ function HostnamePane({
         Save hostname
       </Button>
     </form>
+  )
+}
+
+/**
+ * #506 / REQ-908 — Aesthetics: the bubble theme (second writer beside the chat
+ * context menu, which stays) and the action-row labels toggle (default on).
+ * Writes go through the shared lib modules so the chat transcript, context
+ * menu, and this pane all agree; `saveBubbleTheme` fires
+ * BUBBLE_THEME_CHANGED_EVENT so an already-mounted transcript updates live.
+ */
+function AestheticsPane() {
+  const [bubbleTheme, setBubbleThemePref] = useState<BubbleTheme>(loadBubbleTheme)
+  const [labels, setLabels] = useState<boolean>(loadActionRowLabels)
+
+  useEffect(() => {
+    const onLabelsChanged = () => setLabels(loadActionRowLabels())
+    window.addEventListener(ACTION_ROW_LABELS_CHANGED_EVENT, onLabelsChanged)
+    window.addEventListener('storage', onLabelsChanged)
+    return () => {
+      window.removeEventListener(ACTION_ROW_LABELS_CHANGED_EVENT, onLabelsChanged)
+      window.removeEventListener('storage', onLabelsChanged)
+    }
+  }, [])
+
+  const handleBubbleTheme = (next: string) => {
+    setBubbleThemePref(saveBubbleTheme(next))
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h4 className="text-lg font-semibold">Aesthetics</h4>
+        <p className="mt-1 text-sm text-base-content/70">
+          Chat presentation: bubble theme and message action buttons.
+        </p>
+      </div>
+
+      <section aria-labelledby="os-aesthetics-bubble-heading" className="space-y-4">
+        <h5
+          id="os-aesthetics-bubble-heading"
+          className="text-base font-semibold border-b border-base-200 pb-1"
+        >
+          Bubbles
+        </h5>
+
+        <div className="form-control w-full max-w-xs space-y-1">
+          <label htmlFor="os-bubble-theme-select" className="label py-0">
+            <span className="label-text font-medium">Bubble theme</span>
+          </label>
+          <select
+            id="os-bubble-theme-select"
+            aria-label="Bubble theme"
+            className="select select-bordered w-full"
+            value={bubbleTheme}
+            onChange={(e) => handleBubbleTheme(e.target.value)}
+            data-testid="aesthetics-bubble-theme"
+          >
+            {BUBBLE_THEMES.map((id) => (
+              <option key={id} value={id}>
+                {BUBBLE_THEME_LABELS[id]}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-base-content/60">
+            How chat messages render. Also settable from the chat right-click menu.
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="os-aesthetics-labels-heading" className="space-y-4">
+        <h5
+          id="os-aesthetics-labels-heading"
+          className="text-base font-semibold border-b border-base-200 pb-1"
+        >
+          Message actions
+        </h5>
+
+        <div className="form-control">
+          <label className="label cursor-pointer justify-start gap-4">
+            <input
+              type="checkbox"
+              className="toggle"
+              checked={labels}
+              onChange={(e) => {
+                setLabels(saveActionRowLabels(e.target.checked))
+              }}
+              aria-label="Action-row button labels"
+              data-testid="action-row-labels-toggle"
+            />
+            <span className="label-text">Action-row button labels</span>
+          </label>
+          <p className="text-xs text-base-content/60">
+            Show text on the message action buttons (Edit, Copy, Read aloud,
+            Retry). Off renders icon-only; every button keeps its tooltip and
+            accessible name.
+          </p>
+        </div>
+      </section>
+    </div>
   )
 }
 

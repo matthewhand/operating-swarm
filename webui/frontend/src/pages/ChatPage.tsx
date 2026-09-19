@@ -83,8 +83,10 @@ import { ComputerControlStub } from '../components/ComputerControlStub'
 import { NavbarRoutingPicker, type RoutingPathChange } from '../components/NavbarRoutingPicker'
 import { ChatMessageBubble } from '../components/ChatMessageBubble'
 import {
+  BUBBLE_THEME_CHANGED_EVENT,
   BUBBLE_THEME_LABELS,
   BUBBLE_THEMES,
+  BUBBLE_THEME_STORAGE_KEY,
   getBubbleTheme,
   loadBubbleTheme,
   saveBubbleTheme,
@@ -601,6 +603,26 @@ const ChatPage = () => {
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
   const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
   const [bubbleThemeMenuOpen, setBubbleThemeMenuOpen] = useState(false)
+  // #506: Settings is a second bubble-theme writer — keep an already-mounted
+  // transcript in sync instead of going stale until reload.
+  useEffect(() => {
+    const onThemeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<BubbleTheme>).detail
+      if (detail) setBubbleTheme(detail)
+      else setBubbleTheme(loadBubbleTheme())
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === BUBBLE_THEME_STORAGE_KEY || event.key === null) {
+        setBubbleTheme(loadBubbleTheme())
+      }
+    }
+    window.addEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
   /** REQ-213: view-only hide. Raw transcript / summary tree on disk stay. */
   const [hiddenSummaryIds, setHiddenSummaryIds] = useState<number[]>([])
   const [hiddenMessageKeys, setHiddenMessageKeys] = useState<string[]>([])
@@ -4111,6 +4133,7 @@ const ChatPage = () => {
         data-bubble-theme={bubbleTheme}
         data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
         data-timestamp-placement={getBubbleTheme(bubbleTheme).timestampPlacement}
+        data-action-row-placement={getBubbleTheme(bubbleTheme).actionRowPlacement}
         tabIndex={0}
         onScroll={handleTranscriptScroll}
       >
@@ -4291,6 +4314,11 @@ const ChatPage = () => {
               editingKey !== message.key &&
               (message.role === 'user' || message.role === 'assistant') &&
               (Boolean(message.text.trim()) || retryEnabled || canEditThis || canCompressThis)
+            // #505 / REQ-907: IRC overlays the action row onto the bubble line.
+            // Overlay is hover-scoped in CSS; below md the row stays in flow so
+            // touch devices never permanently cover message text.
+            const rowOverlay =
+              getBubbleTheme(bubbleTheme).actionRowPlacement === 'overlay' && !message.streaming
             const isStreamingAssistant = message.role === 'assistant' && Boolean(message.streaming)
             const bubbleAvatar =
               message.role === 'assistant' ? (
@@ -4434,6 +4462,7 @@ const ChatPage = () => {
                 {showRowActions ? (
                   <MessageRowActions
                     text={message.text}
+                    overlay={rowOverlay}
                     canEdit={canEditThis}
                     onStartEdit={() => setEditingKey(message.key)}
                     canCompress={canCompressThis}

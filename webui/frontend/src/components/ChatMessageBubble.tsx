@@ -276,6 +276,7 @@ export function ChatMessageBubble({
       data-ts={ts || undefined}
       data-message-layout={themeDef.messageLayout}
       data-timestamp-placement={placement}
+      data-action-row-placement={themeDef.actionRowPlacement}
       aria-label={`${speaker} message`}
     >
       {avatar ? (

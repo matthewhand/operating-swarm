@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Volume2, VolumeX } from 'lucide-react'
+import { useActionRowLabels } from '../lib/actionRowLabelsContext'
 import { EMPTY_SPEECH, fetchSpeechSettings } from '../lib/api'
 import {
   applyVoiceBindToSpeechSettings,
@@ -34,6 +35,7 @@ export default function ReadAloudButton({
   bind?: AgentVoiceBind
 }) {
   const { info, error: toastError } = useToast()
+  const labels = useActionRowLabels()
   const [speaking, setSpeaking] = useState(false)
   const [pathUsed, setPathUsed] = useState<'system' | 'custom' | null>(null)
   const stopRef = useRef<(() => void) | null>(null)
@@ -100,6 +102,7 @@ export default function ReadAloudButton({
         type="button"
         className="btn btn-ghost btn-xs gap-1"
         aria-label={speaking ? 'Stop reading' : 'Read aloud'}
+        title={speaking ? 'Stop reading' : 'Read aloud'}
         aria-pressed={speaking}
         data-testid="read-aloud"
         data-tts-path={pathUsed ?? undefined}
@@ -113,7 +116,7 @@ export default function ReadAloudButton({
         ) : (
           <Volume2 className="h-3 w-3" aria-hidden="true" />
         )}
-        {speaking ? 'Stop' : 'Read aloud'}
+        {labels ? (speaking ? 'Stop' : 'Read aloud') : null}
       </button>
       {pathUsed ? (
         <span className="sr-only" data-testid="tts-path">
