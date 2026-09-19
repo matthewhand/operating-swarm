@@ -2088,13 +2088,19 @@ button.os-agent-row {
   pointer-events: none;
 }
 
-/* REQ-865: agent name absorbs width; fade to the right instead of ellipsis. */
+/* REQ-865: agent name absorbs width; fade to the right instead of ellipsis.
+   #678: the fade is truncation-gated — an unclipped name (tablet/desktop,
+   non-greedy controls) must render with no fade at all. `data-truncated` is
+   flipped to "true" by the identity observer only when scrollWidth exceeds
+   clientWidth; the mask applies only then. */
 .os-navbar-identity-label {
   display: inline-block;
   min-width: 0;
   max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
+}
+.os-navbar-identity-label[data-truncated='true'] {
   -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent 100%);
   mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent 100%);
 }

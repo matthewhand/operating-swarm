@@ -2517,6 +2517,24 @@ const ChatPage = () => {
     return () => observer.disconnect()
   }, [])
 
+  // #678: gate the navbar name's fade on actual truncation. The mask must
+  // not engage while the name fits — the header's other items are not greedy
+  // (shrink-0 clusters aside, the identity card owns the remaining width).
+  const identityTitleRef = useRef<HTMLHeadingElement | null>(null)
+  useLayoutEffect(() => {
+    const title = identityTitleRef.current
+    if (!title) return undefined
+    const apply = () => {
+      const clipped = title.scrollWidth > title.clientWidth
+      title.dataset.truncated = clipped ? 'true' : 'auto'
+    }
+    apply()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(apply)
+    observer.observe(title)
+    return () => observer.disconnect()
+  }, [selectedAgentName, workspaceSubtitle])
+
   useEffect(() => {
     const onUnread = () => setUnreadIds(loadUnreadAgentIds())
     window.addEventListener(UNREAD_CHANGED_EVENT, onUnread)
@@ -3934,7 +3952,14 @@ const ChatPage = () => {
               </button>
             )}
             <div className="os-navbar-identity-text min-w-0 flex-1">
-              <h1 className="os-navbar-identity-label min-w-0 flex-1 text-base font-semibold tracking-tight">
+              {/* #678: the fade mask is truncation-gated — the name renders in
+                  full whenever it fits (tablet/desktop give it the space), and
+                  the fade engages only when the text is actually clipped. */}
+              <h1
+                ref={identityTitleRef}
+                className="os-navbar-identity-label min-w-0 flex-1 text-base font-semibold tracking-tight"
+                data-truncated="auto"
+              >
                 <button
                   type="button"
                   className="os-identity-btn block w-full text-left"
