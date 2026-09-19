@@ -34,6 +34,13 @@ describe('composerMenu (#550)', () => {
     expect(composerMenuCapabilities({ isRemote: true }).addFiles.enabled).toBe(false)
   })
 
+  it('#516: Plugins rides the declared swarm-owned flag, not a second kind check', () => {
+    expect(composerMenuCapabilities({ pluginsSwarmOwned: true }).plugins.enabled).toBe(true)
+    const cli = composerMenuCapabilities({ isCli: true })
+    expect(cli.plugins.enabled).toBe(false)
+    expect(cli.plugins.reason).toBeTruthy()
+  })
+
   it('declares a capability for every item id, so a new item cannot be added ungated', () => {
     // The return type is Record<ComposerMenuItemId, …>, so this is enforced by
     // the compiler too — the assertion pins the runtime shape for the menu.

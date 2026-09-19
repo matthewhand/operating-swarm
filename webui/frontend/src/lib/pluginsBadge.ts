@@ -1,12 +1,9 @@
 /**
  * #577 — the composer's Plugins-Enabled badge must describe **exactly what
  * the send path will apply**, so it consumes the same resolved value the
- * send uses (`enabledToolsParam(conversationIdRef.current)`, ChatPage:2470).
- *
- * A badge that resolves its own scope can say "3 enabled" while the send
- * omits them all — the failure mode #516 warns about. Deriving from the same
- * accessor + the same scope event means the badge follows #516's future
- * per-agent re-key automatically.
+ * send uses. #516 re-keyed that scope from the conversation to the **agent**
+ * seat id, so the badge now follows `useCurrentAgent()` — the same channel
+ * the popup's toggles read. Badge, toggles, and send cannot diverge.
  *
  * Label contract (issue §Ask):
  *   0 enabled → nothing rendered
@@ -21,7 +18,6 @@ import {
   loadEnabledPluginToolIds,
   type PluginTool,
 } from './chatPluginTools'
-import { CURRENT_CHAT_SCOPE_EVENT, loadCurrentChatScope } from './chatScope'
 import { useCurrentAgent, isSwarmOwnedSeat } from './currentAgent'
 
 function nameFor(toolId: string, tools: readonly PluginTool[]): string {
@@ -33,30 +29,28 @@ function nameFor(toolId: string, tools: readonly PluginTool[]): string {
 }
 
 /**
- * Live view of the enabled plugin tools for the **current chat scope** — the
- * same key `enabledToolsParam` reads on send. Re-resolves on scope change and
- * on every toggle so the badge can never drift from the send path.
+ * Live view of the enabled plugin tools for the **current agent seat** — the
+ * same key `enabledToolsParam` reads on send (#516). Re-resolves on seat
+ * change and on every toggle so the badge can never drift from the send path.
  */
-export function useEnabledPluginTools(): { chatId: string; ids: string[] } {
-  const [chatId, setChatId] = useState(() => loadCurrentChatScope())
-  const [ids, setIds] = useState<string[]>(() => loadEnabledPluginToolIds(chatId))
+export function useEnabledPluginTools(): { agentId: string; ids: string[] } {
+  const agent = useCurrentAgent()
+  const agentId = agent?.id ?? ''
+  const [ids, setIds] = useState<string[]>(() => loadEnabledPluginToolIds(agentId))
 
   const refresh = useCallback(() => {
-    const next = loadCurrentChatScope()
-    setChatId(next)
-    setIds(loadEnabledPluginToolIds(next))
-  }, [])
+    setIds(loadEnabledPluginToolIds(agentId))
+  }, [agentId])
 
   useEffect(() => {
-    window.addEventListener(CURRENT_CHAT_SCOPE_EVENT, refresh)
+    refresh()
     window.addEventListener(CHAT_PLUGIN_TOOLS_EVENT, refresh)
     return () => {
-      window.removeEventListener(CURRENT_CHAT_SCOPE_EVENT, refresh)
       window.removeEventListener(CHAT_PLUGIN_TOOLS_EVENT, refresh)
     }
   }, [refresh])
 
-  return { chatId, ids }
+  return { agentId, ids }
 }
 
 /** The badge's display contract. `null` → render nothing. */

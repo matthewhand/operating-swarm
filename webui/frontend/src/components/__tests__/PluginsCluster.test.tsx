@@ -161,7 +161,8 @@ describe('REQ-910 (#509): plugins popup frame is pane-independent', () => {
     expect(screen.getByRole('dialog', { name: 'Plugins' }).className).toBe(initial)
     fireEvent.click(screen.getByRole('tab', { name: 'Add skills' }))
     expect(screen.getByRole('dialog', { name: 'Plugins' }).className).toBe(initial)
-    fireEvent.click(screen.getByRole('tab', { name: 'This chat' }))
+    // #516: the pane label renamed from "This chat" — the scope is the agent.
+    fireEvent.click(screen.getByRole('tab', { name: 'This agent' }))
     expect(screen.getByRole('dialog', { name: 'Plugins' }).className).toBe(initial)
   })
 
@@ -211,7 +212,8 @@ describe('REQ-911 (#510): the pane strip is a legible tab control', () => {
   it('renders three real tabs whose aria-selected tracks the active pane', async () => {
     renderPopup()
     const tabs = await screen.findAllByRole('tab')
-    expect(tabs.map((t) => t.textContent)).toEqual(['This chat', 'Add tools', 'Add skills'])
+    // #516: the pane label renamed from "This chat" — the scope is the agent.
+    expect(tabs.map((t) => t.textContent)).toEqual(['This agent', 'Add tools', 'Add skills'])
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(tabs[1])
     expect(tabs[1]).toHaveAttribute('aria-selected', 'true')

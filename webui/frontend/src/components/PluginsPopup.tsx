@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { Plug, Search, Settings2, X } from 'lucide-react'
 import { Tabs } from './DaisyUI'
 import { openSettingsSheet } from './SettingsSheet'
@@ -15,15 +14,12 @@ import {
   type PluginTool,
 } from '../lib/chatPluginTools'
 import { MCP_SERVERS_EVENT } from '../lib/mcpServers'
-import {
-  CURRENT_CHAT_SCOPE_EVENT,
-  resolveChatScopeId,
-} from '../lib/chatScope'
+import { useCurrentAgent } from '../lib/currentAgent'
 import { notifyOverlayClosed } from '../lib/chromeOverlay'
 import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 const PLUGIN_PANES = [
-  { key: 'chat', label: 'This chat' },
+  { key: 'chat', label: 'This agent' },
   { key: 'tools', label: 'Add tools' },
   { key: 'skills', label: 'Add skills' },
 ] as const
@@ -42,23 +38,21 @@ function sourceCopy(source: PluginCatalogSource): string {
 }
 
 export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
-  const [searchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [pane, setPane] = useState<PluginPane>('chat')
   const [activeIdx, setActiveIdx] = useState(0)
-  const [chatId, setChatId] = useState(() => resolveChatScopeId(searchParams))
-  const [enabledIds, setEnabledIds] = useState<string[]>(() =>
-    loadEnabledPluginToolIds(resolveChatScopeId(searchParams)),
-  )
+  // #516: the toggle scope is the **agent seat** — the same id the send path's
+  // `enabledToolsParam` reads — published once by ChatPage via currentAgent.
+  const agent = useCurrentAgent()
+  const agentId = agent?.id ?? ''
+  const [enabledIds, setEnabledIds] = useState<string[]>([])
   const [tools, setTools] = useState<PluginTool[]>([])
   const [source, setSource] = useState<PluginCatalogSource>('fixture')
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   const refreshScope = useCallback(() => {
-    const next = resolveChatScopeId(searchParams)
-    setChatId(next)
-    setEnabledIds(loadEnabledPluginToolIds(next))
-  }, [searchParams])
+    setEnabledIds(loadEnabledPluginToolIds(agentId))
+  }, [agentId])
 
   useEffect(() => {
     if (!open) return
@@ -83,27 +77,24 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
   }, [open])
 
   useEffect(() => {
-    const onScope = () => refreshScope()
     const onPrefs = (event: Event) => {
-      const detail = (event as CustomEvent<{ chatId?: string }>).detail
-      if (!detail?.chatId || detail.chatId === chatId) {
-        setEnabledIds(loadEnabledPluginToolIds(chatId || resolveChatScopeId(searchParams)))
+      const detail = (event as CustomEvent<{ agentId?: string }>).detail
+      if (!detail?.agentId || detail.agentId === agentId) {
+        setEnabledIds(loadEnabledPluginToolIds(agentId))
       }
     }
-    window.addEventListener(CURRENT_CHAT_SCOPE_EVENT, onScope)
     window.addEventListener(CHAT_PLUGIN_TOOLS_EVENT, onPrefs)
-    window.addEventListener(MCP_SERVERS_EVENT, onScope)
+    window.addEventListener(MCP_SERVERS_EVENT, refreshScope)
     return () => {
-      window.removeEventListener(CURRENT_CHAT_SCOPE_EVENT, onScope)
       window.removeEventListener(CHAT_PLUGIN_TOOLS_EVENT, onPrefs)
-      window.removeEventListener(MCP_SERVERS_EVENT, onScope)
+      window.removeEventListener(MCP_SERVERS_EVENT, refreshScope)
     }
-  }, [chatId, refreshScope, searchParams])
+  }, [agentId, refreshScope])
 
   const enabledSet = useMemo(() => new Set(enabledIds), [enabledIds])
-  // Re-sort only when the popup opens, the chat changes, or the catalog loads.
+  // Re-sort only when the popup opens, the agent changes, or the catalog loads.
   // Live On/Off toggles must not move rows (#278 / REQ-881).
-  const orderKey = open ? `${chatId}\0${tools.map((tool) => tool.id).join('\0')}` : ''
+  const orderKey = open ? `${agentId}\0${tools.map((tool) => tool.id).join('\0')}` : ''
   const freezeRef = useRef<{ key: string; ids: string[] }>({ key: '', ids: [] })
   if (freezeRef.current.key !== orderKey) {
     freezeRef.current = {
@@ -123,10 +114,10 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
 
   const toggle = useCallback(
     (tool: PluginTool | undefined) => {
-      if (!tool || !chatId) return
-      setEnabledIds(setPluginToolEnabled(chatId, tool.id, !enabledSet.has(tool.id)))
+      if (!tool || !agentId) return
+      setEnabledIds(setPluginToolEnabled(agentId, tool.id, !enabledSet.has(tool.id)))
     },
-    [chatId, enabledSet],
+    [agentId, enabledSet],
   )
 
   const close = useCallback(() => {
@@ -247,7 +238,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
 
         {pane === 'chat' ? (
         <p className="px-4 pb-2 text-[11px] text-base-content/50" data-testid="os-plugins-source">
-          {sourceCopy(source)} Toggles apply to this chat only.
+          {sourceCopy(source)} Toggles apply to this agent only.
         </p>
         ) : null}
 

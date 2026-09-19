@@ -11,7 +11,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import {
-  CHAT_PLUGIN_TOOLS_KEY,
+  AGENT_PLUGIN_TOOLS_KEY,
   FIXTURE_PLUGIN_TOOLS,
   saveEnabledPluginToolIds,
 } from '../chatPluginTools'
@@ -24,7 +24,6 @@ import {
   CURRENT_AGENT_STORAGE_KEY,
   publishCurrentAgent,
 } from '../currentAgent'
-import { publishCurrentChatScope } from '../chatScope'
 
 describe('pluginsBadgeLabel (#577 label contract)', () => {
   const tools = FIXTURE_PLUGIN_TOOLS
@@ -57,31 +56,31 @@ describe('useEnabledPluginTools (same scope the send path reads)', () => {
     vi.restoreAllMocks()
   })
 
-  it('resolves the live chat scope and follows scope changes', async () => {
-    publishCurrentChatScope('chat-a')
-    saveEnabledPluginToolIds('chat-a', ['web_search'])
-    saveEnabledPluginToolIds('chat-b', ['web_fetch', 'browser_click'])
+  it('resolves the live agent seat and follows seat changes (#516 scope)', async () => {
+    publishCurrentAgent({ id: 'agent-a', kind: 'api' })
+    saveEnabledPluginToolIds('agent-a', ['web_search'])
+    saveEnabledPluginToolIds('agent-b', ['web_fetch', 'browser_click'])
 
     const { result } = renderHook(() => useEnabledPluginTools())
-    expect(result.current.chatId).toBe('chat-a')
+    expect(result.current.agentId).toBe('agent-a')
     expect(result.current.ids).toEqual(['web_search'])
 
     act(() => {
-      publishCurrentChatScope('chat-b')
+      publishCurrentAgent({ id: 'agent-b', kind: 'api' })
     })
     await waitFor(() => {
-      expect(result.current.chatId).toBe('chat-b')
+      expect(result.current.agentId).toBe('agent-b')
     })
     expect(result.current.ids).toEqual(['web_fetch', 'browser_click'])
   })
 
   it('follows toggles without re-render pressure from the popup', async () => {
-    publishCurrentChatScope('chat-live')
+    publishCurrentAgent({ id: 'agent-live', kind: 'api' })
     const { result } = renderHook(() => useEnabledPluginTools())
     expect(result.current.ids).toEqual([])
 
     act(() => {
-      saveEnabledPluginToolIds('chat-live', ['web_search'])
+      saveEnabledPluginToolIds('agent-live', ['web_search'])
     })
     await waitFor(() => {
       expect(result.current.ids).toEqual(['web_search'])
@@ -89,13 +88,13 @@ describe('useEnabledPluginTools (same scope the send path reads)', () => {
   })
 
   it('agrees with what the send path will apply (enabledToolsParam)', () => {
-    publishCurrentChatScope('chat-send')
-    saveEnabledPluginToolIds('chat-send', ['web_search', 'web_fetch'])
+    publishCurrentAgent({ id: 'agent-send', kind: 'api' })
+    saveEnabledPluginToolIds('agent-send', ['web_search', 'web_fetch'])
     const { result } = renderHook(() => useEnabledPluginTools())
-    // The send path reads enabledToolsParam(conversationIdRef.current) with
-    // the same scope id — the arrays must be identical for the same key.
+    // The send path reads enabledToolsParam(agentId) with the same seat id —
+    // the arrays must be identical for the same key (#516's whole point).
     expect(result.current.ids).toEqual(
-      JSON.parse(localStorage.getItem(CHAT_PLUGIN_TOOLS_KEY) || '{}')['chat-send'],
+      JSON.parse(localStorage.getItem(AGENT_PLUGIN_TOOLS_KEY) || '{}')['agent-send'],
     )
   })
 })

@@ -1,9 +1,13 @@
 /**
- * Per-chat plugin tool enablement (#805).
+ * Per-agent plugin tool enablement (#805, re-keyed by #516).
  *
- * Toggles persist in the document store (localStorage chat prefs) keyed by
- * conversation/session id — not Neon. Default is opt-in (Off) for the
- * current chat.
+ * Toggles persist in localStorage keyed by **agent seat id** — not the
+ * conversation. #516: a plugin set is a capability of the agent (#502's
+ * doctrine), so the same agent carries the same set across every thread, and
+ * two agents never share one. The legacy per-chat map (`swarm_chat_plugin_tools`)
+ * is deliberately NOT migrated: unioning every chat's set onto the agent would
+ * silently enable tools the user never turned on for that agent — a capability
+ * widening, not a migration. The old map is left orphaned.
  *
  * Catalog priority: GET /v1/mcp-plugins/ discovered tools (#502 live), then
  * /v1/config-options mcp_catalog, then localStorage configured servers, then
@@ -19,6 +23,8 @@ import {
 import { loadConfiguredMcpServers, serversFromApi } from './mcpServers'
 
 export const CHAT_PLUGIN_TOOLS_KEY = 'swarm_chat_plugin_tools'
+/** #516: the agent-keyed store. The chat key above stays only as legacy data. */
+export const AGENT_PLUGIN_TOOLS_KEY = 'swarm_agent_plugin_tools'
 export const CHAT_PLUGIN_TOOLS_EVENT = 'swarm:chat-plugin-tools'
 
 export type PluginCatalogSource = 'live' | 'configured' | 'fixture'
@@ -207,16 +213,16 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }
 
-export function loadChatPluginPrefs(): Record<string, string[]> {
+function loadAgentPluginPrefs(): Record<string, string[]> {
   try {
-    const raw = localStorage.getItem(CHAT_PLUGIN_TOOLS_KEY)
+    const raw = localStorage.getItem(AGENT_PLUGIN_TOOLS_KEY)
     if (!raw) return {}
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
     const out: Record<string, string[]> = {}
-    for (const [chatId, ids] of Object.entries(parsed as Record<string, unknown>)) {
-      if (chatId && isStringArray(ids)) {
-        out[chatId] = [...new Set(ids.filter(Boolean))]
+    for (const [agentId, ids] of Object.entries(parsed as Record<string, unknown>)) {
+      if (agentId && isStringArray(ids)) {
+        out[agentId] = [...new Set(ids.filter(Boolean))]
       }
     }
     return out
@@ -225,26 +231,26 @@ export function loadChatPluginPrefs(): Record<string, string[]> {
   }
 }
 
-export function loadEnabledPluginToolIds(chatId: string): string[] {
-  const key = String(chatId || '').trim()
+export function loadEnabledPluginToolIds(agentId: string): string[] {
+  const key = String(agentId || '').trim()
   if (!key) return []
-  return loadChatPluginPrefs()[key] ?? []
+  return loadAgentPluginPrefs()[key] ?? []
 }
 
-export function saveEnabledPluginToolIds(chatId: string, ids: readonly string[]): string[] {
-  const key = String(chatId || '').trim()
+export function saveEnabledPluginToolIds(agentId: string, ids: readonly string[]): string[] {
+  const key = String(agentId || '').trim()
   const unique = [...new Set(ids.filter((id) => typeof id === 'string' && id))]
   if (!key) return unique
-  const all = loadChatPluginPrefs()
+  const all = loadAgentPluginPrefs()
   all[key] = unique
   try {
-    localStorage.setItem(CHAT_PLUGIN_TOOLS_KEY, JSON.stringify(all))
+    localStorage.setItem(AGENT_PLUGIN_TOOLS_KEY, JSON.stringify(all))
   } catch {
     /* private mode */
   }
   try {
     window.dispatchEvent(
-      new CustomEvent(CHAT_PLUGIN_TOOLS_EVENT, { detail: { chatId: key, enabled: unique } }),
+      new CustomEvent(CHAT_PLUGIN_TOOLS_EVENT, { detail: { agentId: key, enabled: unique } }),
     )
   } catch {
     /* jsdom / SSR */
@@ -252,20 +258,22 @@ export function saveEnabledPluginToolIds(chatId: string, ids: readonly string[])
   return unique
 }
 
-export function setPluginToolEnabled(chatId: string, toolId: string, enabled: boolean): string[] {
-  const current = new Set(loadEnabledPluginToolIds(chatId))
+export function setPluginToolEnabled(agentId: string, toolId: string, enabled: boolean): string[] {
+  const current = new Set(loadEnabledPluginToolIds(agentId))
   if (enabled) current.add(toolId)
   else current.delete(toolId)
-  return saveEnabledPluginToolIds(chatId, [...current])
+  return saveEnabledPluginToolIds(agentId, [...current])
 }
 
-export function isPluginToolEnabled(chatId: string, toolId: string): boolean {
-  return loadEnabledPluginToolIds(chatId).includes(toolId)
+export function isPluginToolEnabled(agentId: string, toolId: string): boolean {
+  return loadEnabledPluginToolIds(agentId).includes(toolId)
 }
 
-/** WS/chat params: On tools the agent may call; Off are omitted. */
-export function enabledToolsParam(chatId: string): { enabled_tools: string[] } {
-  return { enabled_tools: loadEnabledPluginToolIds(chatId) }
+/** WS/chat params: On tools the agent may call; Off are omitted. #516: keyed
+ * by the agent seat id — the same value the toggles and the badge read, so the
+ * three can never diverge (the failure mode #516 calls the worst one). */
+export function enabledToolsParam(agentId: string): { enabled_tools: string[] } {
+  return { enabled_tools: loadEnabledPluginToolIds(agentId) }
 }
 
 function titleCase(value: string): string {

@@ -21,7 +21,7 @@
 import { composerFileAttachSupported } from './chatAttachments'
 
 /** Every id the composer `+` menu can render. One union, one owner. */
-export const COMPOSER_MENU_ITEM_IDS = ['addFiles', 'compact'] as const
+export const COMPOSER_MENU_ITEM_IDS = ['addFiles', 'compact', 'plugins'] as const
 
 export type ComposerMenuItemId = (typeof COMPOSER_MENU_ITEM_IDS)[number]
 
@@ -34,6 +34,8 @@ export interface ComposerMenuSeat {
   defaultLlmReady?: boolean
   /** #636: the CLI provider declares a native `cli_compact` hook (catalog `cli_compact`). */
   cliCompactCapable?: boolean
+  /** #516: the seat passes the swarm-owned plugins gate (#511's predicate). */
+  pluginsSwarmOwned?: boolean
 }
 
 export interface ComposerMenuItemCapability {
@@ -57,6 +59,11 @@ export const COMPACT_NO_API_REASON =
 export const COMPACT_REMOTE_REASON =
   'Compact is not available for remote seats — the transcript belongs to the remote provider'
 
+/** #516: Plugins ride the swarm-owned reading of #511 (API + blueprint seats) —
+ * the same predicate the rail's Plugins entry and the badge gate on. */
+export const PLUGINS_DISABLED_REASON =
+  'Plugins are available on API and blueprint seats — CLI and remote seats run their tools on the provider'
+
 export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCapabilities {
   // One owner for the attach rule: the same helper the composer uses to decide
   // whether the paperclip is live, so the menu cannot disagree with the input.
@@ -77,11 +84,15 @@ export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCa
   const compactReason = seat.isRemote
     ? COMPACT_REMOTE_REASON
     : COMPACT_NO_API_REASON
+  // #516: the Plugins entry uses the same swarm-owned reading (#511) the rail
+  // footer and the badge already gate on — one predicate, three consumers.
+  const plugins = Boolean(seat.pluginsSwarmOwned)
   return {
     addFiles: { enabled: addFiles, reason: ATTACH_DISABLED_REASON },
     compact: {
       enabled: compact || cliCompact,
       reason: compact || cliCompact ? '' : compactReason,
     },
+    plugins: { enabled: plugins, reason: PLUGINS_DISABLED_REASON },
   }
 }

@@ -674,9 +674,9 @@ describe('ChatPage Send path with mock inference', () => {
     expect(screen.getByRole('button', { name: /^Send$/i })).toBeEnabled()
   })
 
-  it('sends the per-chat enabled_tools allowlist on Send (#805)', async () => {
+  it('sends the per-agent enabled_tools allowlist on Send (#805, re-keyed #516)', async () => {
     window.localStorage.setItem('swarm_agent_chat:support', 'conv-support-805')
-    saveEnabledPluginToolIds('conv-support-805', ['web_search', 'web_fetch'])
+    saveEnabledPluginToolIds('support', ['web_search', 'web_fetch'])
     renderChat()
     await act(async () => {
       MockWebSocket.instances[0]?.open()

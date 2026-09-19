@@ -13,7 +13,7 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, AlertCircle, Check, ChevronDown, ChevronRight, Copy, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plus, Reply, Server, Settings, Square, X } from 'lucide-react'
+import { ArrowUp, AlertCircle, Check, ChevronDown, ChevronRight, Copy, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Server, Settings, Square, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import {
   Alert,
@@ -121,6 +121,7 @@ import {
   type PendingAttachment,
 } from '../lib/chatAttachments'
 import { composerMenuCapabilities } from '../lib/composerMenu'
+import { ComposerPluginsPanel } from '../components/ComposerPluginsPanel'
 import {
   type SlashItem,
   buildSlashCatalog,
@@ -641,6 +642,9 @@ const ChatPage = () => {
   const [connectAttempt, setConnectAttempt] = useState(0)
   const [authRejected, setAuthRejected] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
+  // #516: the Plugins panel is a second face of the `+` menu — same anchor,
+  // same Escape/outside-close behavior — so the menu cannot show both at once.
+  const [pluginsPanelOpen, setPluginsPanelOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [agentKind, setAgentKind] = useState<AgentKind>(() =>
@@ -1283,6 +1287,10 @@ const ChatPage = () => {
         currentCli &&
         (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[currentCli],
     ),
+    // #516: the same swarm-owned reading the rail's Plugins entry gates on,
+    // using the exact seat pair ChatPage publishes (id + kind) so the composer
+    // menu cannot disagree with the badge.
+    pluginsSwarmOwned: isSwarmOwnedAgent(activeChatAgentId || '', agentKind),
   })
 
   /** The agent's own configured remote endpoint, if any. */
@@ -2656,7 +2664,9 @@ const ChatPage = () => {
       if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return false
       lastUserTextRef.current = trimmed
       // Team compose adds params { team, target: "all" | memberId }.
-      const pluginParams = enabledToolsParam(conversationIdRef.current)
+      // #516: the allowlist is the **agent's**, keyed by the same seat id the
+      // toggles and the badge read — never the conversation id.
+      const pluginParams = enabledToolsParam(activeChatAgentId || '')
       const sectionParams = railSectionsParam()
       const attachArg = attachIds.length > 0 ? attachIds : undefined
       if (teamFromUrl) {
@@ -2839,6 +2849,7 @@ const ChatPage = () => {
       addToast,
       pendingAttachments,
       clearPendingAttachments,
+      activeChatAgentId,
     ],
   )
 
@@ -3181,7 +3192,11 @@ const ChatPage = () => {
   }
 
   useEffect(() => {
-    if (!plusOpen) return
+    if (!plusOpen) {
+      // #516: closing the menu returns it to the actions face.
+      setPluginsPanelOpen(false)
+      return
+    }
     const onPointer = (event: Event) => {
       if (plusRef.current && !plusRef.current.contains(event.target as Node)) {
         setPlusOpen(false)
@@ -4749,7 +4764,7 @@ const ChatPage = () => {
                     >
                       <Plus className="h-4 w-4" aria-hidden="true" />
                     </button>
-                    {plusOpen && (
+                    {plusOpen && !pluginsPanelOpen && (
                       <ul
                         role="menu"
                         aria-label="Chat actions"
@@ -4825,8 +4840,44 @@ const ChatPage = () => {
                             Compact
                           </button>
                         </li>
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            // #516: Plugins ride the swarm-owned gate (#511) —
+                            // visible-but-disabled with the reason on CLI/remote
+                            // seats, opening the per-agent panel on swarm seats.
+                            data-testid="composer-plugins-button"
+                            aria-disabled={!composerMenu.plugins.enabled}
+                            aria-haspopup="menu"
+                            className={`os-plus-menu__item ${
+                              !composerMenu.plugins.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
+                            title={
+                              composerMenu.plugins.enabled
+                                ? 'Toggle this agent’s plugins'
+                                : composerMenu.plugins.reason
+                            }
+                            onClick={() => {
+                              if (!composerMenu.plugins.enabled) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Plugins',
+                                  message: composerMenu.plugins.reason,
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
+                              setPluginsPanelOpen(true)
+                            }}
+                          >
+                            <Plug className="h-4 w-4" aria-hidden="true" />
+                            Plugins
+                          </button>
+                        </li>
                       </ul>
                     )}
+                    {plusOpen && pluginsPanelOpen && <ComposerPluginsPanel onClose={() => setPlusOpen(false)} />}
                   </div>
                   <textarea
                     ref={composerRef}

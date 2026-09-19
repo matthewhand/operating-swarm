@@ -3,8 +3,9 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import PluginsPopup from '../PluginsPopup'
 import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
-import { CHAT_PLUGIN_TOOLS_KEY } from '../../lib/chatPluginTools'
+import { AGENT_PLUGIN_TOOLS_KEY, CHAT_PLUGIN_TOOLS_KEY } from '../../lib/chatPluginTools'
 import { CURRENT_CHAT_SCOPE_KEY, publishCurrentChatScope } from '../../lib/chatScope'
+import { CURRENT_AGENT_STORAGE_KEY, publishCurrentAgent } from '../../lib/currentAgent'
 import { MCP_SERVERS_KEY } from '../../lib/mcpServers'
 
 function renderPopup(open = true) {
@@ -21,6 +22,9 @@ describe('PluginsPopup', () => {
   beforeEach(() => {
     localStorage.clear()
     publishCurrentChatScope('chat-codey')
+    // #516: toggles scope to the agent seat — publish it (the popup no longer
+    // derives the scope from the chat URL).
+    publishCurrentAgent({ id: 'codey', kind: 'blueprint' })
     vi.stubGlobal(
       'fetch',
       vi.fn().mockRejectedValue(new Error('offline catalog — use fixture')),
@@ -30,7 +34,9 @@ describe('PluginsPopup', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     localStorage.removeItem(CHAT_PLUGIN_TOOLS_KEY)
+    localStorage.removeItem(AGENT_PLUGIN_TOOLS_KEY)
     localStorage.removeItem(CURRENT_CHAT_SCOPE_KEY)
+    localStorage.removeItem(CURRENT_AGENT_STORAGE_KEY)
     localStorage.removeItem(MCP_SERVERS_KEY)
   })
 
@@ -117,7 +123,7 @@ describe('PluginsPopup', () => {
     expect(screen.getAllByRole('option')[0]).toHaveAttribute('data-tool-id', 'web_search')
   })
 
-  it('persists a toggle across remount of the same chat', async () => {
+  it('persists a toggle across remount of the same agent (#516 scope)', async () => {
     const first = renderPopup()
     const toggle = await screen.findByRole('switch', { name: /Web Search Off/i })
     fireEvent.click(toggle)
