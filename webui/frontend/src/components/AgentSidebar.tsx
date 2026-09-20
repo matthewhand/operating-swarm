@@ -153,6 +153,12 @@ import {
 import { agentLabel, defaultBlueprintId, isSupportAgent } from '../lib/supportAgent'
 import { seatHasSessions } from '../lib/seatCapabilities'
 import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
+import {
+  agentBubbleThemeOverrides,
+  loadBubbleTheme,
+  setAgentBubbleTheme,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId, type TeamRoster } from '../lib/teamRosters'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId, type RemoteEntry } from '../lib/remotesCatalog'
@@ -161,7 +167,6 @@ import {
   herdrRowIdFromParams,
   railSelectionFromParams,
 } from '../lib/railActive'
-import { fetchRemoteThreadSessions, remoteListsSessions } from '../lib/remoteSessions'
 import { configuredRemotes } from '../lib/remotes'
 import RemoteSessionsPopup from './RemoteSessionsPopup'
 import UpdateChrome from './UpdateChrome'
@@ -1368,6 +1373,16 @@ export default function AgentSidebar({
     [closeMenu, sectionState, startSectionRename],
   )
 
+  /** #724: dispatch the per-agent bubble-theme override from the rail menu. */
+  const handleBubbleTheme = useCallback(
+    (agentId: string, theme: string) => {
+      if (!agentId) return
+      setAgentBubbleTheme(agentId, theme === '__default__' ? null : (theme as BubbleTheme))
+      closeMenu()
+    },
+    [closeMenu],
+  )
+
   const openSectionMenuAt = useCallback(
     (sectionId: string, sectionName: string, clientX: number, clientY: number) => {
       if (isUnassignedSection(sectionId)) return
@@ -1504,21 +1519,8 @@ export default function AgentSidebar({
     setPicker({ title, sessions })
   }, [])
 
-  const openRemoteThreadPicker = useCallback(
-    async (remote: RemoteEntry) => {
-      try {
-        const sessions = await fetchRemoteThreadSessions(remote)
-        openGroupPicker(remote.title, sessions)
-      } catch (err) {
-        const message =
-          err instanceof Error && err.message ? err.message : 'Could not list remote sessions'
-        toast?.error('Could not list remote sessions', message)
-        openGroupPicker(remote.title, [])
-      }
-    },
-    [openGroupPicker, toast],
-  )
-
+  // #748: the rail no longer hosts a remote session browser — rows navigate
+  // immediately and the chat header owns session switching.
   const closePicker = useCallback(() => setPicker(null), [])
 
   const openCliSessionPicker = useCallback(
@@ -2387,19 +2389,17 @@ export default function AgentSidebar({
         remotesQuery.data?.find((row) => row.id === menu.entityId) ||
         configuredRemotesList.find((row) => row.id === menu.entityId)
       closeMenu()
-      if (remote && remoteListsSessions(remote)) {
-        void openRemoteThreadPicker({
-          id: remote.id,
-          kind: remote.kind || remote.id,
-          title: remoteDisplayName(remote),
-          configured: true,
-          agents: [],
-          capabilities: remote.capabilities,
-        })
-        return
-      }
+      // #748: no async session fetch on this path. A multi-agent remote keeps
+      // its bot-choice picker (choosing WHICH agent is a different axis from
+      // sessions) using the rows already in the menu payload; everything else
+      // navigates immediately.
       if (menu.sessions && menu.sessions.length > 0) {
         openGroupPicker(menu.agentName, menu.sessions)
+        return
+      }
+      if (remote) {
+        navigate(`/chat?remote=${encodeURIComponent(remote.id)}`)
+        onClose?.()
       }
       return
     }
@@ -2519,6 +2519,10 @@ export default function AgentSidebar({
           sections: sectionState.sections,
           currentSectionId: sectionIdForAgent(menu.agentId, sectionState),
         },
+        // #724: per-agent bubble theme override picker (agent-presentation
+        // setting belongs on the agent row's menu, not the message's).
+        bubbleTheme: agentBubbleThemeOverrides()[menu.agentId],
+        bubbleThemeDefault: loadBubbleTheme(),
       })
     : []
 
@@ -3055,17 +3059,13 @@ export default function AgentSidebar({
         onDrop={dropOnSelf}
         onClick={(event) => {
           event.preventDefault()
-          if (remoteListsSessions(remote)) {
-            void openRemoteThreadPicker(remote)
-            return
-          }
+          // #748: rail rows are launch surfaces — every row navigates
+          // immediately, session-capable remotes included. The default is the
+          // most recent session when one exists; otherwise the remote chat.
+          // Session *switching* stays in the chat header, not the rail.
           const def = defaultSessionForRemote(remote)
-          if (def) {
-            navigate(def.href)
-            onClose?.()
-          } else {
-            openGroupPicker(name, sessions)
-          }
+          navigate(def?.href || `/chat?remote=${encodeURIComponent(remote.id)}`)
+          onClose?.()
         }}
         {...rowMenuHandlers(hideId, name, hidden, 'remote', sessions, remote.id)}
       >
@@ -3999,6 +3999,7 @@ export default function AgentSidebar({
           onSelect={handleMenuSelect}
           onSubSelect={(parentId, childId) => {
             if (parentId === 'move-to') handleMoveTo(menu.agentId, childId)
+            if (parentId === 'bubble-theme') handleBubbleTheme(menu.agentId, childId)
           }}
         />
       )}

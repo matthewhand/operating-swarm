@@ -24,6 +24,7 @@ import {
   Trash2,
   Users,
   CircleCheck,
+  Palette,
 } from 'lucide-react'
 import type { RailMenuItemId, RailMenuItemSpec, RailMenuSubItemSpec } from '../lib/railContextMenu'
 
@@ -54,6 +55,7 @@ const ICONS: Record<RailMenuItemId, LucideIcon> = {
   copy: ClipboardCopy,
   include_context: CircleCheck,
   exclude_context: EyeOff,
+  'bubble-theme': Palette,
 }
 
 export interface RailMenuItemProps {

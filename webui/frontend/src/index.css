@@ -399,8 +399,11 @@ html:not([data-theme="light"]) .os-composer,
 .os-rail-divider-pill {
   position: absolute;
   top: 40%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /* #754: ride on the chat side of the divider (immediately right of the
+     border line) instead of centered on it — the pill no longer sits in the
+     drag hit-zone, and reads as belonging to the transcript it controls. */
+  left: 100%;
+  transform: translate(0, -50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1595,9 +1598,13 @@ button.os-agent-row {
   display: none;
 }
 .os-agent-sidebar--avatar-only .os-rail-search-row {
+  /* #764: collapsed rail stacks the search trigger and the Add agent button
+     vertically — the + stays reachable under search instead of display:none. */
+  flex-direction: column;
   padding-left: 0.35rem;
   padding-right: 0.35rem;
   justify-content: center;
+  gap: 0.25rem;
 }
 .os-agent-sidebar--avatar-only .os-rail-search__input,
 .os-agent-sidebar--avatar-only .os-rail-search__kbd {
@@ -1608,9 +1615,8 @@ button.os-agent-row {
   justify-content: center;
   flex: none;
 }
-.os-agent-sidebar--avatar-only .os-search-add-btn {
-  display: none;
-}
+/* #764: the Add agent button remains visible (stacked under search) in
+   avatar-only mode — see the search-row rule above. */
 .os-agent-sidebar--avatar-only .os-keybinding-tips {
   display: none;
 }

@@ -5,6 +5,7 @@
  * showing a disabled grey lie. Delete is always last and danger-styled.
  */
 
+import { BUBBLE_THEME_LABELS, BUBBLE_THEMES } from './bubbleTheme'
 import { conversationIdForAgent, peekConversationIdForAgent } from './agentChat'
 import { loadAgentChatSessions } from './agentChatSessions'
 import {
@@ -47,6 +48,7 @@ export type RailMenuItemId =
   | 'copy'
   | 'include_context'
   | 'exclude_context'
+  | 'bubble-theme'
 
 export interface RailMenuSubItemSpec {
   id: string
@@ -86,6 +88,10 @@ export interface RailMenuOptions {
   cliRunning?: boolean
   /** REQ-209: existing sections for the Move to submenu. */
   moveTo?: RailMenuMoveTo
+  /** #724: the agent's current bubble-theme override (for the check mark). */
+  bubbleTheme?: string
+  /** #724: the chat-wide default, so 'Default (x)' can be labelled honestly. */
+  bubbleThemeDefault?: string
 }
 
 const CLI_NO_PROFILE = 'CLI agents have no swarm-owned profile'
@@ -114,6 +120,7 @@ export function railMenuItems(opts: RailMenuOptions): RailMenuItemSpec[] {
     items.push({ id: 'pin', label: 'Pin', group: 1 })
   }
   items.push(moveToMenuItem(opts.moveTo))
+  items.push(bubbleThemeMenuItem(opts.bubbleTheme, opts.bubbleThemeDefault))
   items.push({
     id: 'unread',
     label: opts.unread ? 'Mark as read' : 'Mark as unread',
@@ -198,6 +205,38 @@ export function moveToMenuItem(moveTo?: RailMenuMoveTo): RailMenuItemSpec {
   return {
     id: 'move-to',
     label: 'Move to',
+    group: 1,
+    children,
+  }
+}
+
+/**
+ * #724: per-agent bubble-theme picker as a rail submenu. 'Default (x)' is the
+ * honest no-override entry; the rest are the registered themes from
+ * BUBBLE_THEMES. Dispatch happens in AgentSidebar via setAgentBubbleTheme.
+ */
+export function bubbleThemeMenuItem(
+  current?: string,
+  defaultTheme?: string,
+): RailMenuItemSpec {
+  const children: RailMenuSubItemSpec[] = [
+    {
+      id: '__default__',
+      label: `Default${defaultTheme ? ` (${defaultTheme})` : ''}`,
+      checked: !current,
+    },
+  ]
+  // Registry order (bubbleThemes.ts) — no hardcoded theme list here.
+  for (const theme of BUBBLE_THEMES) {
+    children.push({
+      id: theme,
+      label: BUBBLE_THEME_LABELS[theme] ?? theme,
+      checked: current === theme,
+    })
+  }
+  return {
+    id: 'bubble-theme',
+    label: 'Bubble theme',
     group: 1,
     children,
   }

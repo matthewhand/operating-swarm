@@ -55,6 +55,7 @@ describe('railMenuItems (REQ-82)', () => {
     expect(unpinned.map((item) => item.id)).toEqual([
       'pin',
       'move-to',
+      'bubble-theme',
       'unread',
       'edit',
       'duplicate',
@@ -77,6 +78,7 @@ describe('railMenuItems (REQ-82)', () => {
     expect(items.map((item) => item.id)).toEqual([
       'pin',
       'move-to',
+      'bubble-theme',
       'unread',
       'copy-id',
       'terminate',

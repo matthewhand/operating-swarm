@@ -13,7 +13,7 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, AlertCircle, Check, ChevronDown, ChevronRight, Copy, FoldVertical, Layers, Mic, Palette, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Server, Settings, Square, X } from 'lucide-react'
+import { ArrowUp, AlertCircle, ChevronDown, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Server, Settings, Square, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import {
   Alert,
@@ -87,12 +87,9 @@ import { NavbarRoutingPicker, type RoutingPathChange } from '../components/Navba
 import { ChatMessageBubble } from '../components/ChatMessageBubble'
 import {
   BUBBLE_THEME_CHANGED_EVENT,
-  BUBBLE_THEME_LABELS,
-  BUBBLE_THEMES,
   BUBBLE_THEME_STORAGE_KEY,
   getBubbleTheme,
   loadBubbleTheme,
-  saveBubbleTheme,
   type BubbleTheme,
 } from '../lib/bubbleTheme'
 import {
@@ -635,7 +632,6 @@ const ChatPage = () => {
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
   const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
-  const [bubbleThemeMenuOpen, setBubbleThemeMenuOpen] = useState(false)
   // #675: resizable IRC gutter — per-row dividers persist through the shared
   // store; the transcript only mirrors the store via the change event.
   const [ircGutterPx, setIrcGutterPx] = useState(() => loadIrcGutterPx())
@@ -906,7 +902,6 @@ const ChatPage = () => {
 
   useEffect(() => {
     if (!contextMenu) {
-      setBubbleThemeMenuOpen(false)
       return
     }
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -5377,60 +5372,9 @@ const ChatPage = () => {
                 {contextStrategy === 'cull' ? START_CONTEXT_FROM_HERE_LABEL : 'Compress to here'}
               </button>
             ) : null}
-            <div
-              className="os-bubble-theme-item relative"
-              data-testid="context-menu-bubble-theme-item"
-              data-open={bubbleThemeMenuOpen ? 'true' : undefined}
-              onMouseEnter={() => setBubbleThemeMenuOpen(true)}
-              onMouseLeave={() => setBubbleThemeMenuOpen(false)}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                aria-haspopup="menu"
-                aria-expanded={bubbleThemeMenuOpen}
-                className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
-                data-testid="context-menu-bubble-theme"
-                onClick={() => setBubbleThemeMenuOpen((open) => !open)}
-              >
-                <Palette className="h-4 w-4 opacity-70" aria-hidden="true" />
-                <span className="flex-1">Bubble theme</span>
-                <ChevronRight className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
-              </button>
-              {bubbleThemeMenuOpen ? (
-                <ul
-                  role="menu"
-                  aria-label="Bubble theme"
-                  className="os-bubble-theme-submenu"
-                  data-testid="context-menu-bubble-theme-submenu"
-                >
-                  {BUBBLE_THEMES.map((id) => {
-                    const selected = bubbleTheme === id
-                    return (
-                      <li key={id}>
-                        <button
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={selected}
-                          className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
-                          data-testid={`context-menu-bubble-theme-${id}`}
-                          onClick={() => {
-                            setBubbleTheme(saveBubbleTheme(id))
-                            setContextMenu(null)
-                          }}
-                        >
-                          <Check
-                            className={`h-4 w-4 ${selected ? '' : 'opacity-0'}`}
-                            aria-hidden="true"
-                          />
-                          {BUBBLE_THEME_LABELS[id]}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              ) : null}
-            </div>
+            {/* #724: the bubble-theme picker moved to the rail agent
+                right-click menu — presentation is an agent-level choice, not
+                a message-level action. */}
           </div>
         </>
       )}
