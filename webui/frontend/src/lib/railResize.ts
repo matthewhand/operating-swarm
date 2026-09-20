@@ -35,3 +35,15 @@ export function saveRailWidth(width: number): void {
 export function isAvatarOnlyWidth(width: number): boolean {
   return width <= AVATAR_ONLY_THRESHOLD
 }
+
+/**
+ * #806: clamp plus an avatar-only snap. Dragging into the avatar-only zone
+ * (width <= AVATAR_ONLY_THRESHOLD) snaps straight to MIN_RAIL_WIDTH so there
+ * is no floating dead zone between the collapsed avatar rail and labeled
+ * rails; dragging back out releases smoothly once past the threshold.
+ */
+export function snapRailWidth(width: number, viewportWidth?: number): number {
+  const clamped = clampRailWidth(width, viewportWidth)
+  if (clamped <= AVATAR_ONLY_THRESHOLD) return MIN_RAIL_WIDTH
+  return clamped
+}

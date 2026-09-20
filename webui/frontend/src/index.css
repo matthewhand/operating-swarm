@@ -362,6 +362,10 @@ html:not([data-theme="light"]) .os-composer,
   background: var(--os-chrome-sidebar);
   border-right: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
   container-type: inline-size;
+  /* #820: the scroller reserves a stable scrollbar gutter; the pinned grid
+     and Hidden Agents row offset by the same amount so the right edges of
+     every rail region align. Reset to 0 in avatar-only mode (no gutter). */
+  --os-rail-gutter: 0.55rem;
 }
 
 /* Relative positioning only on desktop: on mobile the rail is a fixed
@@ -1091,8 +1095,11 @@ html:not([data-theme="light"]) .os-composer,
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
   min-height: 4.75rem;
-  margin: 0 0.75rem 0.5rem;
-  padding: 0.4rem;
+  margin: 0.35rem 0.75rem 0.5rem;
+  /* #820: right-edge alignment with the scroller's reserved gutter. */
+  padding-right: var(--os-rail-gutter);
+  /* #829: even distribution of the fixed squares in the available space. */
+  justify-content: space-evenly;
   border-radius: 0.75rem;
   border: 1px dashed color-mix(in srgb, var(--color-base-content) 12%, transparent);
 }
@@ -1137,7 +1144,9 @@ html:not([data-theme="light"]) .os-composer,
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  min-height: 4.5rem;
+  /* #829: fixed squares — the role badge keeps a constant offset to the
+     avatar instead of drifting left as the tile stretches with the rail. */
+  aspect-ratio: 1 / 1;
   height: auto;
   padding: 0.45rem 0.3rem 0.4rem;
   border-radius: 0.65rem;
@@ -1491,6 +1500,10 @@ button.os-agent-row {
   scrollbar-gutter: auto;
   scrollbar-width: none;
 }
+/* #820: avatar-only reclaims the gutter, so the compensations reset. */
+.os-agent-sidebar--avatar-only {
+  --os-rail-gutter: 0px;
+}
 .os-agent-sidebar--avatar-only .os-rail-scroller::-webkit-scrollbar {
   width: 0;
 }
@@ -1585,6 +1598,8 @@ button.os-agent-row {
   grid-template-columns: 1fr;
   margin-left: 0.25rem;
   margin-right: 0.25rem;
+  padding-right: 0.15rem;
+  justify-content: center;
   padding: 0.25rem 0.15rem;
 }
 .os-agent-sidebar--avatar-only .os-fav-tile {
@@ -1729,6 +1744,8 @@ button.os-agent-row {
 
 .os-hidden-bots {
   margin: 0 0.5rem 0.15rem;
+  /* #820: align the row's right boundary with the agent rows above. */
+  margin-right: calc(0.5rem + var(--os-rail-gutter, 0.55rem));
   border-radius: 0.45rem;
   transition: background-color 0.15s ease;
 }
@@ -2674,6 +2691,11 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-plus-menu__item:hover {
   background: color-mix(in srgb, var(--color-base-300) 55%, transparent);
 }
+/* #824: disabled actions are informational, not interactive — no hover paint. */
+.os-plus-menu__item[aria-disabled='true']:hover {
+  background: transparent;
+  cursor: not-allowed;
+}
 
 .chat-summary {
   border: 1px solid color-mix(in srgb, var(--color-base-content) 28%, transparent);
@@ -2864,6 +2886,8 @@ html:not([data-theme="light"]) .os-composer__send,
   align-self: flex-end;
   margin-top: 0;
   margin-bottom: 0.15rem;
+  /* #805: nudge the avatar down+left so the bubble reads as coming from it. */
+  transform: translate(-0.25rem, 0.25rem);
 }
 
 /* #520.2 — simple: no beside-bubble avatar (theme.showAvatar=false already

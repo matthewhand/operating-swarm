@@ -108,7 +108,7 @@ describe('rail team avatar stack (#639 / REQ-909)', () => {
     localStorage.clear()
   })
 
-  it('collapsed rail renders exactly one recency face (no stack)', async () => {
+  it('collapsed rail renders one recency face with the +N sticker (#817)', async () => {
     renderRail(72) // <= AVATAR_ONLY_THRESHOLD (96)
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const row = await within(list).findByRole('link', { name: /Demo/ })
@@ -118,12 +118,12 @@ describe('rail team avatar stack (#639 / REQ-909)', () => {
     const face = row.querySelector('[data-testid="team-chat-face"]')!
     expect(face.getAttribute('data-rail-collapsed')).toBe('true')
     expect(face.getAttribute('data-stack-count')).toBe('1')
-    // The avatar itself is collapsed to one face (row remainder is a roster
-    // count owned by #438 and unchanged there).
-    expect(face.getAttribute('data-remainder')).toBe('0')
+    // #817: the +N remainder rides along in every rail state (4 members → +3).
+    expect(face.getAttribute('data-remainder')).toBe('3')
+    expect(face.querySelector('[data-testid="team-remainder"]')).not.toBeNull()
   })
 
-  it('wide rail renders the large face plus recency minis', async () => {
+  it('wide rail renders a single face — the mini row is retired (#817)', async () => {
     renderRail(280)
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const row = await within(list).findByRole('link', { name: /Demo/ })
@@ -132,11 +132,10 @@ describe('rail team avatar stack (#639 / REQ-909)', () => {
     })
     const face = row.querySelector('[data-testid="team-chat-face"]')!
     expect(face.getAttribute('data-rail-collapsed')).toBe('false')
-    // 4 members: large face + up to 3 recency minis; no +N needed when the
-    // face itself is one of the recency set.
-    expect(Number(face.getAttribute('data-stack-count'))).toBeGreaterThan(1)
-    expect(face.querySelectorAll('.os-team-face__mini').length).toBeGreaterThan(0)
-    expect(face.querySelectorAll('.os-team-face__mini').length).toBeLessThanOrEqual(3)
+    // #817 (supersedes #639's multi-face ruling): exactly one face + the +N.
+    expect(face.getAttribute('data-stack-count')).toBe('1')
+    expect(face.querySelectorAll('.os-team-face__mini').length).toBe(0)
+    expect(face.getAttribute('data-remainder')).toBe('3')
   })
 
   it('single-agent rows are untouched (no team stack semantics)', async () => {

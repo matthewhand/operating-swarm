@@ -283,6 +283,7 @@ import RailSectionHeader, { RailSectionEmpty } from './RailSectionHeader'
 import StackedAvatars from './StackedAvatars'
 import {
   clampRailWidth,
+  snapRailWidth,
   loadRailWidth,
   saveRailWidth,
   isAvatarOnlyWidth,
@@ -721,7 +722,8 @@ export default function AgentSidebar({
 
       const handlePointerMove = (e: PointerEvent) => {
         const delta = e.clientX - startDragXRef.current
-        const next = clampRailWidth(startWidthRef.current + delta, window.innerWidth)
+        // #806: snapping clamp — the avatar-only dead zone is gone.
+        const next = snapRailWidth(startWidthRef.current + delta, window.innerWidth)
         setRailWidth(next)
       }
 
@@ -734,7 +736,8 @@ export default function AgentSidebar({
         window.removeEventListener('pointerup', handlePointerUp)
         window.removeEventListener('pointercancel', handlePointerUp)
         const finalDelta = e.clientX - startDragXRef.current
-        const finalWidth = clampRailWidth(startWidthRef.current + finalDelta, window.innerWidth)
+        // #806: snap on release too, so persistence agrees with the drag.
+        const finalWidth = snapRailWidth(startWidthRef.current + finalDelta, window.innerWidth)
         setRailWidth(finalWidth)
         saveRailWidth(finalWidth)
       }
@@ -1524,7 +1527,7 @@ export default function AgentSidebar({
   const openPalette = useCallback(() => {
     onOpenSearch?.()
     // #549: keep the palette's hidden universe in sync with the badge even when
-    // the palette is opened from search rather than the Hidden Bots row.
+    // the palette is opened from search rather than the Hidden Agents row.
     openSearchPalette({ hiddenIds: resolvedHiddenIds, hiddenRows: hiddenRailRows })
   }, [onOpenSearch, resolvedHiddenIds, hiddenRailRows])
 
@@ -2819,10 +2822,10 @@ export default function AgentSidebar({
         </span>
       )
     }
-    // #639 (REQ-909): collapsed rail renders exactly ONE face — the team's
-    // most recently active member (recency rule, not the chat target). Wide
-    // rail renders the large chat-target face plus the most recent members
-    // as graduated minis beside it (deduped against the face itself).
+    // #639 (REQ-909) as revised by #817: every rail state renders exactly ONE
+    // face — collapsed shows the most recently active member, wide shows the
+    // chat target — and the `+N` remainder sticker (roster minus the face)
+    // rides along in both. The graduated mini row is retired.
     const layout = railTeamStackLayout(recencyFaces ?? [], Boolean(collapsed))
     if (collapsed) {
       const solo = layout.faces[0] ?? face
@@ -2830,7 +2833,7 @@ export default function AgentSidebar({
         <span
           className="os-team-face relative inline-flex shrink-0 items-center justify-center"
           data-testid="team-chat-face"
-          data-remainder="0"
+          data-remainder={String(remainder)}
           data-stack-count="1"
           data-rail-collapsed="true"
         >
@@ -2842,16 +2845,20 @@ export default function AgentSidebar({
             status={solo.working ? 'working' : 'idle'}
             active={Boolean(solo.working)}
           />
+          {remainder > 0 ? (
+            <span className="os-team-face__remainder" data-testid="team-remainder" aria-hidden="true">
+              +{remainder}
+            </span>
+          ) : null}
         </span>
       )
     }
-    const minis = layout.faces.filter((row) => row.id !== face.id)
     return (
       <span
         className="os-team-face relative inline-flex shrink-0 items-center justify-center"
         data-testid="team-chat-face"
         data-remainder={String(remainder)}
-        data-stack-count={String(minis.length + 1)}
+        data-stack-count="1"
         data-rail-collapsed="false"
       >
         <span className="inline-flex items-end justify-center">
@@ -2867,22 +2874,6 @@ export default function AgentSidebar({
               className="os-team-face__large"
             />
           </span>
-          {minis.map((mini, depth) => (
-            <span
-              key={`${mini.id}-${depth}`}
-              className="os-team-face__mini relative inline-flex shrink-0 rounded-full"
-              style={{ width: 18, height: 18, marginLeft: depth === 0 ? -8 : -6, zIndex: minis.length - depth }}
-            >
-              <AgentAvatar
-                src={mini.avatarSrc || mini.src}
-                agentId={mini.agentId || mini.id}
-                alt={mini.name || mini.id}
-                size="sm"
-                status={mini.working ? 'working' : 'idle'}
-                active={Boolean(mini.working)}
-              />
-            </span>
-          ))}
         </span>
         {remainder > 0 ? (
           <span
@@ -2951,9 +2942,9 @@ export default function AgentSidebar({
     )
     const teamTimestampLabel = formatRailTimestamp(teamTime)
     const unread = unreadIds.includes(hideId)
-    // #639 (REQ-909): recency-ordered faces for the width-adaptive avatar —
-    // collapsed rail shows one face (the most recently active member), wide
-    // rail shows the large face plus 3 graduated recency minis.
+    // #639 (REQ-909) as revised by #817: recency-ordered faces — every state
+    // renders one face (most recently active when collapsed, chat target when
+    // wide) plus the roster `+N` sticker. No mini row in either state.
     const teamRecencyFaces = orderedFacesByRecency(marked.faces)
     // #525: no `Team` badge. Team membership is not a role, so the pill was
     // claiming role status — same reason #496 removed `Remote`. The right slot
@@ -3739,7 +3730,7 @@ export default function AgentSidebar({
           data-empty={hiddenCount === 0 ? 'true' : 'false'}
           data-drag-over={hideDropActive ? 'true' : undefined}
           role="region"
-          aria-label="Hidden Bots"
+          aria-label="Hidden Agents"
           onDragEnter={(event) => {
             event.preventDefault()
             hideDropDepth.current += 1
@@ -3768,7 +3759,7 @@ export default function AgentSidebar({
               type="button"
               className="os-hide-drop__action os-hidden-bots-row group"
               aria-haspopup="dialog"
-              aria-label={`Hidden Bots ${hiddenCount} (${hiddenCount} hidden)`}
+              aria-label={`Hidden Agents ${hiddenCount} (${hiddenCount} hidden)`}
               data-testid="os-hidden-bots-button"
               onClick={() =>
                 openSearchPalette({
@@ -3780,7 +3771,7 @@ export default function AgentSidebar({
               onMouseEnter={() => setHoveringHidden(true)}
               onMouseLeave={() => setHoveringHidden(false)}
             >
-              <span className="os-hidden-bots-label font-medium">Hidden Bots</span>
+              <span className="os-hidden-bots-label font-medium">Hidden Agents</span>
               <span className="os-hidden-bots-tail font-mono text-xs" data-testid="os-hidden-bots-tail">
                 <span
                   className={`os-hidden-bots-count ${hoveringHidden ? 'hidden' : 'inline group-hover:hidden'}`}
@@ -3788,7 +3779,7 @@ export default function AgentSidebar({
                 >
                   {hiddenCount}
                 </span>
-                {/* #557: this row opens the Hidden Bots **dialog**
+                {/* #557: this row opens the Hidden Agents **dialog**
                     (`aria-haspopup="dialog"` → `openSearchPalette({ filterHidden })`),
                     so it is a navigation affordance and a right chevron is correct —
                     deliberately NOT a `DisclosureChevron`, which would imply an inline
@@ -4085,7 +4076,7 @@ export default function AgentSidebar({
               ? 'This removes the CLI agent from the rail. It does not uninstall the CLI on this machine.'
               : deleteConfirm.kind === 'remote'
                 ? 'This removes the configured remote from swarm. It does not change the far-side host.'
-                : 'This deletes the local entity and removes it from the rail. This cannot be undone from Hidden Bots.'}
+                : 'This deletes the local entity and removes it from the rail. This cannot be undone from Hidden Agents.'}
           </p>
         </ConfirmModal>
       )}

@@ -116,39 +116,24 @@ export function teamChatFaceStack<T extends StackFace>(
   return { face, remainder: Math.max(0, faces.length - 1) }
 }
 
-/** #639: how many recency faces the wide rail shows beside/behind the face. */
-export const RAIL_TEAM_MINI_FACES = 3
-
 /** #639: faces per team row when the rail is collapsed to avatar width. */
 export const RAIL_TEAM_COLLAPSED_FACES = 1
 
 /**
- * #639 (REQ-909): width-adaptive team rail stack.
- *
- * Collapsed rail (`isAvatarOnly`): exactly one face — the team's most recently
- * active member (`orderedFacesByRecency`, roster order when idle). Wide rail:
- * `RAIL_TEAM_MINI_FACES` recency faces at graduated sizes beside/behind the
- * large face; the large face itself stays the chat target.
- *
- * Faces come pre-marked (`working` set by the caller); ordering is the same
- * recency rule the #523 pin stack uses.
+ * #817 (supersedes the #639 multi-face ruling): a team avatar is ALWAYS one
+ * face — the most recently active member — plus a `+N` remainder sticker for
+ * everyone else, in every rail state. The mini-face row is retired.
  */
 export function railTeamStackLayout(
   faces: readonly StackFace[],
   collapsed: boolean,
-): { faces: StackFace[]; count: number; collapsed: boolean } {
+): { faces: StackFace[]; count: number; collapsed: boolean; remainder: number } {
   const ordered = orderedFacesByRecency(faces)
-  if (collapsed) {
-    return {
-      faces: ordered.slice(0, RAIL_TEAM_COLLAPSED_FACES),
-      count: RAIL_TEAM_COLLAPSED_FACES,
-      collapsed,
-    }
-  }
   return {
-    faces: ordered.slice(0, RAIL_TEAM_MINI_FACES),
-    count: RAIL_TEAM_MINI_FACES,
+    faces: ordered.slice(0, RAIL_TEAM_COLLAPSED_FACES),
+    count: RAIL_TEAM_COLLAPSED_FACES,
     collapsed,
+    remainder: Math.max(0, ordered.length - RAIL_TEAM_COLLAPSED_FACES),
   }
 }
 
