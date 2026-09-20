@@ -2200,6 +2200,15 @@ button.os-agent-row {
   align-items: center;
   margin-inline-end: 0.1rem;
 }
+/* #718: the two-stage providers popup offsets itself; the composer row must
+   never reflow when it opens. Same placement contract the retired
+   .os-routing-flyout had inside the composer: anchored to the picker, sized
+   by its own content, never wider than the viewport. */
+.os-composer .os-composer-picker {
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+  width: max-content;
+}
 .os-composer .os-routing-face {
   border-radius: 999px;
 }

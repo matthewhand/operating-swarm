@@ -184,7 +184,7 @@ export default function ComposerPickerDialog({
 
   return (
     <div
-      className="os-composer-picker absolute bottom-full left-0 z-50 mb-2 w-full min-w-72 overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-xl"
+      className="os-composer-picker absolute bottom-full left-0 z-50 mb-2 min-w-72 max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-xl"
       data-testid="composer-picker"
     >
       <div className="flex items-center gap-1 border-b border-base-300 px-3 py-2">
