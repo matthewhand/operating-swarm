@@ -2400,6 +2400,14 @@ const ChatPage = () => {
     ],
   )
 
+  // #738: stable ref so the WS effect doesn't list handleWsEvent as a dep.
+  // The socket only rebuilds when connection coords change (conversationId,
+  // runtimeBlueprint, teamFromUrl) — not on every inner state change.
+  const handleWsEventRef = useRef(handleWsEvent)
+  useEffect(() => {
+    handleWsEventRef.current = handleWsEvent
+  })
+
   useEffect(() => {
     let opened = false
     intentionalCloseRef.current = false
@@ -2446,7 +2454,7 @@ const ChatPage = () => {
     }
     ws.onmessage = (event: MessageEvent) => {
       if (typeof event.data === 'string') {
-        handleWsEvent(parseChatWsMessage(event.data))
+        handleWsEventRef.current(parseChatWsMessage(event.data))
       }
     }
     ws.onclose = (event: CloseEvent) => {
@@ -2504,7 +2512,8 @@ const ChatPage = () => {
       ws.close()
       if (wsRef.current === ws) wsRef.current = null
     }
-  }, [connectAttempt, handleWsEvent, conversationId, runtimeBlueprint, teamFromUrl])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectAttempt, conversationId, runtimeBlueprint, teamFromUrl])
 
   useEffect(() => {
     publishChatConnection(status)

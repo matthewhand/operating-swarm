@@ -11,7 +11,7 @@
  * blueprint list mock as "empty server").
  */
 
-import { apiGet, apiPatch, ensureCsrfCookie } from './api'
+import { apiGet, apiPatch, ensureCsrfCookie, isThrottleError } from './api'
 import {
   hasHiddenAgentsStorage,
   loadHiddenAgentIds,
@@ -216,6 +216,12 @@ export async function fetchUserPrefs(): Promise<UserPrefs | null> {
   }
 }
 
+// #738: module-level 429 back-off for PATCH /v1/preferences/.
+// When the server throttles us, skip the PATCH for 30s — localStorage already
+// holds the latest value, so no data is lost. The next non-skipped call syncs.
+let _prefsPatchThrottledUntil = 0
+const PREFS_PATCH_BACKOFF_MS = 30_000
+
 export async function saveUserPrefs(patch: {
   favourites?: PinnedAgent[]
   hidden_agents?: string[]
@@ -259,6 +265,10 @@ export async function saveUserPrefs(patch: {
   const values = { ...(patch.values || {}) }
   if (patch.agent_dropdowns !== undefined) values.agent_dropdowns = patch.agent_dropdowns
   if (Object.keys(values).length > 0) body.values = values
+
+  // #738: skip the PATCH if still within the back-off window
+  if (Date.now() < _prefsPatchThrottledUntil) return null
+
   try {
     await ensureCsrfCookie()
     const data = await apiPatch<unknown>(USER_PREFS_PATH, body)
@@ -268,7 +278,11 @@ export async function saveUserPrefs(patch: {
     }
     if (parsed) dispatchUserPrefsChanged(parsed)
     return parsed
-  } catch {
+  } catch (err) {
+    // #738: on 429, back off for PREFS_PATCH_BACKOFF_MS before retrying
+    if (isThrottleError(err)) {
+      _prefsPatchThrottledUntil = Date.now() + PREFS_PATCH_BACKOFF_MS
+    }
     return null
   }
 }
