@@ -23,6 +23,11 @@ def _apply_prod_secure_defaults(debug: bool, env: dict[str, str] | None = None) 
     """Mirror of the settings.py production security block."""
     out: dict = {"CONTENT_SECURITY_POLICY": None}
     env = env or {}
+    # #766 is unconditional: Django's SecurityMiddleware emits COOP regardless
+    # of DEBUG, so the opt-out cannot live in the DEBUG-gated block.
+    coop_env = env.get("SWARM_COOP", "").strip().lower()
+    if coop_env not in ("false", "0", "no", "n", "off"):
+        out["SECURE_CROSS_ORIGIN_OPENER_POLICY"] = coop_env or None
     if not debug:
         out["SECURE_CONTENT_TYPE_NOSNIFF"] = True
         out["X_FRAME_OPTIONS"] = env.get("DJANGO_X_FRAME_OPTIONS", "DENY")
@@ -40,10 +45,13 @@ def _apply_prod_secure_defaults(debug: bool, env: dict[str, str] | None = None) 
 
 
 class TestProductionSecurityDefaults:
-    def test_debug_true_sets_nothing(self):
-        assert _apply_prod_secure_defaults(debug=True) == {
-            "CONTENT_SECURITY_POLICY": None
-        }
+    def test_debug_true_sets_nothing_else(self):
+        """DEBUG-only runs set no *production* headers. (#766's COOP opt-out is
+        deliberately unconditional — see test_debug_true_also_defaults_coop_off.)"""
+        out = _apply_prod_secure_defaults(debug=True)
+        assert out["CONTENT_SECURITY_POLICY"] is None
+        assert "SECURE_CONTENT_TYPE_NOSNIFF" not in out
+        assert "SESSION_COOKIE_SECURE" not in out
 
     def test_production_sets_headers_and_secure_cookies(self):
         out = _apply_prod_secure_defaults(debug=False, env={})
@@ -74,6 +82,27 @@ class TestProductionSecurityDefaults:
             debug=False, env={"DJANGO_X_FRAME_OPTIONS": "SAMEORIGIN"}
         )
         assert out["X_FRAME_OPTIONS"] == "SAMEORIGIN"
+
+    def test_debug_true_also_defaults_coop_off(self):
+        """DEBUG deployments still emit COOP (middleware ignores DEBUG) — the
+        opt-out must apply there too, or LAN dev keeps warning."""
+        out = _apply_prod_secure_defaults(debug=True, env={})
+        assert out["SECURE_CROSS_ORIGIN_OPENER_POLICY"] is None
+
+    def test_coop_explicit_enable(self):
+        out = _apply_prod_secure_defaults(
+            debug=False, env={"SWARM_COOP": "same-origin"}
+        )
+        assert out["SECURE_CROSS_ORIGIN_OPENER_POLICY"] == "same-origin"
+
+    def test_coop_defaults_off_on_plain_http(self):
+        """#766: Django 4+'s default COOP header is discarded with a console
+        warning on non-HTTPS origins (LAN deployments) — the default must not
+        emit it."""
+        out = _apply_prod_secure_defaults(debug=False, env={})
+        assert "SECURE_CROSS_ORIGIN_OPENER_POLICY" not in out or (
+            out["SECURE_CROSS_ORIGIN_OPENER_POLICY"] is None
+        )
 
     def test_live_settings_under_pytest_are_debug(self):
         """TESTING forces DEBUG; production block must not have flipped cookies."""

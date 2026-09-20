@@ -334,6 +334,24 @@ _SWARM_CSP_POLICY = (
 )
 CONTENT_SECURITY_POLICY = None  # set below when DEBUG=False (unless SWARM_CSP=false)
 
+# #766: Django 4+ emits ``Cross-Origin-Opener-Policy: same-origin`` via
+# SecurityMiddleware *regardless of DEBUG*. On plain-HTTP LAN origins the
+# browser discards it with a console warning (untrustworthy origin) — pure
+# noise for a deployment that cannot be HTTPS. Default the header off; opt
+# back in with SWARM_COOP=same-origin (or any other policy) once the origin
+# is HTTPS/localhost. Unconditional: the middleware ignores DEBUG, so the
+# opt-out cannot live in the production block below.
+_SWARM_COOP_ENV = os.getenv("SWARM_COOP", "").strip().lower()
+if _SWARM_COOP_ENV in ("false", "0", "no", "n", "off"):
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = None
+elif _SWARM_COOP_ENV:
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = _SWARM_COOP_ENV
+else:
+    # Unset → None as well: the LAN/HTTP default (warning suppression) wins
+    # unless an operator explicitly re-enables COOP. Django's global default
+    # is "same-origin", so this must be assigned, not left to the default.
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = None
+
 if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = os.getenv("DJANGO_X_FRAME_OPTIONS", "DENY")

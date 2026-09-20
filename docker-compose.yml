@@ -120,8 +120,11 @@ services:
       SWARM_HOST_GATEWAY_EXTERNAL: "${SWARM_HOST_GATEWAY_EXTERNAL:-}"
       ENABLE_WEBUI: "${ENABLE_WEBUI:-true}"
     volumes:
-      # Your swarm config (llm profiles + any cli_agents) — read-only.
-      - "${HOME}/.config/swarm:${HOME}/.config/swarm:ro"
+      # Your swarm config (llm profiles, cli_agents, blueprint_library.json).
+      # #762: must stay WRITABLE — blueprint_library.json persistence lives here
+      # (POST /v1/blueprints/custom/ 500s "failed to persist" on a read-only
+      # mount) and the app treats ~/.config/swarm as its live config home.
+      - "${HOME}/.config/swarm:${HOME}/.config/swarm"
       # Writable state: async /v1/responses task store (Django DB is Postgres).
       - "${HOME}/.local/share/swarm:${HOME}/.local/share/swarm"
       # #716/#717: host CLI binaries, ro, at identical paths so the catalog's
