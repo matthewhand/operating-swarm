@@ -5,6 +5,7 @@ import {
   applyRailOrder,
   bumpRailIdToTop,
   generationCompleteDetail,
+  insertRailIdAfter,
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
@@ -96,6 +97,29 @@ describe('railOrder persistence', () => {
     window.removeEventListener(GENERATION_COMPLETE_EVENT, onComplete)
     expect(seen).toEqual([
       { agentId: 'codey', snippet: 'done', agentName: 'Codey', failed: true },
+    ])
+  })
+
+  it('inserts newId immediately after afterId without moving existing items to top', () => {
+    const start = ['support', 'remote:trueforge', 'codey']
+    expect(insertRailIdAfter(start, 'remote:trueforge_copy', 'remote:trueforge')).toEqual([
+      'support',
+      'remote:trueforge',
+      'remote:trueforge_copy',
+      'codey',
+    ])
+    // If afterId is absent or missing, insert at start
+    expect(insertRailIdAfter(start, 'other', 'nonexistent')).toEqual([
+      'other',
+      'support',
+      'remote:trueforge',
+      'codey',
+    ])
+    // Re-inserting existing item moves it immediately after target
+    expect(insertRailIdAfter(start, 'codey', 'support')).toEqual([
+      'support',
+      'codey',
+      'remote:trueforge',
     ])
   })
 })

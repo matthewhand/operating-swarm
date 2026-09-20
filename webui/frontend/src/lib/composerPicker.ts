@@ -53,21 +53,26 @@ export function pickProvider(
 }
 
 /**
- * #803 — providers with 0 or 1 real option skip stage 2 entirely.
+ * #803 — a provider with exactly one real (non-session) option skips stage 2.
  *
- * Forcing a modal stage whose only content is "Use default for <provider>"
- * (or one lone model) is pure friction. Returns the pick to apply when the
- * dialog should resolve immediately, or ``null`` when stage 2 is worth
- * showing (>= 2 real options). Session-tagged options always count — picking
- * one is an explicit resume, so a single session still auto-picks.
+ * Forcing a modal stage whose only content is one lone model row is pure
+ * friction. Returns the pick to apply when the dialog should resolve
+ * immediately, or ``null`` when stage 2 is worth showing. Two hard limits:
+ *
+ * - **0 options descends.** The "Use default" row is an explicit decision
+ *   the #681/#804 contracts rely on (gateway default accept, cross-kind
+ *   route), not friction to be optimized away.
+ * - **Session-tagged options never auto-pick.** Picking a session is an
+ *   explicit resume that must route through ``onResumeSession`` (#711);
+ *   synthesizing that pick would bypass the routing and contract.
  */
 export function autoPickFor(
   provider: ComposerProviderOption,
   options: readonly ModelSearchOption[],
 ): { provider: ComposerProviderOption; option: ModelSearchOption | null } | null {
-  if (options.length >= 2) return null
-  if (options.length === 1) return { provider, option: options[0] }
-  return { provider, option: null }
+  if (options.length !== 1) return null
+  if (options[0].tag === 'session') return null
+  return { provider, option: options[0] }
 }
 
 export type ComposerStage2Row =

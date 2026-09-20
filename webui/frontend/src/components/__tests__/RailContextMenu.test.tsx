@@ -22,6 +22,7 @@ describe('RailContextMenu (REQ-82)', () => {
     expect(menuitems.map((el) => el.textContent)).toEqual([
       'Unpin',
       'Move to',
+      'Bubble theme',
       'Mark as unread',
       'Edit Profile',
       'Duplicate',

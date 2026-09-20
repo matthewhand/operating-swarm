@@ -868,11 +868,13 @@ const REMOTES_CACHE_TTL_MS = 5_000
 let remotesCachePromise: Promise<RemotesListResponse> | null = null
 let remotesCacheAt = 0
 
-/** Test hook: drop the coalescing cache between cases. */
-export function resetRemotesFetchCacheForTests(): void {
+export function resetRemotesFetchCache(): void {
   remotesCachePromise = null
   remotesCacheAt = 0
 }
+
+/** Test hook: drop the coalescing cache between cases. */
+export const resetRemotesFetchCacheForTests = resetRemotesFetchCache
 
 export function coalescedRemotesFetch(): Promise<RemotesListResponse> {
   const now = Date.now()
@@ -890,6 +892,7 @@ export function coalescedRemotesFetch(): Promise<RemotesListResponse> {
 }
 
 export function addRemote(body: AddRemoteRequest): Promise<RemoteConnection> {
+  resetRemotesFetchCache()
   return apiPost<RemoteConnection>('/v1/remotes/', body)
 }
 
@@ -898,6 +901,7 @@ export function createRemote(remote: CreateRemoteRequest): Promise<RemoteConnect
 }
 
 export function deleteRemote(remoteId: string): Promise<void> {
+  resetRemotesFetchCache()
   return apiDelete(`/v1/remotes/${encodeURIComponent(remoteId)}/`)
 }
 
@@ -906,6 +910,7 @@ export function patchRemote(
   remoteId: string,
   body: { title?: string },
 ): Promise<RemoteConnection> {
+  resetRemotesFetchCache()
   return apiPatch<RemoteConnection>(`/v1/remotes/${encodeURIComponent(remoteId)}/`, body)
 }
 

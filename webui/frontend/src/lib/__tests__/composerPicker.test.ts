@@ -1,14 +1,18 @@
-
 import { describe, expect, it } from 'vitest'
 import { autoPickFor, type ComposerProviderOption } from '../composerPicker'
 
 describe('#803 — auto-pick providers with <=1 option', () => {
-  it('returns the pick for 0 options (provider default) and 1 option', () => {
-    const zero: ComposerProviderOption = { id: 'cli:grok', label: 'grok', kind: 'cli' }
-    expect(autoPickFor(zero, [])).toEqual({ provider: zero, option: null })
+  it('returns the pick for exactly 1 non-session option', () => {
     const one: ComposerProviderOption = { id: 'cli:codex', label: 'codex', kind: 'cli' }
     const only = { id: 'grok-4', label: 'grok-4', tag: 'model' as const }
     expect(autoPickFor(one, [only])).toEqual({ provider: one, option: only })
+  })
+
+  it('returns null for 0 options — the explicit Use-default accept is the contract (#681, #804)', () => {
+    const zero: ComposerProviderOption = { id: 'cli:grok', label: 'grok', kind: 'cli' }
+    expect(autoPickFor(zero, [])).toBeNull()
+    const remote: ComposerProviderOption = { id: 'remote:tf', label: 'TrueForge', kind: 'remote' }
+    expect(autoPickFor(remote, [])).toBeNull()
   })
 
   it('returns null when there are >= 2 options (stage 2 is worth showing)', () => {
@@ -20,10 +24,13 @@ describe('#803 — auto-pick providers with <=1 option', () => {
     expect(autoPickFor(many, opts)).toBeNull()
   })
 
-  it('ignores the synthetic default — the default IS the auto-pick for 0 options', () => {
-    // stage2Rows always prepends a default row; autoPickFor counts real
-    // options only.
-    const remote: ComposerProviderOption = { id: 'remote:tf', label: 'TrueForge', kind: 'remote' }
-    expect(autoPickFor(remote, [])).toEqual({ provider: remote, option: null })
+  it('never auto-picks a session-tagged option — the explicit click routes onResumeSession (#711)', () => {
+    const cli: ComposerProviderOption = { id: 'cli:codex', label: 'codex', kind: 'cli' }
+    const session = { id: 'codex:main', label: 'codex main session', tag: 'session' as const }
+    expect(autoPickFor(cli, [session])).toBeNull()
+    // Mixed bag with one model + one session still descends.
+    expect(
+      autoPickFor(cli, [session, { id: 'grok-4', label: 'grok-4', tag: 'model' as const }]),
+    ).toBeNull()
   })
 })

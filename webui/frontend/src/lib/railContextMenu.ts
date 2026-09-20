@@ -331,3 +331,23 @@ export function duplicateName(name: string): string {
   const trimmed = name.trim() || 'Agent'
   return `${trimmed} copy`
 }
+
+/**
+ * Generate a unique remote id for duplication, maintaining kind compatibility.
+ * e.g. trueforge -> trueforge_copy -> trueforge_copy_2
+ */
+export function duplicateRemoteId(sourceId: string, existingIds: Iterable<string>): string {
+  const existing = new Set<string>()
+  for (const id of existingIds) {
+    if (id) existing.add(id.toLowerCase().trim())
+  }
+  const cleanSource = (sourceId || 'remote').replace(/^remote:/, '').toLowerCase().trim()
+  const root = cleanSource.replace(/_copy(_\d+)?$/, '')
+  let candidate = `${root}_copy`
+  if (!existing.has(candidate)) return candidate
+  let index = 2
+  while (existing.has(`${root}_copy_${index}`)) {
+    index++
+  }
+  return `${root}_copy_${index}`
+}

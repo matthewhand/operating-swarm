@@ -94,6 +94,17 @@ export function moveRailId(order: string[], fromId: string, beforeId: string): s
   return without
 }
 
+/** Insert `newId` immediately after `afterId` in the rail order (or at start if afterId is absent/unfound). */
+export function insertRailIdAfter(order: string[], newId: string, afterId?: string): string[] {
+  if (!newId) return order
+  const without = order.filter((id) => id !== newId)
+  if (!afterId) return [newId, ...without]
+  const index = without.indexOf(afterId)
+  if (index < 0) return [newId, ...without]
+  without.splice(index + 1, 0, newId)
+  return without
+}
+
 /**
  * REQ-128: Bump an active agent to the top of the non-favourites list on generation finish.
  *

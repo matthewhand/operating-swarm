@@ -4,6 +4,7 @@ import {
   RAIL_MENU_REASONS,
   copyableConversationId,
   duplicateName,
+  duplicateRemoteId,
   isRailMenuKey,
   moveToMenuItem,
   railMenuItems,
@@ -186,6 +187,14 @@ describe('copyableConversationId / isRailMenuKey', () => {
 
   it('appends copy to a display name', () => {
     expect(duplicateName('Codey')).toBe('Codey copy')
+  })
+
+  it('generates unique non-colliding remote IDs preserving kind prefix', () => {
+    expect(duplicateRemoteId('trueforge', ['trueforge'])).toBe('trueforge_copy')
+    expect(duplicateRemoteId('trueforge', ['trueforge', 'trueforge_copy'])).toBe('trueforge_copy_2')
+    expect(duplicateRemoteId('trueforge_copy', ['trueforge', 'trueforge_copy'])).toBe('trueforge_copy_2')
+    expect(duplicateRemoteId('trueforge_copy_2', ['trueforge', 'trueforge_copy', 'trueforge_copy_2'])).toBe('trueforge_copy_3')
+    expect(duplicateRemoteId('remote:omb', ['omb'])).toBe('omb_copy')
   })
 })
 

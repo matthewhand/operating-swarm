@@ -104,6 +104,7 @@ import {
   endRailDrag,
   generationCompleteAgentId,
   generationCompleteDetail,
+  insertRailIdAfter,
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
@@ -210,6 +211,7 @@ import {
   RAIL_LONG_PRESS_MS,
   copyableConversationId,
   duplicateName,
+  duplicateRemoteId,
   isRailMenuKey,
   paneMenuItems,
   railMenuItems,
@@ -2218,6 +2220,12 @@ export default function AgentSidebar({
     const name = duplicateName(row.agentName)
     try {
       if (row.kind === 'cli') return
+
+      let sourceSectionId = sectionIdForAgent(row.agentId, sectionState)
+      if (isUnassignedSection(sourceSectionId) && row.entityId && row.entityId !== row.agentId) {
+        sourceSectionId = sectionIdForAgent(row.entityId, sectionState)
+      }
+
       if (row.kind === 'team') {
         const source = teams.find((team) => team.id === row.entityId)
         const created = await createTeamRoster({
@@ -2232,25 +2240,50 @@ export default function AgentSidebar({
         })
         await queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
         const createdHide = teamHideId(created.id)
+        if (!isUnassignedSection(sourceSectionId)) {
+          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
+        }
         const base = mergeRailOrder(railOrder, visibleRowIds)
-        persistVisibleOrder(bumpRailIdToTop(base, createdHide))
+        persistVisibleOrder(insertRailIdAfter(base, createdHide, row.agentId))
         closeMenu()
         return
       }
       if (row.kind === 'remote') {
-        const source = configuredRemotesList.find((remote) => remote.id === row.entityId)
+        const source =
+          configuredRemotesList.find((remote) => remote.id === row.entityId) ||
+          remotes.find((r) => r.id === row.entityId) ||
+          fullRemotesQuery.data?.data?.find((r) => r.id === row.entityId)
+
+        const existingRemoteIds = new Set<string>()
+        for (const r of configuredRemotesList) if (r.id) existingRemoteIds.add(r.id)
+        for (const r of remotes) if (r.id) existingRemoteIds.add(r.id)
+        for (const r of fullRemotesQuery.data?.data ?? []) if (r.id) existingRemoteIds.add(r.id)
+        for (const r of fullRemotesQuery.data?.configured ?? []) if (r.id) existingRemoteIds.add(r.id)
+
+        const newId = duplicateRemoteId(row.entityId, existingRemoteIds)
         const created = await createRemote({
-          kind: source?.kind || row.entityId,
+          id: newId,
+          title: name,
+          kind: source?.kind || (row.entityId ? row.entityId.split('_')[0] : 'generic'),
           base_url: source?.base_url,
           api_key_env: source?.api_key_env,
           ui_url: source?.ui_url,
+          herdr_mode: (source as any)?.herdr_mode,
+          ssh_host: (source as any)?.ssh_host,
+          ssh_user: (source as any)?.ssh_user,
+          ssh_port: (source as any)?.ssh_port,
+          ssh_identity_env: (source as any)?.ssh_identity_env,
+          ssh_agent: (source as any)?.ssh_agent,
         })
         await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
         await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
         await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
         const createdHide = remoteHideId(created.id)
+        if (!isUnassignedSection(sourceSectionId)) {
+          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
+        }
         const base = mergeRailOrder(railOrder, visibleRowIds)
-        persistVisibleOrder(bumpRailIdToTop(base, createdHide))
+        persistVisibleOrder(insertRailIdAfter(base, createdHide, row.agentId))
         closeMenu()
         return
       }
@@ -2273,8 +2306,11 @@ export default function AgentSidebar({
       })
       await queryClient.invalidateQueries({ queryKey: ['blueprints'] })
       await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
+      if (!isUnassignedSection(sourceSectionId)) {
+        setSectionState((current) => moveAgentToSection(current, created.id, sourceSectionId))
+      }
       const base = mergeRailOrder(railOrder, visibleRowIds)
-      persistVisibleOrder(bumpRailIdToTop(base, created.id))
+      persistVisibleOrder(insertRailIdAfter(base, created.id, row.agentId))
     } catch {
       /* caller / tests mock fetch; failures stay on the current row */
     }

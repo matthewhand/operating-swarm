@@ -111,7 +111,7 @@ describe('#681 ComposerPickerDialog', () => {
   })
 })
 
-describe('#803 — auto-pick on 0/1 options', () => {
+describe('#803 — auto-pick on exactly-one non-session option', () => {
   const single: ComposerProviderOption[] = [
     { id: 'cli:grok', label: 'grok', kind: 'cli' },
     { id: 'cli:codex', label: 'codex', kind: 'cli' },
@@ -133,15 +133,30 @@ describe('#803 — auto-pick on 0/1 options', () => {
     return { onPick, onClose }
   }
 
-  it('a provider with 0 options resolves immediately — no forced Use-default stage', () => {
+  it('a provider with 0 options still descends — the Use-default accept is the #681/#804 contract', () => {
     const { onPick, onClose } = renderAuto()
     fireEvent.click(screen.getByText('grok'))
+    // Stage 2 with only the default row: the explicit accept resolves.
+    fireEvent.click(screen.getByText('Use default'))
     expect(onPick).toHaveBeenCalledTimes(1)
     expect(onPick).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'cli:grok', kind: 'cli' }),
       null,
     )
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('a lone session-tagged option still descends and surfaces via onPick — the caller routes the resume (#711)', () => {
+    const { onPick } = renderAuto({
+      getProviderOptions: (p) =>
+        p.id === 'cli:codex' ? [{ id: 'codex:main', label: 'codex main session', tag: 'session' }] : [],
+    })
+    fireEvent.click(screen.getByText('codex'))
+    fireEvent.click(screen.getByText('codex main session'))
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'cli:codex' }),
+      expect.objectContaining({ id: 'codex:main', tag: 'session' }),
+    )
   })
 
   it('a provider with exactly 1 option auto-picks that option', () => {

@@ -121,14 +121,14 @@ export function RailMenuItem({ spec, onSelect, onSubSelect }: RailMenuItemProps)
           aria-haspopup="menu"
           aria-expanded={open}
           data-menu-id={spec.id}
-          data-testid="rail-menu-move-to"
+          data-testid={`rail-menu-${spec.id}`}
           onClick={() => setOpen((current) => !current)}
         >
           <Icon className="h-4 w-4" aria-hidden="true" data-menu-icon={spec.id} />
           {spec.label}
         </button>
         {open ? (
-          <ul className="os-rail-menu-submenu" data-testid="rail-menu-move-to-submenu">
+          <ul className="os-rail-menu-submenu" data-testid={`rail-menu-${spec.id}-submenu`}>
             {spec.children.map((child) => (
               <SubMenuItem
                 key={child.id}

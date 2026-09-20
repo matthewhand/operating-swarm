@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentSidebar from '../AgentSidebar'
+import * as api from '../../lib/api'
 import { ToastProvider } from '../DaisyUI'
 import { HIDDEN_AGENTS_STORAGE_KEY } from '../../lib/hiddenAgents'
 import { PINNED_AGENTS_STORAGE_KEY } from '../../lib/pinnedAgents'
@@ -59,6 +60,32 @@ function mockFetch() {
               name: 'Rakazo',
               description: 'Remote helper',
               rail: true,
+            },
+          ],
+        }),
+      } as Response
+    }
+    if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
+      return {
+        ok: true,
+        json: async () => ({
+          object: 'list',
+          data: [
+            {
+              id: 'trueforge',
+              title: 'TrueForge',
+              kind: 'trueforge',
+              base_url: 'http://127.0.0.1:8792',
+              configured: true,
+            },
+          ],
+          configured: [
+            {
+              id: 'trueforge',
+              title: 'TrueForge',
+              kind: 'trueforge',
+              base_url: 'http://127.0.0.1:8792',
+              configured: true,
             },
           ],
         }),
@@ -122,6 +149,7 @@ describe('REQ-209 sidepane agent sections', () => {
   })
 
   afterEach(() => {
+    cleanup()
     vi.unstubAllGlobals()
     localStorage.clear()
   })
@@ -382,6 +410,7 @@ describe('#802 / #801 — pinning never erases section membership', () => {
   })
 
   afterEach(() => {
+    cleanup()
     vi.unstubAllGlobals()
     localStorage.clear()
   })
@@ -472,5 +501,42 @@ describe('#802 / #801 — pinning never erases section membership', () => {
     const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
     expect(stored.membership.rakazo).toBe('sec_stuff')
     expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
+  })
+
+  it('duplicating a remote in a section assigns the duplicate to the same section without bumping to top', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_prod', name: 'Production', collapsed: false }],
+        membership: { 'remote:trueforge': 'sec_prod' },
+      }),
+    )
+    const createSpy = vi.spyOn(api, 'createRemote').mockResolvedValue({
+      id: 'trueforge_copy',
+      title: 'TrueForge copy',
+      kind: 'trueforge',
+      base_url: 'http://127.0.0.1:8792',
+      configured: true,
+    })
+
+    renderRail()
+    const list = await loadedList()
+    const remoteLink = await within(list).findByRole('link', { name: /TrueForge/ })
+    fireEvent.contextMenu(remoteLink)
+    const duplicateItem = await screen.findByRole('menuitem', { name: 'Duplicate' })
+    fireEvent.click(duplicateItem)
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'trueforge_copy',
+          title: 'TrueForge copy',
+          kind: 'trueforge',
+        }),
+      )
+    })
+
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership['remote:trueforge_copy']).toBe('sec_prod')
   })
 })
