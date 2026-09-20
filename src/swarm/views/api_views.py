@@ -380,7 +380,13 @@ class CustomBlueprintsView(APIView):
             custom = lib.get("custom", [])
             existing_ids = {i.get("id") for i in custom}
             if bp_id in existing_ids:
-                return Response({"error": "id already exists"}, status=status.HTTP_409_CONFLICT)
+                # #809: resolve the collision instead of failing "Add as
+                # agent" — the created seat gets the next free <base>_N.
+                base_id = bp_id
+                counter = 2
+                while f"{base_id}_{counter}" in existing_ids:
+                    counter += 1
+                bp_id = f"{base_id}_{counter}"
 
             try:
                 item = build_custom_rail_item(
