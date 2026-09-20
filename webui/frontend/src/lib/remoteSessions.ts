@@ -31,6 +31,22 @@ export function remoteListsSessions(
   return SESSION_KINDS.has(kind)
 }
 
+/**
+ * #852 — the session a session-capable remote should land on when the user
+ * clicks the agent without choosing one: running first (same order the
+ * pickers use), then newest. `null` when there is nothing to auto-select —
+ * the caller falls through to a fresh send instead of opening a modal.
+ */
+export function mostRecentRemoteSession(
+  sessions: readonly MemberSession[],
+): MemberSession | null {
+  if (!sessions || sessions.length === 0) return null
+  return [...sessions].sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'running' ? -1 : 1
+    return b.startedAt - a.startedAt
+  })[0]
+}
+
 export function remoteChatTurnParams(remoteId: string, sessionId?: string) {
   const sid = (sessionId || '').trim()
   return {

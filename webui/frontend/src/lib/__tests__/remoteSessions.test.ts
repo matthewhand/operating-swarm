@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   filterRemoteSessionRows,
+  mostRecentRemoteSession,
   memberSessionsFromRemoteOperate,
   remoteAgentsFromOperate,
   remoteChatTurnParams,
@@ -228,5 +229,35 @@ describe('#796 — Herdr members populate the session switcher', () => {
     } as unknown as Parameters<typeof sessionsFromOperateResult>[0]
     const rows = sessionsFromOperateResult(result)
     expect(rows.map((r) => r.id)).toEqual(['ws-docs:t1'])
+  })
+})
+
+describe('#852 — most recent session auto-select', () => {
+  const row = (id: string, startedAt: number, status: 'running' | 'finished' = 'finished') => ({
+    id,
+    groupId: 'anythingllm',
+    groupKind: 'remote' as const,
+    memberId: id,
+    title: id,
+    snippet: '',
+    status,
+    startedAt,
+    href: `/chat?remote=anythingllm&session=${id}`,
+  })
+
+  it('picks the newest session', () => {
+    expect(
+      mostRecentRemoteSession([row('old', 100), row('new', 200)]),
+    ).toMatchObject({ memberId: 'new' })
+  })
+
+  it('prefers a running session over a newer finished one', () => {
+    expect(
+      mostRecentRemoteSession([row('done', 500), row('live', 100, 'running')]),
+    ).toMatchObject({ memberId: 'live', status: 'running' })
+  })
+
+  it('returns null for empty lists instead of throwing', () => {
+    expect(mostRecentRemoteSession([])).toBeNull()
   })
 })

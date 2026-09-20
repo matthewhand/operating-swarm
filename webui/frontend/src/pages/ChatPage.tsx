@@ -113,6 +113,7 @@ import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
 import SessionPicker from '../components/SessionPicker'
 import {
   fetchRemoteThreadSessions,
+  mostRecentRemoteSession,
   remoteAgentsFromOperate,
   remoteChatTurnParams,
   remoteListsSessions,
@@ -1817,10 +1818,27 @@ const ChatPage = () => {
       title: remoteFromUrl,
     })
       .then((sessions) => {
-        if (!cancelled) setRemoteThreadPicker(sessions)
+        if (cancelled) return
+        // #852: landing on a session-capable remote without a session in the
+        // URL goes to the most recent conversation directly — the picker is
+        // an explicit navbar action, never an automatic modal on click.
+        const latest = mostRecentRemoteSession(sessions)
+        if (latest) {
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev)
+              next.set('remote', remoteFromUrl)
+              next.set('session', String(latest.memberId || latest.id))
+              return next
+            },
+            { replace: true },
+          )
+          return
+        }
+        setRemoteThreadPicker(null)
       })
       .catch(() => {
-        if (!cancelled) setRemoteThreadPicker([])
+        if (!cancelled) setRemoteThreadPicker(null)
       })
     return () => {
       cancelled = true
@@ -2936,19 +2954,17 @@ const ChatPage = () => {
           return true
         }
         if (remoteListsSessions({ id: remoteFromUrl, kind: remoteFromUrl }) && !sessionFromUrl) {
-          void fetchRemoteThreadSessions({
-            id: remoteFromUrl,
-            kind: remoteFromUrl,
-            title: remoteFromUrl,
-          })
-            .then((sessions) => setRemoteThreadPicker(sessions))
-            .catch(() => setRemoteThreadPicker([]))
-          addToast({
-            type: 'info',
-            title: 'Pick a session',
-            message: 'Choose a remote session to resume, then send.',
-          })
-          return false
+          // #852: a session-capable remote with no chosen session sends
+          // fresh instead of blocking the turn behind a picker toast. Users
+          // resume explicitly from the navbar session button.
+          ws.send(
+            buildChatWsFrame(trimmed, 'remote_harness', {
+              ...remoteChatTurnParams(remoteFromUrl, sessionFromUrl),
+              ...pluginParams,
+              ...sectionParams,
+            }, attachArg),
+          )
+          return true
         }
         ws.send(
           buildChatWsFrame(trimmed, 'remote_harness', {
