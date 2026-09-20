@@ -255,3 +255,24 @@ def test_usage_endpoint_survives_catalog_errors(client, user, monkeypatch):
     body = resp.json()
     assert body["type"] == CONTEXT_USAGE_TYPE
     assert body["tokens"] == sum(body["breakdown"].values())
+
+
+def test_usage_snapshot_reports_last_output():
+    """#773: the unified meter needs "last output" — tokens of the final
+    assistant turn, so the badge can show out/in/max from one payload."""
+    messages = [
+        {"role": "user", "content": "hello there " * 10},
+        {"role": "assistant", "content": "a short reply"},
+        {"role": "user", "content": "and more " * 10},
+        {"role": "assistant", "content": "the final word " * 12},
+    ]
+    payload = usage_snapshot(conversation_id="c", agent_id="jeeves", turns=messages)
+    assert payload["last_output"] > 0
+    # The final assistant turn, not an earlier one.
+    earlier = usage_snapshot(conversation_id="c", agent_id="jeeves", turns=messages[:2])
+    assert payload["last_output"] > earlier["last_output"] > 0
+    # No assistant turn yet → zero, never null/missing.
+    none_yet = usage_snapshot(
+        conversation_id="c", agent_id="jeeves", turns=[{"role": "user", "content": "hi"}]
+    )
+    assert none_yet["last_output"] == 0

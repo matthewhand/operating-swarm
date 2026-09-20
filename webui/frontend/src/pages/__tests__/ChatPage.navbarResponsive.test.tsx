@@ -176,10 +176,8 @@ describe('REQ-865: responsive navbar element prioritization (#255)', () => {
     expect(screen.getByTestId('theme-toggle-btn')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open settings' })).toHaveClass('shrink-0')
 
-    const tokenMeter = screen.getByTestId('token-meter-button')
-    expect(tokenMeter).toHaveClass('hidden')
-    expect(tokenMeter).toHaveClass('sm:flex')
-    expect(header).toContainElement(tokenMeter)
+    // #773: no navbar token meter — the composer badge is the one meter.
+    expect(screen.queryByTestId('token-meter-button')).toBeNull()
 
     const pencilWrap = card.querySelector('.os-navbar-edit-btn')?.parentElement
     expect(pencilWrap).toHaveClass('hidden')

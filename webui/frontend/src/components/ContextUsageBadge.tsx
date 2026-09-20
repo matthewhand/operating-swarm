@@ -1,14 +1,18 @@
-import { formatContextUsageLabel, type ContextUsage } from '../lib/contextUsage'
+import { formatUsageBadgeLabel, type ContextUsage } from '../lib/contextUsage'
 
 export interface ContextUsageBadgeProps {
   usage: ContextUsage | null
   onOpenDetail?: () => void
 }
 
-/** Compact composer badge for #215 per-seat context-window usage. */
+/**
+ * #773 — the ONE canonical token meter (composer bottom-right):
+ * `out <last> · in <total> / <max> tok`. The old navbar estimate meter was
+ * removed — two tallies with different sources disagreed.
+ */
 export function ContextUsageBadge({ usage, onOpenDetail }: ContextUsageBadgeProps) {
   if (!usage) return null
-  const label = formatContextUsageLabel(usage)
+  const label = formatUsageBadgeLabel(usage)
   const title = usage.estimate
     ? `Estimate (chars/4). ${label}`
     : label

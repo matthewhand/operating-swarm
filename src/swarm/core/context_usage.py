@@ -222,6 +222,18 @@ def usage_snapshot(
         tool_schemas=tool_schemas,
     )
     total = int(sum(parts.values()))
+    # #773: tokens of the final assistant turn — the meter's "last output".
+    last_output = 0
+    for row in reversed(context):
+        if not isinstance(row, dict):
+            continue
+        role = str(row.get("role") or "")
+        content = str(row.get("content") or "")
+        if role == "system":
+            continue
+        if role == "assistant":
+            last_output = estimate_tokens(row)
+            break
     window = resolve_model_context_max(profile=profile, model_id=model_id)
     pct = None
     if window is not None and window > 0:
@@ -234,5 +246,6 @@ def usage_snapshot(
         "window": window,
         "pct": pct,
         "estimate": True,
+        "last_output": last_output,
         "breakdown": parts,
     }

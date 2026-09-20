@@ -21,6 +21,8 @@ export interface ContextUsage {
   window: number | null
   pct: number | null
   estimate: boolean
+  /** #773: tokens of the final assistant turn — the meter's "last output". */
+  last_output: number
   breakdown: ContextUsageBreakdown
 }
 
@@ -65,6 +67,7 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
     window: asWindow(row.window),
     pct: row.pct == null ? null : asNonNegInt(row.pct),
     estimate: row.estimate !== false,
+    last_output: asNonNegInt(row.last_output),
     breakdown: { ...EMPTY_BREAKDOWN, ...breakdown },
   }
 }
@@ -87,6 +90,25 @@ export function formatContextUsageLabel(usage: Pick<ContextUsage, 'tokens' | 'wi
     return `${used} / ${formatUsageTokens(usage.window)}`
   }
   return `${used} tokens, window unknown`
+}
+
+/**
+ * #773 — the ONE canonical meter copy: last output · input total / max, in
+ * shorthand with the unit said once. Old-format fixtures without last_output
+ * degrade to just the input/max segment.
+ */
+export function formatUsageBadgeLabel(
+  usage: Pick<ContextUsage, 'tokens' | 'window' | 'estimate' | 'last_output'>,
+): string {
+  const p = usage.estimate ? '~' : ''
+  const parts: string[] = []
+  if (usage.last_output > 0) {
+    parts.push(`out ${p}${formatUsageTokens(usage.last_output)}`)
+  }
+  const max =
+    usage.window != null && usage.window > 0 ? ` / ${formatUsageTokens(usage.window)}` : ''
+  parts.push(`in ${p}${formatUsageTokens(usage.tokens)}${max} tok`)
+  return parts.join(' · ')
 }
 
 function sparkKey(conversationId: string): string {

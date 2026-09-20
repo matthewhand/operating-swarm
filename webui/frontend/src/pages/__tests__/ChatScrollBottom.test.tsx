@@ -73,10 +73,10 @@ describe('REQ-202: Chat scrollbar to page bottom; composer inside pane but non-s
     const composerInput = screen.getByRole('textbox', { name: 'Chat message' })
     expect(bottomDock).toContainElement(composerInput)
 
-    // Token meter lives in top navbar header per REQ-201
-    const tokenButton = screen.getByTestId('token-meter-button')
+    // #773: the token meter lives in the composer area (canonical badge)
     const header = screen.getByRole('banner')
-    expect(header).toContainElement(tokenButton)
+    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    expect(header).toBeInTheDocument()
 
     // Messages container uses a live composer inset (not a stale fixed pb-* guess)
     const messagesContainer = screen.getByTestId('chat-messages-container')

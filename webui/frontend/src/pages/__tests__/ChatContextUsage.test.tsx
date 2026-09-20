@@ -88,7 +88,7 @@ describe('ChatPage context-window usage (#215)', () => {
       })
 
       const badge = screen.getByTestId('context-usage-badge')
-      expect(badge).toHaveTextContent('~12.3k tokens, window unknown')
+      expect(badge).toHaveTextContent('in ~12.3k tok')
       expect(screen.getByTestId('chat-bottom-dock')).toContainElement(badge)
     },
   )
@@ -105,7 +105,7 @@ describe('ChatPage context-window usage (#215)', () => {
         }),
       )
     })
-    expect(screen.getByTestId('context-usage-badge')).toHaveTextContent('~16k / 128k')
+    expect(screen.getByTestId('context-usage-badge')).toHaveTextContent('in ~16k / 128k tok')
   })
 
   it('does not render the composer badge for CLI seats', async () => {

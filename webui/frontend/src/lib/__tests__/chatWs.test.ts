@@ -278,6 +278,7 @@ describe('parseChatWsMessage', () => {
           window: null,
           pct: null,
           estimate: true,
+          last_output: 320,
           breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
         }),
       ),
@@ -291,6 +292,7 @@ describe('parseChatWsMessage', () => {
         window: null,
         pct: null,
         estimate: true,
+        last_output: 320,
         breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
       },
     })
