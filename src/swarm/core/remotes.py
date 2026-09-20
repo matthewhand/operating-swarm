@@ -797,6 +797,23 @@ def _unreachable_detail(result: HttpResult, what: str) -> str:
     """Name the URL on connection-refused so chat is not a bare URLError."""
     err = (result.error or "").strip()
     url = (result.url or "").strip()
+    # #722: DNS failure (Errno -2 family) — the configured name did not
+    # resolve at all. Same remedy vocabulary as the refused case: the spec's
+    # host is either a typo or a name this process cannot resolve (a gateway
+    # alias from inside a container without the extra_hosts mapping).
+    if (
+        "Name or service not known" in err
+        or "Errno -2" in err
+        or "getaddrinfo failed" in err
+        or "nodename nor servname" in err
+    ):
+        where = url or "the remote"
+        return (
+            f"{what} could not resolve {where}. The configured host name did "
+            "not resolve from this process — check the spec for typos, use the "
+            "host LAN IP, or set SWARM_HOST_GATEWAY (default host.docker.internal) "
+            "with the compose extra_hosts mapping so gateway aliases resolve."
+        )
     if "Connection refused" in err or "Errno 111" in err:
         where = url or "the remote"
         return (

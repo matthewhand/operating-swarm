@@ -1165,6 +1165,19 @@ def test_unreachable_copy_names_gateway_override(monkeypatch):
     assert "SWARM_HOST_GATEWAY_EXTERNAL" in detail
 
 
+def test_unreachable_copy_covers_dns_failure_722():
+    """#722: 'Name or service not known' is the live failure a container hits
+    when a spec's gateway alias does not resolve — the copy must name the fix,
+    not echo a bare URLError."""
+    result = remotes_core.HttpResult(
+        status=None, error="<urlopen error [Errno -2] Name or service not known>", url="http://host.docker.internal:8791/api/v1/sessions"
+    )
+    detail = remotes_core._unreachable_detail(result, "TrueForge session create")
+    assert "Name or service not known" not in detail
+    assert "host.docker.internal" in detail
+    assert "SWARM_HOST_GATEWAY" in detail
+
+
 def test_trueforge_send_reply_is_parsed_not_dumped_as_json(tf_server, monkeypatch):
     """#686: a successful TrueForge send renders ONLY the human reply.
 

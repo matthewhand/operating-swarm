@@ -696,7 +696,13 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             attachment_ids = chat_attachments.parse_attachment_ids(
                 text_data_json.get("attachments")
             )
-            display_text = message_text.strip()
+            # #744: user text is a paste boundary — terminal transcripts carry
+            # mangled CSI leftovers (``[13;28;13;1;0;1_``) that would otherwise
+            # be persisted, rendered, and re-copied forever. Same sanitizer the
+            # model-output path uses; plain text is untouched.
+            from swarm.core.model_text import sanitize_model_text
+
+            display_text = sanitize_model_text(message_text)
             if not display_text and attachment_ids:
                 display_text = chat_attachments.caption([])
             _record_turn(
