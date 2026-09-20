@@ -346,7 +346,7 @@ describe('TeamComposer first-launch overlay', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
   })
 
   it('keeps the Team lead picker disabled until agents are added and defaults to First agent', async () => {
@@ -425,7 +425,7 @@ describe('TeamComposer first-launch overlay', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
     expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
     expect(screen.getByTestId('team-cos-select')).toHaveValue(FIRST_AGENT_VALUE)
     expect(screen.getByTestId('team-cos-instructions')).toHaveValue(
@@ -514,7 +514,7 @@ describe('TeamComposer first-launch overlay', () => {
       } as Response
     })
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
   })
 
   it('keeps an explicit named lead when the roster is reordered', async () => {
@@ -719,7 +719,7 @@ describe('TeamComposer first-launch overlay', () => {
       } as Response
     })
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
 
     fireEvent.change(screen.getByTestId('team-role-assign-chief_of_staff'), { target: { value: '' } })
     gotoTier('Essentials')
@@ -801,7 +801,7 @@ describe('TeamComposer first-launch overlay', () => {
       } as Response
     })
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
 
     fireEvent.click(screen.getByRole('checkbox', { name: /lock github to jeeves/i }))
     fetchMock.mockImplementation(async (input, init) => {
@@ -840,6 +840,16 @@ describe('TeamComposer first-launch overlay', () => {
       } as Response
     })
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
+  })
+})
+
+describe('#841 — no backend jargon in user-facing copy', () => {
+  it('subtitle and status copy never mention Django or storage filenames', () => {
+    const { container } = renderComposer()
+    expect(container.textContent).not.toMatch(/Django/i)
+    expect(container.textContent).not.toMatch(/teams\.json/)
+    expect(container.textContent).not.toMatch(/team_rosters\.json/)
+    expect(container.textContent).toMatch(/Compose a roster of API, CLI, and remote agents/i)
   })
 })

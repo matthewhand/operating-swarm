@@ -644,7 +644,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       setRoleSlots(slotsFromMembers(stampCosRole(nextMembers, nextCos)))
       setToolSlots(slotsFromTools(parseTeamTools(roster.tools)))
       queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
-      setStatus(`Saved roster “${roster.name}” to team_rosters.json.`)
+      setStatus(`Saved roster “${roster.name}”.`)
     },
   })
 
@@ -699,12 +699,8 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       <div className="space-y-4">
         <p className="text-sm text-base-content/60">
-          Compose a roster of API, CLI, and remote members. Django{' '}
-          <a className="link" href="/teams/">
-            /teams/
-          </a>{' '}
-          still edits LLM-profile aliases in teams.json — this overlay writes{' '}
-          <code className="text-xs">team_rosters.json</code>.
+          Compose a roster of API, CLI, and remote agents to collaborate on
+          complex tasks.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

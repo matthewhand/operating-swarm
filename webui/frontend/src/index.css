@@ -2657,10 +2657,9 @@ html:not([data-theme="light"]) .os-composer__send,
   word-break: break-word;
   white-space: pre-wrap;
 }
-.os-composer:hover .os-composer__hint,
-.os-composer:focus-within .os-composer__hint {
-  opacity: 1;
-}
+/* #811: the legacy reveal-everything rule lived here; reveal is now
+   testid-scoped (send hint = queued send, clear hint = draft), so an empty
+   composer with no queue shows no misleading `↵` on hover. */
 
 .os-plus-menu {
   position: absolute;
