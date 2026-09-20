@@ -110,3 +110,66 @@ describe('#681 ComposerPickerDialog', () => {
     expect(screen.queryByTestId('composer-picker')).toBeNull()
   })
 })
+
+describe('#803 — auto-pick on 0/1 options', () => {
+  const single: ComposerProviderOption[] = [
+    { id: 'cli:grok', label: 'grok', kind: 'cli' },
+    { id: 'cli:codex', label: 'codex', kind: 'cli' },
+  ]
+
+  function renderAuto(overrides: Partial<Parameters<typeof ComposerPickerDialog>[0]> = {}) {
+    const onPick = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <ComposerPickerDialog
+        open
+        providers={single}
+        getProviderOptions={() => []}
+        onPick={onPick}
+        onClose={onClose}
+        {...overrides}
+      />,
+    )
+    return { onPick, onClose }
+  }
+
+  it('a provider with 0 options resolves immediately — no forced Use-default stage', () => {
+    const { onPick, onClose } = renderAuto()
+    fireEvent.click(screen.getByText('grok'))
+    expect(onPick).toHaveBeenCalledTimes(1)
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'cli:grok', kind: 'cli' }),
+      null,
+    )
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('a provider with exactly 1 option auto-picks that option', () => {
+    const { onPick, onClose } = renderAuto({
+      getProviderOptions: (p) =>
+        p.id === 'cli:codex' ? [{ id: 'grok-4', label: 'grok-4', tag: 'model' }] : [],
+    })
+    fireEvent.click(screen.getByText('codex'))
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'cli:codex' }),
+      expect.objectContaining({ id: 'grok-4' }),
+    )
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('a provider with >= 2 options still opens stage 2', () => {
+    const { onPick, onClose } = renderAuto({
+      getProviderOptions: (p) =>
+        p.id === 'cli:codex'
+          ? [
+              { id: 'a', label: 'Model A', tag: 'model' },
+              { id: 'b', label: 'Model B', tag: 'model' },
+            ]
+          : [],
+    })
+    fireEvent.click(screen.getByText('codex'))
+    expect(onPick).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('composer-picker-breadcrumb').textContent).toContain('codex')
+  })
+})

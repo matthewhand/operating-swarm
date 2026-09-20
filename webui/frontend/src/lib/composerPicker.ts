@@ -52,6 +52,24 @@ export function pickProvider(
   return { stage: 'options', query: '', provider }
 }
 
+/**
+ * #803 — providers with 0 or 1 real option skip stage 2 entirely.
+ *
+ * Forcing a modal stage whose only content is "Use default for <provider>"
+ * (or one lone model) is pure friction. Returns the pick to apply when the
+ * dialog should resolve immediately, or ``null`` when stage 2 is worth
+ * showing (>= 2 real options). Session-tagged options always count — picking
+ * one is an explicit resume, so a single session still auto-picks.
+ */
+export function autoPickFor(
+  provider: ComposerProviderOption,
+  options: readonly ModelSearchOption[],
+): { provider: ComposerProviderOption; option: ModelSearchOption | null } | null {
+  if (options.length >= 2) return null
+  if (options.length === 1) return { provider, option: options[0] }
+  return { provider, option: null }
+}
+
 export type ComposerStage2Row =
   | { row: 'default'; id: string; label: string }
   | ({ row: 'option' } & ModelSearchOption)

@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, CornerDownLeft, Settings2 } from 'lucide-react'
 import {
+  autoPickFor,
   backOneStage,
   filterProviders,
   initialComposerPickerState,
@@ -127,7 +128,17 @@ export default function ComposerPickerDialog({
     (idx: number) => {
       if (state.stage === 'providers') {
         const p = providerRows[idx]
-        if (p) setState(pickProvider(state, p))
+        if (!p) return
+        // #803: 0 or 1 real option — resolve immediately instead of forcing a
+        // stage whose only content is "Use default for <provider>" (or one
+        // lone row). >= 2 options still descend into stage 2.
+        const auto = autoPickFor(p, getProviderOptions(p))
+        if (auto) {
+          onPick(auto.provider, auto.option)
+          onClose()
+          return
+        }
+        setState(pickProvider(state, p))
         return
       }
       const r = optionRows[idx]
@@ -142,7 +153,7 @@ export default function ComposerPickerDialog({
       }
       onClose()
     },
-    [state, providerRows, optionRows, onPick, onClose],
+    [state, providerRows, optionRows, onPick, onClose, getProviderOptions],
   )
 
   const onInputKeyDown = useCallback(
