@@ -3648,6 +3648,45 @@ def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None 
     )
 
 
+def sanitize_herdr_response(text: str) -> str:
+    """Strip Herdr banner artifacts such as '| | summary of conversation |'."""
+    if not text or not isinstance(text, str):
+        return ""
+    lines = text.splitlines()
+    cleaned = []
+    in_header = True
+    for line in lines:
+        if in_header:
+            if re.match(
+                r"^\s*\|\s*\|\s*(?:summary\s+of\s+(?:the\s+)?conversation|conversation\s+summary|summary)\s*\|\s*$",
+                line,
+                re.I,
+            ):
+                continue
+            if re.match(r"^\s*\|[-:\s|]+\|\s*$", line):
+                continue
+            if not line.strip() and not cleaned:
+                continue
+            in_header = False
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
+def read_herdr_recent(target: str, config: dict[str, Any] | None = None) -> str:
+    """Read recent pane text from Herdr for a given target pane/session."""
+    if not target or not target.strip():
+        return ""
+    try:
+        from swarm.core.remote_teams import herdr_client_from_settings
+
+        client = herdr_client_from_settings(config=config)
+        read = client.agent_read(target.strip(), source="recent", fmt="text")
+        return sanitize_herdr_response(_herdr_pane_text(read))
+    except Exception:
+        logger.debug("Failed to read recent Herdr pane text for target %s", target, exc_info=True)
+        return ""
+
+
 def _herdr_pane_text(payload: Any) -> str:
     """Pane text from ``agent_read`` / prompt result — never the agent_prompted ACK."""
     if payload is None:
@@ -3656,7 +3695,7 @@ def _herdr_pane_text(payload: Any) -> str:
         text = payload.strip()
         if text.lower() in {"agent_prompted", '{"type":"agent_prompted"}'}:
             return ""
-        return text
+        return sanitize_herdr_response(text)
     if isinstance(payload, dict):
         ptype = str(payload.get("type") or "").strip().lower()
         if ptype == "agent_prompted":
@@ -3670,7 +3709,7 @@ def _herdr_pane_text(payload: Any) -> str:
                 continue
             found = _herdr_pane_text(val)
             if found:
-                return found
+                return sanitize_herdr_response(found)
     return ""
 
 

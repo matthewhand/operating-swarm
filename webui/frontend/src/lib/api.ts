@@ -171,8 +171,14 @@ export async function fetchWithAuth(
   return fetch(path, { ...init, headers, credentials: 'include' })
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: buildHeaders(false) })
+export async function apiGet<T>(
+  path: string,
+  options?: { cache?: RequestCache; headers?: Record<string, string> },
+): Promise<T> {
+  const response = await fetch(path, {
+    headers: { ...buildHeaders(false), ...(options?.headers ?? {}) },
+    ...(options?.cache ? { cache: options.cache } : {}),
+  })
 
   if (!response.ok) {
     await throwApiError(path, response)

@@ -56,7 +56,12 @@ function stubFetch() {
           op: 'list',
           ok: true,
           data: {
-            agents: [{ id: 'ws-docs', name: 'Docs' }],
+            // Two agents: a single-agent remote now auto-picks in stage 2
+            // (#803), and this test pins the multi-agent descent contract.
+            agents: [
+              { id: 'ws-docs', name: 'Docs' },
+              { id: 'ws-ops', name: 'Ops' },
+            ],
             sessions: [{ id: 'ws-docs:t1', title: 'thread one' }],
           },
         }),

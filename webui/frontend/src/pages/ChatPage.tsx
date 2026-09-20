@@ -100,6 +100,7 @@ import {
 import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
+import { extractThinkingBlock } from '../lib/messageArtifacts'
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
 import ApiSessionSwitcher from '../components/ApiSessionSwitcher'
 import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
@@ -741,6 +742,15 @@ const ChatPage = () => {
   }, [seatUnread, activeChatAgentId, conversationId, messages])
   const hasRateLimitWait = messages.some((row) => row.rateLimit)
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [expandedThinkingKeys, setExpandedThinkingKeys] = useState<Set<string>>(new Set())
+  const toggleThinking = useCallback((key: string) => {
+    setExpandedThinkingKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
   useEffect(() => {
     if (!hasRateLimitWait) return
     setNowMs(Date.now())
@@ -1906,6 +1916,9 @@ const ChatPage = () => {
     const switched =
       lastHydratedAgentRef.current !== null && lastHydratedAgentRef.current !== key
     lastHydratedAgentRef.current = key
+    if (switched) {
+      setThreads((prev) => ({ ...prev, [key]: [] }))
+    }
     setConversationId(key)
     setEditingKey(null)
     setAgentKind('api')
@@ -1914,7 +1927,7 @@ const ChatPage = () => {
     let cancelled = false
     ;(async () => {
       try {
-        const thread = await fetchAgentThread(key, key)
+        const thread = await fetchAgentThread(key, key, { flush: switched })
         if (cancelled) return
         setHydrateError(null)
         setSummariesByThread((prev) => ({
@@ -1951,11 +1964,15 @@ const ChatPage = () => {
     setThreadReady(false)
     setHydrateError(null)
     setSuggestionChips([])
+    const modelFromUrl = (searchParams.get('model') ?? '').trim()
     if (remoteFromUrl) {
       const key = `remote-${remoteFromUrl}${sessionFromUrl ? `-${sessionFromUrl}` : ''}`
       const switched =
         lastHydratedAgentRef.current !== null && lastHydratedAgentRef.current !== key
       lastHydratedAgentRef.current = key
+      if (switched) {
+        setThreads((prev) => ({ ...prev, [key]: [] }))
+      }
       setConversationId(key)
       setEditingKey(null)
       setAgentKind('remote')
@@ -1965,7 +1982,7 @@ const ChatPage = () => {
       ;(async () => {
         try {
           // Same GET /chat/thread/ path as API/team — do not return early (REQ-171A-4 / #604).
-          const thread = await fetchAgentThread(`remote:${remoteFromUrl}`, key)
+          const thread = await fetchAgentThread(`remote:${remoteFromUrl}`, key, { flush: switched })
           if (cancelled) return
           setHydrateError(null)
           setSummariesByThread((prev) => ({
@@ -2013,6 +2030,9 @@ const ChatPage = () => {
       lastHydratedAgentRef.current !== null &&
       lastHydratedAgentRef.current !== hydrateKey
     lastHydratedAgentRef.current = hydrateKey
+    if (switched) {
+      setThreads((prev) => ({ ...prev, [threadKey]: [] }))
+    }
     setConversationId(nextId)
     if (resolvedSession) {
       setConversationIdForAgent(agent, nextId)
@@ -2031,7 +2051,7 @@ const ChatPage = () => {
     let cancelled = false
     ;(async () => {
       try {
-        const thread = await fetchAgentThread(agent, resolvedSession || undefined)
+        const thread = await fetchAgentThread(agent, resolvedSession || undefined, { flush: switched })
         if (cancelled) return
         setHydrateError(null)
         setAgentKind(thread.kind ?? classifyAgentKind(selectedBlueprint))
@@ -3900,7 +3920,9 @@ const ChatPage = () => {
       },
       // #682: the probed model list belongs to the *current* CLI (the probe
       // is per-CLI); other CLIs list without models until selected.
-      // #711: the current CLI also offers its resumable sessions.
+      // #711: the current CLI also offers its resumable sessions. While that
+      // payload is in flight the CLI is marked optionsPending — #803
+      // auto-pick must not resolve on a partial list.
       clis: discoveredClis.map((name) => ({
         name,
         ...(name === currentCli && composerCliSessions.length
@@ -3909,9 +3931,13 @@ const ChatPage = () => {
         ...(name === currentCli && cliModelsQuery.data?.models?.length
           ? { models: cliModelsQuery.data.models }
           : {}),
+        ...(name === currentCli && composerSessionsOpen && composerSessionsQuery.isPending
+          ? { optionsPending: true }
+          : {}),
       })),
       // Remote agent lists exist only for the *active* remote (the operate
       // `list` query is per-remote); others offer their default row only.
+      // While the list is in flight the row is optionsPending (#803).
       remotes: configuredRemoteRows.map((r) => ({
         id: r.id,
         label: r.title || r.id,
@@ -3921,6 +3947,7 @@ const ChatPage = () => {
                 id: row.id,
                 label: row.label || row.id,
               })),
+              optionsPending: remoteAgentsQuery.isPending,
             }
           : {}),
       })),
@@ -4743,6 +4770,9 @@ const ChatPage = () => {
               message.role === 'assistant'
                 ? personaForAgentMessage(message, selectedAgent?.personas)
                 : null
+            const parsedArtifacts = extractThinkingBlock(message.text)
+            const hasThinking = Boolean(parsedArtifacts.thinking)
+            const thinkingOpen = expandedThinkingKeys.has(message.key)
             return (
               <div
                 key={message.key}
@@ -4778,6 +4808,8 @@ const ChatPage = () => {
                   avatar={bubbleAvatar}
                   skillCatalog={skillCatalog}
                   onOpenSkill={setOpenSkillName}
+                  thinkingOpen={thinkingOpen}
+                  onToggleThinking={() => toggleThinking(message.key)}
                   onRemoveCard={() =>
                     setHiddenMessageKeys((prev) =>
                       prev.includes(message.key) ? prev : [...prev, message.key],
@@ -4851,6 +4883,9 @@ const ChatPage = () => {
                     onStartEdit={() => setEditingKey(message.key)}
                     canCompress={canCompressThis}
                     contextStrategy={contextStrategy}
+                    hasThinking={hasThinking}
+                    thinkingOpen={thinkingOpen}
+                    onToggleThinking={() => toggleThinking(message.key)}
                     onCompressToHere={() => {
                       handleContextToHere(message)
                     }}

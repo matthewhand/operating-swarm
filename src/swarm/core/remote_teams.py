@@ -893,13 +893,18 @@ def chat_herdr(
         raise RuntimeError(str(exc)) from exc
     except HerdrCLIError as exc:
         raise RuntimeError(f"herdr agent prompt failed: {exc}") from exc
+    from swarm.core.remotes import sanitize_herdr_response
+
+    reply = ""
     if isinstance(read, str) and read.strip():
-        return read.strip()
-    if isinstance(prompted, str) and prompted.strip():
-        return prompted.strip()
-    return ("" if read is None else str(read)).strip() or (
-        "" if prompted is None else str(prompted)
-    ).strip()
+        reply = read.strip()
+    elif isinstance(prompted, str) and prompted.strip():
+        reply = prompted.strip()
+    else:
+        reply = ("" if read is None else str(read)).strip() or (
+            "" if prompted is None else str(prompted)
+        ).strip()
+    return sanitize_herdr_response(reply)
 
 
 DSH_DEFAULT_ORIGIN = "http://127.0.0.1:3080"

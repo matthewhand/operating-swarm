@@ -20,6 +20,12 @@ export interface ComposerProviderOption {
   defaultOptionId?: string
   /** Optional one-line detail under the label. */
   description?: string
+  /**
+   * The provider's option list is still loading — #803 auto-pick must not
+   * fire on a partial list (a CLI whose sessions are mid-fetch would wrongly
+   * look like a one-option provider).
+   */
+  optionsPending?: boolean
 }
 
 export type ComposerPickerState = {
@@ -70,6 +76,10 @@ export function autoPickFor(
   provider: ComposerProviderOption,
   options: readonly ModelSearchOption[],
 ): { provider: ComposerProviderOption; option: ModelSearchOption | null } | null {
+  // Options still loading (e.g. #711 CLI sessions fetched when the picker
+  // opens): the provider may really have 2+ options — never auto-resolve on
+  // a partial list.
+  if (provider.optionsPending) return null
   if (options.length !== 1) return null
   if (options[0].tag === 'session') return null
   return { provider, option: options[0] }

@@ -33,4 +33,17 @@ describe('#803 — auto-pick providers with <=1 option', () => {
       autoPickFor(cli, [session, { id: 'grok-4', label: 'grok-4', tag: 'model' as const }]),
     ).toBeNull()
   })
+
+  it('never auto-picks while options are still loading (optionsPending) — partial lists lie', () => {
+    // #711 race: sessions fetched when the picker opens; before they land a
+    // CLI with sessions + models looks like a one-model provider.
+    const cli: ComposerProviderOption = {
+      id: 'cli:grok',
+      label: 'grok',
+      kind: 'cli',
+      optionsPending: true,
+    }
+    expect(autoPickFor(cli, [])).toBeNull()
+    expect(autoPickFor(cli, [{ id: 'grok-4', label: 'grok-4', tag: 'model' as const }])).toBeNull()
+  })
 })

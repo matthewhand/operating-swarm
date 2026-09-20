@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Check, Copy, FoldVertical, Pencil, Reply } from 'lucide-react'
+import { Brain, Check, Copy, FoldVertical, Pencil, Reply } from 'lucide-react'
 import { ActionRowLabelsContext } from '../lib/actionRowLabelsContext'
 import { useToast } from './DaisyUI'
 import {
@@ -44,6 +44,9 @@ export default function MessageRowActions({
   contextStrategy = 'compress',
   onReply,
   overlay = false,
+  hasThinking = false,
+  onToggleThinking,
+  thinkingOpen = false,
 }: {
   text: string
   children?: ReactNode
@@ -56,6 +59,12 @@ export default function MessageRowActions({
   onReply?: () => void
   /** #505: render out of flow over the bubble (IRC) instead of a flow line below it. */
   overlay?: boolean
+  /** Whether the message has thinking / reasoning content (#REQ-thinking-reaction). */
+  hasThinking?: boolean
+  /** Toggle thinking block callback (#REQ-thinking-reaction). */
+  onToggleThinking?: () => void
+  /** Whether thinking is currently revealed. */
+  thinkingOpen?: boolean
 }) {
   const [copied, setCopied] = useState(false)
   const [labels, setLabels] = useState(() => loadActionRowLabels())
@@ -117,6 +126,23 @@ export default function MessageRowActions({
     </button>
   ) : null
 
+  const thinkingButton = hasThinking && onToggleThinking ? (
+    <button
+      type="button"
+      className={btnClass}
+      aria-label="Thinking"
+      title={thinkingOpen ? 'Hide thinking' : 'Show thinking'}
+      data-testid="message-thinking-action"
+      onClick={onToggleThinking}
+    >
+      <Brain
+        className={`h-3 w-3 ${thinkingOpen ? 'text-primary' : 'text-primary/70'}`}
+        aria-hidden="true"
+      />
+      {labels ? 'Thinking' : null}
+    </button>
+  ) : null
+
   const copyButton = (
     <button
       type="button"
@@ -156,6 +182,7 @@ export default function MessageRowActions({
     >
       {editButton}
       {replyButton}
+      {thinkingButton}
       {copyButton}
       {children}
       {compressButton}

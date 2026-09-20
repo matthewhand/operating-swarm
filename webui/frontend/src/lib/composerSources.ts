@@ -27,6 +27,11 @@ export interface ComposerCliSource {
   sessions?: ReadonlyArray<{ id: string; label: string }>
   /** Probed models for the CLI (#682) — offered as model-dimension rows. */
   models?: readonly string[]
+  /**
+   * The sessions/models payload is still loading (#803): auto-pick must not
+   * resolve on a partial option list.
+   */
+  optionsPending?: boolean
 }
 
 export interface ComposerRemoteSource {
@@ -35,6 +40,8 @@ export interface ComposerRemoteSource {
   /** The remote's agent bots (#683). */
   agents?: ReadonlyArray<{ id: string; label: string }>
   defaultAgentId?: string
+  /** Agent list still loading (#803) — suppresses auto-pick. */
+  optionsPending?: boolean
 }
 
 export interface ComposerTeamSource {
@@ -77,6 +84,7 @@ export function buildComposerProviders(sources: ComposerSources): ComposerProvid
         : cli.models?.length
           ? `${cli.models.length} model(s)`
           : undefined,
+      ...(cli.optionsPending ? { optionsPending: true } : {}),
     })
   }
   for (const remote of sources.remotes ?? []) {
@@ -86,6 +94,7 @@ export function buildComposerProviders(sources: ComposerSources): ComposerProvid
       kind: 'remote',
       defaultOptionId: remote.defaultAgentId,
       description: remote.agents?.length ? `${remote.agents.length} agent(s)` : undefined,
+      ...(remote.optionsPending ? { optionsPending: true } : {}),
     })
   }
   for (const team of sources.teams ?? []) {

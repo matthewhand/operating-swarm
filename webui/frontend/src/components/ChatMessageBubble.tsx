@@ -26,8 +26,10 @@ import {
   streamingAffordanceClass,
   type BubbleTheme,
 } from '../lib/bubbleTheme'
+import { Brain, ChevronRight } from 'lucide-react'
 import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/streamReplies'
 import { splitLeadingQuote } from '../lib/replyQuote'
+import { extractThinkingBlock } from '../lib/messageArtifacts'
 import { QuotedReply } from './QuotedReply'
 import { SpecialStatusCard } from './SpecialCards'
 import {
@@ -59,6 +61,10 @@ export interface ChatMessageBubbleProps {
   avatar?: ReactNode
   /** Seat id for the per-seat stream-replies override (#220). */
   seatId?: string
+  /** Whether the collapsible thinking block is open (REQ-thinking-reaction). */
+  thinkingOpen?: boolean
+  /** Toggle thinking block callback (REQ-thinking-reaction). */
+  onToggleThinking?: (open?: boolean) => void
 }
 
 /**
@@ -73,6 +79,8 @@ export const ChatBubbleBody = memo(
     onOpenSkill,
     theme,
     seatId,
+    thinkingOpen,
+    onToggleThinking,
   }: {
     text: string
     streaming: boolean
@@ -80,6 +88,8 @@ export const ChatBubbleBody = memo(
     onOpenSkill?: (name: string) => void
     theme?: BubbleTheme
     seatId?: string
+    thinkingOpen?: boolean
+    onToggleThinking?: (open?: boolean) => void
   }) {
     const mdRef = useRef<HTMLDivElement | null>(null)
     const expandedIndicesRef = useRef<Set<number>>(new Set())
@@ -102,7 +112,8 @@ export const ChatBubbleBody = memo(
     // the bytes that went on the wire stay whole.
     const quoted = splitLeadingQuote(displayText)
     const contentText = quoted ? quoted.body : displayText
-    const { prose, card } = parseSupportNlBlueprintFence(contentText)
+    const { body: cleanedText, thinking } = extractThinkingBlock(contentText)
+    const { prose, card } = parseSupportNlBlueprintFence(cleanedText)
     const segments = splitSkillRefs(prose)
 
     useEffect(() => {
@@ -117,7 +128,7 @@ export const ChatBubbleBody = memo(
       return () => root.removeEventListener('click', onClick)
     }, [displayText])
 
-    if (displayText.length === 0) {
+    if (displayText.length === 0 || (prose.length === 0 && !thinking)) {
       return streaming ? (
         <LoadingDots size="sm" />
       ) : (
@@ -169,10 +180,32 @@ export const ChatBubbleBody = memo(
         </div>
       )
 
+    const thinkingEl = thinking ? (
+      <details
+        className="group/thinking my-1.5 rounded border border-base-content/15 bg-base-300/30 text-xs transition-colors open:bg-base-300/50"
+        open={thinkingOpen}
+        onToggle={(e) => onToggleThinking?.((e.target as HTMLDetailsElement).open)}
+        data-testid="chat-thinking-block"
+      >
+        <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 font-medium opacity-80 hover:opacity-100 focus:outline-none">
+          <Brain className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          <span>Thinking</span>
+          <ChevronRight className="h-3.5 w-3.5 opacity-60 transition-transform group-open/thinking:rotate-90 ml-auto" />
+        </summary>
+        <div
+          className="border-t border-base-content/10 px-3 py-2 text-xs leading-relaxed opacity-85 font-mono whitespace-pre-wrap select-text"
+          data-testid="chat-thinking-content"
+        >
+          {thinking}
+        </div>
+      </details>
+    ) : null
+
     const body = (
       <>
         {quoted ? <QuotedReply quote={quoted.quote} /> : null}
-        {markdown}
+        {thinkingEl}
+        {prose.length > 0 ? markdown : null}
         {affordanceClass ? (
           <span
             className={affordanceClass}
@@ -200,7 +233,9 @@ export const ChatBubbleBody = memo(
     prev.skillCatalog === next.skillCatalog &&
     prev.onOpenSkill === next.onOpenSkill &&
     prev.theme === next.theme &&
-    prev.seatId === next.seatId,
+    prev.seatId === next.seatId &&
+    prev.thinkingOpen === next.thinkingOpen &&
+    prev.onToggleThinking === next.onToggleThinking,
 )
 
 export function ChatMessageBubble({
@@ -221,6 +256,8 @@ export function ChatMessageBubble({
   avatar,
   theme,
   seatId,
+  thinkingOpen,
+  onToggleThinking,
 }: ChatMessageBubbleProps) {
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -445,6 +482,8 @@ export function ChatMessageBubble({
               onOpenSkill={onOpenSkill}
               theme={theme}
               seatId={seatId}
+              thinkingOpen={thinkingOpen}
+              onToggleThinking={onToggleThinking}
             />
           )}
           {children}

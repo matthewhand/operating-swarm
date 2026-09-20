@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
@@ -144,6 +146,7 @@ def _sync_django_and_memory(
 
 @login_required
 @ensure_csrf_cookie
+@never_cache
 @require_http_methods(["GET", "POST", "PATCH"])
 def chat_thread(request):
     """Hydrate (GET), append (POST), or edit (PATCH) the persisted transcript for one agent."""
@@ -180,6 +183,17 @@ def chat_thread(request):
         if requested_cid and requested_cid != default_cid:
             session_id = requested_cid
         requested_for_load = requested_cid
+
+    flush_requested = request.GET.get("flush") in ("1", "true") or request.GET.get("force") in ("1", "true")
+    if flush_requested:
+        from swarm.consumers import IN_MEMORY_CONVERSATIONS, IN_MEMORY_UI_EVENTS, _conversation_cache_key
+
+        for cid in {requested_cid, requested_for_load, default_cid, session_id}:
+            if cid:
+                ck = _conversation_cache_key(request.user, cid)
+                IN_MEMORY_CONVERSATIONS.pop(ck, None)
+                IN_MEMORY_UI_EVENTS.pop(ck, None)
+
     # JSON first, Django backfill — same order as WS fetch_conversation.
     loaded = load_thread(
         request.user,
@@ -190,7 +204,43 @@ def chat_thread(request):
         fresh_task=fresh_task,
     )
     record = loaded.record
-    turns, events = loaded.turns, loaded.events
+    turns, events = list(loaded.turns), list(loaded.events)
+
+    is_herdr = bool(
+        (agent_raw and str(agent_raw).startswith(("remote:herdr", "remote-herdr")))
+        or (requested_cid and requested_cid.startswith("remote-herdr"))
+    )
+    if is_herdr:
+        from swarm.core.remotes import read_herdr_recent, sanitize_herdr_response
+
+        target = ""
+        if requested_cid and requested_cid.startswith("remote-herdr-"):
+            target = requested_cid[len("remote-herdr-") :]
+        elif session_id and not session_id.startswith("remote-herdr"):
+            target = session_id
+
+        if target:
+            recent = read_herdr_recent(target)
+            if recent:
+                if not turns:
+                    turns = [
+                        {
+                            "role": "assistant",
+                            "content": recent,
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ]
+                elif flush_requested and turns and turns[-1].get("content") != recent:
+                    turns.append(
+                        {
+                            "role": "assistant",
+                            "content": recent,
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+        for item in turns:
+            if isinstance(item, dict) and "content" in item and isinstance(item["content"], str):
+                item["content"] = sanitize_herdr_response(item["content"])
     if (
         minted is None
         and requested_cid
@@ -255,7 +305,10 @@ def chat_thread(request):
     except Exception:
         payload["context_meta"] = {"start_offset": 0, "last_event": None}
     if request.method == "GET":
-        return JsonResponse(payload)
+        response = JsonResponse(payload)
+        response["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response["Pragma"] = "no-cache"
+        return response
 
     if request.method == "POST":
         body = _json_body(request)

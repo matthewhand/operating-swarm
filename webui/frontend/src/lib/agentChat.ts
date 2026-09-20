@@ -235,12 +235,15 @@ function parseSummaries(value: unknown): ConversationSummary[] {
 export async function fetchAgentThread(
   agentId: string,
   conversationIdOverride?: string,
+  options?: { flush?: boolean },
 ): Promise<AgentThread> {
   const agent = agentIdFromBlueprint(agentId)
   const conversationId =
     (conversationIdOverride || '').trim() || conversationIdForAgent(agent)
+  const flushParam = options?.flush ? '&flush=1' : ''
   const data = await apiGet<AgentThread>(
-    `/chat/thread/?agent=${encodeURIComponent(agent)}&conversation_id=${encodeURIComponent(conversationId)}`,
+    `/chat/thread/?agent=${encodeURIComponent(agent)}&conversation_id=${encodeURIComponent(conversationId)}${flushParam}`,
+    { cache: 'no-store' },
   )
   const reconstructed = messagesFromThreadPayload(data || {})
   const messages = reconstructed

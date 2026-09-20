@@ -118,32 +118,24 @@ describe('REQ-810: Chat right-click bubble theme select', () => {
     vi.restoreAllMocks()
   })
 
-  it('defaults the transcript to speech and lists four themes with a check on the current choice', async () => {
+  it('defaults the transcript to speech and the message menu offers Reply without a theme entry (#724)', async () => {
     renderChat()
     const transcript = screen.getByRole('log', { name: 'Conversation' })
     expect(transcript).toHaveAttribute('data-bubble-theme', 'speech')
 
     await openContextMenu()
     expect(screen.getByTestId('context-menu-reply')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('context-menu-bubble-theme'))
-
-    const submenu = await screen.findByTestId('context-menu-bubble-theme-submenu')
-    expect(submenu).toBeInTheDocument()
-    expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc', 'feed'])
-    for (const id of BUBBLE_THEMES) {
-      const option = screen.getByTestId(`context-menu-bubble-theme-${id}`)
-      expect(option).toHaveTextContent(BUBBLE_THEME_LABELS[id])
-      expect(option).toHaveAttribute('aria-checked', id === 'speech' ? 'true' : 'false')
-    }
+    // #724: bubble theme moved to the rail agent right-click menu — the
+    // message context menu must not carry it anymore.
+    expect(screen.queryByTestId('context-menu-bubble-theme')).not.toBeInTheDocument()
   })
 
-  it('selecting a theme sets data-bubble-theme, persists, and survives remount', async () => {
+  it('a saved global theme drives the transcript and survives remount (rail menu owns the picker, #724)', async () => {
     const first = renderChat()
-    await openContextMenu('Pick IRC look')
-    fireEvent.click(screen.getByTestId('context-menu-bubble-theme'))
-    fireEvent.click(await screen.findByTestId('context-menu-bubble-theme-irc'))
+    act(() => {
+      saveBubbleTheme('irc')
+    })
 
-    expect(screen.queryByTestId('message-context-menu')).not.toBeInTheDocument()
     expect(screen.getByRole('log', { name: 'Conversation' })).toHaveAttribute(
       'data-bubble-theme',
       'irc',
@@ -158,12 +150,11 @@ describe('REQ-810: Chat right-click bubble theme select', () => {
     )
   })
 
-  it('keeps Reply when the bubble-theme submenu is open', async () => {
-    renderChat()
-    await openContextMenu()
-    fireEvent.click(screen.getByTestId('context-menu-bubble-theme'))
-    expect(screen.getByTestId('context-menu-reply')).toBeInTheDocument()
-    expect(screen.getByTestId('context-menu-bubble-theme-submenu')).toBeInTheDocument()
+  it('registers every theme id for the rail-menu picker contract', () => {
+    expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc', 'feed'])
+    for (const id of BUBBLE_THEMES) {
+      expect(BUBBLE_THEME_LABELS[id]).toBeTruthy()
+    }
   })
 
   it('opens the menu when text is selected (#578)', async () => {
