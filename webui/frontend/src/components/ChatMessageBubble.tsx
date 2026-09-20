@@ -1,6 +1,5 @@
 import {
   memo,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -32,12 +31,6 @@ import { splitLeadingQuote } from '../lib/replyQuote'
 import { extractThinkingBlock } from '../lib/messageArtifacts'
 import { QuotedReply } from './QuotedReply'
 import { SpecialStatusCard } from './SpecialCards'
-import {
-  IRC_GUTTER_DEFAULT_PX,
-  loadIrcGutterPx,
-  saveIrcGutterPx,
-  themeUsesIrcGutter,
-} from '../lib/ircGutter'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -283,53 +276,12 @@ export function ChatMessageBubble({
     if (height > 0) bubbleHeightRef.current = height
   })
 
-  // #675 — IRC rows carry a draggable divider as their first child, directly
-  // after the ::before gutter, so every row shares one straight vertical edge.
-  // The drag persists through the shared store (save fires the change event;
-  // the transcript root re-syncs its --irc-gutter-px). Pointer capture keeps
-  // the drag glued to the divider when the pointer outruns it; jsdom lacks
-  // capture, so the optional calls are load-bearing for tests and harmless
-  // in browsers. Hooks stay above the system-role early return below.
-  const ircDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
-  const [ircDragging, setIrcDragging] = useState(false)
-  const onIrcDividerPointerDown = useCallback(
-    (event: React.PointerEvent<HTMLSpanElement>) => {
-      event.preventDefault()
-      event.currentTarget.setPointerCapture?.(event.pointerId)
-      ircDragRef.current = { startX: event.clientX, startWidth: loadIrcGutterPx() }
-      setIrcDragging(true)
-    },
-    [],
-  )
-  const onIrcDividerPointerMove = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
-    const drag = ircDragRef.current
-    if (!drag) return
-    saveIrcGutterPx(drag.startWidth + (event.clientX - drag.startX))
-  }, [])
-  const onIrcDividerPointerUp = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
-    event.currentTarget.releasePointerCapture?.(event.pointerId)
-    ircDragRef.current = null
-    setIrcDragging(false)
-  }, [])
-  const onIrcDividerDoubleClick = useCallback(() => {
-    saveIrcGutterPx(IRC_GUTTER_DEFAULT_PX)
-  }, [])
-
+  // #721 (supersedes the per-row #675/#774 presentation): the divider is ONE
+  // transcript-level rail — rows only own the fixed-width gutter, so the
+  // line cannot re-flow when messages append.
   if (role === 'system' || isSystemPreload) {
-    // #774: system-preload rows render the IRC gutter divider too, so the
-    // vertical line does not visibly break at those rows. The pill itself
-    // is unchanged; the divider is only mounted in the IRC theme.
     return (
       <div className="flex justify-start w-full my-1" data-testid="chat-system-preload">
-        {themeUsesIrcGutter(getBubbleTheme(theme).id) ? (
-          <span
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize IRC name column"
-            className="os-irc-gutter-divider"
-            data-testid="irc-gutter-divider"
-          />
-        ) : null}
         <SystemPreloadPill text={text} onRemove={onRemoveCard} />
       </div>
     )
@@ -357,7 +309,6 @@ export function ChatMessageBubble({
     </time>
   ) : null
   const placement = themeDef.timestampPlacement
-  const ircDivider = themeUsesIrcGutter(themeDef.id)
 
   return (
     <div
@@ -371,21 +322,6 @@ export function ChatMessageBubble({
       data-action-row-placement={themeDef.actionRowPlacement}
       aria-label={`${speaker} message`}
     >
-      {ircDivider ? (
-        <span
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize IRC name column"
-          className="os-irc-gutter-divider"
-          data-testid="irc-gutter-divider"
-          data-dragging={ircDragging ? 'true' : 'false'}
-          onPointerDown={onIrcDividerPointerDown}
-          onPointerMove={onIrcDividerPointerMove}
-          onPointerUp={onIrcDividerPointerUp}
-          onPointerCancel={onIrcDividerPointerUp}
-          onDoubleClick={onIrcDividerDoubleClick}
-        />
-      ) : null}
       {avatar && themeDef.showAvatar ? (
         <div
           className="chat-image avatar shrink-0"

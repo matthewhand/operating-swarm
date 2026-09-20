@@ -100,6 +100,8 @@ import {
   IRC_GUTTER_CHANGED_EVENT,
   loadIrcGutterPx,
   themeUsesIrcGutter,
+  saveIrcGutterPx,
+  IRC_GUTTER_DEFAULT_PX,
 } from '../lib/ircGutter'
 import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
@@ -671,6 +673,32 @@ const ChatPage = () => {
   // #675: resizable IRC gutter — per-row dividers persist through the shared
   // store; the transcript only mirrors the store via the change event.
   const [ircGutterPx, setIrcGutterPx] = useState(() => loadIrcGutterPx())
+  // #721: the universal divider is ONE transcript-level rail (not per-row
+  // segments) — drag persists through the shared store, double-click resets.
+  const ircDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const [ircGutterDragging, setIrcGutterDragging] = useState(false)
+  const onIrcRailPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => {
+      event.preventDefault()
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      ircDragRef.current = { startX: event.clientX, startWidth: loadIrcGutterPx() }
+      setIrcGutterDragging(true)
+    },
+    [],
+  )
+  const onIrcRailPointerMove = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const drag = ircDragRef.current
+    if (!drag) return
+    saveIrcGutterPx(drag.startWidth + (event.clientX - drag.startX))
+  }, [])
+  const onIrcRailPointerUp = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    ircDragRef.current = null
+    setIrcGutterDragging(false)
+  }, [])
+  const onIrcRailDoubleClick = useCallback(() => {
+    saveIrcGutterPx(IRC_GUTTER_DEFAULT_PX)
+  }, [])
   useEffect(() => {
     const sync = () => setIrcGutterPx(loadIrcGutterPx())
     window.addEventListener(IRC_GUTTER_CHANGED_EVENT, sync)
@@ -4551,6 +4579,21 @@ const ChatPage = () => {
         tabIndex={0}
         onScroll={handleTranscriptScroll}
       >
+          {themeUsesIrcGutter(bubbleTheme) ? (
+            <span
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize IRC name column"
+              className="os-irc-gutter-rail"
+              data-testid="irc-gutter-rail"
+              data-dragging={ircGutterDragging ? 'true' : 'false'}
+              onPointerDown={onIrcRailPointerDown}
+              onPointerMove={onIrcRailPointerMove}
+              onPointerUp={onIrcRailPointerUp}
+              onPointerCancel={onIrcRailPointerUp}
+              onDoubleClick={onIrcRailDoubleClick}
+            />
+          ) : null}
         <div className="os-chat-messages space-y-1 flex-1" data-testid="chat-messages-container">
         {restoreNotice ? (
           <p className="os-chat-status" data-role="status" data-testid="chat-status">

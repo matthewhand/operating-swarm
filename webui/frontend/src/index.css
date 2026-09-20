@@ -3091,22 +3091,30 @@ html:not([data-theme="light"]) .os-composer__send,
   font-size: 0.8125rem;
   font-weight: 500;
 }
-/* #675: the vertical divider between gutter and messages. Hover/drag lights
-   it up; double-click resets (handled by the component). */
-.os-irc-gutter-divider {
-  flex: 0 0 3px;
-  align-self: stretch;
+/* #721: the divider is ONE universal transcript-level rail, not per-row
+   segments: absolutely positioned at the shared gutter edge, spanning the
+   full scrollable content (abspos children of a scroller size against the
+   scrollable padding box), so appending messages can never move or break
+   it. The rail is also the drag handle (col-resize, full height); the
+   visible 1px line sits exactly at var(--irc-gutter-px). Double-click
+   resets (handled by the page). */
+.os-chat-transcript[data-bubble-theme='irc'] .os-irc-gutter-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--irc-gutter-px) + 4px);
+  width: 9px;
+  margin-left: -4px;
   cursor: col-resize;
   background: transparent;
   border-left: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
-  margin-right: 0.4rem;
   touch-action: none;
   user-select: none;
+  z-index: 10;
 }
-.os-irc-gutter-divider:hover,
-.os-irc-gutter-divider[data-dragging='true'] {
+.os-chat-transcript[data-bubble-theme='irc'] .os-irc-gutter-rail:hover,
+.os-chat-transcript[data-bubble-theme='irc'] .os-irc-gutter-rail[data-dragging='true'] {
   border-left-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
 }
 .os-chat-transcript[data-bubble-theme="irc"] .chat-bubble {
   flex: 1 1 auto;
