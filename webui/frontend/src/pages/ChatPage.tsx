@@ -93,6 +93,11 @@ import {
   saveBubbleTheme,
   type BubbleTheme,
 } from '../lib/bubbleTheme'
+import {
+  IRC_GUTTER_CHANGED_EVENT,
+  loadIrcGutterPx,
+  themeUsesIrcGutter,
+} from '../lib/ircGutter'
 import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
@@ -621,6 +626,14 @@ const ChatPage = () => {
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
   const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
   const [bubbleThemeMenuOpen, setBubbleThemeMenuOpen] = useState(false)
+  // #675: resizable IRC gutter — per-row dividers persist through the shared
+  // store; the transcript only mirrors the store via the change event.
+  const [ircGutterPx, setIrcGutterPx] = useState(() => loadIrcGutterPx())
+  useEffect(() => {
+    const sync = () => setIrcGutterPx(loadIrcGutterPx())
+    window.addEventListener(IRC_GUTTER_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(IRC_GUTTER_CHANGED_EVENT, sync)
+  }, [])
   // #506: Settings is a second bubble-theme writer — keep an already-mounted
   // transcript in sync instead of going stale until reload.
   useEffect(() => {
@@ -4246,7 +4259,17 @@ const ChatPage = () => {
       <div
         ref={scrollBoxRef}
         className="os-chat-transcript min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-3 sm:px-3 select-none outline-none focus:outline-none flex flex-col justify-between relative"
-        style={composerInsetCustomProperty(composerInsetPx) as CSSProperties}
+        data-composer-inset={composerInsetPx}
+        data-bubble-theme={bubbleTheme}
+        style={
+          {
+            ...((composerInsetCustomProperty(composerInsetPx) as CSSProperties) ?? {}),
+            ...(themeUsesIrcGutter(bubbleTheme)
+              ? ({ ['--irc-gutter-px' as string]: `${ircGutterPx}px` } as React.CSSProperties)
+              : {}),
+          } as React.CSSProperties
+        }
+        data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
         aria-live="polite"
         role="log"
         aria-label="Conversation"
@@ -4258,9 +4281,6 @@ const ChatPage = () => {
               : agentKind
         }
         data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
-        data-composer-inset={composerInsetPx}
-        data-bubble-theme={bubbleTheme}
-        data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
         data-timestamp-placement={getBubbleTheme(bubbleTheme).timestampPlacement}
         data-action-row-placement={getBubbleTheme(bubbleTheme).actionRowPlacement}
         tabIndex={0}

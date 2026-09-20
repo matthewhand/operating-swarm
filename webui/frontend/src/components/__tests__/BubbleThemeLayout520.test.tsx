@@ -86,16 +86,17 @@ describe('#520.2 simple — no avatar, no speaker label', () => {
 })
 
 describe('#520.3 irc — full agent name, legible floor', () => {
-  it('gutter flexes to the name with a 10ch floor, 16ch cap, body-copy size', () => {
+  it('#675: gutter is a fixed resizable width, body-copy size kept', () => {
     const css = cssText()
     const block = css.match(
       /\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*?\n\}/,
     )
     expect(block).toBeTruthy()
     const rule = block![0]
-    expect(rule).toContain('flex: 0 1 auto')
-    expect(rule).toContain('min-width: 10ch')
-    expect(rule).toContain('max-width: 16ch')
+    // #675 superseded the flex/min/max ch sizing: the width is the persisted,
+    // divider-dragged --irc-gutter-px so all bodies align on one vertical edge.
+    expect(rule).toContain('flex: 0 0 var(--irc-gutter-px)')
+    expect(rule).toContain('width: var(--irc-gutter-px)')
     expect(rule).toContain('font-size: 0.8125rem')
   })
 })

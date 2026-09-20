@@ -2950,12 +2950,17 @@ html:not([data-theme="light"]) .os-composer__send,
 /* #520.3 — irc: full agent name at a legible size. The gutter flexes to the
    name's natural width (capped so very long names cannot starve the message),
    never smaller than the body copy (0.8125rem = the theme's own font size). */
+/* #675: the timestamp+name gutter is a FIXED width (the persisted, resizable
+   preference), so every message body starts at the same x — classic IRC
+   vertical alignment regardless of prefix length. The transcript root sets
+   --irc-gutter-px; the divider element drags it. */
+.os-chat-transcript[data-bubble-theme="irc"] {
+  --irc-gutter-px: 140px;
+}
 .os-chat-transcript[data-bubble-theme="irc"] .chat[data-speaker]::before {
   content: "<" attr(data-speaker) ">";
-  flex: 0 1 auto;
-  width: auto;
-  max-width: 16ch;
-  min-width: 10ch;
+  flex: 0 0 var(--irc-gutter-px);
+  width: var(--irc-gutter-px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2964,6 +2969,23 @@ html:not([data-theme="light"]) .os-composer__send,
   margin-right: 0.5rem;
   font-size: 0.8125rem;
   font-weight: 500;
+}
+/* #675: the vertical divider between gutter and messages. Hover/drag lights
+   it up; double-click resets (handled by the component). */
+.os-irc-gutter-divider {
+  flex: 0 0 3px;
+  align-self: stretch;
+  cursor: col-resize;
+  background: transparent;
+  border-left: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  margin-right: 0.4rem;
+  touch-action: none;
+  user-select: none;
+}
+.os-irc-gutter-divider:hover,
+.os-irc-gutter-divider[data-dragging='true'] {
+  border-left-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
 }
 .os-chat-transcript[data-bubble-theme="irc"] .chat-bubble {
   flex: 1 1 auto;

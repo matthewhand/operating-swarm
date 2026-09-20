@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -28,6 +29,12 @@ import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/st
 import { splitLeadingQuote } from '../lib/replyQuote'
 import { QuotedReply } from './QuotedReply'
 import { SpecialStatusCard } from './SpecialCards'
+import {
+  IRC_GUTTER_DEFAULT_PX,
+  loadIrcGutterPx,
+  saveIrcGutterPx,
+  themeUsesIrcGutter,
+} from '../lib/ircGutter'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -238,6 +245,38 @@ export function ChatMessageBubble({
     if (height > 0) bubbleHeightRef.current = height
   })
 
+  // #675 — IRC rows carry a draggable divider as their first child, directly
+  // after the ::before gutter, so every row shares one straight vertical edge.
+  // The drag persists through the shared store (save fires the change event;
+  // the transcript root re-syncs its --irc-gutter-px). Pointer capture keeps
+  // the drag glued to the divider when the pointer outruns it; jsdom lacks
+  // capture, so the optional calls are load-bearing for tests and harmless
+  // in browsers. Hooks stay above the system-role early return below.
+  const ircDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const [ircDragging, setIrcDragging] = useState(false)
+  const onIrcDividerPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => {
+      event.preventDefault()
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      ircDragRef.current = { startX: event.clientX, startWidth: loadIrcGutterPx() }
+      setIrcDragging(true)
+    },
+    [],
+  )
+  const onIrcDividerPointerMove = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const drag = ircDragRef.current
+    if (!drag) return
+    saveIrcGutterPx(drag.startWidth + (event.clientX - drag.startX))
+  }, [])
+  const onIrcDividerPointerUp = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    ircDragRef.current = null
+    setIrcDragging(false)
+  }, [])
+  const onIrcDividerDoubleClick = useCallback(() => {
+    saveIrcGutterPx(IRC_GUTTER_DEFAULT_PX)
+  }, [])
+
   if (role === 'system' || isSystemPreload) {
     return (
       <div className="flex justify-start w-full my-1" data-testid="chat-system-preload">
@@ -268,6 +307,7 @@ export function ChatMessageBubble({
     </time>
   ) : null
   const placement = themeDef.timestampPlacement
+  const ircDivider = themeUsesIrcGutter(themeDef.id)
 
   return (
     <div
@@ -281,6 +321,21 @@ export function ChatMessageBubble({
       data-action-row-placement={themeDef.actionRowPlacement}
       aria-label={`${speaker} message`}
     >
+      {ircDivider ? (
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize IRC name column"
+          className="os-irc-gutter-divider"
+          data-testid="irc-gutter-divider"
+          data-dragging={ircDragging ? 'true' : 'false'}
+          onPointerDown={onIrcDividerPointerDown}
+          onPointerMove={onIrcDividerPointerMove}
+          onPointerUp={onIrcDividerPointerUp}
+          onPointerCancel={onIrcDividerPointerUp}
+          onDoubleClick={onIrcDividerDoubleClick}
+        />
+      ) : null}
       {avatar && themeDef.showAvatar ? (
         <div
           className="chat-image avatar shrink-0"
