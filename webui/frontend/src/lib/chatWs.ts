@@ -75,6 +75,8 @@ export type ChatWsEvent =
   | { kind: 'spa_hello'; spaVersion: string }
   | { kind: 'suggestions'; suggestions: string[] }
   | { kind: 'context_usage'; usage: ContextUsage }
+  | { kind: 'aux_started'; task: { task_id: string; label?: string; model?: string; state: 'running' } }
+  | { kind: 'aux_update'; task: { task_id: string; state: string; duration_s?: number; label?: string } }
   | {
       kind: 'interbot_hop'
       id: string
@@ -257,6 +259,30 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
     if (type === 'turn_cancelled') {
       // #198: ack for cancel_turn — styled as a status line in the transcript.
       return { kind: 'status', text: 'Interrupted — queued message promoted.' }
+    }
+    if (type === 'aux_task_started') {
+      // #818: background LLM work became visible.
+      const taskId = String(payload.task_id || '')
+      if (!taskId) return { kind: 'unknown', raw }
+      const label = typeof payload.label === 'string' ? payload.label : undefined
+      const model = typeof payload.model === 'string' ? payload.model : undefined
+      return {
+        kind: 'aux_started',
+        task: { task_id: taskId, label, model, state: 'running' },
+      }
+    }
+    if (type === 'aux_task_update') {
+      const taskId = String(payload.task_id || '')
+      if (!taskId) return { kind: 'unknown', raw }
+      return {
+        kind: 'aux_update',
+        task: {
+          task_id: taskId,
+          state: String(payload.state || 'done'),
+          duration_s: typeof payload.duration_s === 'number' ? payload.duration_s : undefined,
+          label: typeof payload.label === 'string' ? payload.label : undefined,
+        },
+      }
     }
     if (type === 'suggestions') {
       const suggestions = parseSuggestions(payload)

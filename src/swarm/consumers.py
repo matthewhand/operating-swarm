@@ -37,6 +37,10 @@ WS_AUTH_REQUIRED_CODE = 4401
 # server -> client acknowledgement {"type": "turn_cancelled"}. The ack is
 # consumed by the WS parser as a status line, not a new event kind.
 TURN_CANCELLED_TYPE = "turn_cancelled"
+# #818: auxiliary/background LLM inference visibility.
+AUX_START_TYPE = "aux_task_started"
+AUX_UPDATE_TYPE = "aux_task_update"
+AUX_CANCEL_TYPE = "cancel_auxiliary"
 
 # REQ-78 / #423 — advertise the backend's expected SPA bake on connect.
 SPA_HELLO_TYPE = "spa_hello"
@@ -581,6 +585,18 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             await self._cancel_current_turn()
             return
 
+        # #818: kill one background task from the activity dialog.
+        if text_data_json.get("type") == AUX_CANCEL_TYPE:
+            task_id = text_data_json.get("task_id")
+            if isinstance(task_id, str) and task_id:
+                cancelled = self.auxiliary_tasks.cancel(task_id)
+                await self.send(
+                    text_data=json.dumps(
+                        {"type": AUX_UPDATE_TYPE, "task_id": task_id, "cancelled": cancelled}
+                    )
+                )
+            return
+
         if text_data_json.get("type") == "status":
             status_text = text_data_json.get("text")
             if not isinstance(status_text, str) or not status_text.strip():
@@ -623,6 +639,17 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             event = asyncio.Event()
             self._turn_cancel_event = event
         return event
+
+    @property
+    def auxiliary_tasks(self):
+        """#818: per-connection registry of background LLM tasks."""
+        reg = getattr(self, "_auxiliary_tasks", None)
+        if reg is None:
+            from swarm.core.auxiliary_tasks import AuxiliaryTaskRegistry
+
+            reg = AuxiliaryTaskRegistry()
+            self._auxiliary_tasks = reg
+        return reg
 
     async def _cancel_current_turn(self):
         """#198: cooperative cancel — request the active turn to stop.
@@ -1416,6 +1443,35 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         strict advisor prompt, non-streaming, short answer. Returns None when
         the advisor produces nothing usable.
         """
+        from swarm.core.auxiliary_tasks import AuxiliaryTaskRegistry
+
+        aux = self.auxiliary_tasks
+        aux_task_id = aux.register(f"Advisor note ({advisor_id})")
+        try:
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": AUX_START_TYPE,
+                        **aux.payload(aux._tasks[aux_task_id]),
+                    }
+                )
+            )
+        except Exception:
+            pass
+        try:
+            return await self._generate_advice_note_inner(
+                advisor_id, agent_id, reply_text
+            )
+        finally:
+            payload = aux.finish(aux_task_id) or {}
+            try:
+                await self.send(
+                    text_data=json.dumps({"type": AUX_UPDATE_TYPE, **payload})
+                )
+            except Exception:
+                pass
+
+    async def _generate_advice_note_inner(self, advisor_id, agent_id, reply_text):
         from swarm.core.blueprint_discovery import discover_blueprints
 
         advisor_name = advisor_id

@@ -215,6 +215,15 @@ import {
   type ChatWsEvent,
 } from '../lib/chatWs'
 import { ContextUsageBadge } from '../components/ContextUsageBadge'
+import { AuxActivityIndicator } from '../components/AuxActivityIndicator'
+import {
+  applyAuxFrame,
+  announceAuxTasks,
+  requestAuxCancel,
+  sweepAuxTasks,
+  AUX_CANCEL_EVENT,
+  type AuxTask,
+} from '../lib/auxTasks'
 import {
   fetchContextUsage,
   publishContextUsage,
@@ -622,6 +631,28 @@ const ChatPage = () => {
   const [cullTriggerPct, setCullTriggerPct] = useState(DEFAULT_CULL_TRIGGER_PCT)
   const [contextMeta, setContextMeta] = useState<ContextMeta>({ start_offset: 0, last_event: null })
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null)
+  // #818: background (auxiliary) LLM inference visibility. Frames arrive on
+  // the chat socket; the kill switch rides the same socket back.
+  const [auxTasks, setAuxTasks] = useState<AuxTask[]>([])
+  useEffect(() => {
+    const onCancel = (e: Event) => {
+      const taskId = (e as CustomEvent<string>).detail
+      if (typeof taskId === 'string' && taskId) {
+        wsRef.current?.send(JSON.stringify({ type: 'cancel_auxiliary', task_id: taskId }))
+      }
+    }
+    window.addEventListener(AUX_CANCEL_EVENT, onCancel)
+    const sweeper = setInterval(() => {
+      setAuxTasks((prev) => {
+        const next = sweepAuxTasks(prev)
+        return next.length === prev.length ? prev : next
+      })
+    }, 1_000)
+    return () => {
+      window.removeEventListener(AUX_CANCEL_EVENT, onCancel)
+      clearInterval(sweeper)
+    }
+  }, [])
   const [startFromHereWarning, setStartFromHereWarning] = useState<{
     message: ChatMessage
     copy: string
@@ -2230,6 +2261,20 @@ const ChatPage = () => {
       if (event.kind === 'context_usage') {
         publishContextUsage(event.usage)
         setContextUsage(event.usage)
+        return
+      }
+      if (event.kind === 'aux_started' || event.kind === 'aux_update') {
+        // #818: background LLM work surfaces in the navbar indicator.
+        setAuxTasks((prev) => {
+          const next = applyAuxFrame(
+            prev,
+            event.kind === 'aux_started'
+              ? { type: 'aux_task_started', ...event.task }
+              : { type: 'aux_task_update', ...event.task },
+          )
+          announceAuxTasks(next)
+          return next
+        })
         return
       }
       if (event.kind === 'tool_status') {
@@ -4297,6 +4342,13 @@ const ChatPage = () => {
             the ONE canonical meter (server-reported, out/in/max shorthand).
             Two tallies with different sources disagreed. */}
         <div className="os-chat-header__controls flex items-center shrink-0 gap-1 sm:gap-2">
+          <AuxActivityIndicator
+            tasks={auxTasks}
+            onCancel={(taskId) => {
+              requestAuxCancel(taskId)
+              wsRef.current?.send(JSON.stringify({ type: 'cancel_auxiliary', task_id: taskId }))
+            }}
+          />
           {showEmptyRemoteChrome ? (
             <button
               type="button"
