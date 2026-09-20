@@ -32,3 +32,31 @@ export function getScopedSelectionText(targetElement: Element | null): string | 
     return null
   }
 }
+
+/** #846: the last selection seen inside a bubble, keyed by message. */
+export interface CachedBubbleSelection {
+  messageKey: string
+  text: string
+}
+
+/**
+ * #846: resolve the quote text for a Reply action.
+ *
+ * Live scoped selection wins. When the browser has already collapsed the
+ * selection (a right-click's mousedown collapses it before `contextmenu`
+ * fires), fall back to the pre-collapse cache — but ONLY for the same
+ * message: a selection made in message A must never quote message B.
+ */
+export function resolveReplyQuote(opts: {
+  targetElement: Element | null
+  cached: CachedBubbleSelection | null
+  messageKey: string
+}): string | null {
+  const live = getScopedSelectionText(opts.targetElement)
+  if (live) return live
+  const cached = opts.cached
+  if (cached && cached.messageKey === opts.messageKey && cached.text.trim().length > 0) {
+    return cached.text
+  }
+  return null
+}

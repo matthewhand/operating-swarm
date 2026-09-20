@@ -32,7 +32,11 @@ import RateLimitStatusLine from '../components/RateLimitStatusLine'
 import { isRateLimitWait, settingsTargetForProvider, type RateLimitWait } from '../lib/providerRateLimits'
 import { formatRateLimitNotice } from '../lib/statusLineText'
 import { IrcNoticeLine } from '../components/IrcNoticeLine'
-import { getScopedSelectionText } from '../lib/bubbleSelection'
+import {
+  getScopedSelectionText,
+  resolveReplyQuote,
+  type CachedBubbleSelection,
+} from '../lib/bubbleSelection'
 import { buildOutboundReplyText } from '../lib/replyQuote'
 import {
   copyTextToClipboard,
@@ -923,11 +927,26 @@ const ChatPage = () => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [contextMenu])
 
+  // #846: a right-click's mousedown collapses the DOM selection before
+  // `contextmenu` fires (Chromium/WebKit), so the live read can be empty even
+  // when the user has a highlight. Cache the last selection seen per row on
+  // mouseup, and block the collapse on right-button mousedown long enough for
+  // the context menu to read it.
+  const activeSelectionRef = useRef<CachedBubbleSelection | null>(null)
+  const cacheRowSelection = useCallback((messageKey: string, row: Element | null) => {
+    const text = getScopedSelectionText(row)
+    activeSelectionRef.current = text ? { messageKey, text } : null
+  }, [])
+
   const handleBubbleContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>, message: ChatMessage) => {
       if (message.streaming) return
       event.preventDefault()
-      const selectedText = getScopedSelectionText(event.currentTarget)
+      const selectedText = resolveReplyQuote({
+        targetElement: event.currentTarget,
+        cached: activeSelectionRef.current,
+        messageKey: message.key,
+      })
       setContextMenu({
         x: event.clientX,
         y: event.clientY,
@@ -4771,11 +4790,26 @@ const ChatPage = () => {
             return (
               <div
                 key={message.key}
+                data-message-key={message.key}
                 data-persona={rowPersona ?? undefined}
                 className="group/osrow os-chat-row"
                 onContextMenu={(e) => {
                   if (message.role === 'system') return
                   handleBubbleContextMenu(e, message)
+                }}
+                onMouseUp={(e) => {
+                  // #846: remember what was highlighted in THIS row before any
+                  // right-click can collapse the selection.
+                  if (message.role === 'system') return
+                  cacheRowSelection(message.key, e.currentTarget)
+                }}
+                onMouseDown={(e) => {
+                  if (message.role === 'system') return
+                  if (e.button === 2) {
+                    // #846: stop the right-click from wiping the selection
+                    // before the context menu can read it.
+                    e.preventDefault()
+                  }
                 }}
               >
                 {newBeforeKey === message.key ? <ChatNewRule /> : null}
@@ -4885,12 +4919,23 @@ const ChatPage = () => {
                       handleContextToHere(message)
                     }}
                     onReply={() => {
+                      // #846: row-action Reply honors a scoped selection in
+                      // this bubble too — not just the context menu.
+                      const row = document.querySelector<HTMLDivElement>(
+                        `[data-message-key="${CSS.escape(message.key)}"]`,
+                      )
+                      const quoted =
+                        resolveReplyQuote({
+                          targetElement: row,
+                          cached: activeSelectionRef.current,
+                          messageKey: message.key,
+                        }) || message.text
                       setReplyTarget({
                         key: message.key,
                         role: message.role,
                         speaker:
                           message.role === 'user' ? 'You' : selectedAgentName,
-                        text: message.text,
+                        text: quoted,
                       })
                       composerRef.current?.focus()
                     }}
@@ -5357,7 +5402,8 @@ const ChatPage = () => {
               }}
             >
               <Reply className="h-4 w-4 opacity-70" aria-hidden="true" />
-              Reply
+              {/* #846: label names the target — a partial selection is a quote. */}
+              {contextMenu.selectedText ? 'Reply to quote' : 'Reply'}
             </button>
             <button
               type="button"

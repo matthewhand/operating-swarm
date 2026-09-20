@@ -142,6 +142,86 @@ describe('REQ-198: Chat right-click Reply — quote strip in composer, sent with
     expect(input).toHaveAttribute('placeholder', 'Message …')
   })
 
+  it('#846: right-click Reply quotes ONLY the highlighted snippet even when the browser collapses the selection', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'alpha bravo charlie delta echo')
+    })
+
+    const bubble = await screen.findByText(/alpha bravo charlie delta echo/i)
+
+    // Chromium collapses the selection on right-click mousedown BEFORE the
+    // contextmenu event. Simulate: live selection during the row's mouseup
+    // cache, collapsed by the time contextmenu reads it.
+    let selectionReads = 0
+    const live = {
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: bubble }),
+      toString: () => 'charlie delta',
+    }
+    const collapsed = { isCollapsed: true, rangeCount: 0 }
+    const spy = vi.spyOn(window, 'getSelection').mockImplementation(() => {
+      selectionReads += 1
+      return (selectionReads <= 1 ? live : collapsed) as unknown as Selection
+    })
+
+    // The user finishes highlighting (mouseup caches it)…
+    fireEvent.mouseUp(bubble)
+    // …then right-clicks: the live selection is gone, the cache must supply it.
+    fireEvent.contextMenu(bubble, { clientX: 150, clientY: 150 })
+    spy.mockRestore()
+
+    const menu = await screen.findByTestId('message-context-menu')
+    expect(menu).toBeInTheDocument()
+    // Label names the target: a partial selection is a quote.
+    expect(screen.getByTestId('context-menu-reply')).toHaveTextContent('Reply to quote')
+
+    fireEvent.click(screen.getByTestId('context-menu-reply'))
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toHaveTextContent('charlie delta')
+    expect(replyStrip).not.toHaveTextContent('alpha bravo')
+  })
+
+  it('#846: right-click with no highlight still replies to the whole message', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'whole message body here')
+    })
+
+    const bubble = await screen.findByText(/whole message body here/i)
+    vi.spyOn(window, 'getSelection').mockReturnValue({ isCollapsed: true, rangeCount: 0 } as unknown as Selection)
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+
+    const replyBtn = await screen.findByTestId('context-menu-reply')
+    expect(replyBtn).toHaveTextContent(/^Reply$/)
+    fireEvent.click(replyBtn)
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toHaveTextContent('whole message body here')
+  })
+
   it('sending a message while reply is armed sends structured quote block on the wire', async () => {
     render(
       <QueryClientProvider client={queryClient}>
