@@ -10,11 +10,13 @@ SESSION_SWITCHER = REPO / "webui" / "frontend" / "src" / "components" / "CliSess
 
 
 def test_routing_picker_renders_manage_divider_and_skips_footer_flyout():
+    """#504/#681 moved the Manage action into the shared surfaces' footers
+    (palette footer + two-stage dialog footer) — the picker passes the
+    footerAction through instead of rendering its own divider flyout."""
     src = PICKER.read_text(encoding="utf-8")
-    assert 'data-testid="manage-surface-divider"' in src
-    assert 'role="separator"' in src
-    assert "row.id !== footerAction?.id" in src
-    assert "item.kind === 'agent' && item.hasChildren" in src
+    assert "onManageSettings={footerAction?.onSelect}" in src
+    assert "onManage={footerAction?.onSelect}" in src
+    assert "manageLabel" in src
 
 
 def test_chat_page_manage_labels_are_title_case():

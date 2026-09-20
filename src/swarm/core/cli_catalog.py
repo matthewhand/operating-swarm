@@ -1034,14 +1034,17 @@ def cli_from_rail_id(agent_id: str | None) -> str | None:
     return None
 
 
-# CLI-first product modes (#151). Only CLI is on until Settings enables more.
+# CLI-first product modes (#151). 2026-09-20 user decision: the Settings
+# toggle for modes was unreliable, so every surface ships **enabled** until
+# that control is fixed. An explicit ``settings.product_modes`` payload still
+# gates (``product_modes()`` resolves it key-by-key).
 PRODUCT_MODE_KEYS: tuple[str, ...] = ("cli", "api", "blueprint", "team", "remote")
 DEFAULT_PRODUCT_MODES: dict[str, bool] = {
     "cli": True,
-    "api": False,
-    "blueprint": False,
-    "team": False,
-    "remote": False,
+    "api": True,
+    "blueprint": True,
+    "team": True,
+    "remote": True,
 }
 PRODUCT_MODE_LIMITATIONS: dict[str, str] = {
     "cli": (
@@ -1069,7 +1072,7 @@ PRODUCT_MODE_LIMITATIONS: dict[str, str] = {
 
 
 def default_product_modes() -> dict[str, bool]:
-    """Shipped CLI-first defaults: CLI on, every other manage surface off."""
+    """Shipped defaults: every mode on (toggle unreliability workaround)."""
     return dict(DEFAULT_PRODUCT_MODES)
 
 

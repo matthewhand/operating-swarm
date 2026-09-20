@@ -153,32 +153,34 @@ describe('#594 product modes settle before they paint the rail', () => {
     localStorage.clear()
   })
 
-  it('withholds a mode-gated row from the first paint, and never removes a painted row', async () => {
+  it('paints gated rows during flight (all-on workaround), and settles an explicit off by removing them', async () => {
     renderRail()
-    // The blueprint feed has landed; the modes have not. This is the window the
-    // report is about — and `codey` is gated, so it must not be painted at all.
+    // 2026-09-20: shipped in-flight defaults are all-on (mode-toggle workaround),
+    // so the first paint shows every feed row — including gated `codey`.
     await flush()
     await waitFor(() => expect(rowIds()).toContain('localc'))
     const before = rowIds()
-    expect(before).not.toContain('codey')
+    expect(before).toContain('codey')
 
     await settle({ clis: ['grok'], rail: CLI_RAIL, modes: SHIPPED_MODES }, () =>
       expect(rowIds()).toContain('cli_agent'),
     )
 
+    // Rows whose modes stay on are never removed; an *advertised* off is.
     expect(rowIds()).toContain('cli_agent')
     expect(rowIds()).not.toContain('codey')
-    for (const id of before) expect(rowIds()).toContain(id)
+    expect(rowIds()).not.toContain('api_agent')
   })
 
-  it('settles into a superset when the server advertises more modes than the default', async () => {
+  it('an all-on settled payload keeps every painted row (superset guarantee)', async () => {
     renderRail()
     await flush()
     await waitFor(() => expect(rowIds()).toContain('localc'))
     const before = rowIds()
 
-    await settle({ clis: ['grok'], rail: CLI_RAIL, modes: { ...SHIPPED_MODES, api: true } }, () =>
-      expect(rowIds()).toContain('api_agent'),
+    await settle(
+      { clis: ['grok'], rail: CLI_RAIL, modes: { cli: true, api: true, blueprint: true, team: true, remote: true } },
+      () => expect(rowIds()).toContain('api_agent'),
     )
 
     const after = rowIds()

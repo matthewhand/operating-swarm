@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react'
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import ChatPage from '../ChatPage'
@@ -113,10 +113,17 @@ describe('ChatPage remote navbar agents + sessions', () => {
       ).toBe(true)
     })
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'remote')
-    // #504: remote-end agents are palette rows behind the combined pill.
+    // #681: remote-end agents are stage-2 rows behind the combined pill.
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    const palette = await screen.findByTestId('os-model-search-palette')
-    expect(await within(palette).findByRole('option', { name: /Docs/ })).toBeInTheDocument()
+    await screen.findByTestId('composer-picker')
+    fireEvent.click((await screen.findAllByTestId('composer-picker-row')).find((el) =>
+      el.textContent?.includes('AnythingLLM'),
+    )!)
+    expect(
+      (await screen.findAllByTestId('composer-picker-row', {}, { timeout: 4000 })).some((el) =>
+        /Docs/.test(el.textContent || ''),
+      ),
+    ).toBe(true)
     const sessionsBtn = screen.getByTestId('os-remote-session-switcher')
     expect(sessionsBtn).toHaveAttribute('aria-label', 'Select AnythingLLM session')
     fireEvent.click(sessionsBtn)

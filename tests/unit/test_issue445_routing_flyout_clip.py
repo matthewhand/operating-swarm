@@ -64,5 +64,8 @@ def test_the_title_still_clamps_on_the_label():
     """The requirement the header clip used to serve, kept where it belongs."""
     label = _css_block(".os-navbar-identity-label")
     assert re.search(r"\boverflow\s*:\s*hidden", label), label
-    assert "mask-image" in label
     assert "white-space: nowrap" in label
+    # #678: the fade is truncation-gated — the mask moved to the
+    # [data-truncated='true'] variant so a fitting name renders unfaded.
+    truncated = _css_block(".os-navbar-identity-label[data-truncated='true']")
+    assert "mask-image" in truncated, truncated

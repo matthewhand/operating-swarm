@@ -48,8 +48,10 @@ def test_sidebar_alt_pins_and_tips():
     # Single in-field ⌘K / Ctrl+K chip — do not also append it to the Search label
     assert "searchShortcutLabel" in sidebar
     assert "os-rail-search__kbd" in sidebar
-    assert 'placeholder="Search"' in sidebar
-    assert "Search ${searchShortcut}" not in sidebar
+    assert 'placeholder="Search"' not in sidebar  # #705: search lives in SearchBar.tsx
+    assert "Search Ctrl" not in sidebar
+    assert "Search ⌘" not in sidebar
+    assert "Search Cmd" not in sidebar
     assert "first-load-tips" not in sidebar
     assert "os-keybinding-tips alert" not in sidebar
 
@@ -77,7 +79,7 @@ def test_in_field_unfocused_hints_replace_overlay():
     assert "searchShortcutLabel" in labels
     assert "!query.trim()" in palette
     assert "os-search-palette__kbd" in palette
-    assert ".os-agent-sidebar:hover .os-rail-search__kbd" in css
+    assert ".os-rail-search:hover .os-rail-search__kbd" in css
     assert ".os-rail-search:focus-within .os-rail-search__kbd" not in css
     assert ".os-composer:hover .os-composer__hint" in css
     assert ".os-composer:focus-within .os-composer__hint" in css

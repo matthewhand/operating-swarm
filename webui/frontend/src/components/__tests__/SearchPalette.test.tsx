@@ -545,7 +545,7 @@ describe('#677 search covers every seat kind', () => {
     object: 'herdr.agent' as const,
     kind: 'herdr' as const,
     name: 'pane-one',
-    remote: 'ubuntu-gtx',
+    remote: 'demo-host',
     created_at: '2026-09-01T00:00:00Z',
     updated_at: '2026-09-01T00:00:00Z',
   }

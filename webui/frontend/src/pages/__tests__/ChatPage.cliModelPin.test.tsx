@@ -127,7 +127,8 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    // #629: the combined pill opens the palette; the warning rides in it.
+    // #681: the combined pill opens the two-stage dialog; the warning rides
+    // in it (same surface the flat palette used to provide).
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     expect(await screen.findByTestId('routing-model-warning')).toHaveTextContent(
       "grok: CLI not installed (no 'grok' on PATH)",
@@ -142,9 +143,10 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    // #504: probed models are palette rows.
+    // #681/#682: descend into the CLI provider; probed models are its rows.
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    fireEvent.click(await screen.findByTestId('os-model-row-grok-4.5'))
+    fireEvent.click(await screen.findByText('grok'))
+    fireEvent.click(await screen.findByText('grok-4.5'))
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'pin the next run' } })
     fireEvent.submit(composer.closest('form')!)
@@ -169,7 +171,9 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     expect(screen.queryByRole('menuitem', { name: 'openai' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'default' })).not.toBeInTheDocument()
     // #504 + #103: the full provider/model id pins verbatim — no family split.
-    fireEvent.click(await screen.findByTestId('os-model-row-openai/gpt-4o'))
+    // #681: descend into the pi provider first.
+    fireEvent.click(await screen.findByText('pi'))
+    fireEvent.click(await screen.findByText('openai/gpt-4o'))
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'pin pi' } })
     fireEvent.submit(composer.closest('form')!)

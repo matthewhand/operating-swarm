@@ -37,6 +37,10 @@ export interface ComposerPickerDialogProps {
   /** Settings escape hatch (Manage API / Manage CLI / Manage Remote). */
   manageLabel?: string
   onManage?: () => void
+  /** #494/REQ-870-class backend warnings (CLI not installed, probe failed…).
+   * Rendered as a banner above the rows — the two-stage dialog replaced the
+   * flat palette that carried these, so it must carry them too. */
+  warning?: { text: string; onAction?: () => void } | null
 }
 
 export default function ComposerPickerDialog({
@@ -48,6 +52,7 @@ export default function ComposerPickerDialog({
   currentOptionId,
   manageLabel,
   onManage,
+  warning,
 }: ComposerPickerDialogProps) {
   const [state, setState] = useState<ComposerPickerState>(initialComposerPickerState)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -242,6 +247,28 @@ export default function ComposerPickerDialog({
           <li className="px-3 py-4 text-center text-sm opacity-60">No matches</li>
         ) : null}
       </ul>
+      {warning?.text ? (
+        <div
+          role="alert"
+          data-testid="routing-model-warning"
+          className="border-t border-base-300 px-3 py-2 text-xs text-error"
+        >
+          {warning.text}
+          {warning.onAction ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs ml-2 text-error"
+              data-testid="routing-model-warning-action"
+              onClick={() => {
+                onClose()
+                warning.onAction?.()
+              }}
+            >
+              Fix in Settings
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {manageLabel ? (
         <div className="border-t border-base-300 px-3 py-2">
           <button

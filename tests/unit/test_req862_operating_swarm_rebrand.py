@@ -177,3 +177,7 @@ def test_req862_operator_chrome_no_longer_says_open_swarm():
         blob = _text(path)
         assert "Open Swarm" not in blob, f"{path.relative_to(REPO)} still says Open Swarm"
         assert "Operating Swarm" in blob
+
+    # REQ-921's shipped SDK page is product chrome too — my own #540 template
+    # had leaked the old name; the pin now guards it explicitly.
+    assert "Open Swarm" not in _text(REPO / "src" / "swarm" / "templates" / "sdk_docs.html")

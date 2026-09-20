@@ -71,7 +71,8 @@ async def test_send_params(bp):
         return_value=OperateResult(remote="hermes", op="send", ok=True, detail="started"),
     ) as op:
         out = await _ask(bp, "", params={"op": "send", "name": "hermes", "prompt": "hi"})
-    assert "OK" in out
+    # #686: a successful send renders ONLY its reply text — no "OK —" chrome.
+    assert out == "started"
     op.assert_called_once()
 
 
@@ -91,7 +92,8 @@ async def test_send_params_pass_omb_bot_target(bp):
                 "target": "desk-1",
             },
         )
-    assert "OK" in out
+    # #686: reply text only.
+    assert out == "started"
     op.assert_called_once_with("omb", "send", prompt="hello desk", target="desk-1")
 
 
@@ -106,7 +108,8 @@ async def test_send_params_session_is_omb_target(bp):
             "",
             params={"op": "send", "name": "omb", "prompt": "hi", "session": "bot-uuid"},
         )
-    assert "OK" in out
+    # #686: reply text only.
+    assert out == "started"
     op.assert_called_once_with("omb", "send", prompt="hi", target="bot-uuid")
 
 
@@ -158,7 +161,7 @@ async def test_send_passes_session_id(bp):
                 "session_id": "sess-99",
             },
         )
-    assert "OK" in out
+    assert out == "resumed"  # #686: reply text only.
     assert op.call_args.kwargs.get("session_id") == "sess-99"
 
 

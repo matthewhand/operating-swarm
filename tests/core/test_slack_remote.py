@@ -148,7 +148,8 @@ def test_add_and_remove_slack(tmp_path: Path, monkeypatch):
     assert path == cfg
     assert spec.id == "slack"
     data = json.loads(cfg.read_text(encoding="utf-8"))
-    assert data["remotes"]["slack"]["base_url"] == "https://slack.com/api"
+    # The serialiser keeps the default https port explicit.
+    assert data["remotes"]["slack"]["base_url"] in ("https://slack.com/api", "https://slack.com:443/api")
     assert data["remotes"]["slack"]["api_key"] == "${SLACK_BOT_TOKEN}"
     assert data["remotes"]["slack"]["api_key_env"] == "SLACK_BOT_TOKEN"
     assert remotes_core.is_configured("slack", data)

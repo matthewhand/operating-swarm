@@ -343,15 +343,22 @@ export function NavbarRoutingPicker({
         onNavigateAgent(option?.id ?? provider.defaultOptionId ?? bare, provider.kind)
         return
       }
-      const chosen = option?.id ?? provider.defaultOptionId
-      // remote options and CLI *model* options are model-dimension picks;
-      // api profiles and CLI session/agent rows are agent-dimension picks.
-      if (provider.kind === 'remote' || option?.tag === 'model') {
-        if (chosen) pickModel(chosen)
+      if (option) {
+        // Stage-2 option rows: model-tagged rows (CLI probed models) and
+        // remote bots are model-dimension; api profiles and CLI session/
+        // agent rows are agent-dimension.
+        if (option.tag === 'model' || provider.kind === 'remote') {
+          pickModel(option.id)
+          return
+        }
+        pickAgent(option.id, seatKind)
         return
       }
-      // api / cli agent rows: the option is the agent dimension. No declared
-      // default and no option → keep the current selection.
+      // Use default (stage-2 accept): the PROVIDER dimension applies — e.g. a
+      // herdr seat accepting TrueForge's default switches to that remote
+      // (binding/navigation per #502), it never picks a bot id as a model.
+      const chosen = provider.kind === 'remote' ? bare : (provider.defaultOptionId ?? bare)
+      if (provider.kind === 'api' && !provider.defaultOptionId) return
       pickAgent(chosen || selectedAgent, seatKind)
     },
     [seatKind, onNavigateAgent, pickAgent, pickModel, selectedAgent],
@@ -370,6 +377,22 @@ export function NavbarRoutingPicker({
       currentOptionId={selectedAgent}
       manageLabel={footerAction ? `${footerAction.label} in Settings` : undefined}
       onManage={footerAction?.onSelect}
+      warning={
+        modelWarning
+          ? {
+              text: modelWarning,
+              onAction: modelWarningAction
+                ? () =>
+                    import('./SettingsSheet').then(({ openSettingsSheet }) =>
+                      openSettingsSheet({
+                        section: modelWarningAction.section,
+                        remoteId: modelWarningAction.remote,
+                      }),
+                    )
+                : undefined,
+            }
+          : null
+      }
     />
   ) : null
 

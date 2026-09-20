@@ -64,9 +64,14 @@ def test_ui_toggle_without_config_files():
     editor = EDITOR.read_text(encoding="utf-8")
     agent = AGENT_EDITOR.read_text(encoding="utf-8")
     assert "MailboxAclEditor" in agent
-    assert "Toggle whitelist or blacklist" in editor
+    # #545 de-jargonized the control: the stored modes stay whitelist/blacklist
+    # (wire + persisted contract), the UI says "Permitted or denied".
+    assert "Permitted" in editor
+    assert "Denied" in editor
+    assert "modeToggleId" in editor
     assert "mailbox-acl-editor" in editor
-    assert "toggle" in editor
+    assert 'data-testid="mailbox-acl-editor"' in editor
+    assert "toggle" in editor.lower()
     assert "whitelist" in editor.lower()
     assert "blacklist" in editor.lower()
     assert ":8001" not in editor

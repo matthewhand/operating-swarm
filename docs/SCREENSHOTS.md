@@ -38,6 +38,24 @@ The "Used in" column is verified by grepping the docs for
 `screenshots/<file>`. USERGUIDE.md embeds no PNG files (CLI reference only)
 but points readers at this tour.
 
+## Visual-proof captures (per-REQ folders, `docs/screenshots/`)
+
+PR visual evidence saved next to the QA page it proves. Not embedded in any
+doc — each is **registry-only** by design; the PR description referenced it
+at merge time.
+
+| File | What it shows | Used in | Captured | Status |
+| --- | --- | --- | --- | --- |
+| `req508-teams-composer/1-essentials.png` | REQ-508 Teams composer — Essentials tab | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req508-teams-composer/2-roles-pane.png` | REQ-508 Teams composer — Roles pane | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req508-teams-composer/3-tools-pane.png` | REQ-508 Teams composer — Tools pane | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req508-teams-composer/4-catalog-pane.png` | REQ-508 Teams composer — Catalog pane | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req508-teams-composer/5-back-to-essentials.png` | REQ-508 Teams composer — back to Essentials (pane toggle round-trip) | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req910-plugins/1-rail.png` | REQ-910 — rail with Plugins entry | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req910-plugins/2-plugins-chat-pane.png` | REQ-910 Plugins popup — chat (agent) pane | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req910-plugins/3-plugins-tools-pane.png` | REQ-910 Plugins popup — Add tools pane | none (registry-only visual proof) | 2026-09 | registry-only |
+| `req910-plugins/4-plugins-skills-pane.png` | REQ-910 Plugins popup — Add skills pane | none (registry-only visual proof) | 2026-09 | registry-only |
+
 ## Mobile captures (`docs/screenshots/mobile/`)
 
 Same stems as desktop with `--mobile` (iPhone-14-class: 390×844, dpr 2, touch).

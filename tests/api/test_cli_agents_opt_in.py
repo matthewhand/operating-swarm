@@ -25,9 +25,10 @@ def test_cli_agents_endpoint_empty_configured_with_path_suggestions(client, monk
     assert data["configured"] == []
     assert data["discovered"] == ["grok"]
     assert data["installed"] == ["grok"]
-    assert {row["id"] for row in data["rail"]} == {"cli_agent"}
+    assert {"cli_agent", "api_agent"} <= {row["id"] for row in data["rail"]}
     assert data["modes"]["cli"] is True
-    assert data["modes"]["api"] is False
+    # All-on defaults since the product-modes toggle workaround (2026-09-20).
+    assert data["modes"]["api"] is True
     assert "grok" in data["suggestions"]
     assert data["suggestions"]["grok"]["cmd"][0] == "grok"
     assert "sk-" not in str(data)

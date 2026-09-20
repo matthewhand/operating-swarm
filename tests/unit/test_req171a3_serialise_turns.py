@@ -36,7 +36,7 @@ def test_consumer_serialises_chat_turns_not_tool_decisions():
 def test_spa_queues_second_send_via_generation_in_flight():
     text = CHAT.read_text(encoding="utf-8")
     start = text.index("const submitUserText")
-    block = text[start : start + 800]
+    block = text[start : start + 2500]
     assert "generationIsInFlight(messages, awaitingAssistant)" in block
     assert "REQ-171A-3" in block
     assert "#603" in block

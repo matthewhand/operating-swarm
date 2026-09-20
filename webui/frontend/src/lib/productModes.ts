@@ -1,8 +1,10 @@
 /**
  * CLI-first product modes (#151 / #149).
  *
- * Shipped default: CLI on; API / Blueprint / Team / Remote off until Settings
- * enables them. Disabled modes stay out of the default rail/navbar.
+ * Shipped default (2026-09-20): **every mode on** — the Settings toggle was
+ * unreliable, so surfaces stay visible until that control is fixed. Disabled
+ * modes stay out of the default rail/navbar only when the server explicitly
+ * advertises them off via `settings.product_modes`.
  *
  * `GET /v1/cli-agents/` always advertises `modes`. Payloads without `modes`
  * (legacy tests / older servers) keep every surface visible.
@@ -16,10 +18,10 @@ export type ProductModes = Record<ProductMode, boolean>
 
 export const DEFAULT_PRODUCT_MODES: ProductModes = {
   cli: true,
-  api: false,
-  blueprint: false,
-  team: false,
-  remote: false,
+  api: true,
+  blueprint: true,
+  team: true,
+  remote: true,
 }
 
 /** Legacy / missing payload: do not hide surfaces the API has not advertised. */
@@ -78,11 +80,13 @@ export function isProductModeEnabled(modes: ProductModes, key: ProductMode): boo
  * later when the real modes arrived. A rail that loses half its rows one second
  * in reads as breakage.
  *
- * So the two situations are separated here:
+ * So the two situations are separated here (defaults currently coincide with
+ * the legacy set while the all-on workaround is in force, but the machinery
+ * keeps them distinct so the narrow default can return without ceremony):
  *
  * | State | Result |
  * |---|---|
- * | in flight (`settled: false`) | shipped defaults — CLI only, the **narrowest** rail |
+ * | in flight (`settled: false`) | shipped defaults — the **declared** rail |
  * | settled, fetch **failed** | legacy all-on — never hide a surface we could not verify |
  * | settled, payload present | `resolveProductModes` (unchanged legacy contract) |
  *

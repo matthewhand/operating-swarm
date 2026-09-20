@@ -9,13 +9,13 @@ import {
 } from '../productModes'
 
 describe('product modes (#151)', () => {
-  it('ships CLI on and every other manage surface off', () => {
+  it('ships every mode on until the toggle is fixed (2026-09-20)', () => {
     expect(DEFAULT_PRODUCT_MODES).toEqual({
       cli: true,
-      api: false,
-      blueprint: false,
-      team: false,
-      remote: false,
+      api: true,
+      blueprint: true,
+      team: true,
+      remote: true,
     })
     expect(PRODUCT_MODE_KEYS).toEqual(['cli', 'api', 'blueprint', 'team', 'remote'])
     for (const key of PRODUCT_MODE_KEYS) {
@@ -26,9 +26,16 @@ describe('product modes (#151)', () => {
   it('uses advertised modes from GET /v1/cli-agents/', () => {
     expect(
       resolveProductModes({
-        modes: { cli: true, api: false, blueprint: false, team: false, remote: false },
+        modes: { cli: true, api: false, blueprint: true, team: false, remote: true },
       }),
-    ).toEqual(DEFAULT_PRODUCT_MODES)
+    ).toEqual({
+      cli: true,
+      api: false,
+      blueprint: true,
+      team: false,
+      remote: true,
+    }) // advertised modes win verbatim — including explicit offs
+    expect(resolveProductModes({ modes: { api: false } }).api).toBe(false)
     expect(resolveProductModes({ modes: { api: true } }).api).toBe(true)
     expect(resolveProductModes({ modes: { api: true } }).cli).toBe(true)
   })

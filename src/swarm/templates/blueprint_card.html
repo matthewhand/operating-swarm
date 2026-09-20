@@ -11,7 +11,7 @@
             {% endif %}
             <div class="flex-grow-1 min-w-0">
                 <div class="d-flex flex-column align-items-start gap-1">
-                    <div class="card-title mb-0" title="{{ blueprint.id|default:blueprint.name }}">{{ blueprint.id|default:blueprint.name }}</div>
+                    <div class="card-title mb-0" title="{{ blueprint.name|default:blueprint.id }}">{{ blueprint.name|default:blueprint.id }}</div>
                     <span class="badge difficulty-badge difficulty-{{ blueprint.difficulty }}">{{ blueprint.difficulty|title }}</span>
                 </div>
                 <small class="text-muted">{{ blueprint.category_info.icon }} {{ blueprint.category_info.name }} &middot; v{{ blueprint.version }}</small>

@@ -166,14 +166,15 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
     expect(cliPicker.length).toBeGreaterThan(0)
   })
 
-  it('API picker opens searchable palette with Manage API action', { timeout: 10000 }, async () => {
+  it('#681: API picker opens the two-stage dialog with Manage API action', { timeout: 10000 }, async () => {
     stubChat()
     renderChat('/chat?blueprint=api_agent')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    const manageBtn = await screen.findByTestId('os-model-manage-api')
+    expect(await screen.findByTestId('composer-picker')).toBeInTheDocument()
+    const manageBtn = await screen.findByTestId('composer-picker-manage')
     expect(manageBtn).toHaveTextContent('Manage API in Settings')
   })
 
@@ -184,7 +185,9 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    fireEvent.click(await screen.findByTestId('os-model-row-orchestration-mini'))
+    // #681: descend into the API provider, then pick the specific profile.
+    fireEvent.click(await screen.findByText('API gateway'))
+    fireEvent.click(await screen.findByText('Orchestration Mini'))
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'route this turn' } })
     fireEvent.submit(composer.closest('form')!)
@@ -225,8 +228,8 @@ describe('ChatPage Manage CLI / API footers (#254)', () => {
         MockWebSocket.instances[0]?.open()
       })
       fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-      // #504: the manage action moved into the palette footer.
-      fireEvent.click(await screen.findByTestId('os-model-manage-api'))
+      // #681: the manage action lives in the two-stage dialog footer.
+      fireEvent.click(await screen.findByTestId('composer-picker-manage'))
       expect(opened).toEqual([{ section: 'cli-agents' }])
       expect(screen.getByTestId('navbar-routing-picker')).toBeInTheDocument()
     } finally {
@@ -243,7 +246,7 @@ describe('ChatPage Manage CLI / API footers (#254)', () => {
         MockWebSocket.instances[0]?.open()
       })
       fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-      fireEvent.click(await screen.findByTestId('os-model-manage-api'))
+      fireEvent.click(await screen.findByTestId('composer-picker-manage'))
       expect(opened).toEqual([{ section: 'llm-profiles' }])
     } finally {
       stop()

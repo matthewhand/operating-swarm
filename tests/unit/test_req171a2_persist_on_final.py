@@ -64,7 +64,9 @@ def test_source_lock_persist_on_final_and_keep_status_edit():
     after_default = src.split("async def respond_with_default_model", 1)[1].split(
         "async def apply_message_edit", 1
     )[0]
-    assert after_team.count("await self._persist_completed_turn()") == 1
+    # Two persistence points since #637's demo-chips path: the normal final
+    # turn and the canned final-system-message branch before chips emit.
+    assert after_team.count("await self._persist_completed_turn()") == 2
     # Blueprint path persists the completed turn, the compact summary
     # rollover, and the skeptic rework loop's reworked answer (bounded
     # adversarial auto-prompting) — three persistence points.

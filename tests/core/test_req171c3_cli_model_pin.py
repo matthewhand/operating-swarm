@@ -11,7 +11,11 @@ from swarm.core.cli_adapter import CliAdapter
 
 
 def test_cli_agents_payload_exposes_spa_host_discovery():
-    payload = cli_catalog.cli_agents_catalog_payload({"cli_agents": {}})
+    # #151: the rail is product-modes gated — the api seat only exists when the
+    # api mode is enabled, so the fixture turns it on explicitly.
+    payload = cli_catalog.cli_agents_catalog_payload(
+        {"cli_agents": {}, "settings": {"product_modes": {"api": True, "cli": True}}}
+    )
     for key in ("installed", "configured", "discovered", "rail", "clis"):
         assert key in payload
     assert isinstance(payload["installed"], list)

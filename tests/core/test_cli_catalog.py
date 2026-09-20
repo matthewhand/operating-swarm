@@ -169,9 +169,15 @@ def test_listed_cli_specs_are_first_class_sidebar_agents():
 def test_rail_cli_rows_use_named_kind_ids():
     rows = {r["id"]: r for r in cli_catalog.rail_cli_rows()}
     assert "cli_agent" in rows
-    assert "api_agent" not in rows
+    assert "api_agent" in rows  # all-on defaults since the toggle workaround
     assert rows["cli_agent"]["kind"] == "cli"
     assert rows["cli_agent"]["name"] == "cli_agent"
+    # An explicit off still gates.
+    disabled = {
+        r["id"]: r
+        for r in cli_catalog.rail_cli_rows({"settings": {"product_modes": {"api": False}}})
+    }
+    assert "api_agent" not in disabled
     enabled = {
         r["id"]: r
         for r in cli_catalog.rail_cli_rows({"settings": {"product_modes": {"api": True}}})
@@ -245,7 +251,7 @@ def test_build_starter_config_empty_host_still_valid():
     assert "llm" in cfg
     assert "cli_fusion" not in cfg  # nothing to wire
     assert cfg["settings"]["product_modes"]["cli"] is True
-    assert cfg["settings"]["product_modes"]["api"] is False
+    assert cfg["settings"]["product_modes"]["api"] is True  # all-on defaults
 
 
 def test_build_starter_config_round_trips_through_registry():

@@ -28,22 +28,26 @@ def _start_set(payload: dict) -> set[str]:
     return names
 
 
-def test_shipped_defaults_cli_on_other_modes_off(monkeypatch):
+def test_shipped_defaults_all_modes_on(monkeypatch):
+    """2026-09-20 user decision: the mode TOGGLE was unreliable, so every
+    surface ships enabled until that control is fixed. The resolve path still
+    honors an explicit ``settings.product_modes`` override (tested below)."""
     monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
     cfg = cli_catalog.build_starter_config()
     modes = cfg["settings"]["product_modes"]
     assert modes == {
         "cli": True,
-        "api": False,
-        "blueprint": False,
-        "team": False,
-        "remote": False,
+        "api": True,
+        "blueprint": True,
+        "team": True,
+        "remote": True,
     }
     payload = cli_catalog.cli_agents_catalog_payload({})
     assert payload["modes"] == modes
     assert set(payload["mode_limitations"]) == set(cli_catalog.PRODUCT_MODE_KEYS)
-    assert {row["id"] for row in payload["rail"]} == {"cli_agent"}
-    assert "api_agent" not in {row["id"] for row in payload["rail"]}
+    rail_ids = {row["id"] for row in payload["rail"]}
+    assert "cli_agent" in rail_ids
+    assert "api_agent" in rail_ids
 
 
 def test_shipped_defaults_path_surfaces_only_discovered_clis(monkeypatch):

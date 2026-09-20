@@ -22,14 +22,13 @@ def test_sidebar_role_badge_overlays_avatar():
     )
 
     # REQ-67 contract: badge className carries roleCssClass (shrink-0 for the
-    # name-row pill) and the badge competes with unread/timestamp, not the avatar.
+    # name-row pill). #500 moved the slot render into RailRowSlot: the badge
+    # is passed as a prop alongside the timestamp (no inline ternary anymore).
     assert re.search(
         r"className=\{`os-agent-role-badge shrink-0 \$\{roleCssClass\(role\)\}`\}",
         content,
     )
-    assert re.search(
-        r"roleBadgeNode\s*\)\s*:\s*timestampLabel", content
-    ) or re.search(r"\) : roleBadgeNode \? \(\s*roleBadgeNode\s*\) : timestampLabel", content)
+    assert re.search(r"badge=\{roleBadgeNode\}", content)
 
 
 def test_second_row_does_not_contain_role_badge_chip():

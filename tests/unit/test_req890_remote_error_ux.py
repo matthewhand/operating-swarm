@@ -225,7 +225,9 @@ def test_success_without_a_reply_still_reads_ok():
     result = OperateResult(remote="hermes", op="send", ok=True, detail="started")
     out = harness._render_operate(result)
 
-    assert "hermes send: OK — started" in out
+    # #686: even without parsed reply data, the detail reads as the reply —
+    # no "OK —" chrome, no FAIL.
+    assert out == "started"
     assert "FAIL" not in out
 
 

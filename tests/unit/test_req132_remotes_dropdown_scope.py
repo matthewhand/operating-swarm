@@ -13,12 +13,13 @@ def test_chat_page_guards_remotes_dropdown():
     assert "isRemoteAgent" in tsx
     assert "showRemotesControl" in tsx
     # Post-#749: remotes chrome is remote-only (agent or remote-backed team).
-    assert "showRemotesControl = isRemoteAgent || isRemoteBackedTeam" in tsx
+    # #151 layered product modes on top: the remote mode now ANDs into it.
+    assert "productModes.remote && (isRemoteAgent || isRemoteBackedTeam)" in tsx
 
     # Empty catalog shows Add remote; otherwise the REQ-200 picker; omitted when not remote.
     assert "showEmptyRemoteChrome" in tsx
     assert "{showEmptyRemoteChrome ? (" in tsx
-    assert "showRemotesControl ? (" in tsx
+    assert "showRemotesControl" in tsx
     assert "<RemoteSelect" not in tsx
     assert "NavbarRoutingPicker" in tsx
     assert 'seatKind="remote"' in tsx

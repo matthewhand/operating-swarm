@@ -92,8 +92,13 @@ describe('#502 — the two-axis doctrine in the navbar', () => {
 
     const before = window.location.search
     fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    const palette = await screen.findByTestId('os-model-search-palette')
-    fireEvent.click(within_pallete_option(palette, /TrueForge/))
+    // #681: cross-kind pick resolves through the two-stage dialog — descend
+    // into the TrueForge provider, then accept its default.
+    await screen.findByTestId('composer-picker')
+    fireEvent.click(screen.getAllByTestId('composer-picker-row').find((el) =>
+      /TrueForge/.test(el.textContent || ''),
+    )!)
+    fireEvent.click(screen.getAllByTestId('composer-picker-row')[0])
 
     // The binding is the only mutation: Herdr uses TrueForge.
     expect(loadAgentRemoteBinding('remote:herdr')).toEqual({
@@ -118,8 +123,13 @@ describe('#502 — the two-axis doctrine in the navbar', () => {
     await screen.findByTestId('navbar-routing-picker')
 
     fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    const palette = await screen.findByTestId('os-model-search-palette')
-    fireEvent.click(within_pallete_option(palette, /TrueForge/))
+    // #681: cross-kind pick through the two-stage dialog — descend, then
+    // accept the default.
+    await screen.findByTestId('composer-picker')
+    fireEvent.click(screen.getAllByTestId('composer-picker-row').find((el) =>
+      /TrueForge/.test(el.textContent || ''),
+    )!)
+    fireEvent.click(screen.getAllByTestId('composer-picker-row')[0])
 
     // Identity change: the route follows (the existing, correct behaviour).
     // MemoryRouter doesn't write window.location, so assert the picker's
@@ -129,12 +139,3 @@ describe('#502 — the two-axis doctrine in the navbar', () => {
     })
   })
 })
-
-// RTL helper: pick the palette option whose text matches, from the palette's listbox.
-function within_pallete_option(palette: HTMLElement, name: RegExp): HTMLElement {
-  // eslint-disable-next-line testing-library/no-node-access -- scoped option lookup inside the palette container
-  const options = Array.from(palette.querySelectorAll('[role="option"]'))
-  const match = options.find((row) => name.test(row.textContent || ''))
-  if (!match) throw new Error(`No palette option matching ${name}`)
-  return match as HTMLElement
-}

@@ -63,9 +63,9 @@ def test_rail_plugins_overlay_is_empty_honest():
 
 
 def test_search_palette_has_bots_and_actions_tabs():
-    """REQ-17 / #322: Search overlay tabs include Bots + Actions."""
+    """REQ-17 / #322 + #677: Search overlay tabs — Bots relabelled Agents, Groups → Teams."""
     search = SEARCH.read_text(encoding="utf-8")
-    for tab in ("All", "Messages", "Bots", "Groups", "Files", "Links", "Routines", "Actions"):
+    for tab in ("All", "Messages", "Agents", "Teams", "Files", "Links", "Routines", "Actions"):
         assert f"'{tab}'" in search
     assert "Toggle theme" in search
     assert "overlay: 'blueprints'" in search

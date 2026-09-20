@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react'
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import ChatPage from '../ChatPage'
@@ -148,15 +148,18 @@ describe('ChatPage OMB navbar agents (#102)', () => {
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'remote')
     // #629: the combined pill shows the remote provider label.
     expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('OpenMousBot')
-    // #504: nested remote agents are palette rows (labelled by name), not a
-    // nested flyout menu.
+    // #681: nested remote agents are stage-2 rows of the remote provider
+    // (labelled by name), not a nested flyout menu.
     fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    const palette = await screen.findByTestId('os-model-search-palette')
-    expect(await within(palette).findByTestId('os-model-row-desk-1', {}, { timeout: 4000 })).toBeInTheDocument()
-    expect(within(palette).getByTestId('os-model-row-spec-9')).toBeInTheDocument()
-    expect(within(palette).getByTestId('os-model-row-desk-1')).toHaveTextContent('Desk')
-    expect(within(palette).getByTestId('os-model-row-spec-9')).toHaveTextContent('Specialist')
-    expect(palette.textContent).not.toContain(FAT_MESSAGE)
+    await screen.findByTestId('composer-picker')
+    fireEvent.click((await screen.findAllByTestId('composer-picker-row')).find((el) =>
+      el.textContent?.includes('OpenMousBot'),
+    )!)
+    const options = await screen.findAllByTestId('composer-picker-row', {}, { timeout: 4000 })
+    const texts = options.map((el) => el.textContent || '')
+    expect(texts.some((t) => t.includes('Desk'))).toBe(true)
+    expect(texts.some((t) => t.includes('Specialist'))).toBe(true)
+    expect(screen.getByTestId('composer-picker').textContent).not.toContain(FAT_MESSAGE)
     expect(screen.getByTestId('navbar-routing-picker').textContent).not.toMatch(/\bOMB\b/)
   })
 

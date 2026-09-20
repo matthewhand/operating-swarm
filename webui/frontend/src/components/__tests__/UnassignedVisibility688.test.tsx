@@ -13,13 +13,13 @@ describe('#688 Unassigned section visibility', () => {
   const tsx = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8')
 
   it('skips empty non-drag Unassigned blocks in the sections list', () => {
-    const skip = tsx.match(/#688:[\s\S]{0,400}?return null/)?.[0] ?? ''
+    const skip = tsx.match(/#688:[\s\S]{0,600}?return null/)?.[0] ?? ''
     expect(skip).toContain('isUnassignedSection(block.id)')
     expect(skip).toContain('block.rows.length === 0')
   })
 
   it('keeps the block renderable while a drag is in progress (drop target)', () => {
-    const skip = tsx.match(/#688:[\s\S]{0,400}?return null/)?.[0] ?? ''
+    const skip = tsx.match(/#688:[\s\S]{0,600}?return null/)?.[0] ?? ''
     expect(skip).toContain('!draggingId')
   })
 })

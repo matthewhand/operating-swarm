@@ -73,10 +73,11 @@ describe('bubbleTheme', () => {
       'utf8',
     )
     expect(css).toMatch(/\[data-bubble-theme="irc"\]\s*\{[\s\S]*font-family:\s*ui-monospace/)
-    // #520.3: the gutter flexes to the name (min 10ch, capped 16ch) at body-copy size.
-    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*flex:\s*0 1 auto/)
-    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*min-width:\s*10ch/)
-    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*max-width:\s*16ch/)
+    // #675 (superseding #520.3): the gutter is a fixed resizable width — the
+    // persisted --irc-gutter-px — so all message bodies align on one vertical
+    // edge; body-copy size and right-aligned nick are kept.
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*flex:\s*0 0 var\(--irc-gutter-px\)/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*width:\s*var\(--irc-gutter-px\)/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*font-size:\s*0\.8125rem/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*text-align:\s*right/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat-end[\s\S]*justify-content:\s*flex-start/)

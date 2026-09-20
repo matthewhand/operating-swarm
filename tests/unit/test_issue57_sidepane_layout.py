@@ -43,9 +43,11 @@ def test_alt_n_and_ctrl_k_hints_are_hover_only():
     sidebar = SIDEBAR.read_text(encoding="utf-8")
     assert ".os-fav-tile:hover .os-fav-tile__shortcut" in css
     assert ".os-fav-tile:focus-within .os-fav-tile__shortcut" not in css
-    assert "group-hover/row:inline-block hidden" in sidebar
+    # #500 moved the hover/row swap out of the sidebar (RailRowSlot owns the
+    # slot now; the Alt-swap class was retired outright).
+    assert "group-hover/row" not in sidebar
     assert "event.currentTarget.blur()" in sidebar
-    assert ".os-agent-sidebar:hover .os-rail-search__kbd" in css
+    assert ".os-rail-search:hover .os-rail-search__kbd" in css
     assert ".os-rail-search:focus-within .os-rail-search__kbd" not in css
 
 
@@ -60,7 +62,7 @@ def test_summary_cards_offer_the_same_edit_controls_as_chat_bubbles():
 def test_conceal_buttons_from_issue_251_remain():
     conceal = CONCEAL.read_text(encoding="utf-8")
     sidebar = SIDEBAR.read_text(encoding="utf-8")
-    assert 'aria-label="Conceal sidebar"' in conceal
+    assert 'aria-label="Collapse sidebar"' in conceal
     assert 'aria-label="Conceal sidepane"' in conceal
     assert "SidebarConcealButton" in sidebar
     assert "BrandMarkMono" in conceal

@@ -22,7 +22,9 @@ def test_req858_plugins_popup_has_add_tools_and_skills_panes():
     src = POPUP.read_text(encoding="utf-8")
     assert "Add tools" in src
     assert "Add skills" in src
-    assert "This chat" in src
+    # #516 relabelled the scope pane to the agent seat.
+    assert "This agent" in src
+    assert "Toggles apply to this agent only." in src
     assert "<InstallCatalog" in src
     assert "surface={pane === 'skills' ? 'skills' : 'tools'}" in src
     assert "MarketplaceScanSection" not in src
