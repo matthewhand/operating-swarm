@@ -235,6 +235,19 @@ def _load_all_blueprint_metadata_sync():
     _blueprint_meta_cache = blueprint_classes
     return blueprint_classes
 
+
+def invalidate_blueprint_meta_cache() -> None:
+    """Drop the cached blueprint metadata map (#723).
+
+    Every writer of custom blueprint seats must call this after a successful
+    persist — otherwise a long-running server keeps serving the map built
+    before the seat existed and chat 404s ("was not found or could not be
+    initialized"). Cheap and idempotent: the next reader rebuilds.
+    """
+    global _blueprint_meta_cache
+    _blueprint_meta_cache = None
+
+
 def get_available_blueprints_sync():
     """Sync blueprint metadata map — safe inside an already-running event loop.
 

@@ -36,7 +36,7 @@ from swarm.views.blueprint_library_views import (
     get_user_blueprint_library,
     save_user_blueprint_library,
 )
-from swarm.views.utils import get_available_blueprints
+from swarm.views.utils import get_available_blueprints, invalidate_blueprint_meta_cache
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +414,9 @@ class CustomBlueprintsView(APIView):
                 _custom_blueprints_registry.extend(custom)
             except Exception:
                 pass
+            # #723: chat resolves seats through the metadata cache — a new
+            # custom seat must be visible without a server restart.
+            invalidate_blueprint_meta_cache()
             return Response(item, status=status.HTTP_201_CREATED)
         except Exception:
             logger.exception("Error creating custom blueprint")
@@ -461,6 +464,8 @@ class CustomBlueprintDetailView(APIView):
             _custom_blueprints_registry.extend(items)
         except Exception:
             pass
+        # #723: the seat is gone — the metadata cache must drop it too.
+        invalidate_blueprint_meta_cache()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(summary="Update a custom blueprint", request=_custom_blueprint_request)
@@ -501,6 +506,8 @@ class CustomBlueprintDetailView(APIView):
                 _custom_blueprints_registry.extend(items)
             except Exception:
                 pass
+            # #723: edited code/tags only apply once the cache is dropped.
+            invalidate_blueprint_meta_cache()
             return Response(item, status=status.HTTP_200_OK)
         except Exception:
             logger.exception("Error updating custom blueprint")

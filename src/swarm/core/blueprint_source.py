@@ -473,6 +473,14 @@ def _sync_custom_code(blueprint_id: str, content: str) -> bool:
         api_views._custom_blueprints_registry.extend(items)
     except Exception:
         pass
+    # #723: the next chat turn must pick up the edited code, not the stale
+    # cached class from the pre-edit map.
+    try:
+        from swarm.views.utils import invalidate_blueprint_meta_cache
+
+        invalidate_blueprint_meta_cache()
+    except Exception:
+        pass
     return True
 
 

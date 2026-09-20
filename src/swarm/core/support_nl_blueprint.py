@@ -303,10 +303,12 @@ def persist_custom_item(item: dict[str, Any], *, disk: bool | None = None) -> di
     except Exception:
         logger.warning("NL blueprint registry persist failed for %s", stamped.get("id"), exc_info=True)
 
-    # Invalidate blueprint discovery cache so get_available_blueprints sees the new seat immediately
+    # Invalidate blueprint discovery cache so get_available_blueprints sees the
+    # new seat immediately (#723 shared helper).
     try:
-        from swarm.views import utils as views_utils
-        views_utils._blueprint_meta_cache = None
+        from swarm.views.utils import invalidate_blueprint_meta_cache
+
+        invalidate_blueprint_meta_cache()
     except Exception:
         pass
 
