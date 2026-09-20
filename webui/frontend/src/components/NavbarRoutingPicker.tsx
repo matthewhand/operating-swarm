@@ -89,7 +89,17 @@ export interface NavbarRoutingPickerProps {
     getProviderOptions: (
       provider: ComposerProviderOption,
     ) => readonly ModelSearchOption[]
+    /**
+     * #711: resuming a CLI conversation is a third dimension — neither an
+     * agent pick nor a model pick. Session-tagged rows route here.
+     */
+    onResumeSession?: (sessionId: string) => void
   }
+  /**
+   * #711: fired once when the two-stage dialog opens (not on descend), so
+   * callers can defer-fetch the payloads stage 2 needs (cli-sessions).
+   */
+  onTwoStageOpen?: () => void
   'aria-label'?: string
 }
 
@@ -109,6 +119,7 @@ export function NavbarRoutingPicker({
   defaultAgent,
   allAgents,
   twoStage,
+  onTwoStageOpen,
   onNavigateAgent,
   loading = false,
   'aria-label': ariaLabel,
@@ -336,6 +347,13 @@ export function NavbarRoutingPicker({
   const onTwoStagePick = useCallback(
     (provider: ComposerProviderOption, option: ModelSearchOption | null) => {
       const bare = provider.id.replace(/^(cli|remote|team):/, '')
+      // #711: a session resume is seat-orthogonal — it changes the conversation
+      // on the session's own CLI, not the current seat's agent/model — so it
+      // routes before the cross-kind guard can swallow it as inert.
+      if (option?.tag === 'session') {
+        twoStage?.onResumeSession?.(option.id)
+        return
+      }
       if (provider.kind !== seatKind) {
         // The API gateway is not a navigable seat — a cross-kind pick of it
         // from a non-API seat has no destination, so it stays inert.
@@ -345,8 +363,7 @@ export function NavbarRoutingPicker({
       }
       if (option) {
         // Stage-2 option rows: model-tagged rows (CLI probed models) and
-        // remote bots are model-dimension; api profiles and CLI session/
-        // agent rows are agent-dimension.
+        // remote bots are model-dimension; api profiles are agent-dimension.
         if (option.tag === 'model' || provider.kind === 'remote') {
           pickModel(option.id)
           return
@@ -361,8 +378,17 @@ export function NavbarRoutingPicker({
       if (provider.kind === 'api' && !provider.defaultOptionId) return
       pickAgent(chosen || selectedAgent, seatKind)
     },
-    [seatKind, onNavigateAgent, pickAgent, pickModel, selectedAgent],
+    [seatKind, onNavigateAgent, pickAgent, pickModel, selectedAgent, twoStage],
   )
+
+  // #711: both open affordances (pill, face) funnel through one opener so the
+  // deferred-fetch hook fires exactly once per open, never on stage descent.
+  const openTwoStage = useCallback(() => {
+    setPaletteOpen((open) => {
+      if (!open) onTwoStageOpen?.()
+      return true
+    })
+  }, [onTwoStageOpen])
 
   const twoStageDialog = twoStage ? (
     <ComposerPickerDialog
@@ -411,7 +437,7 @@ export function NavbarRoutingPicker({
       title={joined}
       onClick={(event) => {
         event.stopPropagation()
-        setPaletteOpen(true)
+        openTwoStage()
       }}
     >
       <span className="os-routing-pill__label">{label}</span>
@@ -449,7 +475,7 @@ export function NavbarRoutingPicker({
           if (paletteOpen) return
           const target = event.target as HTMLElement | null
           if (target?.closest('[data-routing-pill]')) return
-          setPaletteOpen(true)
+          openTwoStage()
         }}
       >
         {pill(combinedLabel)}

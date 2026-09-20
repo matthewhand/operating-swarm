@@ -99,3 +99,101 @@ describe('#681 NavbarRoutingPicker two-stage', () => {
     expect(navigate).toHaveBeenCalledWith('codex', 'cli')
   })
 })
+
+describe('#711 CLI resumable sessions in the two-stage picker', () => {
+  function renderWithSessions(onResumeSession: (id: string) => void, onTwoStageOpen?: () => void) {
+    return render(
+      <NavbarRoutingPicker
+        seatKind="api"
+        aria-label="API"
+        agents={[{ id: 'orchestration', label: 'Orchestration', kind: 'api' as const }]}
+        selectedAgent="orchestration"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        twoStage={{
+          providers,
+          getProviderOptions: (provider) =>
+            provider.id === 'cli:codex'
+              ? [
+                  { id: 'codex:main', label: 'codex main session', tag: 'session' },
+                  { id: 'grok-4', label: 'grok-4', tag: 'model' },
+                ]
+              : [{ id: 'orchestration', label: 'Orchestration' }],
+          onResumeSession,
+        }}
+        onTwoStageOpen={onTwoStageOpen}
+      />,
+    )
+  }
+
+  it('a session-tagged pick routes to onResumeSession — never pickAgent/pickModel', async () => {
+    const changes: RoutingPathChange[] = []
+    const onResumeSession = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="api"
+        aria-label="API"
+        agents={[{ id: 'orchestration', label: 'Orchestration', kind: 'api' as const }]}
+        selectedAgent="orchestration"
+        models={[]}
+        selectedModel=""
+        onChange={(c) => changes.push(c)}
+        twoStage={{
+          providers,
+          getProviderOptions: (provider) =>
+            provider.id === 'cli:codex'
+              ? [{ id: 'codex:main', label: 'codex main session', tag: 'session' }]
+              : [],
+          onResumeSession,
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('codex'))
+    fireEvent.click(await screen.findByText('codex main session'))
+    await waitFor(() => {
+      expect(onResumeSession).toHaveBeenCalledWith('codex:main')
+    })
+    // A resume is a conversation change, not an agent/model change.
+    expect(changes).toHaveLength(0)
+  })
+
+  it('onTwoStageOpen fires once per open (deferred fetch doctrine), not on descend', async () => {
+    const onTwoStageOpen = vi.fn()
+    renderWithSessions(vi.fn(), onTwoStageOpen)
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-picker')).toBeTruthy()
+    })
+    expect(onTwoStageOpen).toHaveBeenCalledTimes(1)
+    // Descending into a provider re-renders stage 2 — it must not re-open.
+    fireEvent.click(screen.getByText('API gateway'))
+    expect(onTwoStageOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('no onResumeSession prop + session pick = inert (honest degradation)', async () => {
+    render(
+      <NavbarRoutingPicker
+        seatKind="api"
+        aria-label="API"
+        agents={[{ id: 'orchestration', label: 'Orchestration', kind: 'api' as const }]}
+        selectedAgent="orchestration"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        twoStage={{
+          providers,
+          getProviderOptions: (provider) =>
+            provider.id === 'cli:codex'
+              ? [{ id: 'codex:main', label: 'codex main session', tag: 'session' }]
+              : [],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('codex'))
+    // Must not throw; the row pick simply resolves nothing.
+    expect(() => fireEvent.click(screen.getByText('codex main session'))).not.toThrow()
+  })
+})

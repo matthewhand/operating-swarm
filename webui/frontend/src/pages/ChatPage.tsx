@@ -367,7 +367,7 @@ import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadA
 import { cliRemoteSessionChoices, isRemoteCapableCli, remoteEndpointLabel } from '../lib/cliRemote'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
 import { chatFolderParams } from '../lib/agentFolder'
-import { navbarWorkspaceSubtitle } from '../lib/agentWorkspace'
+import { navbarWorkspaceSubtitle, persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { nextInferenceIndex, serializeInferenceList } from '../lib/inferenceList'
 import {
@@ -409,7 +409,12 @@ import {
   restoredSessionNotice,
   switchedSessionNotice,
 } from '../lib/sessionRestore'
-import { CLI_SESSION_SWITCHED_EVENT } from '../lib/cliSessions'
+import {
+  CLI_SESSION_SWITCHED_EVENT,
+  dispatchCliSessionSwitched,
+  fetchCliSessions,
+  selectCliSession,
+} from '../lib/cliSessions'
 import { CLI_SESSION_HOPPED_EVENT, dispatchCliSessionHopped, hopCliSession } from '../lib/cliSessionHop'
 // #636: CLI-seat compact orchestration (summary + fresh session carrying it).
 import { compactCliThread } from '../lib/cliCompact'
@@ -3779,6 +3784,66 @@ const ChatPage = () => {
   // live payloads the seat controls already render. A provider with no data
   // (e.g. a CLI with no resumable sessions) still lists; its stage 2 simply
   // offers the default row only.
+  // #711: resumable CLI sessions for the picker's stage 2 — fetched when the
+  // picker opens (deferred-fetch doctrine, same as the History switcher),
+  // never on mount.
+  const [composerSessionsOpen, setComposerSessionsOpen] = useState(false)
+  const composerSessionsQuery = useQuery({
+    queryKey: ['cli-sessions-composer', currentCli],
+    queryFn: () => fetchCliSessions(selectedBlueprint, currentCli),
+    enabled: productModes.cli && isCliAgent && Boolean(currentCli) && composerSessionsOpen,
+    retry: false,
+  })
+  const composerCliSessions = useMemo<ReadonlyArray<{ id: string; label: string }>>(() => {
+    const list = composerSessionsQuery.data
+    if (!list) return []
+    const out: Array<{ id: string; label: string }> = []
+    const seen = new Set<string>()
+    for (const s of [...(list.sessions ?? []), ...(list.recent ?? [])]) {
+      if (!s?.id || seen.has(s.id)) continue
+      seen.add(s.id)
+      out.push({ id: s.id, label: (s.title || s.snippet || s.id).trim() || s.id })
+    }
+    return out
+  }, [composerSessionsQuery.data])
+
+  // #711: picking a session runs the same REQ-104 flow as the History
+  // switcher — select, persist workspace, announce the switch, land on it.
+  const resumeComposerSession = useCallback(
+    async (sessionId: string) => {
+      if (!isCliAgent || !currentCli) return
+      try {
+        const result = await selectCliSession({
+          agentId: selectedBlueprint,
+          cli: currentCli,
+          sessionId,
+          fromConversationId: conversationIdForAgent(selectedBlueprint),
+        })
+        persistSessionWorkspace(selectedBlueprint, {
+          folder: result.folder ?? undefined,
+          gitBranch: result.git_branch ?? undefined,
+        })
+        dispatchCliSessionSwitched({
+          agentId: selectedBlueprint,
+          conversationId: result.conversation_id,
+          status: result.status,
+        })
+        // #794: the URL owns the selected session — set ?session= so remount
+        // and rail browse-back restore the same conversation.
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev)
+          next.set('session', result.conversation_id)
+          return next
+        })
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message ? err.message : 'Could not switch session'
+        addToast({ type: 'error', title: 'Could not start CLI session', message })
+      }
+    },
+    [isCliAgent, currentCli, selectedBlueprint, setSearchParams, addToast],
+  )
+
   const composerSources: ComposerSources = useMemo(
     () => ({
       api: {
@@ -3790,8 +3855,12 @@ const ChatPage = () => {
       },
       // #682: the probed model list belongs to the *current* CLI (the probe
       // is per-CLI); other CLIs list without models until selected.
+      // #711: the current CLI also offers its resumable sessions.
       clis: discoveredClis.map((name) => ({
         name,
+        ...(name === currentCli && composerCliSessions.length
+          ? { sessions: composerCliSessions }
+          : {}),
         ...(name === currentCli && cliModelsQuery.data?.models?.length
           ? { models: cliModelsQuery.data.models }
           : {}),
@@ -3825,6 +3894,7 @@ const ChatPage = () => {
       remoteNavbarAgents,
       currentCli,
       cliModelsQuery.data,
+      composerCliSessions,
     ],
   )
   const composerProviders = useMemo(
@@ -3910,10 +3980,12 @@ const ChatPage = () => {
           allAgents={allPaletteAgents}
           onNavigateAgent={navigateToPaletteAgent}
           loading={isCliAgent && (cliModelsQuery.isFetching || cliModelsQuery.isLoading)}
+          onTwoStageOpen={() => setComposerSessionsOpen(true)}
           twoStage={{
             providers: composerProviders,
             getProviderOptions: (provider) =>
               composerOptionsForProvider(composerSources, provider),
+            onResumeSession: resumeComposerSession,
           }}
           footerAction={{
             id: MANAGE_CLI_VALUE,

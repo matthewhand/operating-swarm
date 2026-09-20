@@ -25,8 +25,12 @@ const api: ComposerApiSource = {
 }
 
 const clis: ComposerCliSource[] = [
-  { name: 'codex', agents: [{ id: 'codex:main', label: 'codex main session' }] },
-  { name: 'grok', agents: [] },
+  {
+    name: 'codex',
+    // #711: session-resumable rows (REQ-104 payload), tagged `session`.
+    sessions: [{ id: 'codex:main', label: 'codex main session' }],
+  },
+  { name: 'grok', models: ['grok-4', 'grok-3'] },
 ]
 
 const remotes: ComposerRemoteSource[] = [
@@ -71,9 +75,9 @@ describe('#681 provider list from live sources', () => {
     const rows = buildComposerProviders({ api, clis, remotes, teams })
     const byId = new Map(rows.map((r) => [r.id, r]))
     expect(byId.get('api')?.defaultOptionId).toBe('prof-default')
-    expect(byId.get('cli:codex')?.defaultOptionId).toBe('codex:main')
-    // A CLI with no session data defaults to itself: the provider IS the
-    // agent-dimension choice, so "Use default" still selects it.
+    // #711: accepting "Use default" for a CLI always selects the CLI itself —
+    // never a session id (sessions are a stage-2 explicit pick).
+    expect(byId.get('cli:codex')?.defaultOptionId).toBe('codex')
     expect(byId.get('cli:grok')?.defaultOptionId).toBe('grok')
     expect(byId.get('remote:openmousbot')?.defaultOptionId).toBe('omb:planner')
     expect(byId.get('team:demo')?.defaultOptionId).toBe('team:demo:worker1')
@@ -89,12 +93,23 @@ describe('#682/#683 stage-2 option sets per provider', () => {
     ])
   })
 
-  it('cli provider lists only its own configured agents', () => {
+  it('cli provider lists resumable sessions tagged session, then models (#711)', () => {
     const rows = buildComposerProviders({ clis })
     const codex = rows.find((r) => r.id === 'cli:codex')!
     expect(composerOptionsForProvider({ clis }, codex)).toEqual([
-      { id: 'codex:main', label: 'codex main session' },
+      { id: 'codex:main', label: 'codex main session', tag: 'session' },
     ])
+    const grok = rows.find((r) => r.id === 'cli:grok')!
+    expect(composerOptionsForProvider({ clis }, grok)).toEqual([
+      { id: 'grok-4', label: 'grok-4', tag: 'model' },
+      { id: 'grok-3', label: 'grok-3', tag: 'model' },
+    ])
+  })
+
+  it('a CLI with neither sessions nor models yields no options — honest empty (#711)', () => {
+    const rows = buildComposerProviders({ clis: [{ name: 'bare' }] })
+    const bare = rows.find((r) => r.id === 'cli:bare')!
+    expect(composerOptionsForProvider({ clis: [{ name: 'bare' }] }, bare)).toEqual([])
   })
 
   it('remote provider lists its agent bots; team lists its members', () => {

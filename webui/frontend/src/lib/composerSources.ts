@@ -18,8 +18,13 @@ export interface ComposerApiSource {
 export interface ComposerCliSource {
   /** A CLI discovered on the host (discoveredClis / cli-agents payload). */
   name: string
-  /** Session-resumable agents for that CLI, when the payload carries them. */
-  agents?: ReadonlyArray<{ id: string; label: string }>
+  /**
+   * #711: resumable sessions for that CLI (REQ-104 payload: sessions +
+   * recents, deduped, newest first). Offered as `session`-tagged stage-2
+   * rows; picking one resumes that conversation. Optional — a CLI without
+   * the payload offers no session rows (honest, no stubs).
+   */
+  sessions?: ReadonlyArray<{ id: string; label: string }>
   /** Probed models for the CLI (#682) — offered as model-dimension rows. */
   models?: readonly string[]
 }
@@ -64,11 +69,11 @@ export function buildComposerProviders(sources: ComposerSources): ComposerProvid
       id: `cli:${cli.name}`,
       label: cli.name,
       kind: 'cli',
-      // A CLI with no session data defaults to itself: accepting "Use default"
-      // selects that CLI (the provider *is* the agent-dimension choice).
-      defaultOptionId: cli.agents?.[0]?.id ?? cli.name,
-      description: cli.agents?.length
-        ? `${cli.agents.length} session(s)`
+      // #711: "Use default" always selects the CLI itself — never a session
+      // id (sessions are an explicit stage-2 pick).
+      defaultOptionId: cli.name,
+      description: cli.sessions?.length
+        ? `${cli.sessions.length} session(s)`
         : cli.models?.length
           ? `${cli.models.length} model(s)`
           : undefined,
@@ -107,7 +112,9 @@ export function composerOptionsForProvider(
     const name = provider.id.slice('cli:'.length)
     const cli = (sources.clis ?? []).find((c) => c.name === name)
     return [
-      ...(cli?.agents ?? []).map((a) => ({ id: a.id, label: a.label })),
+      // #711: resumable sessions first, then probed models — each tagged so
+      // the pick resolves on the right dimension.
+      ...(cli?.sessions ?? []).map((s) => ({ id: s.id, label: s.label, tag: 'session' as const })),
       ...(cli?.models ?? []).map((m) => ({ id: m, label: m, tag: 'model' as const })),
     ]
   }
