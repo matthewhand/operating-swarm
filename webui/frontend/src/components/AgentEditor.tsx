@@ -185,20 +185,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     return () => window.removeEventListener(ROLE_CONSUMERS_CHANGED_EVENT, sync)
   }, [id, isOpen, role])
 
-  const allRoleOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = [
-      ...ROLE_OPTIONS,
-      { value: 'advisor', label: 'advisor' },
-    ]
-    for (const cr of customRoles) {
-      if (!options.some((o) => o.value === cr.name)) {
-        options.push({ value: cr.name, label: cr.label || cr.name })
-      }
-    }
-    return options
-  }, [customRoles])
-
-  const handleRoleSelect = (val: string) => {
+const handleRoleSelect = (val: string) => {
     if (val === '__new_role__') {
       setIsCreateRoleModalOpen(true)
       return
@@ -258,6 +245,23 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     }
     return sessionKindForAgent({ id, tags: agent?.tags })
   }, [id, agent])
+
+  const allRoleOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [
+      ...ROLE_OPTIONS,
+      { value: 'advisor', label: 'advisor' },
+    ]
+    for (const cr of customRoles) {
+      if (!options.some((o) => o.value === cr.name)) {
+        options.push({ value: cr.name, label: cr.label || cr.name })
+      }
+    }
+    // #853: the support option only renders for API-kind seats — hide rather
+    // than disable so the picker never advertises a broken configuration.
+    const filtered =
+      agentKind === 'api' ? options : options.filter((o) => o.value !== 'support')
+    return filtered
+  }, [customRoles, agentKind])
 
   const cliQuery = useQuery({
     queryKey: ['cli-agents'],
@@ -435,6 +439,12 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   }
 
   const persistRole = (next: AgentRole) => {
+    // #853: 'support' is exclusive to API-kind seats — its capabilities lean
+    // on structured function-calling hooks CLI/remote/team seats lack.
+    if (next === 'support' && agentKind !== 'api') {
+      toastError('Support role unavailable', 'Support role is exclusively available to API agents')
+      return
+    }
     setRole(next)
     saveAgentEdit(id, { role: next, roleOverridden: true })
     if (id) setWiredConsumers(loadRoleConsumers(id, next))

@@ -990,10 +990,18 @@ def save_team_swarm(request):
                 if banned:
                     return JsonResponse({"success": False, "error": banned}, status=400)
         from swarm.core.agent_roles import normalize_agent_role
+        from swarm.core.roles.registry import SUPPORT_ROLE_KIND_ERROR, validate_role_for_kind
+
+        resolved_role = normalize_agent_role(agent.get("role"))
+        # #853: support seats must be API-kind — other kinds lack the
+        # function-calling hooks the role's behavior relies on.
+        kind_error = validate_role_for_kind(resolved_role, agent.get("kind") or "api")
+        if kind_error:
+            return JsonResponse({"success": False, "error": SUPPORT_ROLE_KIND_ERROR}, status=400)
 
         cleaned_agents.append({
             "name": bot_name,
-            "role": normalize_agent_role(agent.get("role")),
+            "role": resolved_role,
             "description": (agent.get("description") or f"{bot_name} bot").strip(),
             "system_prompt": (agent.get("system_prompt") or agent.get("instructions") or f"You are {bot_name}.").strip(),
             "model_profile": (agent.get("model_profile") or "default").strip(),

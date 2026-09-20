@@ -14,7 +14,16 @@ from __future__ import annotations
 
 from swarm.core.roles.base import Role
 
-__all__ = ["ROLE_REGISTRY", "register_role", "unregister_role", "get_role", "all_roles"]
+__all__ = [
+    "ROLE_REGISTRY",
+    "register_role",
+    "unregister_role",
+    "get_role",
+    "all_roles",
+    "SUPPORT_ROLE_SEAT_KINDS",
+    "SUPPORT_ROLE_KIND_ERROR",
+    "validate_role_for_kind",
+]
 
 ROLE_REGISTRY: dict[str, Role] = {}
 
@@ -46,3 +55,25 @@ def get_role(role_id: str) -> Role | None:
 def all_roles() -> list[Role]:
     """Registered roles in canonical (registry insertion) order."""
     return list(ROLE_REGISTRY.values())
+
+
+# #853: the support role leans on structured function-calling / tool hooks
+# that only API-kind seats have, so other kinds cannot carry it.
+SUPPORT_ROLE_SEAT_KINDS = frozenset({"api", "blueprint"})
+
+SUPPORT_ROLE_KIND_ERROR = "Support role is exclusively available to API agents."
+
+
+def validate_role_for_kind(role: str, seat_kind: str | None) -> str | None:
+    """Return an error message when *role* cannot sit on *seat_kind*, else None.
+
+    #853: only the ``support`` role is kind-restricted today; every other
+    canonical or custom role is unrestricted. Unknown kinds fall through to
+    the restriction check so a missing kind cannot smuggle a support seat.
+    """
+    normalized = str(role or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if normalized != "support":
+        return None
+    if (seat_kind or "").strip().lower() in SUPPORT_ROLE_SEAT_KINDS:
+        return None
+    return SUPPORT_ROLE_KIND_ERROR

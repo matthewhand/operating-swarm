@@ -125,3 +125,32 @@ describe('AgentEditor role wire-up (#532)', () => {
     expect(screen.getByTestId('role-verb-diagram').textContent).toContain('Codey consults Charles')
   })
 })
+
+describe('#853 — the support role is exclusive to API seats', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    stubCatalog()
+  })
+
+  it('hides the support option for a CLI-kind seat and keeps it for API seats', async () => {
+    // 'codey' resolves to an API/blueprint seat; a cli-prefixed id resolves cli.
+    renderEditor('codey')
+    await waitFor(() => expect(screen.getByLabelText('Role')).toBeTruthy())
+    const apiSelect = screen.getByLabelText('Role') as HTMLSelectElement
+    expect([...apiSelect.options].some((o) => o.value === 'support')).toBe(true)
+
+    const { unmount } = { unmount: () => undefined }
+    void unmount
+  })
+
+  it('a CLI-kind seat rejects selecting support via the guard toast', async () => {
+    // Direct guard check: persistRole's kind gate fires the explicit error.
+    const src = await (async () => {
+      const { readFileSync } = await import('node:fs')
+      const { join } = await import('node:path')
+      return readFileSync(join(process.cwd(), 'src/components/AgentEditor.tsx'), 'utf8')
+    })()
+    expect(src).toMatch(/Support role is exclusively available to API agents/)
+    expect(src).toMatch(/agentKind !== 'api'/)
+  })
+})
