@@ -962,3 +962,19 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
     })
   })
 })
+
+describe('#798 — the wizard modal is a fixed viewport box across tabs', () => {
+  it('pins the outer geometry: wizard-size modal, fixed height, inner scroll only', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const modalSrc = readFileSync(join(process.cwd(), 'src/components/DaisyUI/Modal.tsx'), 'utf8')
+    const wizardSrc = readFileSync(join(process.cwd(), 'src/components/AddAgentWizard.tsx'), 'utf8')
+    // Fixed viewport percentage sizing — tab switching must not re-flow the
+    // outer dialog (content-driven max-h is what caused the jumps).
+    expect(modalSrc).toMatch(/wizard: 'w-\[85vw\] max-w-4xl h-\[85vh\] overflow-hidden flex flex-col'/)
+    expect(wizardSrc).toMatch(/size="wizard"/)
+    // Only the inner content area scrolls.
+    expect(wizardSrc).toMatch(/overflow-y-auto pr-1 min-h-0 flex-1/)
+    expect(wizardSrc).not.toMatch(/max-h-\[82vh\]/)
+  })
+})

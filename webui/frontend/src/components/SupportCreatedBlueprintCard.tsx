@@ -75,9 +75,11 @@ export default function SupportCreatedBlueprintCard({
     <div
       className={`card bg-base-100 border border-base-300 mt-2 ${
         revealed
-          ? // #769: a deliberate "show me the code" breaks out of the bubble's
-            // inline width — near-full chat-pane width, no cramped box.
-            'support-nl-card--revealed -mx-3 sm:-mx-8 w-[calc(100%+1.5rem)] sm:w-[calc(100%+4rem)] max-w-none'
+          ? // #807: viewing the code takes precedence over the transcript — the
+            // card elevates as a stacked layer above the bubble (z-20, big
+            // shadow) spanning the full chat-pane width, while the underlying
+            // bubble keeps its geometry. No negative-margin distortion.
+            'support-nl-card--revealed relative z-20 w-[calc(100vw-10rem)] max-w-none shadow-2xl border-2'
           : ''
       }`}
       data-testid="support-nl-blueprint-card"

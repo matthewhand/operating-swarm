@@ -14,7 +14,7 @@ export interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   title?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'sheet';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'wizard' | 'sheet';
   /** Horizontal/vertical dock. `end` is a right-docked sheet (`modal-end`). */
   placement?: ModalPlacement;
   className?: string;
@@ -91,6 +91,9 @@ export const Modal = ({
     lg: 'max-w-lg max-h-[90vh] overflow-y-auto',
     xl: 'max-w-xl max-h-[90vh] overflow-y-auto',
     '2xl': 'max-w-5xl w-11/12 max-h-[90vh] overflow-y-auto',
+    /* #798: tabbed multi-step dialogs pin to a fixed viewport box so switching
+       tabs never re-flows the outer chrome — only the inner content scrolls. */
+    wizard: 'w-[85vw] max-w-4xl h-[85vh] overflow-hidden flex flex-col',
     sheet: 'h-full max-h-full w-full max-w-4xl rounded-none rounded-s-box overflow-hidden',
   };
 

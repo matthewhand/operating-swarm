@@ -724,11 +724,15 @@ ${folderComment}`
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      size="lg"
+      size="wizard"
       placement="middle"
       aria-label="Add agent wizard"
     >
-      <div className="space-y-4 max-h-[82vh] overflow-y-auto pr-1" data-testid="add-agent-wizard">
+      {/* #798: the modal box is pinned to a fixed viewport box; only this
+          inner content area scrolls, so switching agent kinds never moves the
+          outer dialog or its buttons. */}
+      <div className="flex flex-col h-full min-h-0 space-y-4" data-testid="add-agent-wizard">
+        <div className="overflow-y-auto pr-1 min-h-0 flex-1">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-base-300 pb-3">
           <div className="flex items-center gap-2.5">
@@ -1471,6 +1475,7 @@ ${folderComment}`
               </Button>
             </div>
           </form>
+        </div>
         </div>
       </div>
     </Modal>

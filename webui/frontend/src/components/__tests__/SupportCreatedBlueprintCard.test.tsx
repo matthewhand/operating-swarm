@@ -162,3 +162,21 @@ describe('SupportCreatedBlueprintCard code reveal (#769)', () => {
     expect(screen.queryByTestId('support-nl-code')).toBeNull()
   })
 })
+
+describe('#807 — the revealed code view stacks above the bubble layer', () => {
+  it('elevates instead of distorting: revealed card is position-elevated, full-width, and out of the bubble flow', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/SupportCreatedBlueprintCard.tsx'),
+      'utf8',
+    )
+    // #769's negative-margin breakout distorted the containing bubble; #807
+    // replaces it with a stacked layer: elevated z-index over the transcript,
+    // full chat-pane width, and a stable bubble underneath.
+    expect(src).toMatch(/support-nl-card--revealed/)
+    expect(src).toMatch(/relative z-20/)
+    expect(src).not.toMatch(/-mx-3 sm:-mx-8/)
+    expect(src).not.toMatch(/w-\[calc\(100%\+1\.5rem\)\]/)
+  })
+})
