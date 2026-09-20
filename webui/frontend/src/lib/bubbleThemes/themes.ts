@@ -1,4 +1,4 @@
-import { BubbleThemeBase, formatBubbleTime } from './base'
+import { BubbleThemeBase, formatBubbleTime, type NoticeRowSpec } from './base'
 import { registerBubbleTheme } from './registry'
 
 /** Tails + symmetric gutters (REQ-844). Timestamp stays above, CSS-hidden. */
@@ -30,6 +30,17 @@ export class IrcTheme extends BubbleThemeBase {
    * develops gaps and the divider alignment holds across the transcript. */
   override formatTimestamp(ts: string | undefined): string {
     return formatBubbleTime(ts) || '--:--'
+  }
+
+  /** #782: not-message rows join the gutter grid — same `<nick> message`
+   * contract as real messages, so the theme stays self-consistent. */
+  override renderNoticeRow(
+    speaker: string,
+    text: string,
+    ts: string | undefined,
+    key: string,
+  ): NoticeRowSpec {
+    return this.gutterNotice(speaker, text, ts, key)
   }
 }
 

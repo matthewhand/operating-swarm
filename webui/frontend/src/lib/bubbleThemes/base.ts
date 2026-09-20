@@ -1,4 +1,5 @@
 import { parseCreatedAtMs } from '../chatTime'
+import { statusLineLabel } from '../statusLineText'
 
 export type BubbleTheme = 'speech' | 'simple' | 'irc' | 'feed'
 export type MessageLayout = 'bubble' | 'line'
@@ -10,6 +11,15 @@ export type ComposerChrome = {
   placeholder: string
   workingIndicatorPlacement: TimestampPlacement
 }
+
+/**
+ * #782 — how a theme renders a not-message row (status notice, session
+ * message, preload pill): a plain gutter line (`<nick> message`, IRC) or the
+ * theme's default card chrome (every other theme).
+ */
+export type NoticeRowSpec =
+  | { kind: 'gutter-line'; speaker: string; text: string; ts?: string; key: string }
+  | { kind: 'card' }
 
 /** Compact clock; empty when `ts` is missing or invalid. */
 export function formatBubbleTime(ts: string | undefined): string {
@@ -51,6 +61,31 @@ export abstract class BubbleThemeBase {
 
   renderStreamingAffordance(): null {
     return null
+  }
+
+  /**
+   * #782: bubble-theme-aware notice rows. Base keeps the legacy card chrome;
+   * IRC overrides to join its gutter grid so the transcript speaks one visual
+   * language. `text` arrives as raw notice markdown — gutter themes flatten
+   * it via statusLineLabel.
+   */
+  renderNoticeRow(
+    _speaker: string,
+    _text: string,
+    _ts: string | undefined,
+    _key: string,
+  ): NoticeRowSpec {
+    return { kind: 'card' }
+  }
+
+  /** Shared gutter-line builder so gutter themes cannot drift. */
+  protected gutterNotice(
+    speaker: string,
+    text: string,
+    ts: string | undefined,
+    key: string,
+  ): NoticeRowSpec {
+    return { kind: 'gutter-line', speaker, text: statusLineLabel(text), ts, key }
   }
 
   composerChrome(): ComposerChrome {

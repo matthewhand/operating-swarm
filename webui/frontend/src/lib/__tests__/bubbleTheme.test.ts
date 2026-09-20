@@ -197,3 +197,40 @@ describe('bubbleTheme registry (#217)', () => {
   )
 })
 
+
+describe('#782 — bubble-theme-aware notice rows', () => {
+  it('IRC renders notice rows as gutter lines; other themes fall back to the card', () => {
+    const irc = getBubbleTheme('irc')
+    expect(irc.renderNoticeRow).toBeDefined()
+    expect(irc.renderNoticeRow('System', 'Started a new omp session', undefined, 'notice-1')).toMatchObject(
+      {
+        kind: 'gutter-line',
+        speaker: 'System',
+        text: 'Started a new omp session',
+        key: 'notice-1',
+      },
+    )
+
+    // #533 card themes keep their existing disclosure chrome.
+    for (const id of ['speech', 'simple', 'feed'] as const) {
+      const theme = getBubbleTheme(id)
+      expect(theme.renderNoticeRow('System', 'ctx culled', undefined, 'k')).toMatchObject({
+        kind: 'card',
+      })
+    }
+  })
+
+  it('IRC gutter-line notices stamp ts at arrival (--:-- when unknown)', () => {
+    const irc = getBubbleTheme('irc')
+    const row = irc.renderNoticeRow('System', 'Queued item promoted.', '2026-09-20T10:30:00Z', 'k')
+    expect(row).toMatchObject({ kind: 'gutter-line', ts: '2026-09-20T10:30:00Z' })
+    const unknown = irc.renderNoticeRow('System', 'x', undefined, 'k')
+    expect(unknown).toMatchObject({ kind: 'gutter-line', ts: undefined })
+  })
+
+  it('IRC notice bodies are plain one-line labels (statusLineLabel)', () => {
+    const irc = getBubbleTheme('irc')
+    const row = irc.renderNoticeRow('System', '**Bold** notice\nsecond line', undefined, 'k')
+    expect(row).toMatchObject({ kind: 'gutter-line', text: 'Bold notice second line' })
+  })
+})

@@ -8,7 +8,9 @@ import {
   BUBBLE_THEME_LABELS,
   BUBBLE_THEME_STORAGE_KEY,
   BUBBLE_THEMES,
+  saveBubbleTheme,
 } from '../../lib/bubbleTheme'
+import { resetConversationThreads } from '../../lib/chatMeter'
 
 class MockWebSocket {
   static OPEN = 1
@@ -186,3 +188,66 @@ describe('REQ-810: Chat right-click bubble theme select', () => {
   })
 })
 
+
+describe('#782 — notice rows are bubble-theme aware', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+    Element.prototype.scrollIntoView = vi.fn()
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/blueprints')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [{ id: 'support', name: 'Support', description: 'Support agent' }],
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  async function pushStatus(theme: string) {
+    saveBubbleTheme(theme)
+    renderChat()
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data:
+            '<div id="message-list" hx-swap-oob="beforeend"><div class="chat-status-line">Started a new omp session</div></div>',
+        }),
+      )
+    })
+  }
+
+  it('IRC renders status notices as gutter lines in the grid', async () => {
+    await pushStatus('irc')
+    const row = screen.getByTestId('irc-notice-line')
+    expect(row.dataset.speaker).toBe('System')
+    expect(row.textContent).toContain('Started a new omp session')
+    expect(row.querySelector('[data-testid="irc-gutter-divider"]')).toBeTruthy()
+    expect(screen.queryByTestId('chat-status')).toBeNull()
+  })
+
+  it('other themes keep the legacy status line', async () => {
+    await pushStatus('speech')
+    expect(screen.getByTestId('chat-status')).toBeTruthy()
+    expect(screen.queryByTestId('irc-notice-line')).toBeNull()
+  })
+})

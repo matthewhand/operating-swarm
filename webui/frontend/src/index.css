@@ -3020,6 +3020,43 @@ html:not([data-theme="light"]) .os-composer__send,
   justify-self: start;
 }
 
+/* #782 — not-message rows (status notices, session messages, rate-limit
+   lines) join the IRC gutter grid via IrcNoticeLine, so they get the same
+   `<speaker>` gutter, divider and inline time as real message rows. The
+   notice body is a muted plain-text line; the pill variant keeps its
+   disclosure but seats inside the grid so the vertical line stays whole. */
+.os-irc-notice .chat-bubble.os-irc-notice-bubble {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: color-mix(in srgb, var(--color-base-content) 65%, transparent);
+  font-size: 0.8125rem;
+}
+.os-irc-notice .os-irc-notice-text {
+  display: inline-block;
+  max-width: 72ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.os-irc-notice .os-bubble-time-inline {
+  font-size: 0.75rem;
+}
+.os-irc-notice-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 100%;
+  column-gap: 0.35rem;
+}
+.os-irc-notice-row > .os-system-preload {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-block: 0.25rem;
+}
+
 .os-chat-transcript[data-bubble-theme="feed"] .chat,
 .os-chat-transcript[data-bubble-theme="feed"] .chat-start,
 .os-chat-transcript[data-bubble-theme="feed"] .chat-end {

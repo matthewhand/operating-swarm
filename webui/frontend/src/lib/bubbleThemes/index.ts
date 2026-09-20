@@ -7,6 +7,7 @@ export {
   type BubbleTheme,
   type ComposerChrome,
   type MessageLayout,
+  type NoticeRowSpec,
   type TimestampPlacement,
 } from './base'
 export {

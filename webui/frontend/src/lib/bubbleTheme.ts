@@ -17,6 +17,7 @@ export {
   type ActionRowPlacement,
   type ComposerChrome,
   type MessageLayout,
+  type NoticeRowSpec,
   type TimestampPlacement,
 } from './bubbleThemes'
 export type { BubbleTheme } from './bubbleThemes'

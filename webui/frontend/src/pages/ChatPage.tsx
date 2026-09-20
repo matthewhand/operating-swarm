@@ -29,7 +29,9 @@ import {
 } from '../components/SettingsSheet'
 import { OVERLAY_CHROME_CLASSES } from '../lib/chromeOverlay'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
-import { isRateLimitWait, type RateLimitWait } from '../lib/providerRateLimits'
+import { isRateLimitWait, settingsTargetForProvider, type RateLimitWait } from '../lib/providerRateLimits'
+import { formatRateLimitNotice } from '../lib/statusLineText'
+import { IrcNoticeLine } from '../components/IrcNoticeLine'
 import { getScopedSelectionText } from '../lib/bubbleSelection'
 import { buildOutboundReplyText } from '../lib/replyQuote'
 import {
@@ -4556,7 +4558,7 @@ const ChatPage = () => {
               )
             }
             if (message.kind === 'prior_history') {
-              return (
+              const pill = (
                 <SystemPreloadPill
                   key={message.key}
                   text={message.text}
@@ -4568,10 +4570,56 @@ const ChatPage = () => {
                   }
                 />
               )
+              // #782: bubble-theme aware — IRC keeps the pill's disclosure but
+              // seats it in the gutter grid so the vertical line stays whole.
+              if (themeUsesIrcGutter(bubbleTheme)) {
+                return (
+                  <div key={message.key} className="os-irc-notice-row" data-testid="irc-notice-line">
+                    <span
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Resize IRC name column"
+                      className="os-irc-gutter-divider"
+                      data-testid="irc-gutter-divider"
+                    />
+                    {pill}
+                  </div>
+                )
+              }
+              return pill
             }
             if (isStatusRole(message.role)) {
               const statusMs = parseCreatedAtMs(message.ts)
               if (message.rateLimit) {
+                // #782: rate-limit lines are bubble-theme aware — IRC renders
+                // them as gutter lines; the settings click survives.
+                const noticeSpec = getBubbleTheme(bubbleTheme).renderNoticeRow(
+                  'System',
+                  formatRateLimitNotice(message.rateLimit),
+                  message.ts,
+                  message.key,
+                )
+                if (noticeSpec.kind === 'gutter-line') {
+                  const target =
+                    message.rateLimit.settings ||
+                    settingsTargetForProvider(message.rateLimit.provider)
+                  return (
+                    <IrcNoticeLine
+                      key={message.key}
+                      speaker={noticeSpec.speaker}
+                      text={noticeSpec.text}
+                      ts={noticeSpec.ts}
+                      rowKey={noticeSpec.key}
+                      onClick={() =>
+                        openSettingsSheet({
+                          section: target.section,
+                          providerId: target.provider_id,
+                          focusRateLimits: true,
+                        })
+                      }
+                    />
+                  )
+                }
                 return (
                   <RateLimitStatusLine
                     key={message.key}
@@ -4579,6 +4627,26 @@ const ChatPage = () => {
                     nowMs={nowMs}
                     ts={message.ts}
                     timeLabel={statusMs != null ? formatGapLabel(statusMs) : undefined}
+                  />
+                )
+              }
+              // #782: notice rows follow the bubble theme — IRC renders them
+              // as `<System> message` gutter lines so the transcript column
+              // stays whole; every other theme keeps the legacy status line.
+              const noticeSpec = getBubbleTheme(bubbleTheme).renderNoticeRow(
+                'System',
+                message.text,
+                message.ts,
+                message.key,
+              )
+              if (noticeSpec.kind === 'gutter-line') {
+                return (
+                  <IrcNoticeLine
+                    key={message.key}
+                    speaker={noticeSpec.speaker}
+                    text={noticeSpec.text}
+                    ts={noticeSpec.ts}
+                    rowKey={noticeSpec.key}
                   />
                 )
               }
