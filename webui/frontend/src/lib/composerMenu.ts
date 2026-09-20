@@ -34,6 +34,11 @@ export interface ComposerMenuSeat {
   defaultLlmReady?: boolean
   /** #636: the CLI provider declares a native `cli_compact` hook (catalog `cli_compact`). */
   cliCompactCapable?: boolean
+  /** #830: display name of the remote provider (e.g. "Herdr", "TrueForge"). */
+  providerName?: string
+  /** #830: the remote provider declares a native compact hook — the remote
+   * analogue of `cliCompactCapable`. */
+  remoteCompactCapable?: boolean
   /** #516: the seat passes the swarm-owned plugins gate (#511's predicate). */
   pluginsSwarmOwned?: boolean
   /** #551: the kind base's declared capabilities, published as data by
@@ -68,8 +73,10 @@ export const COMPACT_DISABLED_REASON =
 export const COMPACT_NO_API_REASON =
   'No API is configured — compacting a CLI seat needs a default API profile (Settings → LLM)'
 
-export const COMPACT_REMOTE_REASON =
-  'Compact is not available for remote seats — the transcript belongs to the remote provider'
+/** #830: the disabled remote reason names the PROVIDER, not the kind. */
+export function compactRemoteReason(providerName?: string): string {
+  return `Compact is not implemented for ${providerName?.trim() || 'this provider'}`
+}
 
 /** #516: Plugins ride the swarm-owned reading of #511 (API + blueprint seats) —
  * the same predicate the rail's Plugins entry and the badge gate on. */
@@ -89,12 +96,14 @@ export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCa
   const compact = Boolean(seat.isApi)
   // #636: a CLI seat can compact too — the server summarises via the default
   // API, or the provider compacts itself through its declared native hook.
-  // Remote seats stay out: their transcript is the provider's, and the server
-  // has no summariser for it.
+  // #830: a remote seat gains the same path when its provider declares a
+  // native compact hook (`remoteCompactCapable`); otherwise it stays out —
+  // the transcript is the provider's, and the server has no summariser for it.
   const cliCompact =
     Boolean(seat.isCli) && (Boolean(seat.defaultLlmReady) || Boolean(seat.cliCompactCapable))
+  const remoteCompact = Boolean(seat.isRemote) && Boolean(seat.remoteCompactCapable)
   const compactReason = seat.isRemote
-    ? COMPACT_REMOTE_REASON
+    ? compactRemoteReason(seat.providerName)
     : COMPACT_NO_API_REASON
   // #516: the Plugins entry uses the same swarm-owned reading (#511) the rail
   // footer and the badge already gate on — one predicate, three consumers.
@@ -107,8 +116,8 @@ export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCa
   return {
     addFiles: declaredAttach ?? { enabled: addFiles, reason: ATTACH_DISABLED_REASON },
     compact: {
-      enabled: compact || cliCompact,
-      reason: compact || cliCompact ? '' : compactReason,
+      enabled: compact || cliCompact || remoteCompact,
+      reason: compact || cliCompact || remoteCompact ? '' : compactReason,
     },
     plugins: declaredPlugins ?? { enabled: plugins, reason: PLUGINS_DISABLED_REASON },
   }

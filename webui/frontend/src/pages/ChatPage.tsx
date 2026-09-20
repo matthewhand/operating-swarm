@@ -1374,6 +1374,14 @@ const ChatPage = () => {
         currentCli &&
         (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[currentCli],
     ),
+    // #830: the reason names the PROVIDER ("not implemented for Herdr"), and
+    // a remote that declares a native compact hook gains the action — the
+    // remote analogue of #636's cli_compact. No catalog payload carries a
+    // compact flag yet, so nothing lights up until a provider ships one.
+    providerName: selectedRemote ? remoteDisplayName(selectedRemote) : undefined,
+    remoteCompactCapable: Boolean(
+      (selectedRemote?.capabilities as { compact?: boolean } | undefined)?.compact,
+    ),
     // #516: the same swarm-owned reading the rail's Plugins entry gates on,
     // using the exact seat pair ChatPage publishes (id + kind) so the composer
     // menu cannot disagree with the badge.

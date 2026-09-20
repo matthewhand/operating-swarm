@@ -38,6 +38,27 @@ describe('#636 CLI compact gating', () => {
     expect(menu.compact.enabled).toBe(false)
   })
 
+  it('#830: a disabled remote reason names the PROVIDER, not the kind', () => {
+    const menu = composerMenuCapabilities({ isRemote: true, providerName: 'Herdr' })
+    expect(menu.compact.enabled).toBe(false)
+    expect(menu.compact.reason).toBe('Compact is not implemented for Herdr')
+  })
+
+  it('#830: unknown provider falls back to "this provider"', () => {
+    expect(composerMenuCapabilities({ isRemote: true }).compact.reason).toBe(
+      'Compact is not implemented for this provider',
+    )
+  })
+
+  it('#830: a remote declaring compact capability gains the action', () => {
+    const menu = composerMenuCapabilities({
+      isRemote: true,
+      providerName: 'TrueForge',
+      remoteCompactCapable: true,
+    })
+    expect(menu.compact.enabled).toBe(true)
+  })
+
   it('an unresolved seat never gains Compact (positive isApi gate kept)', () => {
     expect(
       composerMenuCapabilities({ defaultLlmReady: true }).compact.enabled,
