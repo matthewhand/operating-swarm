@@ -154,8 +154,20 @@ def _record_target(record: Mapping[str, Any], *, pane_first: bool) -> str:
     return ""
 
 
-def members_from_agent_list(payload: Any, *, remote: str = "") -> list[dict[str, Any]]:
-    """Turn ``herdr agent list`` JSON into addable members (kind=herdr)."""
+def members_from_agent_list(
+    payload: Any,
+    *,
+    remote: str = "",
+    workspace_labels: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Turn ``herdr agent list`` JSON into addable members (kind=herdr).
+
+    ``name`` stays the routing target (pane id like ``w3:p5``) that
+    ``herdr agent prompt`` needs; ``display`` becomes the friendly
+    ``Agent (Workspace)`` label for the UI (#787). ``workspace_labels`` maps
+    workspace ids to their human labels from ``herdr workspace list``.
+    """
+    labels = workspace_labels or {}
     members: list[dict[str, Any]] = []
     seen: set[str] = set()
     for record in _as_records(payload, "agents", "items"):
@@ -166,15 +178,23 @@ def members_from_agent_list(payload: Any, *, remote: str = "") -> list[dict[str,
             continue
         seen.add(target)
         state = extract_agent_state(record)
-        raw_name = record.get("name")
-        display = raw_name.strip() if isinstance(raw_name, str) else ""
+        raw_name = record.get("agent") or record.get("name")
+        agent_name = raw_name.strip() if isinstance(raw_name, str) else ""
+        workspace = str(labels.get(str(record.get("workspace_id", ""))) or "")
+        if agent_name and workspace:
+            display = f"{agent_name.capitalize()} ({workspace})"
+        else:
+            display = agent_name.capitalize() if agent_name else ""
+        # #728: keep the human label when the CLI id is a pane id, so
+        # ambiguity errors can say "w3:p1 (grok)" instead of two ids.
+        # Case-insensitive compare: display 'Grok' for target 'grok' adds nothing.
         members.append(
             {
                 "kind": MEMBER_KIND,
                 "name": target,
-                # #728: keep the human label when the CLI id is a pane id, so
-                # ambiguity errors can say "w3:p1 (grok)" instead of two ids.
-                "display": display if display and display != target else "",
+                "display": display if display and display.lower() != target.lower() else "",
+                "agent": agent_name,
+                "workspace": workspace,
                 "remote": (remote or "").strip(),
                 "source": "agent",
                 "state": state,
@@ -477,8 +497,17 @@ class HerdrClient:
         localhost (no ``--remote``). Teams/sidepane persist chosen rows via
         ``POST /v1/herdr-agents/``.
         """
-        agents = members_from_agent_list(self.agent_list(), remote=self.remote)
         workspaces = members_from_workspace_list(self.workspace_list(), remote=self.remote)
+        labels = {
+            item["name"]: item.get("display") or item["name"]
+            for item in workspaces
+            if item.get("name")
+        }
+        agents = members_from_agent_list(
+            self.agent_list(),
+            remote=self.remote,
+            workspace_labels=labels,
+        )
         seen = {item["name"] for item in agents}
         merged = list(agents)
         for item in workspaces:

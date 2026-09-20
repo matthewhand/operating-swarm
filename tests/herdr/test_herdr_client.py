@@ -189,3 +189,68 @@ def test_missing_herdr_binary_is_cli_error():
 
     with pytest.raises(HerdrCLIError, match="not found"):
         HerdrClient(runner=runner).agent_list()
+
+
+def test_members_from_agent_list_friendly_display():
+    """#787: pane-id targets keep routing while display becomes 'Agent (Workspace)'."""
+    agents = members_from_agent_list(
+        {
+            "result": {
+                "agents": [
+                    {
+                        "pane_id": "w3:p5",
+                        "agent": "grok",
+                        "workspace_id": "w3",
+                        "state": "working",
+                    }
+                ]
+            }
+        },
+        remote="",
+        workspace_labels={"w3": "hermes"},
+    )
+    assert agents[0]["name"] == "w3:p5"  # routing target preserved
+    assert agents[0]["display"] == "Grok (hermes)"  # friendly label for UI
+    assert agents[0]["agent"] == "grok"
+    assert agents[0]["workspace"] == "hermes"
+
+
+def test_members_from_agent_list_display_without_workspace():
+    agents = members_from_agent_list(
+        {"result": {"agents": [{"pane_id": "w2:pD", "agent": "agy"}]}},
+        remote="",
+    )
+    assert agents[0]["name"] == "w2:pD"
+    assert agents[0]["display"] == "Agy"
+    assert agents[0]["workspace"] == ""
+
+
+def test_members_from_agent_list_target_is_friendly_name():
+    """When the record's target IS the agent name, display stays empty (no echo)."""
+    agents = members_from_agent_list(
+        {"result": {"agents": [{"name": "grok", "agent": "grok"}]}},
+        remote="",
+    )
+    assert agents[0]["name"] == "grok"
+    assert agents[0]["display"] == ""
+
+
+def test_discover_members_enriches_workspace_labels():
+    def runner(argv, timeout=None):
+        if argv[-2:] == ["agent", "list"]:
+            return _ok(
+                argv,
+                '{"result":{"agents":[{"pane_id":"w3:p5","agent":"grok",'
+                '"workspace_id":"w3","state":"idle"}]}}',
+            )
+        if argv[-2:] == ["workspace", "list"]:
+            return _ok(
+                argv,
+                '{"result":{"workspaces":[{"workspace_id":"w3","label":"hermes"}]}}',
+            )
+        raise AssertionError(argv)
+
+    members = HerdrClient(runner=runner).discover_members()
+    agent_rows = [m for m in members if m["source"] == "agent"]
+    assert agent_rows[0]["name"] == "w3:p5"
+    assert agent_rows[0]["display"] == "Grok (hermes)"
