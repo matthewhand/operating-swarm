@@ -2896,12 +2896,13 @@ describe('AgentSidebar REQ-861 conceal', () => {
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
   })
 
-  it('renders a bee collapse button that collapses the desktop rail (#417)', async () => {
+  it('renders standard pane icons for collapse/expand (#417, #767)', async () => {
     renderSidebar()
     const conceal = await screen.findByRole('button', { name: 'Collapse sidebar' })
     expect(conceal).toHaveAttribute('title', 'Collapse sidebar')
     expect(conceal).toHaveAttribute('data-testid', 'sidebar-conceal')
-    expect(conceal.querySelector('.os-brand-mark-geometric')).toBeTruthy()
+    expect(conceal.querySelector('svg.lucide-panel-left-close')).toBeTruthy()
+    expect(conceal.querySelector('.os-brand-mark-geometric')).toBeNull()
     expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'false')
     expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
 
@@ -2910,6 +2911,7 @@ describe('AgentSidebar REQ-861 conceal', () => {
     expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument()
     const expand = screen.getByRole('button', { name: 'Expand sidebar' })
     expect(expand).toHaveAttribute('data-testid', 'sidebar-expand')
+    expect(expand.querySelector('svg.lucide-panel-left-open')).toBeTruthy()
   })
 
   it('#421 collapsed rail hides Calendar label and info-i (hostname-only chrome)', async () => {

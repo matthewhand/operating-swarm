@@ -1,11 +1,10 @@
-import { ChevronsRight, PanelLeft } from 'lucide-react'
-import { BrandMarkMono } from './BrandMarkMono'
+import { ChevronsRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 /** DaisyUI `btn-sm` meets the ≥32px touch target; square keeps the mark centered. */
 const CONCEAL_BTN =
   'btn btn-ghost btn-sm btn-square min-h-8 min-w-8 h-8 w-8 text-base-content'
 
-/** Left rail: bee mark collapses the expanded sidebar (#417). */
+/** Left rail: standard pane icon collapses the expanded sidebar (#767). */
 export function SidebarConcealButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -16,12 +15,12 @@ export function SidebarConcealButton({ onClick }: { onClick: () => void }) {
       data-testid="sidebar-conceal"
       onClick={onClick}
     >
-      <BrandMarkMono className="h-5 w-5" />
+      <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
     </button>
   )
 }
 
-/** Left rail: close-pane / expand control when the rail is avatar-only (#417). */
+/** Left rail: close-pane / expand control when the rail is avatar-only (#417, #767). */
 export function SidebarExpandButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -32,7 +31,7 @@ export function SidebarExpandButton({ onClick }: { onClick: () => void }) {
       data-testid="sidebar-expand"
       onClick={onClick}
     >
-      <PanelLeft className="h-4 w-4" aria-hidden="true" />
+      <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
     </button>
   )
 }
