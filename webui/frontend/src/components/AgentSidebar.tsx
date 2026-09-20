@@ -3682,6 +3682,7 @@ export default function AgentSidebar({
                                   dropActive={sectionDropId === block.id}
                                   onDragOver={(event) => allowSectionDrop(event, block.id)}
                                   onDrop={(event) => dropOnSection(event, block.id)}
+                                  unassigned={block.id === UNASSIGNED_SECTION_ID}
                                 />
                               </li>
                             ) : (
@@ -3799,6 +3800,10 @@ export default function AgentSidebar({
         <div className="border-t border-base-300/70 px-3 py-3" data-testid="sidebar-footer-container">
           {draggingId ? (
             <div
+              /* #783: the bin reserves the exact height of the menu cluster it
+                 conceals (see --os-footer-cluster-h below), so engaging the
+                 drag never jolts the rail. */
+              style={{ ['--os-footer-cluster-h' as string]: '10rem' }}
               className={`os-recycle-bin flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed py-3 px-2 transition-all cursor-pointer ${
                 binDragOver
                   ? 'border-error bg-error/20 text-error scale-[1.02]'

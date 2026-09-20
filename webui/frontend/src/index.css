@@ -1659,6 +1659,25 @@ button.os-agent-row {
    buttons lost height and the whole footer jumped as the rail crossed the
    avatar-only threshold. Pin the height the label was providing instead:
    py-1.5 (0.75rem) + text-sm line-height (1.25rem) = 2rem. */
+/* #783: the drag-state bin fills the same height as the idle menu cluster
+   (Teams + Plugins + Routines + hostname row ≈ 10rem), so toggling the drag
+   never re-flows the sections above. */
+.os-recycle-bin {
+  min-height: 10rem;
+}
+/* #784: in compact (avatar-only) mode every footer control shares the rail's
+   center axis — the container drops its expanded padding and centers, and the
+   hostname row centers its icon too so all icons stay on one axis. */
+.os-agent-sidebar--avatar-only [data-testid='sidebar-footer-container'] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-inline: 0.5rem;
+}
+.os-agent-sidebar--avatar-only .os-rail-hostname-row {
+  display: flex;
+  justify-content: center;
+}
 .os-agent-sidebar--avatar-only .os-rail-footer-btn {
   height: 2rem;
   padding-block: 0;
@@ -1922,6 +1941,17 @@ button.os-agent-row {
 }
 .os-rail-section-empty--drop {
   color: color-mix(in srgb, var(--color-base-content) 58%, transparent);
+}
+/* #781: the Unassigned pool is a benign reassignment target — deliberately
+   NOT the error/red family of the Delete bin. Info/cyan accent, visible name. */
+.os-rail-section-empty--unassigned {
+  color: color-mix(in srgb, var(--color-info, #0ea5e9) 75%, var(--color-base-content));
+  border: 1px dashed color-mix(in srgb, var(--color-info, #0ea5e9) 45%, transparent);
+  border-radius: 0.5rem;
+}
+.os-rail-section-empty--unassigned.os-rail-section-empty--drop {
+  color: color-mix(in srgb, var(--color-info, #0ea5e9) 95%, var(--color-base-content));
+  background: color-mix(in srgb, var(--color-info, #0ea5e9) 12%, transparent);
 }
 .os-agent-sidebar--avatar-only .os-rail-section-header,
 .os-agent-sidebar--avatar-only .os-rail-section-empty {

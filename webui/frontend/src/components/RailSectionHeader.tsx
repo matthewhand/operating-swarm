@@ -174,19 +174,25 @@ export function RailSectionEmpty({
   dropActive,
   onDragOver,
   onDrop,
+  unassigned,
 }: {
   dropActive?: boolean
   onDragOver?: (event: React.DragEvent) => void
   onDrop?: (event: React.DragEvent) => void
+  /** #781: the Unassigned pool is a distinct drop target — named, and never
+      styled like the destructive Delete bin. */
+  unassigned?: boolean
 }) {
   return (
     <div
-      className={`os-rail-section-empty ${dropActive ? 'os-rail-section-empty--drop' : ''}`}
+      className={`os-rail-section-empty ${dropActive ? 'os-rail-section-empty--drop' : ''} ${
+        unassigned ? 'os-rail-section-empty--unassigned' : ''
+      }`}
       data-testid="rail-section-empty"
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      {EMPTY_SECTION_HINT}
+      {unassigned ? 'Unassigned — drop to move here' : EMPTY_SECTION_HINT}
     </div>
   )
 }

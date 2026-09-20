@@ -3166,3 +3166,54 @@ describe('#687 one delete removes at most one seat', () => {
     expect(JSON.parse(localStorage.getItem(DELETED_RAIL_IDS_KEY) || '[]')).toEqual(['omb'])
   })
 })
+
+describe('#783/#781/#784 — drag footer: zero shift, distinct drop zones, centered compact icons', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  async function css() {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    return readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+  }
+
+  it('#783: the recycle bin reserves the idle footer cluster height — no drag layout jump', async () => {
+    // jsdom has no layout engine, so the zero-shift contract is pinned at the
+    // source: the bin's min-height equals the idle cluster (Teams + Plugins +
+    // Routines + hostname row), and the bin replaces — never stacks with —
+    // the menu during a drag.
+    const sheet = await css()
+    expect(sheet).toMatch(/\.os-recycle-bin\s*\{[^}]*min-height:\s*10rem/)
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+    fireEvent.dragStart(screen.getByRole('link', { name: /codey/i }), {
+      dataTransfer: { setData: vi.fn(), getData: vi.fn(), types: [] },
+    })
+    const bin = screen.getByTestId('os-recycle-bin')
+    expect(bin).toBeInTheDocument()
+    expect(screen.queryByTestId('os-teams-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('os-plugins-button')).not.toBeInTheDocument()
+  })
+
+  it('#781: the Unassigned drop zone carries a distinct, non-error affordance', async () => {
+    const sheet = await css()
+    expect(sheet).toMatch(/\.os-rail-section-empty--unassigned/)
+    expect(sheet).not.toMatch(/\.os-rail-section-empty--unassigned[^}]*border-error/)
+  })
+
+  it('#784: compact-rail footer icons are center-aligned with the avatars', async () => {
+    const sheet = await css()
+    expect(sheet).toMatch(/\.os-agent-sidebar--avatar-only \[data-testid='sidebar-footer-container'\]/)
+    expect(sheet).toMatch(/\.os-agent-sidebar--avatar-only \.os-rail-hostname-row/)
+  })
+})
