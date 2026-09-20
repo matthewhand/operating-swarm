@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, CheckCircle2, Clock, GitMerge, Mail, Plus, Timer } from 'lucide-react'
 import { Button, Input, Select, Textarea } from './DaisyUI'
 import {
@@ -59,23 +60,41 @@ export function ComputerRoutinesPane({
   showThumbnail = true,
 }: ComputerRoutinesPaneProps) {
   const [view, setView] = useState<PaneView>('list')
-  const [routines, setRoutines] = useState<Routine[]>([])
   const [editing, setEditing] = useState<Routine | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const screenCaption = `${agentName || 'Agent'}'s screen`
 
+  // #760: routines live in TanStack Query — cached per agent, deduped across
+  // remounts, and invalidated (not re-fetched ad hoc) after every mutation.
+  const routinesQuery = useQuery({
+    queryKey: ['routines', agentId],
+    queryFn: () => fetchRoutines(agentId),
+    enabled: Boolean(agentId),
+    staleTime: 15_000,
+  })
+  const routines = useMemo(() => routinesQuery.data ?? [], [routinesQuery.data])
+
+  useEffect(() => {
+    if (routinesQuery.error) {
+      setError(
+        routinesQuery.error instanceof Error
+          ? routinesQuery.error.message
+          : 'Could not load routines.',
+      )
+    } else {
+      setError(null)
+    }
+  }, [routinesQuery.error])
+
+  const refreshRoutines = () => {
+    void queryClient.invalidateQueries({ queryKey: ['routines', agentId] })
+  }
+
   const load = async () => {
-    if (!agentId) {
-      setRoutines([])
-      return
-    }
-    try {
-      setRoutines(await fetchRoutines(agentId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load routines.')
-    }
+    refreshRoutines()
   }
 
   useEffect(() => {
@@ -106,7 +125,7 @@ export function ComputerRoutinesPane({
     setError(null)
     try {
       const created = await createRoutine(agentId, { name: 'New routine' })
-      setRoutines((prev) => [...prev, created])
+      refreshRoutines()
       openEditor(created)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create routine.')
@@ -120,7 +139,7 @@ export function ComputerRoutinesPane({
     try {
       const updated = await updateRoutine(agentId, editing.id, patch)
       setEditing(updated)
-      setRoutines((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+      refreshRoutines()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save routine.')
     }
@@ -140,7 +159,7 @@ export function ComputerRoutinesPane({
     try {
       const updated = await testRunRoutine(agentId, editing.id)
       setEditing(updated)
-      setRoutines((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+      refreshRoutines()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Test run failed.')
     } finally {
@@ -155,7 +174,7 @@ export function ComputerRoutinesPane({
     try {
       const updated = await runNowRoutine(agentId, editing.id)
       setEditing(updated)
-      setRoutines((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+      refreshRoutines()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Run now failed.')
     } finally {
@@ -224,7 +243,9 @@ export function ComputerRoutinesPane({
             </button>
           </div>
 
-          {routines.length === 0 ? (
+          {routinesQuery.isLoading ? (
+            <p className="text-sm text-base-content/60">Loading routines…</p>
+          ) : routines.length === 0 ? (
             <p className="text-sm text-base-content/60">No routines yet.</p>
           ) : (
             <ul className="menu w-full rounded-box bg-base-200 p-0">

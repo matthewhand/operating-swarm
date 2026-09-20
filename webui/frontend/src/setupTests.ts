@@ -1,8 +1,9 @@
-import { afterEach } from 'vitest'
+import { afterEach, beforeEach } from 'vitest'
 import { configure } from '@testing-library/dom'
 import { resetRemotesFetchCacheForTests } from './lib/api'
 import { resetChatConnection } from './lib/chatConnection';
 import { resetExpectedSpaVersion } from './lib/spaHello';
+import { __resetUserPrefsCacheForTests } from './lib/userPrefs';
 import { resetGithubReleaseCache } from './lib/githubRelease';
 import { setBakedSpaVersionForTests } from './lib/spaVersion';
 
@@ -52,6 +53,12 @@ if (!HTMLDialogElement.prototype.showModal) {
         this.open = true;
     };
 }
+
+// #726: fetchUserPrefs dedupes via module-level cache/promise. Reset it before
+// every test so re-stubbed fetch payloads are always observed.
+beforeEach(() => {
+    __resetUserPrefsCacheForTests();
+});
 if (!HTMLDialogElement.prototype.close) {
     HTMLDialogElement.prototype.close = function () {
         this.open = false;

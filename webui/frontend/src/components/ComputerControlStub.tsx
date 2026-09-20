@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Monitor } from 'lucide-react'
 import { Modal } from './DaisyUI'
 import ComputerRoutinesPane from './ComputerRoutinesPane'
@@ -29,27 +30,22 @@ export function ComputerControlStub({
 }: ComputerControlStubProps) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<PaneTab>('routines')
-  const [failureCount, setFailureCount] = useState(0)
+
+  // #760: TanStack Query instead of an un-memoized effect — the badge status
+  // is cached/deduped app-wide and only fetched while the pane can show it.
+  const statusQuery = useQuery({
+    queryKey: ['test-schedule-status'],
+    queryFn: fetchTestScheduleStatus,
+    enabled: open,
+    staleTime: 30_000,
+  })
+  const failureCount = Number(statusQuery.data?.failure_count) || 0
 
   useEffect(() => {
     const onOpen = () => setOpen(true)
     window.addEventListener(OPEN_COMPUTER_CONTROL_EVENT, onOpen)
     return () => window.removeEventListener(OPEN_COMPUTER_CONTROL_EVENT, onOpen)
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    void fetchTestScheduleStatus()
-      .then((status) => {
-        if (!cancelled) setFailureCount(Number(status?.failure_count) || 0)
-      })
-      .catch(() => {
-        if (!cancelled) setFailureCount(0)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [open])
 
   const close = () => {
     setOpen(false)

@@ -207,15 +207,46 @@ export function applyPrefsToLocal(prefs: {
   }
 }
 
-export async function fetchUserPrefs(): Promise<UserPrefs | null> {
-  try {
-    const data = await apiGet<unknown>(USER_PREFS_PATH)
-    return parseUserPrefs(data)
-  } catch {
-    return null
-  }
+// #726: /v1/preferences/ is read by several surfaces on page load (ChatPage
+// hydrate, SettingsSheet, RoleAgentTip, DefaultLlmTip). Share one in-flight
+// GET and reuse the parsed bag for a short window so mounting four components
+// costs one request, not four. Any real PATCH invalidates the cache.
+let _prefsGetPromise: Promise<UserPrefs | null> | null = null
+let _prefsCache: { at: number; value: UserPrefs | null } | null = null
+const PREFS_GET_CACHE_MS = 60_000
+
+export function invalidateUserPrefsCache(): void {
+  _prefsGetPromise = null
+  _prefsCache = null
 }
 
+/** Test isolation only: reset the #726 dedupe state between tests. */
+export function __resetUserPrefsCacheForTests(): void {
+  invalidateUserPrefsCache()
+}
+
+export function fetchUserPrefs(): Promise<UserPrefs | null> {
+  if (_prefsGetPromise) return _prefsGetPromise
+  if (_prefsCache && Date.now() - _prefsCache.at < PREFS_GET_CACHE_MS) {
+    return Promise.resolve(_prefsCache.value)
+  }
+  const request = (async () => {
+    try {
+      const data = await apiGet<unknown>(USER_PREFS_PATH)
+      return parseUserPrefs(data)
+    } catch {
+      return null
+    }
+  })()
+  _prefsGetPromise = request
+  void request.then((value) => {
+    // Cache successes and failures alike: under throttle the local bag is the
+    // honest fallback and re-GETting immediately just re-429s.
+    _prefsCache = { at: Date.now(), value }
+    if (_prefsGetPromise === request) _prefsGetPromise = null
+  })
+  return request
+}
 // #738: module-level 429 back-off for PATCH /v1/preferences/.
 // When the server throttles us, skip the PATCH for 30s — localStorage already
 // holds the latest value, so no data is lost. The next non-skipped call syncs.
@@ -272,6 +303,7 @@ export async function saveUserPrefs(patch: {
   try {
     await ensureCsrfCookie()
     const data = await apiPatch<unknown>(USER_PREFS_PATH, body)
+    invalidateUserPrefsCache()
     const parsed = parseUserPrefs(data)
     if (parsed && !parsed.empty) {
       applyPrefsToLocal(parsed)
@@ -282,6 +314,7 @@ export async function saveUserPrefs(patch: {
     // #738: on 429, back off for PREFS_PATCH_BACKOFF_MS before retrying
     if (isThrottleError(err)) {
       _prefsPatchThrottledUntil = Date.now() + PREFS_PATCH_BACKOFF_MS
+      invalidateUserPrefsCache()
     }
     return null
   }

@@ -6,6 +6,7 @@ import { AGENT_DROPDOWNS_STORAGE_KEY } from '../agentSettings'
 import {
   USER_PREFS_CHANGED_EVENT,
   USER_PREFS_PATH,
+  __resetUserPrefsCacheForTests,
   hydrateRailPrefs,
   parseAutoCompressPct,
   parseUserPrefs,
@@ -23,6 +24,7 @@ function jsonResponse(body: unknown, ok = true) {
 describe('userPrefs', () => {
   beforeEach(() => {
     localStorage.clear()
+    __resetUserPrefsCacheForTests()
   })
 
   afterEach(() => {

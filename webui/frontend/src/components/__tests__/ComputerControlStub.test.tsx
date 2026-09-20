@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ComputerControlStub } from '../ComputerControlStub'
 import { openChromeOverlay } from '../../lib/chromeOverlay'
 
@@ -132,7 +133,12 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
   })
 
   async function openPane() {
-    render(<ComputerControlStub agentId="codey" agentName="Codey" />)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <ComputerControlStub agentId="codey" agentName="Codey" />
+      </QueryClientProvider>,
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Computer control' }))
     const dialog = await screen.findByRole('dialog', { name: 'Computer control', hidden: true })
     expect(dialog).toHaveClass('modal-open')
@@ -233,7 +239,12 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
   })
 
   it('opens from the chrome overlay bus without leaving chat chrome', async () => {
-    render(<ComputerControlStub agentId="codey" agentName="Codey" />)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <ComputerControlStub agentId="codey" agentName="Codey" />
+      </QueryClientProvider>,
+    )
     await act(async () => {
       openChromeOverlay('computer-control')
     })

@@ -2518,9 +2518,26 @@ const ChatPage = () => {
       }
       ws.onopen = null
       ws.onmessage = null
-      ws.onclose = null
-      ws.close()
-      if (wsRef.current === ws) wsRef.current = null
+      if (ws.readyState === 0) {
+        // #738: closing during CONNECTING is what Chrome logs as "WebSocket
+        // is closed before the connection established". Defer to the next
+        // macrotask: if the handshake completes first, close() is legal from
+        // OPEN (silent); if it fails first, onclose already ran and the
+        // guard below makes close() a no-op. Either way no mid-handshake
+        // teardown, and handlers are already detached so no events leak.
+        setTimeout(() => {
+          try {
+            ws.close()
+          } catch {
+            /* already closed */
+          }
+          if (wsRef.current === ws) wsRef.current = null
+        }, 0)
+      } else {
+        ws.onclose = null
+        ws.close()
+        if (wsRef.current === ws) wsRef.current = null
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectAttempt, conversationId, runtimeBlueprint, teamFromUrl])
