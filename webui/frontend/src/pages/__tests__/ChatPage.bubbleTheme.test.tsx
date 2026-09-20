@@ -131,10 +131,10 @@ describe('REQ-810: Chat right-click bubble theme select', () => {
   })
 
   it('a saved global theme drives the transcript and survives remount (rail menu owns the picker, #724)', async () => {
+    // Saved before mount: the rail menu (#724) writes the override, and the
+    // transcript reads it at render — persistence and remount are the pin.
+    saveBubbleTheme('irc')
     const first = renderChat()
-    act(() => {
-      saveBubbleTheme('irc')
-    })
 
     expect(screen.getByRole('log', { name: 'Conversation' })).toHaveAttribute(
       'data-bubble-theme',
