@@ -1916,9 +1916,9 @@ const ChatPage = () => {
     const switched =
       lastHydratedAgentRef.current !== null && lastHydratedAgentRef.current !== key
     lastHydratedAgentRef.current = key
-    if (switched) {
-      setThreads((prev) => ({ ...prev, [key]: [] }))
-    }
+    // #604/REQ-171A-4: never pre-wipe the destination rows before the hydrate
+    // fetch — a failed fetch must keep the previous messages on screen with
+    // the keep-toast, not an empty transcript. Freshness comes from flush=1.
     setConversationId(key)
     setEditingKey(null)
     setAgentKind('api')
@@ -1964,15 +1964,12 @@ const ChatPage = () => {
     setThreadReady(false)
     setHydrateError(null)
     setSuggestionChips([])
-    const modelFromUrl = (searchParams.get('model') ?? '').trim()
     if (remoteFromUrl) {
       const key = `remote-${remoteFromUrl}${sessionFromUrl ? `-${sessionFromUrl}` : ''}`
       const switched =
         lastHydratedAgentRef.current !== null && lastHydratedAgentRef.current !== key
       lastHydratedAgentRef.current = key
-      if (switched) {
-        setThreads((prev) => ({ ...prev, [key]: [] }))
-      }
+      // #604/REQ-171A-4: no pre-wipe (see the API/team hydrate above).
       setConversationId(key)
       setEditingKey(null)
       setAgentKind('remote')
@@ -2030,9 +2027,7 @@ const ChatPage = () => {
       lastHydratedAgentRef.current !== null &&
       lastHydratedAgentRef.current !== hydrateKey
     lastHydratedAgentRef.current = hydrateKey
-    if (switched) {
-      setThreads((prev) => ({ ...prev, [threadKey]: [] }))
-    }
+    // #604/REQ-171A-4: no pre-wipe (see the API/team hydrate above).
     setConversationId(nextId)
     if (resolvedSession) {
       setConversationIdForAgent(agent, nextId)

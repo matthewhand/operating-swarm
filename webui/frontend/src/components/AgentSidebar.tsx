@@ -48,6 +48,7 @@ import {
   type Blueprint,
   type CliRailAgent,
   type HerdrAgent,
+  type RemoteConnection,
   type RouterDesign,
 } from '../lib/api'
 import {
@@ -2249,7 +2250,7 @@ export default function AgentSidebar({
         return
       }
       if (row.kind === 'remote') {
-        const source =
+        const source: Partial<RemoteConnection> | undefined =
           configuredRemotesList.find((remote) => remote.id === row.entityId) ||
           remotes.find((r) => r.id === row.entityId) ||
           fullRemotesQuery.data?.data?.find((r) => r.id === row.entityId)

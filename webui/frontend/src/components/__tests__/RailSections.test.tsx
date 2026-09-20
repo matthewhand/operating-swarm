@@ -516,8 +516,7 @@ describe('#802 / #801 — pinning never erases section membership', () => {
       title: 'TrueForge copy',
       kind: 'trueforge',
       base_url: 'http://127.0.0.1:8792',
-      configured: true,
-    })
+    } as unknown as api.RemoteConnection)
 
     renderRail()
     const list = await loadedList()
