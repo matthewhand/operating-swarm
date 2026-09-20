@@ -151,15 +151,29 @@ export default function ComposerPickerDialog({
       } else if (event.key === 'Enter') {
         event.preventDefault()
         chooseRow(activeIdx)
-      } else if (event.key === 'Escape') {
-        event.preventDefault()
-        const next = backOneStage(state)
-        if (next === null) onClose()
-        else setState(next)
       }
     },
-    [rows.length, activeIdx, chooseRow, state, onClose],
+    [rows.length, activeIdx, chooseRow],
   )
+
+  // Esc backs out exactly one stage regardless of where focus sits: after a
+  // mouse pick the focused row unmounts and focus falls to <body>, so the
+  // input-level handler alone is not enough (live finding during #681
+  // verification). Document-level while open; one stage per press.
+  const stateRef = useRef(state)
+  stateRef.current = state
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      const next = backOneStage(stateRef.current)
+      if (next === null) onClose()
+      else setState(next)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
 
   if (!open) return null
 

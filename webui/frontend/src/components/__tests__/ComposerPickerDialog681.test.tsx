@@ -86,6 +86,17 @@ describe('#681 ComposerPickerDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('Esc works after a mouse pick moved focus off the input (live #681 finding)', () => {
+    const { onClose } = renderDialog()
+    fireEvent.click(screen.getByText('API gateway'))
+    // The click focused the row button; Escape must still reach the dialog.
+    fireEvent.keyDown(screen.getByTestId('composer-picker'), { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('Providers')
+    fireEvent.keyDown(screen.getByTestId('composer-picker'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('breadcrumb click jumps back to providers without closing', () => {
     const { onClose } = renderDialog()
     fireEvent.click(screen.getByText('API gateway'))
