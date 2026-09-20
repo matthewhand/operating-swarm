@@ -291,6 +291,7 @@ import {
   MAX_RAIL_WIDTH,
   DEFAULT_RAIL_WIDTH,
 } from '../lib/railResize'
+import { loadRailSide, RAIL_SIDE_EVENT, type RailSide } from '../lib/railSide'
 import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
 import RailRowSlot from './RailRowSlot'
 
@@ -688,6 +689,15 @@ export default function AgentSidebar({
     }
   }, [currentTargetId])
 
+  // #816: which edge the rail docks to ('left' historical default).
+  const [railSide, setRailSideState] = useState<RailSide>(() => loadRailSide())
+  useEffect(() => {
+    // The setting can flip from the settings sheet — follow it live.
+    const sync = () => setRailSideState(loadRailSide())
+    window.addEventListener(RAIL_SIDE_EVENT, sync)
+    return () => window.removeEventListener(RAIL_SIDE_EVENT, sync)
+  }, [])
+
   const [railWidth, setRailWidth] = useState(() => loadRailWidth())
   const [isResizing, setIsResizing] = useState(false)
   const isAvatarOnly = !narrow && isAvatarOnlyWidth(railWidth)
@@ -720,10 +730,17 @@ export default function AgentSidebar({
         target.setPointerCapture(event.pointerId)
       } catch {}
 
+      // #816: on the right edge the row grows leftwards, so the pointer
+      // vector mirrors (negative delta = wider).
+      const direction = railSide === 'right' ? -1 : 1
+
       const handlePointerMove = (e: PointerEvent) => {
         const delta = e.clientX - startDragXRef.current
         // #806: snapping clamp — the avatar-only dead zone is gone.
-        const next = snapRailWidth(startWidthRef.current + delta, window.innerWidth)
+        const next = snapRailWidth(
+          startWidthRef.current + direction * delta,
+          window.innerWidth,
+        )
         setRailWidth(next)
       }
 
@@ -737,7 +754,10 @@ export default function AgentSidebar({
         window.removeEventListener('pointercancel', handlePointerUp)
         const finalDelta = e.clientX - startDragXRef.current
         // #806: snap on release too, so persistence agrees with the drag.
-        const finalWidth = snapRailWidth(startWidthRef.current + finalDelta, window.innerWidth)
+        const finalWidth = snapRailWidth(
+          startWidthRef.current + direction * finalDelta,
+          window.innerWidth,
+        )
         setRailWidth(finalWidth)
         saveRailWidth(finalWidth)
       }
@@ -746,35 +766,41 @@ export default function AgentSidebar({
       window.addEventListener('pointerup', handlePointerUp)
       window.addEventListener('pointercancel', handlePointerUp)
     },
-    [railWidth],
+    [railWidth, railSide],
   )
 
-  const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      setRailWidth((prev) => {
-        const next = clampRailWidth(prev - 12, window.innerWidth)
-        saveRailWidth(next)
-        return next
-      })
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      setRailWidth((prev) => {
-        const next = clampRailWidth(prev + 12, window.innerWidth)
-        saveRailWidth(next)
-        return next
-      })
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      setRailWidth(MIN_RAIL_WIDTH)
-      saveRailWidth(MIN_RAIL_WIDTH)
-    } else if (event.key === 'End') {
-      event.preventDefault()
-      const max = clampRailWidth(MAX_RAIL_WIDTH, window.innerWidth)
-      setRailWidth(max)
-      saveRailWidth(max)
-    }
-  }, [])
+  const handleResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      // #816: arrows mirror on the right rail — the grow arrow always points
+      // toward the content side.
+      const growDelta = railSide === 'right' ? -12 : 12
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        setRailWidth((prev) => {
+          const next = clampRailWidth(prev - growDelta, window.innerWidth)
+          saveRailWidth(next)
+          return next
+        })
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        setRailWidth((prev) => {
+          const next = clampRailWidth(prev + growDelta, window.innerWidth)
+          saveRailWidth(next)
+          return next
+        })
+      } else if (event.key === 'Home') {
+        event.preventDefault()
+        setRailWidth(MIN_RAIL_WIDTH)
+        saveRailWidth(MIN_RAIL_WIDTH)
+      } else if (event.key === 'End') {
+        event.preventDefault()
+        const max = clampRailWidth(MAX_RAIL_WIDTH, window.innerWidth)
+        setRailWidth(max)
+        saveRailWidth(max)
+      }
+    },
+    [railSide],
+  )
 
   useEffect(() => {
     const onChange = () => {
@@ -3248,8 +3274,14 @@ export default function AgentSidebar({
       />
 
       <aside
-        className={`os-agent-sidebar fixed inset-y-0 left-0 z-40 flex shrink-0 flex-col transition-transform duration-200 lg:static lg:z-0 lg:translate-x-0 ${
-          open ? 'translate-x-0' : '-translate-x-full'
+        className={`os-agent-sidebar os-agent-sidebar--${railSide} fixed inset-y-0 ${
+          railSide === 'right' ? 'right-0' : 'left-0'
+        } z-40 flex shrink-0 flex-col transition-transform duration-200 lg:static lg:z-0 lg:translate-x-0 ${
+          open
+            ? 'translate-x-0'
+            : railSide === 'right'
+              ? 'translate-x-full'
+              : '-translate-x-full'
         } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''}`}
         style={!narrow ? { width: `${railWidth}px` } : { width: '16rem' }}
         aria-label="Agents"
@@ -3261,7 +3293,9 @@ export default function AgentSidebar({
       >
         {!narrow ? (
           <div
-            className={`os-rail-resizer ${isResizing ? 'os-rail-resizer--active' : ''}`}
+            className={`os-rail-resizer ${
+              railSide === 'right' ? 'os-rail-resizer--right' : ''
+            } ${isResizing ? 'os-rail-resizer--active' : ''}`}
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize agent sidebar"

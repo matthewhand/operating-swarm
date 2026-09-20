@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { loadRailSide, RAIL_SIDE_EVENT, type RailSide } from './lib/railSide'
 import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import ChatPage from './pages/ChatPage'
 import AgentRouterPage from './pages/AgentRouterPage'
@@ -92,6 +93,13 @@ function App() {
   )
   const [narrow, setNarrow] = useState(isNarrowViewport)
   const [railOpen, setRailOpen] = useState(() => !isNarrowViewport())
+  // #816: which edge the rail docks to; the layout and the settings sheet mirror.
+  const [railSide, setRailSide] = useState<RailSide>(() => loadRailSide())
+  useEffect(() => {
+    const sync = () => setRailSide(loadRailSide())
+    window.addEventListener(RAIL_SIDE_EVENT, sync)
+    return () => window.removeEventListener(RAIL_SIDE_EVENT, sync)
+  }, [])
   const [swipeHint, setSwipeHint] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchOptions, setSearchOptions] = useState<SearchPaletteOptions | undefined>()
@@ -270,7 +278,9 @@ function App() {
             >
               Skip to main content
             </a>
-            <div className="flex min-h-0 flex-1">
+            {/* #816: the rail docks left (default) or right; the Settings
+                sheet mirrors to the opposite edge for one-handed reach. */}
+            <div className={`flex min-h-0 flex-1 ${railSide === 'right' ? 'flex-row-reverse' : ''}`}>
               <AgentSidebar
                 open={narrow ? railOpen : true}
                 narrow={narrow}

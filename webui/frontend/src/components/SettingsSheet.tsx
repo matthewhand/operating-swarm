@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
+import { loadRailSide, saveRailSide, type RailSide } from '../lib/railSide'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ChevronDown, FileCode2, HardDrive, Plus, Server, X } from 'lucide-react'
 import { Alert, Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
@@ -465,7 +466,7 @@ export default function SettingsSheet({
       isOpen={isOpen}
       onClose={onClose}
       title="Settings"
-      placement="end"
+      placement={loadRailSide() === 'right' ? 'start' : 'end'}
       size="sheet"
       className={`flex min-h-0 flex-col ${OVERLAY_CHROME_CLASSES} overflow-hidden`}
     >
@@ -2431,6 +2432,9 @@ function RailPane({
 }) {
   const queryClient = useQueryClient()
   const { success, error: toastError } = useToast()
+  // #816: sidepane dock edge — local state so the toggle repaints instantly;
+  // the save announces via CustomEvent so the rail and App mirror live.
+  const [currentSide, setCurrentSide] = useState<RailSide>(() => loadRailSide())
   const modesQuery = useQuery({
     queryKey: ['cli-agents'],
     queryFn: fetchCliAgents,
@@ -2465,6 +2469,30 @@ function RailPane({
           Favourite tiles keep their own order.
         </p>
       </div>
+      <fieldset className="space-y-2" data-testid="rail-side-setting">
+        <legend className="text-sm font-semibold">Sidepane position</legend>
+        <p className="text-sm text-base-content/70">
+          Dock the agent rail to the left or right edge. The settings sheet
+          opens on the opposite side either way.
+        </p>
+        <div className="flex gap-2">
+          {(['left', 'right'] as const).map((side) => (
+            <button
+              key={side}
+              type="button"
+              className={`btn btn-sm ${side === currentSide ? 'btn-primary' : 'btn-outline'}`}
+              aria-pressed={side === currentSide}
+              data-testid={`rail-side-${side}`}
+              onClick={() => {
+                saveRailSide(side)
+                setCurrentSide(side)
+              }}
+            >
+              {side === 'left' ? 'Left edge' : 'Right edge'}
+            </button>
+          ))}
+        </div>
+      </fieldset>
       {/* #544 / REQ-922: the showcase control belongs beside the rail layout
           controls — a deep link like /?settings=rail lands here, and the
           toggle only living under General made it undiscoverable (#674 chase). */}

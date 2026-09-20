@@ -389,6 +389,11 @@ html:not([data-theme="light"]) .os-composer,
   background: transparent;
   transition: background-color 0.15s ease;
 }
+/* #816: on a right-docked rail the divider hugs the LEFT edge. */
+.os-rail-resizer--right {
+  right: auto;
+  left: -3px;
+}
 .os-rail-resizer:hover,
 .os-rail-resizer:focus-visible,
 .os-rail-resizer--active {
