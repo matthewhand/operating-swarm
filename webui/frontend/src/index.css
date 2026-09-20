@@ -2269,6 +2269,25 @@ button.os-agent-row {
 }
 .os-composer .os-routing-face {
   border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  background: color-mix(in srgb, var(--color-base-100) 65%, transparent);
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+.os-composer .os-routing-face:hover,
+.os-composer .os-routing-face:focus-within,
+.os-composer .os-routing-face--hot {
+  border-color: color-mix(in srgb, var(--color-base-content) 30%, transparent);
+  background: var(--color-base-100);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+/* #874: chevron affordance — resting hint that the pill is a dropdown. */
+.os-composer .os-routing-pill__chevron {
+  opacity: 0.45;
+}
+.os-composer:hover .os-routing-pill__chevron,
+.os-composer .os-routing-pill:hover .os-routing-pill__chevron,
+.os-composer .os-routing-face--hot .os-routing-pill__chevron {
+  opacity: 0.85;
 }
 .os-composer .os-routing-pill {
   height: 1.85rem;
