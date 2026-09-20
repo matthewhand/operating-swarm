@@ -273,7 +273,7 @@ import {
 } from '../lib/cliSessionHop'
 import { FALLBACK_CLIS } from '../lib/chatStatus'
 import PluginsPopup from './PluginsPopup'
-import { OPEN_TEAM_COMPOSER_EVENT } from './TeamComposer'
+import { OPEN_TEAM_COMPOSER_EVENT, TEAM_CREATED_EVENT } from './TeamComposer'
 import { openSettingsSheet } from './SettingsSheet'
 import { OPEN_PLUGINS_EVENT } from '../lib/chromeOverlay'
 import { useCurrentAgent, isSwarmOwnedSeat } from '../lib/currentAgent'
@@ -1733,6 +1733,20 @@ export default function AgentSidebar({
     [navigate, onClose, railOrder, visibleRowIds, persistVisibleOrder],
   )
 
+  // #793: newly created teams land at the TOP of Unassigned — never appended
+  // below the fold where creation looks like it failed.
+  useEffect(() => {
+    const onTeamCreated = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail
+      const id = detail?.id ? teamHideId(detail.id) : ''
+      if (!id) return
+      const base = mergeRailOrder(railOrder, visibleRowIds)
+      persistVisibleOrder(bumpRailIdToTop(base, id))
+    }
+    window.addEventListener(TEAM_CREATED_EVENT, onTeamCreated)
+    return () => window.removeEventListener(TEAM_CREATED_EVENT, onTeamCreated)
+  }, [railOrder, visibleRowIds, persistVisibleOrder])
+
   const handleAgentSelected = useCallback(
     (agentId: string) => {
       setAddWizardOpen(false)
@@ -2248,7 +2262,9 @@ export default function AgentSidebar({
           setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
         }
         const base = mergeRailOrder(railOrder, visibleRowIds)
-        persistVisibleOrder(insertRailIdAfter(base, createdHide, row.agentId))
+        // #793: the duplicate lands at the top of the Unassigned order so it
+        // is immediately visible (source section membership is preserved).
+        persistVisibleOrder(bumpRailIdToTop(base, createdHide))
         closeMenu()
         return
       }

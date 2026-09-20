@@ -201,7 +201,8 @@ describe('#508 Teams composer tiers', () => {
     fireEvent.click(screen.getByTestId('team-tool-handoff-to'))
     fireEvent.change(screen.getByTestId('team-tool-handoff-to'), { target: { value: 'jeeves' } })
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/team_rosters\.json/i)
+    // #841: user-facing status copy no longer names backend storage files.
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster “Cross”\./)
     // Asserted after the await, outside the mock body (jest/no-conditional-expect).
     const sent = posted as unknown as { members: Array<{ id: string }>; tools: unknown }
     expect(sent.members.map((m) => m.id)).toEqual(['jeeves'])

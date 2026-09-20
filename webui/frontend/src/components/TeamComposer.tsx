@@ -77,6 +77,10 @@ import {
 } from '../lib/teamRoster'
 
 export const OPEN_TEAM_COMPOSER_EVENT = 'swarm:open-team-composer'
+/** #793: fired after a NEW roster is created so the rail can bump it to the
+    top of Unassigned immediately — a fresh team must never hide below the
+    fold looking like the creation failed. */
+export const TEAM_CREATED_EVENT = 'swarm:team-created'
 
 interface ContextMenuState {
   mode: 'add' | 'remove'
@@ -645,6 +649,17 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       setToolSlots(slotsFromTools(parseTeamTools(roster.tools)))
       queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
       setStatus(`Saved roster “${roster.name}”.`)
+      if (!savedId) {
+        // #793: creations (not saves of an existing roster) announce
+        // themselves so the rail bumps the new team to the top.
+        try {
+          window.dispatchEvent(
+            new CustomEvent(TEAM_CREATED_EVENT, { detail: { id: roster.id, name: roster.name } }),
+          )
+        } catch {
+          /* non-window env */
+        }
+      }
     },
   })
 
