@@ -57,6 +57,7 @@ export function sessionsFromOperateResult(
   if (rec) {
     if (Array.isArray(rec.sessions)) list = rec.sessions
     else if (Array.isArray(rec.data)) list = rec.data
+    else if (Array.isArray(rec.members)) list = rec.members
   }
   if (!Array.isArray(list)) return []
   const out: RemoteThreadRow[] = []
@@ -71,12 +72,15 @@ export function sessionsFromOperateResult(
     }
     const row = asRecord(item)
     if (!row) continue
-    const id = String(row.id ?? row.session_id ?? '').trim()
+    // #796/#787: herdr members carry the routing target in `name` and the
+    // human label in `display` — the pane id stays the id, the display name
+    // becomes the title the operator sees.
+    const id = String(row.id ?? row.session_id ?? row.name ?? '').trim()
     if (!id || seen.has(id)) continue
     seen.add(id)
     out.push({
       id,
-      title: String(row.title || row.name || id).trim() || id,
+      title: String(row.title || row.display || row.name || id).trim() || id,
       snippet: String(row.snippet || row.preview || '').trim(),
       updated_at: String(row.updated_at || row.updatedAt || '').trim() || undefined,
       channel: String(row.channel || '').trim() || undefined,

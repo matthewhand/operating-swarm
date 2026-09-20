@@ -199,3 +199,34 @@ describe('remoteSessions (issue #90 Open WebUI)', () => {
     expect(filterRemoteSessionRows(rows, 'zzz')).toEqual([])
   })
 })
+
+describe('#796 — Herdr members populate the session switcher', () => {
+  it('maps data.members (herdr agent list) onto session rows named by target', () => {
+    const result = {
+      ok: true,
+      data: {
+        members: [
+          { kind: 'herdr', name: 'w3:p5', display: 'grok (hermes)', source: 'agent' },
+          { kind: 'herdr', name: 'agy', display: '', source: 'agent' },
+        ],
+      },
+    } as unknown as Parameters<typeof sessionsFromOperateResult>[0]
+    const rows = sessionsFromOperateResult(result)
+    expect(rows.map((r) => r.id)).toEqual(['w3:p5', 'agy'])
+    // #787: the friendly display name becomes the title, pane id stays the id.
+    expect(rows[0].title).toBe('grok (hermes)')
+    expect(rows[1].title).toBe('agy')
+  })
+
+  it('still prefers explicit sessions/data arrays when present', () => {
+    const result = {
+      ok: true,
+      data: {
+        sessions: [{ id: 'ws-docs:t1', title: 'thread one' }],
+        members: [{ kind: 'herdr', name: 'w3:p5', display: 'grok' }],
+      },
+    } as unknown as Parameters<typeof sessionsFromOperateResult>[0]
+    const rows = sessionsFromOperateResult(result)
+    expect(rows.map((r) => r.id)).toEqual(['ws-docs:t1'])
+  })
+})

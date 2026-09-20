@@ -177,3 +177,21 @@ def test_herdr_seat_syncs_recent_pane_text(client, user, monkeypatch):
     assert len(body["messages"]) >= 1
     # Check that artifact is stripped and clean pane text is returned
     assert body["messages"][0]["content"] == "Recent output from grok pane."
+
+def test_sanitize_herdr_response_strips_tui_status_bars():
+    """#790 — terminal status lines / progress bars never reach chat output."""
+    from swarm.core.remotes import sanitize_herdr_response
+
+    raw = (
+        "Working on the deploy now.\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀▀▀▀▀ 35.3K (4%) ctrl+p commands\n"
+        "─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─\n"
+        "▐▛▀▜▌ opencode v4 ▐▙▟▌  main*  ⎇  42%\n"
+        "Done — tell me if you want the full log."
+    )
+    cleaned = sanitize_herdr_response(raw)
+    assert "Working on the deploy now." in cleaned
+    assert "Done — tell me if you want the full log." in cleaned
+    assert "ctrl+p" not in cleaned
+    assert "35.3K" not in cleaned
+    assert "opencode v4" not in cleaned

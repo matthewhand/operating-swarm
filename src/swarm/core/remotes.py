@@ -3649,9 +3649,42 @@ def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None 
 
 
 def sanitize_herdr_response(text: str) -> str:
-    """Strip Herdr banner artifacts such as '| | summary of conversation |'."""
+    """Strip Herdr banner artifacts and terminal TUI chrome (#790).
+
+    Pane captures regularly include the CLI's persistent bottom status bar,
+    progress gauges, and full-width box-drawing separators. None of that is
+    conversation — it never reaches chat output.
+    """
     if not text or not isinstance(text, str):
         return ""
+
+    # Characters that only appear in TUI chrome, never in prose.
+    _tui_gauge_chars = re.compile(r"[▀▄▌▐░▒▓█╹▁▂▃▅▆▇]+")
+    _box_drawing = "─━│┃┄┅┆┇┈┉├┝┞┟┠┯┰┱┲┴┵┶┷┸┼╀╁╂╃╄╅╆╇╈╉╊╋"
+    _box_only = re.compile(f"^[{re.escape(_box_drawing)}\\s]+$")
+    # Status-bar keywords the known CLIs render on their persistent bottom line.
+    _status_markers = re.compile(
+        r"(ctrl\+[a-z]|commands\s*$|tokens?\s|\(\d+(?:\.\d+)?%\)|\d+(?:\.\d+)?%\s*$|^\s*⎇\s|\bv\d+(?:\.\d+)+\b)",
+        re.I,
+    )
+
+    def _is_tui_chrome(line: str) -> bool:
+        stripped = line.strip()
+        if not stripped:
+            return False
+        # A gauge run (▀▄█…) with nothing else of substance is chrome.
+        without_gauge = _tui_gauge_chars.sub("", stripped)
+        if _tui_gauge_chars.search(stripped) and len(without_gauge.strip()) <= 30:
+            return True
+        # Box-drawing-only rule/separator lines.
+        if _box_only.match(stripped):
+            return True
+        # Known status-bar keyword shapes (ctrl+p commands, token tallies,
+        # %, branch chips).
+        if _status_markers.search(stripped) and len(stripped) > 12:
+            return True
+        return False
+
     lines = text.splitlines()
     cleaned = []
     in_header = True
@@ -3668,6 +3701,8 @@ def sanitize_herdr_response(text: str) -> str:
             if not line.strip() and not cleaned:
                 continue
             in_header = False
+        if _is_tui_chrome(line):
+            continue
         cleaned.append(line)
     return "\n".join(cleaned).strip()
 
