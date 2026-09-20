@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { History } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import SessionPicker from './SessionPicker'
+import SessionPicker, { type SessionPickerSession } from './SessionPicker'
 import { createAgentSession, loadPickerSessions } from '../lib/agentSessions'
 import { setConversationIdForAgent } from '../lib/agentChat'
 import { sessionHref } from '../lib/scaleOutSessions'
@@ -23,7 +23,7 @@ export interface ApiSessionSwitcherProps {
 export default function ApiSessionSwitcher({ agentId, agentName }: ApiSessionSwitcherProps) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
-  const [sessions, setSessions] = useState<readonly unknown[] | null>(null)
+  const [sessions, setSessions] = useState<readonly SessionPickerSession[] | null>(null)
   const label = (agentName || '').trim() || 'API agent'
 
   const loadPicker = useCallback(async () => {

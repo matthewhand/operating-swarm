@@ -128,7 +128,6 @@ import {
   loadBubbleTheme,
   saveBubbleTheme,
   type BubbleTheme,
-  agentBubbleThemeOverrides,
   applyBubbleThemeToAll,
   overriddenBubbleThemeCount,
 } from '../lib/bubbleTheme'

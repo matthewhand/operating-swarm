@@ -30,6 +30,10 @@ export interface ChatBubble {
   subagentFanOut?: import('./subagentFanOut').SubagentFanOutData
   /** #527 — openai-agents persona that produced the row, when the server says. */
   persona?: string
+  /** Blocking ``ask_user`` card or a non-blocking ```question fence (ChatMessage parity). */
+  question?: import('./decisionQuestion').DecisionQuestion
+  questionBlocking?: boolean
+  questionAnswered?: boolean
 }
 
 export type DisplayItem =
@@ -113,7 +117,7 @@ export function excludedSummaryIds(summaries: ConversationSummary[]): Set<number
       if (excluded.has(current.id) || current.include_in_context === false) return true
       if (seen.has(current.id)) return false
       seen.add(current.id)
-      const parentId = current.parent_summary_id
+      const parentId: number | null | undefined = current.parent_summary_id
       current = parentId != null ? byId[parentId] : undefined
     }
     return false

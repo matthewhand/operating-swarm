@@ -33,6 +33,15 @@ full-page PNGs.
 | `sessions.png` | `/sessions/` (Django) | Session Explorer empty state: 0 sessions, live toggle, owner-scoped copy (“No sessions for your account yet… only sessions you own”) + POST /v1/responses CTA (captured before mid-run seed) | USER_JOURNEY.md, GUIDED_TOUR.md, SESSION_EXPLORER.md | 2026-09-16 | current |
 | `session-detail.png` | `/sessions/resp_journey_seed/` (Django) | Session detail Graph tab: seeded `hybrid_team` fixture (`resp_journey_seed`) with orchestration/agent/auxiliary nodes — real template, synthetic JSON (**not** a live hybrid_team run) | USER_JOURNEY.md, GUIDED_TOUR.md, SESSION_EXPLORER.md | 2026-09-16 | current |
 | `profiles.png` | `/profiles/` (Django) | LLM profiles table (provider/model/source/enabled; Settings → LLM profiles active) | USER_JOURNEY.md, GUIDED_TOUR.md | 2026-09-16 | current |
+| `req508-teams-composer/1-essentials.png` | `/chat` Teams composer (#508) | Essentials tab of the redesigned Teams composer popup | none | 2026-09-19 | registry-only |
+| `req508-teams-composer/2-roles-pane.png` | `/chat` Teams composer (#508) | Roles pane — CoS/engineer/skeptic slot assignment | none | 2026-09-19 | registry-only |
+| `req508-teams-composer/3-tools-pane.png` | `/chat` Teams composer (#508) | Tools pane — tool slot drop zone | none | 2026-09-19 | registry-only |
+| `req508-teams-composer/4-catalog-pane.png` | `/chat` Teams composer (#508) | Catalog pane — member picker over the agent catalog | none | 2026-09-19 | registry-only |
+| `req508-teams-composer/5-back-to-essentials.png` | `/chat` Teams composer (#508) | Return to Essentials after walking tabs | none | 2026-09-19 | registry-only |
+| `req910-plugins/1-rail.png` | `/chat` Rail (REQ-910) | Rail with the Plugins launcher in the sidepane | none | 2026-09-19 | registry-only |
+| `req910-plugins/2-plugins-chat-pane.png` | `/chat` Plugins popup (REQ-910) | Plugins popup — chat connector pane | none | 2026-09-19 | registry-only |
+| `req910-plugins/3-plugins-tools-pane.png` | `/chat` Plugins popup (REQ-910) | Plugins popup — tools pane | none | 2026-09-19 | registry-only |
+| `req910-plugins/4-plugins-skills-pane.png` | `/chat` Plugins popup (REQ-910) | Plugins popup — skills pane | none | 2026-09-19 | registry-only |
 
 The "Used in" column is verified by grepping the docs for
 `screenshots/<file>`. USERGUIDE.md embeds no PNG files (CLI reference only)

@@ -80,7 +80,7 @@ describe('ReadAloudButton (REQ-77)', () => {
   })
 
   it('sends this agent voice instruction on custom read-aloud', async () => {
-    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo, _init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/v1/speech/speak/')) {
         return {

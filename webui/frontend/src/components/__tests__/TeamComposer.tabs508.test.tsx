@@ -181,14 +181,14 @@ describe('#508 Teams composer tiers', () => {
     })
     await screen.findByTestId('team-tool-slot')
 
-    let posted: { members: Array<{ id: string }>; tools: unknown } | null = null
+    let posted: { members: Array<{ id: string }>; tools: unknown; name?: string } | null = null
     fetchMock.mockImplementation(async (_input, init) => {
       if (init?.method === 'POST') {
         posted = JSON.parse(String(init?.body))
         return {
           ok: true,
           status: 201,
-          json: async () => ({ object: 'team_roster', id: 'r1', name: (posted as { name: string }).name }),
+          json: async () => ({ object: 'team_roster', id: 'r1', name: posted?.name }),
         } as Response
       }
       return {

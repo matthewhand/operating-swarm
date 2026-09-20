@@ -24,7 +24,7 @@ export interface RemoteThreadRow {
 const SESSION_KINDS = new Set(['letta', 'openwebui', 'open-webui', 'open_webui', 'owui', 'flowise', 'flowiseai', 'n8n', 'n8n-io', 'slack', 'slackbot', 'anythingllm', 'hermes'])
 
 export function remoteListsSessions(
-  remote: Pick<RemoteEntry, 'id' | 'kind'> & { capabilities?: { sessions?: boolean } },
+  remote: Pick<RemoteEntry, 'id'> & { kind?: string; capabilities?: { sessions?: boolean } },
 ): boolean {
   if (remote.capabilities?.sessions) return true
   const kind = (remote.kind || remote.id || '').trim().toLowerCase()

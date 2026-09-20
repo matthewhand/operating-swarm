@@ -29,7 +29,11 @@ def _config(**profile) -> dict:
     }
 
 
-def test_unset_placeholders_are_named():
+def test_unset_placeholders_are_named(monkeypatch):
+    # Hermetic: the dev host may export these; the hint must name both
+    # placeholders as if neither were set.
+    monkeypatch.delenv("LITELLM_API_KEY", raising=False)
+    monkeypatch.delenv("LITELLM_BASE_URL", raising=False)
     hint = llm_credential_hint(
         _config(api_key="${LITELLM_API_KEY}", base_url="${LITELLM_BASE_URL}"), "default"
     )

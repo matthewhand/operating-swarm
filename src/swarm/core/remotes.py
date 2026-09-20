@@ -741,7 +741,14 @@ def _normalize_base_url(url: str) -> str:
         # urlunparse joins netloc verbatim — the separator has to live here.
         userinfo += "@"
     host_str = f"[{host}]" if ":" in host and not (host.startswith("[") and host.endswith("]")) else host
-    netloc = f"{userinfo}{host_str}" + (f":{port}" if port else "")
+    # Canonical form elides the scheme's default port (https 443 / http 80):
+    # config stays human-readable and round-trips to what the operator typed.
+    # Logic above (origin comparisons, gateway rewrites) already defaults the
+    # port, so elision is lossless.
+    is_default_port = (parsed.scheme == "https" and port == 443) or (
+        parsed.scheme == "http" and port == 80
+    )
+    netloc = f"{userinfo}{host_str}" + ("" if is_default_port else f":{port}")
     return urlunparse(
         (parsed.scheme, netloc, (parsed.path or "").rstrip("/"), parsed.params, parsed.query, parsed.fragment)
     ).rstrip("/")

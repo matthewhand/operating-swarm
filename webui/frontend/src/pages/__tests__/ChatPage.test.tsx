@@ -252,7 +252,7 @@ describe('ChatPage websocket constructor-failure reconnect (#334)', () => {
   })
 
   it('clears the reconnect timer when the constructor-failure effect unmounts', async () => {
-    const reconnectIds: ReturnType<typeof setTimeout>[] = []
+    const reconnectIds: number[] = []
     const origSetTimeout = globalThis.setTimeout.bind(globalThis)
     const origClearTimeout = globalThis.clearTimeout.bind(globalThis)
     const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
@@ -261,14 +261,14 @@ describe('ChatPage websocket constructor-failure reconnect (#334)', () => {
       ...args: unknown[]
     ) => {
       const id = origSetTimeout(fn, ms, ...args)
-      if (ms === 1000) reconnectIds.push(id)
+      if (ms === 1000) reconnectIds.push(Number(id))
       return id
     }) as typeof setTimeout)
-    const cleared: ReturnType<typeof setTimeout>[] = []
+    const cleared: number[] = []
     const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((
-      id?: ReturnType<typeof setTimeout>,
+      id?: number | ReturnType<typeof setTimeout>,
     ) => {
-      if (id !== undefined) cleared.push(id)
+      if (id !== undefined) cleared.push(Number(id))
       return origClearTimeout(id as Parameters<typeof origClearTimeout>[0])
     }) as typeof clearTimeout)
 

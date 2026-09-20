@@ -35,7 +35,7 @@ export abstract class BubbleThemeBase {
   /** #505: default keeps the row in flow below the bubble (all themes unchanged). */
   readonly actionRowPlacement: ActionRowPlacement = 'below'
   /** #520: `simple` drops the beside-bubble avatar; every other theme keeps it. */
-  readonly showAvatar = true
+  readonly showAvatar: boolean = true
 
   formatTimestamp(ts: string | undefined): string {
     return formatBubbleTime(ts)

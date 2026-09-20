@@ -185,11 +185,8 @@ export function templateToCatalogItem(
 export function marketplaceToCatalogItem(row: MarketplaceItem): InstallCatalogItem {
   const id = catalogText(row.id || row.full_name || row.name, 80) || 'github-item'
   const stars = typeof row.stars === 'number' && row.stars >= 0 ? row.stars : undefined
-  const installs =
-    typeof (row as { installs?: unknown }).installs === 'number' &&
-    (row as { installs: number }).installs >= 0
-      ? (row as { installs: number }).installs
-      : undefined
+  const installsRaw = (row as unknown as { installs?: unknown }).installs
+  const installs = typeof installsRaw === 'number' && installsRaw >= 0 ? installsRaw : undefined
   return {
     id,
     name: catalogText(row.name || row.full_name, 80) || id,

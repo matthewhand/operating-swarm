@@ -242,7 +242,10 @@ export default function AddAgentWizard({
           description: item.description,
           isCustom: true,
           provider: agentCliProvider({ command }),
-          remote: (item.remote as CliRemoteEndpoint | undefined) || edits.remote || null,
+          remote:
+            normalizeRemoteEndpoint(item.remote as Partial<CliRemoteEndpoint>) ||
+            normalizeRemoteEndpoint(edits.remote) ||
+            null,
         })
       }
     }

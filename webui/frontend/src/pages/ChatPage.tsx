@@ -220,8 +220,8 @@ import { QuestionCard } from '../components/QuestionCard'
 import {
   parseDecisionQuestion,
   stripDecisionQuestion,
-  type DecisionQuestion,
 } from '../lib/decisionQuestion'
+import type { DecisionQuestion } from '../lib/decisionQuestion'
 import { loadElicitQuestions } from '../lib/elicitQuestions'
 import { ToolCallPopup } from '../components/ToolCallPopup'
 import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsPanel'
@@ -467,6 +467,8 @@ interface ChatMessage {
   subagentFanOut?: SubagentFanOutData
   /** REQ-104 — expandable archive of the previous swarm thread. */
   kind?: 'prior_history'
+  /** #527 — openai-agents persona that produced the row, when the server says. */
+  persona?: string
   /** Persist/reload timestamp (ISO). Status/info chrome shows this. */
   ts?: string
   /** REQ-88 — provider queue wait; click opens that provider's rate-limit fields. */

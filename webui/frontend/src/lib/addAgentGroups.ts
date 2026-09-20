@@ -3,7 +3,7 @@
  * Clicking a row filters the agent list; the same id again (or clear) removes it.
  */
 
-import type { CliAgentsInfo, RemoteConnection, RemoteKind } from './api'
+import type { CliAgentsInfo, RemoteKind } from './api'
 import { configuredCliNames, discoveredCliNames } from './cliAgents'
 import { remoteKindLabel } from './remotes'
 
@@ -155,7 +155,7 @@ export function filterByOrigin<T extends { isCustom: boolean }>(
   return agents
 }
 
-export function remoteImplGroupId(remote: { kind?: string; id?: string; impl?: string }): string {
+export function remoteImplGroupId(remote: { kind?: string | null; id?: string; impl?: string }): string {
   const raw = (remote.impl || remote.kind || remote.id || '').trim().toLowerCase()
   if (!raw) return ''
   if (
@@ -182,8 +182,10 @@ export function remoteImplGroupLabel(
   return remoteKindLabel(id)
 }
 
-export function groupRemotesByImpl(
-  remotes: Array<Pick<RemoteConnection, 'id' | 'kind'> & { impl?: string }>,
+export function groupRemotesByImpl<
+  T extends { id: string; kind?: string | null; impl?: string },
+>(
+  remotes: readonly T[],
   impls: Array<Pick<RemoteKind, 'id' | 'label'>> = [],
 ): AddAgentGroup[] {
   const counts = new Map<string, number>()

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import * as api from '../api'
 import {
   filterRemoteSessionRows,
   memberSessionsFromRemoteOperate,

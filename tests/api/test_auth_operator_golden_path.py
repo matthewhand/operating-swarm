@@ -280,8 +280,12 @@ def _load_generated_blueprint(code: str):
 class TestLibraryCreateRunCloser:
     """Library create→run→sessions: stream contract, runner, ownership, Explorer."""
 
-    def test_generate_blueprint_code_streams_via_async_openai(self):
+    def test_generate_blueprint_code_streams_via_async_openai(self, monkeypatch):
         """Generated run() must call AsyncOpenAI streaming — not echo-only fiction."""
+        # Hermetic: a host DEFAULT_LLM (read-only force-env) must not steal the
+        # profile — this test pins the config's own "test-model".
+        monkeypatch.delenv("DEFAULT_LLM", raising=False)
+        monkeypatch.delenv("LITELLM_MODEL", raising=False)
         from swarm.views.blueprint_library_views import generate_blueprint_code
 
         code = generate_blueprint_code(

@@ -4,11 +4,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ChatMessageBubble } from '../ChatMessageBubble'
 import { ToastProvider } from '../DaisyUI'
-import { getBubbleTheme, BUBBLE_THEMES } from '../../lib/bubbleTheme'
+import { getBubbleTheme, BUBBLE_THEMES, type BubbleTheme } from '../../lib/bubbleTheme'
 
 const AVATAR = <span data-testid="avatar-child" />
 
-function renderBubble(theme: string, avatar?: React.ReactNode) {
+function renderBubble(theme: BubbleTheme, avatar?: React.ReactNode) {
   return render(
     <ToastProvider>
       <ChatMessageBubble

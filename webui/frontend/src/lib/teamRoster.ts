@@ -363,7 +363,7 @@ export function newRoleSlot(
 export function slotsFromMembers(members: TeamRosterMember[]): RoleSlot[] {
   return members
     .filter((row) => isComposableTeamRole(row.role))
-    .map((row) => newRoleSlot(row.role, memberKey(row)))
+    .map((row) => newRoleSlot(row.role as ComposableTeamRole, memberKey(row)))
 }
 
 export function canAddRoleSlot(slots: RoleSlot[], role: ComposableTeamRole): boolean {

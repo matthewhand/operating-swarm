@@ -55,12 +55,7 @@ import {
   loadDynamicSubagents,
   type DynamicSubagent,
 } from '../lib/dynamicSubagents'
-import {
-  PRODUCT_MODE_KEYS,
-  PRODUCT_MODE_LABELS,
-  productModesWhenSettled,
-  type ProductMode,
-} from '../lib/productModes'
+import { productModesWhenSettled } from '../lib/productModes'
 import { useOptionalToast } from './DaisyUI'
 import {
   CLI_PROCESS_STOPPED_TOAST,

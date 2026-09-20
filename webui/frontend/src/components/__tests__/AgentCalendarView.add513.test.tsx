@@ -24,8 +24,8 @@ vi.mock('../../lib/routines', async (importOriginal) => {
   return { ...actual, createRoutine: (...args: unknown[]) => createRoutineMock(...args) }
 })
 
-function agent(id: string, kind = 'api'): Routine['agent'] & { id: string } {
-  return { id } as unknown as Routine['agent'] & { id: string }
+function agent(id: string): { id: string; name?: string; kind?: string | null; description?: string | null } {
+  return { id }
 }
 
 

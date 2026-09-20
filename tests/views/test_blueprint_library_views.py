@@ -142,7 +142,9 @@ class TestBlueprintLibraryView:
         assert response.status_code == 200
         content = response.content.decode()
         assert "Blueprint Library" in content          # page actually rendered
-        assert "Codey" in content                       # a discovered blueprint's name is shown
+        # Card titles render the blueprint id since the #400-#409 redesign
+        # ({{ blueprint.id|default:blueprint.name }}).
+        assert "codey" in content.lower()               # a discovered blueprint's card is shown
 
     @patch("swarm.views.blueprint_library_views.discover_blueprints")
     @patch("swarm.views.blueprint_library_views.get_user_blueprint_library")

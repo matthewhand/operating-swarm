@@ -20,20 +20,6 @@ import {
 export const AGENT_EDITS_KEY = 'swarm_agent_edits'
 export const AGENT_EDITS_CHANGED_EVENT = 'swarm:agent-edits-changed'
 
-const AGENT_ROLES: readonly AgentRole[] = [
-  'default',
-  'support',
-  'gate',
-  'skeptic',
-  'chief_of_staff',
-  'engineer',
-  'suggestions',
-]
-
-function isAgentRole(value: unknown): value is AgentRole {
-  return typeof value === 'string' && value.trim().length > 0
-}
-
 export interface AgentEdit {
   name?: string
   role?: AgentRole

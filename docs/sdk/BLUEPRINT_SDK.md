@@ -1,4 +1,4 @@
-# Blueprint SDK — the contract for Open Swarm recipes
+# Blueprint SDK — the contract for Operating Swarm recipes
 
 This is the reference half of the Blueprint SDK (REQ-921 / #540); the
 worked half is the teaching bundle under

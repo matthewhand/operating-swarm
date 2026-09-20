@@ -249,7 +249,7 @@ describe('teamRoster First agent lead (issue #105)', () => {
   it('reorders members and firstAgentLeadId tracks roster index 0', () => {
     const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves' }
     const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok' }
-    const remote = { id: 'acp', name: 'ACP', kind: 'remote' as const, source: 'placeholder:remote:acp' }
+    const remote = { id: 'acp', name: 'ACP', kind: 'remote' as const, role: 'default', source: 'placeholder:remote:acp' }
     const members = addMember(addMember([], jeeves), grok)
     expect(firstAgentLeadId(members)).toBe('jeeves')
     const moved = reorderMembers(members, 1, 0)
