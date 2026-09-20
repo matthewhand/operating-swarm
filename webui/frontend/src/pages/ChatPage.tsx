@@ -939,34 +939,37 @@ const ChatPage = () => {
   const cliQuery = useQuery({
     queryKey: ['cli-agents'],
     queryFn: fetchCliAgents,
+    // #726: CLI agents rarely change — 60s keeps the list fresh enough
+    staleTime: 60_000,
   })
   const teamsQuery = useQuery({
     queryKey: ['team-rosters'],
     queryFn: fetchTeamRosters,
+    staleTime: 60_000,
   })
   const remotesQuery = useQuery({
     queryKey: ['configured-remotes'],
     queryFn: fetchConfiguredRemotes,
-    retry: 1,
+    staleTime: 60_000,
   })
   const llmProfilesQuery = useQuery({
     queryKey: ['llm-profiles'],
     queryFn: fetchLlmProfiles,
-    retry: 1,
+    // #726: LLM profiles are user-configured and rarely change
+    staleTime: 120_000,
   })
   const remotesListQuery = useQuery({
     queryKey: ['remotes-list'],
     // #581: coalesced GET /v1/remotes/ — same network call as the
     // 'configured-remotes' query, no duplicate volley on seat selection.
     queryFn: fetchRemotes,
-    staleTime: 5_000,
-    retry: 1,
+    staleTime: 60_000,
   })
   const speechQuery = useQuery({
     queryKey: SPEECH_QUERY_KEY,
     queryFn: () => fetchSpeechSettings(false),
-    staleTime: 30_000,
-    retry: 1,
+    // #726: speech probe result is stable — 2 min is fine
+    staleTime: 120_000,
   })
   const blueprints = exampleRoleAgents(blueprintsQuery.data?.data ?? [])
   const cliAgents = cliQuery.data?.rail ?? []
@@ -4295,9 +4298,9 @@ const ChatPage = () => {
                   {memberOptionLabel(member)}
                 </option>
               ))}
-              <option disabled aria-hidden="true">
-                ──────────
-              </option>
+              {/* #727: aria-hidden is invalid on <option>; <optgroup> renders a
+                  visual separator line in all browsers and is screen-reader safe. */}
+              <optgroup label="──────────" />
               <option value={MANAGE_TEAMS_VALUE}>Manage Team</option>
             </select>
           ) : null}

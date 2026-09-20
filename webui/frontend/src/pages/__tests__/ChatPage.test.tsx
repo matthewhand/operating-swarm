@@ -2492,8 +2492,10 @@ describe('ChatPage team member dropdown', () => {
     const options = within(select).getAllByRole('option')
     expect(options[options.length - 1]).toHaveValue('__manage__')
     expect(options[options.length - 1]).toHaveTextContent('Manage Team')
-    const allOptions = Array.from(select.querySelectorAll('option'))
-    expect(allOptions[allOptions.length - 2]).toBeDisabled()
+    // #727: separator is now an <optgroup> (not a disabled <option>) — check it
+    // exists between the member list and Manage Team.
+    const optgroup = select.querySelector('optgroup')
+    expect(optgroup).not.toBeNull()
     expect(select).toHaveValue('codey') // #169: seat default = first roster member
     expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
   })

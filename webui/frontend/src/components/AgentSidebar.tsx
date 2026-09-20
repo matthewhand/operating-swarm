@@ -830,7 +830,8 @@ export default function AgentSidebar({
   const fullRemotesQuery = useQuery({
     queryKey: ['remotes-list'],
     queryFn: fetchRemotes,
-    retry: 1,
+    // #726: remotes change infrequently — share the 60s cache with ChatPage
+    staleTime: 60_000,
   })
   const configuredRemotesList = useMemo(
     () => configuredRemotes(fullRemotesQuery.data),
@@ -839,7 +840,8 @@ export default function AgentSidebar({
   const cliQuery = useQuery({
     queryKey: ['cli-agents'],
     queryFn: fetchCliAgents,
-    retry: 1,
+    // #726: shares the same queryKey as ChatPage — coalesced, 60s fresh
+    staleTime: 60_000,
   })
   // Designer-created Agent Router agents (router_designs.json). Fast feed —
   // /v1/agents/ would init the router blueprint (~55s) just to list them.
@@ -957,7 +959,6 @@ export default function AgentSidebar({
     },
     enabled: cliAgentsForActivity.length > 0,
     staleTime: 5 * 60 * 1000,
-    retry: 1,
   })
   const cliActivityByAgent = cliActivityQuery.data ?? {}
   const rosterById = useMemo(() => new Map(teams.map((r) => [r.id, r])), [teams])
@@ -1957,6 +1958,24 @@ export default function AgentSidebar({
     setBinDragOver(false)
     hideDropDepth.current = 0
   }
+
+  // #725: global safety net — if the browser never delivers `onDragEnd` to the
+  // React element (pointer left the window, OS cancelled the drag, or a
+  // re-render during a 429 storm orphaned the handler) draggingId would stay
+  // set forever. The window-level listener catches it regardless of source.
+  useEffect(() => {
+    if (!draggingId) return
+    const onGlobalDragEnd = () => finishDrag()
+    const onVisibilityHide = () => { if (document.visibilityState === 'hidden') finishDrag() }
+    window.addEventListener('dragend', onGlobalDragEnd)
+    document.addEventListener('visibilitychange', onVisibilityHide)
+    return () => {
+      window.removeEventListener('dragend', onGlobalDragEnd)
+      document.removeEventListener('visibilitychange', onVisibilityHide)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId])
+
 
   const isPinnedId = (id: string | null | undefined) =>
     Boolean(id && pins.some((pin) => pin.id === id))
