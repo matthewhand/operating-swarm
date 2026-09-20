@@ -11,6 +11,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import ModelSearchPalette, { type ModelSearchOption } from './ModelSearchPalette'
+import ComposerPickerDialog from './ComposerPickerDialog'
+import type { ComposerProviderOption } from '../lib/composerPicker'
 import {
   displayableModels,
   familyHasEffort,
@@ -77,6 +79,17 @@ export interface NavbarRoutingPickerProps {
   onNavigateAgent?: (agentId: string, kind?: RoutingSeatKind | 'team') => void
   /** REQ-870: the CLI model probe is in flight (palette Loading state). */
   loading?: boolean
+  /**
+   * #681: opt-in two-stage workflow — the pill opens the ComposerPickerDialog
+   * (stage 1 providers, stage 2 accept-default/choose) instead of the flat
+   * palette. Picks resolve through the same pickAgent/pickModel semantics.
+   */
+  twoStage?: {
+    providers: readonly ComposerProviderOption[]
+    getProviderOptions: (
+      provider: ComposerProviderOption,
+    ) => readonly ModelSearchOption[]
+  }
   'aria-label'?: string
 }
 
@@ -95,6 +108,7 @@ export function NavbarRoutingPicker({
   placeholder,
   defaultAgent,
   allAgents,
+  twoStage,
   onNavigateAgent,
   loading = false,
   'aria-label': ariaLabel,
@@ -312,6 +326,53 @@ export function NavbarRoutingPicker({
     [pickAgent, pickModel],
   )
 
+  // #681: two-stage pick resolution. The dialog hands back (provider, option);
+  // both map onto the flat palette's existing semantics. Same kind: api and
+  // cli options are agent-dimension picks (profile / configured CLI agent),
+  // remote options are model-dimension picks (nested bot) — exactly the rows
+  // the flat palette offers today. Cross kind (#502/#504): navigate to that
+  // seat; "use default" (option = null) applies the provider's declared
+  // default, falling back to the provider itself.
+  const onTwoStagePick = useCallback(
+    (provider: ComposerProviderOption, option: ModelSearchOption | null) => {
+      const bare = provider.id.replace(/^(cli|remote|team):/, '')
+      if (provider.kind !== seatKind) {
+        // The API gateway is not a navigable seat — a cross-kind pick of it
+        // from a non-API seat has no destination, so it stays inert.
+        if (provider.kind === 'api' || !onNavigateAgent) return
+        onNavigateAgent(option?.id ?? provider.defaultOptionId ?? bare, provider.kind)
+        return
+      }
+      const chosen = option?.id ?? provider.defaultOptionId
+      // remote options and CLI *model* options are model-dimension picks;
+      // api profiles and CLI session/agent rows are agent-dimension picks.
+      if (provider.kind === 'remote' || option?.tag === 'model') {
+        if (chosen) pickModel(chosen)
+        return
+      }
+      // api / cli agent rows: the option is the agent dimension. No declared
+      // default and no option → keep the current selection.
+      pickAgent(chosen || selectedAgent, seatKind)
+    },
+    [seatKind, onNavigateAgent, pickAgent, pickModel, selectedAgent],
+  )
+
+  const twoStageDialog = twoStage ? (
+    <ComposerPickerDialog
+      open={paletteOpen}
+      providers={twoStage.providers}
+      getProviderOptions={twoStage.getProviderOptions}
+      onPick={(provider, option) => {
+        onTwoStagePick(provider, option)
+        setPaletteOpen(false)
+      }}
+      onClose={() => setPaletteOpen(false)}
+      currentOptionId={selectedAgent}
+      manageLabel={footerAction ? `${footerAction.label} in Settings` : undefined}
+      onManage={footerAction?.onSelect}
+    />
+  ) : null
+
   const pill = (
     label: string,
   ) => (
@@ -370,8 +431,11 @@ export function NavbarRoutingPicker({
       >
         {pill(combinedLabel)}
       </div>
-      <ModelSearchPalette
-        open={paletteOpen}
+      {twoStage ? (
+        twoStageDialog
+      ) : (
+        <ModelSearchPalette
+          open={paletteOpen}
         models={scopedRows}
         allModels={allRows}
         scopeLabel={scopeLabel}
@@ -398,7 +462,8 @@ export function NavbarRoutingPicker({
         defaultId={defaultAgent}
         onClose={() => setPaletteOpen(false)}
         onSelect={onSelectRow}
-      />
+        />
+      )}
     </div>
   )
 }

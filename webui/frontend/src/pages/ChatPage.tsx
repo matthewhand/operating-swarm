@@ -282,6 +282,8 @@ import {
 } from '../lib/ombBots'
 import { isOpenMousBotKind } from '../lib/remoteKinds'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId } from '../lib/remotesCatalog'
+import { buildComposerProviders, composerOptionsForProvider } from '../lib/composerSources'
+import type { ComposerSources } from '../lib/composerSources'
 
 /** #494: machine-readable remedy the backend stamps on classified failures. */
 interface RemoteAction {
@@ -3773,6 +3775,62 @@ const ChatPage = () => {
     return 'Disconnected'
   }, [authRejected, status])
 
+  // #681/#682/#683 — the two-stage composer picker's inputs, from the same
+  // live payloads the seat controls already render. A provider with no data
+  // (e.g. a CLI with no resumable sessions) still lists; its stage 2 simply
+  // offers the default row only.
+  const composerSources: ComposerSources = useMemo(
+    () => ({
+      api: {
+        profiles: (llmProfilesQuery.data?.profiles ?? []).map((p) => ({
+          id: p.id,
+          label: p.name || p.id,
+        })),
+        defaultProfileId: llmProfilesQuery.data?.default_llm_profile || undefined,
+      },
+      // #682: the probed model list belongs to the *current* CLI (the probe
+      // is per-CLI); other CLIs list without models until selected.
+      clis: discoveredClis.map((name) => ({
+        name,
+        ...(name === currentCli && cliModelsQuery.data?.models?.length
+          ? { models: cliModelsQuery.data.models }
+          : {}),
+      })),
+      // Remote agent lists exist only for the *active* remote (the operate
+      // `list` query is per-remote); others offer their default row only.
+      remotes: configuredRemoteRows.map((r) => ({
+        id: r.id,
+        label: r.title || r.id,
+        ...(r.id === activeRemoteId
+          ? {
+              agents: remoteNavbarAgents.map((row) => ({
+                id: row.id,
+                label: row.label || row.id,
+              })),
+            }
+          : {}),
+      })),
+      teams: parseTeamRosters(teamsQuery.data ?? []).map((t) => ({
+        id: t.id,
+        label: t.name || t.id,
+        members: (t.members ?? []).map((m) => ({ id: m.id, label: m.name || m.id })),
+      })),
+    }),
+    [
+      llmProfilesQuery.data,
+      discoveredClis,
+      configuredRemoteRows,
+      teamsQuery.data,
+      activeRemoteId,
+      remoteNavbarAgents,
+      currentCli,
+      cliModelsQuery.data,
+    ],
+  )
+  const composerProviders = useMemo(
+    () => buildComposerProviders(composerSources),
+    [composerSources],
+  )
   const renderRoutingPicker = () => {
     if (showRemotesControl && !showEmptyRemoteChrome) {
       return (
@@ -3790,6 +3848,11 @@ const ChatPage = () => {
           selectedAgent={selectedRemoteId}
           models={remoteNavbarAgents.map((row) => row.id)}
           modelOptions={remoteNavbarAgents}
+          twoStage={{
+            providers: composerProviders,
+            getProviderOptions: (provider) =>
+              composerOptionsForProvider(composerSources, provider),
+          }}
           selectedModel={ombSelectedBotId || sessionFromUrl}
           modelWarning={remoteAgentWarning}
           modelWarningAction={
@@ -3847,6 +3910,11 @@ const ChatPage = () => {
           allAgents={allPaletteAgents}
           onNavigateAgent={navigateToPaletteAgent}
           loading={isCliAgent && (cliModelsQuery.isFetching || cliModelsQuery.isLoading)}
+          twoStage={{
+            providers: composerProviders,
+            getProviderOptions: (provider) =>
+              composerOptionsForProvider(composerSources, provider),
+          }}
           footerAction={{
             id: MANAGE_CLI_VALUE,
             label: 'Manage CLI',
@@ -3876,6 +3944,11 @@ const ChatPage = () => {
           models={[]}
           selectedModel=""
           defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
+          twoStage={{
+            providers: composerProviders,
+            getProviderOptions: (provider) =>
+              composerOptionsForProvider(composerSources, provider),
+          }}
           footerAction={{
             id: '__manage_api__',
             label: 'Manage API',

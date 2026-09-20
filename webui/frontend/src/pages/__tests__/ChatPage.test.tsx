@@ -2012,18 +2012,18 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'remote')
     expect(pill).toHaveAttribute('data-value', 'omb')
     fireEvent.click(pill)
-    // #504: remote options and the Manage footer live in the palette now.
-    const palette = await screen.findByTestId('os-model-search-palette')
-    const options = within(palette)
-      .getAllByRole('option')
+    // #681: the provider stage lists only *configured* remotes — kinds are
+    // not providers. The Manage footer moved into the dialog.
+    await screen.findByTestId('composer-picker')
+    const options = screen
+      .getAllByTestId('composer-picker-row')
       .map((opt) => opt.textContent)
-    // Row textContent carries label + description + shortcut, so match loosely.
     expect(options.some((text) => text?.includes('OpenMousBot'))).toBe(true)
     expect(options.every((text) => !text?.includes('Hermes'))).toBe(true)
     expect(options.every((text) => !text?.includes('Rakazo'))).toBe(true)
     expect(options.every((text) => !/\bOMB\b/.test(text || ''))).toBe(true)
-    expect(palette.textContent).not.toContain('No remotes')
-    expect(screen.getByTestId('os-model-manage-api')).toHaveTextContent('Manage Remote')
+    expect(screen.getByTestId('composer-picker').textContent).not.toContain('No remotes')
+    expect(screen.getByTestId('composer-picker-manage')).toHaveTextContent('Manage Remote')
     expect(screen.getByTestId('navbar-routing-picker').textContent).not.toMatch(/\bOMB\b/)
   })
 
@@ -2067,9 +2067,20 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     const pill = await screen.findByTestId('routing-pill-agent')
     expect(pill).toHaveAttribute('data-value', 'omb')
     fireEvent.click(pill)
-    const palette = await screen.findByTestId('os-model-search-palette')
-    expect(await within(palette).findByTestId('os-model-row-omb')).toBeInTheDocument()
-    expect(within(palette).queryByText('No remotes')).not.toBeInTheDocument()
+    // #681: stage 2 for the bound remote — its (empty here) agent list under
+    // the always-present Use-default row; 'No remotes' chrome never appears.
+    const boundRow = (await screen.findAllByTestId('composer-picker-row')).find((el) =>
+      el.textContent?.includes('OpenMousBot'),
+    )
+    fireEvent.click(boundRow!)
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent(
+      'Providers › OpenMousBot',
+    )
+    const rows = screen.getAllByTestId('composer-picker-row')
+    // No agents are listed for this remote in the fixture, so the default row
+    // is the provider-fallback form (no declared default id to name).
+    expect(rows[0]).toHaveTextContent('Use default')
+    expect(screen.queryByText('No remotes')).not.toBeInTheDocument()
   })
 
   it('opens Add remote instead of No remotes chrome when none are configured', async () => {
@@ -2155,9 +2166,15 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     const pill = await screen.findByTestId('routing-pill-agent')
     expect(pill).toHaveTextContent('Pick a remote')
     fireEvent.click(pill)
-    const palette = await screen.findByTestId('os-model-search-palette')
-    expect(await within(palette).findByTestId('os-model-row-omb')).toBeInTheDocument()
-    expect(within(palette).queryByText('No remotes')).not.toBeInTheDocument()
+    // #681: the unbound remote's provider row sits on stage 1; selecting it
+    // offers the Use-default row — 'No remotes' chrome never appears.
+    const unboundRow = (await screen.findAllByTestId('composer-picker-row')).find((el) =>
+      el.textContent?.includes('OpenMousBot'),
+    )
+    fireEvent.click(unboundRow!)
+    const rows = screen.getAllByTestId('composer-picker-row')
+    expect(rows[0]).toHaveTextContent('Use default')
+    expect(screen.queryByText('No remotes')).not.toBeInTheDocument()
   })
 
   it('hides the Remotes control on local API and CLI agents', async () => {
@@ -3880,8 +3897,10 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
 
     const cliPill = await screen.findByTestId('routing-pill-agent')
     fireEvent.click(cliPill)
-    // #504: agents live in the palette now.
-    fireEvent.click(await screen.findByTestId('os-model-row-grok'))
+    // #681/#682: stage 1 lists providers (CLI seats included); picking the
+    // grok provider and accepting its default selects that CLI.
+    fireEvent.click(await screen.findByText('grok'))
+    fireEvent.click(screen.getAllByTestId('composer-picker-row')[0])
 
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent(
@@ -4003,10 +4022,15 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
 
     const cliPill = await screen.findByTestId('routing-pill-agent')
     fireEvent.click(cliPill)
-    fireEvent.click(await screen.findByTestId('os-model-row-antigravity'))
-    // #629: one combined pill — reopen the palette and pick the model row.
+    // #681/#682: descend into the antigravity provider, accept the default
+    // (the CLI itself), then reopen and pick its probed model row.
+    fireEvent.click(await screen.findByText('antigravity'))
+    fireEvent.click(screen.getAllByTestId('composer-picker-row')[0])
     fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    fireEvent.click(await screen.findByTestId('os-model-row-grok-4'))
+    // Reopening lands on stage 1 — descend into antigravity again, then pick
+    // its probed model row.
+    fireEvent.click(await screen.findByText('antigravity'))
+    fireEvent.click(await screen.findByText('grok-4'))
     expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'antigravity / grok-4')
 
     first.unmount()
@@ -4107,9 +4131,12 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
     // #629: the combined pill carries all three segments.
     expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy/gemini-3.8-flash/medium')
 
-    // #504: the palette carries the effort pick — same base → effort change.
+    // #681/#682: the two-stage picker carries the effort pick — descend into
+    // the agy provider, then the probed model row is a model-dimension pick,
+    // same base → effort change.
     fireEvent.click(screen.getByTestId('routing-pill-agent'))
-    fireEvent.click(await screen.findByTestId('os-model-row-gemini-3.8-flash-high'))
+    fireEvent.click(await screen.findByText('agy'))
+    fireEvent.click(await screen.findByText('gemini-3.8-flash-high'))
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent('Effort: medium → high')
     expect(status.className).not.toMatch(/chat-start|chat-end/)
@@ -4516,7 +4543,7 @@ describe('ChatPage API model palette (#281)', () => {
     resetConversationThreads()
   })
 
-  it('opens the searchable palette on API pill click, not a dropdown', async () => {
+  it('#681: opens the two-stage picker on API pill click — provider stage, not a dropdown', async () => {
     renderChat('/chat?blueprint=api_agent')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
@@ -4525,45 +4552,47 @@ describe('ChatPage API model palette (#281)', () => {
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'api')
     expect(pill).toHaveTextContent('Orchestration')
     fireEvent.click(pill)
-    const palette = await screen.findByTestId('os-model-search-palette')
-    expect(palette).toHaveClass('os-search-palette')
-    expect(screen.getByRole('combobox', { name: 'Filter models' })).toBeInTheDocument()
+    const dialog = await screen.findByTestId('composer-picker')
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('Providers')
+    expect(screen.getByTestId('composer-picker-input')).toBeInTheDocument()
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+    expect(dialog).toBeInTheDocument()
   })
 
-  it('filters models via search and selects one via click', async () => {
+  it('#681: descends to the API provider and picks a specific profile', async () => {
     renderChat('/chat?blueprint=api_agent')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    await screen.findByTestId('os-model-search-palette')
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter models' }), {
-      target: { value: 'claude' },
-    })
-    expect(screen.getByTestId('os-model-row-claude-work')).toBeInTheDocument()
-    expect(screen.getByTestId('os-model-row-anthropic/claude-3-5-sonnet')).toBeInTheDocument()
-    expect(screen.queryByTestId('os-model-row-gpt-4o')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('os-model-row-claude-work'))
+    fireEvent.click(await screen.findByText('API gateway'))
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent(
+      'Providers › API gateway',
+    )
+    // Use-default row first, then the real profiles from the payload.
+    const rows = screen.getAllByTestId('composer-picker-row')
+    expect(rows[0]).toHaveTextContent('Use default for API gateway')
+    fireEvent.click(screen.getByText('Claude Work'))
     await waitFor(() => {
-      expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('composer-picker')).not.toBeInTheDocument()
     })
     expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'claude-work')
   })
 
-  it('selects a filtered model via Enter', async () => {
+  it('#681: Enter accepts the highlighted row — query skips the default row', async () => {
     renderChat('/chat?blueprint=api_agent')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    await screen.findByTestId('os-model-search-palette')
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter models' }), {
+    fireEvent.click(await screen.findByText('API gateway'))
+    fireEvent.change(screen.getByTestId('composer-picker-input'), {
       target: { value: 'mini' },
     })
-    fireEvent.keyDown(window, { key: 'Enter' })
+    fireEvent.keyDown(screen.getByTestId('composer-picker-input'), { key: 'Enter' })
     await waitFor(() => {
-      expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('composer-picker')).not.toBeInTheDocument()
     })
     expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute(
       'data-value',
@@ -4571,7 +4600,7 @@ describe('ChatPage API model palette (#281)', () => {
     )
   })
 
-  it('launches Settings from Manage API in Settings', async () => {
+  it('#681: launches Settings from the Manage API footer of the two-stage picker', async () => {
     const opened: Array<{ section?: string }> = []
     const onOpen = (event: Event) => {
       opened.push((event as CustomEvent<{ section?: string }>).detail ?? {})
@@ -4582,10 +4611,10 @@ describe('ChatPage API model palette (#281)', () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
-    fireEvent.click(await screen.findByTestId('os-model-manage-api'))
+    fireEvent.click(await screen.findByTestId('composer-picker-manage'))
     window.removeEventListener('swarm:open-settings', onOpen)
     await waitFor(() => {
-      expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('composer-picker')).not.toBeInTheDocument()
     })
     expect(opened).toEqual([{ section: 'llm-profiles' }])
   })
