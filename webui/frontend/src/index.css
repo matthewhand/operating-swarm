@@ -2612,6 +2612,34 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-composer:focus-within .os-composer__hint-slot .os-composer__hint[data-testid='composer-clear-hint'] {
   opacity: 1;
 }
+
+/* #746: flagrant runtime/transport failures render out-of-band — a plain
+   error element anchored to the transcript, not a chat-card lookalike. */
+.os-flagrant-error {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--color-error, #dc2626) 45%, transparent);
+  border-left-width: 3px;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--color-error, #dc2626) 10%, transparent);
+  font-size: 0.8rem;
+  text-align: left;
+}
+.os-flagrant-error__label {
+  flex: 0 0 auto;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--color-error, #dc2626) 90%, var(--color-base-content));
+}
+.os-flagrant-error__text {
+  min-width: 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
 .os-composer:hover .os-composer__hint,
 .os-composer:focus-within .os-composer__hint {
   opacity: 1;
@@ -2971,6 +2999,9 @@ html:not([data-theme="light"]) .os-composer__send,
    box itself stays transparent (IRC's flat look); hover/selection shades
    land here so no unshaded gap remains at either end of the line. */
 .os-chat-transcript[data-bubble-theme="irc"] .os-chat-row {
+  /* #758: rows are terminal lines — full transcript width regardless of
+     content length, so hover/focus shading reads edge-to-edge. */
+  width: 100%;
   border-radius: 0.25rem;
 }
 .os-chat-transcript[data-bubble-theme="irc"] .os-chat-row:hover {

@@ -18,6 +18,7 @@ import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
 import SupportCreatedBlueprintCard from './SupportCreatedBlueprintCard'
 import { splitSkillRefs, type SkillInfo } from '../lib/skills'
+import { isFlagrantErrorText } from '../lib/flagrantErrors'
 import {
   getBubbleTheme,
   loadBubbleTheme,
@@ -419,8 +420,19 @@ export function ChatMessageBubble({
           className={`chat-bubble select-text ${
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
           }`}
-          data-testid="chat-bubble"
-        >          {role === 'status' ? (
+          data-testid="chat-bubble"          >          {role === 'status' && isFlagrantErrorText(text) ? (
+            // #746: flagrant transport/runtime failures render out-of-band —
+            // a dedicated error element, not a chat-card lookalike, so the
+            // conversation history is never contaminated by a dead turn.
+            <div
+              className="os-flagrant-error"
+              role="alert"
+              data-testid="flagrant-error"
+            >
+              <span className="os-flagrant-error__label">Error</span>
+              <span className="os-flagrant-error__text">{text}</span>
+            </div>
+          ) : role === 'status' ? (
             // #533: status notices (context culls, session restores, hop
             // chatter) collapse to a one-line card instead of raw text — one
             // implementation, carried by every bubble theme.
