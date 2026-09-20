@@ -1,4 +1,4 @@
-import { BubbleThemeBase } from './base'
+import { BubbleThemeBase, formatBubbleTime } from './base'
 import { registerBubbleTheme } from './registry'
 
 /** Tails + symmetric gutters (REQ-844). Timestamp stays above, CSS-hidden. */
@@ -24,6 +24,13 @@ export class IrcTheme extends BubbleThemeBase {
   override readonly timestampPlacement = 'inline' as const
   /** #505 / REQ-907: overlay the action row onto the bubble line (hover-capable only). */
   override readonly actionRowPlacement = 'overlay' as const
+
+  /** #774: IRC's gutter shows time on EVERY line — a row with an unknown
+   * timestamp still reserves its cell (honest `--:--`) so the column never
+   * develops gaps and the divider alignment holds across the transcript. */
+  override formatTimestamp(ts: string | undefined): string {
+    return formatBubbleTime(ts) || '--:--'
+  }
 }
 
 /** Dense event feed: full-width line, timestamp above with the speaker. */

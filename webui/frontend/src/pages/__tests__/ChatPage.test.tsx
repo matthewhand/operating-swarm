@@ -1636,7 +1636,10 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(screen.getByRole('button', { name: 'Open settings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit agent' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Tokens in context')).toBeInTheDocument()
+    // #776: the navbar estimate meter is gone. The composer badge is the one
+    // meter, and it renders only once usage is known (WS frame / API) — no
+    // invented numbers on a fresh chat.
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     expect(document.querySelector('.os-chat-header [data-avatar-theme="blobs"]')).toBeInTheDocument()
   })
 
@@ -2912,6 +2915,16 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
 
   it('drops the token meter after Compact replaces raw turns with a short summary', async () => {
     const compactPayload = {
+      usage: {
+        type: 'context_usage',
+        conversation_id: 'c-meter',
+        agent_id: 'codey',
+        tokens: 600,
+        window: 128000,
+        pct: 1,
+        estimate: true,
+        breakdown: { messages: 0, summaries: 400, system: 200, tools: 0 },
+      },
       summary: {
         id: 1,
         conversation_id: 'c-meter',
@@ -2972,16 +2985,33 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
       MockWebSocket.instances[0]?.open()
     })
     expect(await screen.findByText('aaaaaaaaaaaaaaaa')).toBeInTheDocument()
-    const meter = screen.getByRole('meter', { name: 'Tokens in context' })
-    const before = Number(meter.getAttribute('aria-valuenow'))
-    expect(before).toBeGreaterThan(0)
+    // #776: usage arrives as the server-reported badge (WS frame), not a
+    // client-side navbar estimate meter.
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'context_usage',
+            conversation_id: 'c-meter',
+            agent_id: 'codey',
+            tokens: 12000,
+            window: 128000,
+            pct: 9,
+            estimate: true,
+            breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 500 },
+          }),
+        }),
+      )
+    })
+    const badge = screen.getByTestId('context-usage-badge')
+    expect(badge).toHaveTextContent('in ~12k / 128k tok')
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Compact' }))
     })
     await screen.findByTestId('chat-summary')
-    expect(Number(meter.getAttribute('aria-valuenow'))).toBeLessThan(before)
+    expect(screen.getByTestId('context-usage-badge')).toHaveTextContent('in ~600 / 128k tok')
   })
 
   it('hover Compress to here posts a span ending at that message', async () => {
@@ -3060,27 +3090,60 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     expect(screen.getByText('later stays raw')).toBeInTheDocument()
   })
 
-  it('opens session token diagnostics popup when clicking token meter (REQ-115)', async () => {
+  it('opens session token diagnostics popup when clicking the context badge (REQ-115, #776)', async () => {
     renderChat('/chat?blueprint=support')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const meterBtn = screen.getByRole('button', { name: 'Session token usage' })
-    expect(meterBtn).toBeInTheDocument()
+    // The badge only renders once usage is known — push a server frame.
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'context_usage',
+            conversation_id: 'c1',
+            agent_id: 'support',
+            tokens: 12300,
+            window: null,
+            pct: null,
+            estimate: true,
+            breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+          }),
+        }),
+      )
+    })
+    const badge = screen.getByTestId('context-usage-badge')
+    expect(badge).toBeInTheDocument()
 
-    fireEvent.click(meterBtn)
+    fireEvent.click(badge)
 
     expect(await screen.findByTestId('token-diagnostics-modal')).toBeInTheDocument()
     expect(screen.getByText('Session Token Diagnostics')).toBeInTheDocument()
   })
 
-  it('displays token meter button for API agents and not for CLI or remote agents', async () => {
+  it('renders the context badge for API agents and not for CLI or remote agents (#776)', async () => {
     const { unmount: unmountApi } = renderChat('/chat?blueprint=support')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.getByTestId('token-meter-button')).toBeInTheDocument()
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'context_usage',
+            conversation_id: 'c1',
+            agent_id: 'support',
+            tokens: 12300,
+            window: null,
+            pct: null,
+            estimate: true,
+            breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+          }),
+        }),
+      )
+    })
+    expect(screen.getByTestId('context-usage-badge')).toBeInTheDocument()
     unmountApi()
 
     MockWebSocket.instances = []
@@ -3088,7 +3151,7 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     unmountCli()
 
     MockWebSocket.instances = []
@@ -3096,7 +3159,7 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     unmountGrok()
 
     MockWebSocket.instances = []
@@ -3104,7 +3167,7 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     unmountRemote()
   })
 })

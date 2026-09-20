@@ -196,7 +196,25 @@ describe('ChatPage REQ-121 start context from here', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Session token usage' }))
+    // #776: usage surfaces as the composer badge (server frame), which opens
+    // the diagnostics modal on click — the old navbar meter is gone.
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'context_usage',
+            conversation_id: 'c1',
+            agent_id: 'support',
+            tokens: 12300,
+            window: 128000,
+            pct: 10,
+            estimate: true,
+            breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+          }),
+        }),
+      )
+    })
+    fireEvent.click(screen.getByTestId('context-usage-badge'))
     expect(await screen.findByTestId('token-diagnostics-modal')).toBeInTheDocument()
     expect(await screen.findByTestId('diag-context-strategy')).toHaveTextContent('Cull')
     expect(screen.getByTestId('diag-last-context-event')).toHaveTextContent('None yet')

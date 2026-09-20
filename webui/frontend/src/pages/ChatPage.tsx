@@ -2097,6 +2097,7 @@ const ChatPage = () => {
                 role: 'assistant' as const,
                 text: '',
                 streaming: true,
+                ts: new Date().toISOString(),
                 tools: [tool],
               },
             ],
@@ -2146,6 +2147,7 @@ const ChatPage = () => {
                 role: 'assistant' as const,
                 text: '',
                 streaming: true,
+                ts: new Date().toISOString(),
                 ...patch,
               },
             ],
@@ -2216,6 +2218,7 @@ const ChatPage = () => {
                 role: 'status' as const,
                 text: '',
                 streaming: false,
+                ts: new Date().toISOString(),
                 prOpened: event.event,
               },
             ],
@@ -2235,6 +2238,7 @@ const ChatPage = () => {
                 role: 'status' as const,
                 text: '',
                 streaming: false,
+                ts: new Date().toISOString(),
                 teammateTask: event.event,
               },
             ],
@@ -2254,6 +2258,7 @@ const ChatPage = () => {
                 role: 'assistant' as const,
                 text: '',
                 streaming: false,
+                ts: new Date().toISOString(),
                 subagentFanOut: event.event,
               },
             ],
@@ -2309,12 +2314,18 @@ const ChatPage = () => {
                 role: 'user',
                 text: event.text,
                 streaming: false,
+                ts: new Date().toISOString(),
               },
             ]
             break
           case 'assistant_start':
             if (current.some((m) => m.key === event.id)) return prev
-            next = [...current, { key: event.id, role: 'assistant', text: '', streaming: true }]
+            next = [
+              ...current,
+              // #774: stamp arrival time now — the row's clock must not wait
+              // for final text, or the IRC gutter shows nothing for the turn.
+              { key: event.id, role: 'assistant', text: '', streaming: true, ts: new Date().toISOString() },
+            ]
             break
           case 'assistant_chunk':
             next = current.map((m) =>
@@ -2355,6 +2366,7 @@ const ChatPage = () => {
               role: 'status',
               text: event.text,
               streaming: false,
+              ts: new Date().toISOString(),
               rateLimit: event.rateLimit,
             })
             break

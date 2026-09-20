@@ -278,8 +278,20 @@ export function ChatMessageBubble({
   }, [])
 
   if (role === 'system' || isSystemPreload) {
+    // #774: system-preload rows render the IRC gutter divider too, so the
+    // vertical line does not visibly break at those rows. The pill itself
+    // is unchanged; the divider is only mounted in the IRC theme.
     return (
       <div className="flex justify-start w-full my-1" data-testid="chat-system-preload">
+        {themeUsesIrcGutter(getBubbleTheme(theme).id) ? (
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize IRC name column"
+            className="os-irc-gutter-divider"
+            data-testid="irc-gutter-divider"
+          />
+        ) : null}
         <SystemPreloadPill text={text} onRemove={onRemoveCard} />
       </div>
     )
