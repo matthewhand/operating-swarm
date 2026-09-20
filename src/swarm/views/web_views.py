@@ -3,6 +3,7 @@ Web UI views for Open Swarm Core.
 Handles rendering index, blueprint pages, login, and serving config.
 """
 import json
+import mimetypes
 import subprocess
 import sys
 from pathlib import Path
@@ -103,6 +104,52 @@ def asgi_file_response(path: Path, content_type: str) -> HttpResponse:
     return HttpResponse(path.read_bytes(), content_type=content_type)
 
 
+# #714: the SPA entry is a *pointer* to hashed assets. A browser that
+# heuristic-caches it (no Cache-Control was sent) pins a deleted bundle for
+# days — seen live as resurrected "hidden by product modes" copy. The entry
+# must revalidate every load; the hashed assets are the opposite and cache
+# forever.
+SPA_HTML_CACHE_CONTROL = "no-cache"
+SPA_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+def spa_index_response(index_file: Path) -> HttpResponse:
+    """Serve the SPA entry HTML with the never-cacheable contract (#714)."""
+    resp = asgi_file_response(index_file, "text/html")
+    resp["Cache-Control"] = SPA_HTML_CACHE_CONTROL
+    return resp
+
+
+def spa_asset_view(request, path: str) -> HttpResponse:
+    """Serve ``/assets/*`` (content-hashed) as immutable, cache-forever (#714).
+
+    Request-time frontend lookup so a ``dist/`` that appears after process
+    start is still served (same reasoning as ``spa_chat``); the traversal
+    guard is the urls.py closure's, preserved.
+    """
+    frontend_path = _get_frontend_path()
+    if not frontend_path:
+        return HttpResponse("Not Found", status=404)
+    root = (frontend_path / "assets").resolve()
+    target = (root / path).resolve()
+    if not str(target).startswith(str(root)) or not target.is_file():
+        return HttpResponse("Not Found", status=404)
+    ctype, _ = mimetypes.guess_type(str(target))
+    resp = asgi_file_response(target, ctype or "application/octet-stream")
+    resp["Cache-Control"] = SPA_ASSET_CACHE_CONTROL
+    return resp
+
+
+def spa_fallback_view(request, path: str = "") -> HttpResponse:
+    """SPA catch-all — the entry pointer, never cacheable (#714)."""
+    frontend_path = _get_frontend_path()
+    if frontend_path:
+        index_file = frontend_path / "index.html"
+        if index_file.exists():
+            return spa_index_response(index_file)
+    return HttpResponse("Not Found", status=404)
+
+
 def _get_frontend_path():
     """Get the path to the built frontend assets."""
     # Check common build output directories
@@ -171,7 +218,7 @@ def spa_chat(request):
         index_file = frontend_path / "index.html"
         if index_file.exists():
             logger.debug("Serving SPA Chat from %s", index_file)
-            return asgi_file_response(index_file, "text/html")
+            return spa_index_response(index_file)
     return HttpResponse("Not Found", status=404)
 
 
@@ -183,7 +230,7 @@ def index(request):
         index_file = frontend_path / "index.html"
         if index_file.exists():
             logger.debug("Serving static frontend from " + str(index_file))
-            return asgi_file_response(index_file, "text/html")
+            return spa_index_response(index_file)
 
     # Fallback to Django template rendering
     logger.debug("Rendering index page with Django templates")
@@ -217,7 +264,10 @@ def index(request):
         logger.debug("Could not load recent sessions for index", exc_info=True)
         context["recent_sessions"] = []
 
-    return render(request, "index.html", context)
+    resp = render(request, "index.html", context)
+    # #714: the template fallback is still the entry pointer.
+    resp["Cache-Control"] = SPA_HTML_CACHE_CONTROL
+    return resp
 
 
 def custom_login(request):

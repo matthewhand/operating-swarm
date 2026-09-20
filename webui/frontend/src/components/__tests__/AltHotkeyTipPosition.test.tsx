@@ -37,14 +37,15 @@ describe('Alt Hotkey Tip Position (REQ-182)', () => {
     expect(ruleBody).toContain('position: absolute')
   })
 
-  it('#579: the two tenants of the top-right corner have stated rules', () => {
+  it('#713 (supersedes the #579 slide): hint and badge own opposite corners — no interaction rule', () => {
     const cssPath = path.resolve(__dirname, '../../index.css')
     const css = fs.readFileSync(cssPath, 'utf-8')
-    // The ⌥N hint wins the corner on hover; the badge slides left of it.
-    expect(css).toContain(
+    // The ⌥N hint fades in at the top-right; the badge is left-anchored (#691)
+    // so the corners never overlap and hover moves NOTHING.
+    expect(css).not.toContain(
       '.os-fav-tile:hover:has(.os-fav-tile__shortcut) .os-fav-tile__badge',
     )
-    // The NEEDS APPROVAL band wins the top edge; the badge drops below it.
+    // The NEEDS APPROVAL band still wins the top edge; the badge drops below it.
     expect(css).toContain('.os-fav-tile:has(.os-fav-tile__attention) .os-fav-tile__badge')
   })
 })

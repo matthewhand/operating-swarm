@@ -185,12 +185,13 @@ from swarm.views.test_schedules_api import (
     TestScheduleStatusAPIView,
 )
 from swarm.views.web_views import (
-    asgi_file_response,
     brand_root_file,
     custom_login,
     index,
     profiles_page,
+    spa_asset_view,
     spa_chat,
+    spa_fallback_view,
     team_admin,
     team_launcher,
     team_rosters_json,
@@ -797,25 +798,9 @@ def _get_frontend_path():
 
 frontend_path = _get_frontend_path()
 if frontend_path and frontend_path.exists():
-    import mimetypes
-
-    def spa_asset(request, path):
-        root = (frontend_path / "assets").resolve()
-        target = (root / path).resolve()
-        if not str(target).startswith(str(root)) or not target.is_file():
-            return HttpResponse("Not Found", status=404)
-        ctype, _ = mimetypes.guess_type(str(target))
-        return asgi_file_response(target, ctype or "application/octet-stream")
-
-    # SPA fallback - serve index.html for all non-API, non-admin, non-static routes
-    # (the catch-all regex below has no capture group, so path must default)
-    def spa_fallback(request, path=""):
-        index_file = frontend_path / "index.html"
-        if index_file.exists():
-            return asgi_file_response(index_file, "text/html")
-        return HttpResponse("Not Found", status=404)
-
+    # #714: the asset/catch-all views moved to web_views (request-time
+    # frontend lookup + explicit cache contract). Registration unchanged.
     urlpatterns += [
-        re_path(r'^assets/(?P<path>.*)$', spa_asset),
-        re_path(r'^(?!api/|admin/|static/|assets/|mcp/|marketplace/|v1/|teams/|blueprint-library/|agent-creator/|settings/|accounts/|login/|profiles/|sessions/|webui/|chat/|agents/|django_chat).*$', spa_fallback),
+        re_path(r'^assets/(?P<path>.*)$', spa_asset_view),
+        re_path(r'^(?!api/|admin/|static/|assets/|mcp/|marketplace/|v1/|teams/|blueprint-library/|agent-creator/|settings/|accounts/|login/|profiles/|sessions/|webui/|chat/|agents/|django_chat).*$', spa_fallback_view),
     ]
