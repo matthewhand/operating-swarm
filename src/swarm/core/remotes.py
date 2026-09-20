@@ -3753,25 +3753,67 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
 
     if not prompt.strip():
         return OperateResult(remote="herdr", op="send", ok=False, detail="prompt is required")
-    if not (target or "").strip():
-        return OperateResult(
-            remote="herdr",
-            op="send",
-            ok=False,
-            detail="target is required (Herdr pane / CLI id, e.g. w3:p1 or grok)",
-        )
     mode = resolve_herdr_mode(spec)
     hop = f"ssh {spec.ssh_user}@{spec.ssh_host}" if mode == "ssh" else "local herdr (no SSH)"
     timeout_s = float(timeout or _OPERATE_SEND_TIMEOUT_S)
     timeout_ms = max(1, int(timeout_s * 1000))
-    pane = target.strip()
+    pane = (target or "").strip()
     client: Any = None
     before_seq: int | None = None
     try:
         client = HerdrClient.from_remote_config(config)
-        # One `agent get` serves both jobs: refuse a blocked pane (as
-        # `check_blocked=True` did) and remember where the pane was so a
-        # post-timeout read cannot hand back stale text (#470).
+        # #728: an omitted target is no longer a dead end. One member in the
+        # workspace → auto-target it; several → honest error naming every
+        # choice (target + name) so the user can pick; discovery failure →
+        # keep the original refusal copy.
+        if not pane:
+            try:
+                members = client.discover_members()
+            except Exception:
+                members = []
+            # discover_members() rows carry the CLI id under ``name`` (with
+            # ``target``/``id`` absent); accept all three spellings and keep
+            # the target→display-name pairing in one pass (no zip desync).
+            rows: list[dict[str, str]] = []
+            for m in members:
+                if not isinstance(m, dict):
+                    continue
+                tid = str(m.get("target") or m.get("id") or m.get("name") or "").strip()
+                if not tid:
+                    continue
+                label = str(m.get("display") or m.get("name") or "").strip()
+                rows.append({"target": tid, "name": label})
+            if len(rows) == 1:
+                pane = rows[0]["target"]
+            elif rows:
+                names = ", ".join(
+                    f"{r['target']} ({r['name']})"
+                    if r["name"] and r["name"] != r["target"]
+                    else r["target"]
+                    for r in rows
+                )
+                return OperateResult(
+                    remote="herdr",
+                    op="send",
+                    ok=False,
+                    detail=(
+                        f"Several Herdr agents are running — pick one: {names}. "
+                        "Chat with a specific agent from the rail menu "
+                        "(Select session) or name the pane id."
+                    ),
+                    data={"targets": [r["target"] for r in rows]},
+                )
+            else:
+                return OperateResult(
+                    remote="herdr",
+                    op="send",
+                    ok=False,
+                    detail="target is required (Herdr pane / CLI id, e.g. w3:p1 or grok)",
+                )
+        # One `agent get` serves three jobs now: refuse a blocked pane with
+        # its pending question surfaced (#740), remember where the pane was
+        # so a post-timeout read cannot hand back stale text (#470), and —
+        # since #728 — confirm the auto-targeted pane actually exists.
         try:
             state_payload = client.agent_get(pane)
         except Exception:
@@ -3791,10 +3833,36 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
             check_blocked=False,
         )
         read = client.agent_read(pane, source="recent", fmt="text")
+        # #728: `target` may have arrived empty (auto-targeted); every
+        # payload below must name the pane that actually answered.
+        target = pane
     except SSHNotConfiguredError as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=str(exc))
     except HerdrBlockedError as exc:
-        return OperateResult(remote="herdr", op="send", ok=False, detail=str(exc), data={"target": target})
+        # #740: a blocked pane is a CLI sitting at an approval/question
+        # prompt. Surface WHAT it is asking (the pane's recent text) and HOW
+        # to answer it, instead of a bare "submit rejected".
+        pending = ""
+        if client is not None:
+            try:
+                raw = client.agent_read(pane, source="recent", fmt="text")
+                pending = _herdr_pane_text(raw)
+            except Exception:
+                pending = ""
+        target = pane
+        detail = str(exc)
+        if pending:
+            detail = (
+                f"{detail} The agent is waiting on: “{pending}” — "
+                f"answer it in the Herdr pane ({pane}), then resend."
+            )
+        return OperateResult(
+            remote="herdr",
+            op="send",
+            ok=False,
+            detail=detail,
+            data={"target": pane, "blocked": True, "pending_prompt": pending or None},
+        )
     except HerdrCLIError as exc:
         msg = str(exc)
         if "timed out" in msg.lower():

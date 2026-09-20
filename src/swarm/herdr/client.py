@@ -166,10 +166,15 @@ def members_from_agent_list(payload: Any, *, remote: str = "") -> list[dict[str,
             continue
         seen.add(target)
         state = extract_agent_state(record)
+        raw_name = record.get("name")
+        display = raw_name.strip() if isinstance(raw_name, str) else ""
         members.append(
             {
                 "kind": MEMBER_KIND,
                 "name": target,
+                # #728: keep the human label when the CLI id is a pane id, so
+                # ambiguity errors can say "w3:p1 (grok)" instead of two ids.
+                "display": display if display and display != target else "",
                 "remote": (remote or "").strip(),
                 "source": "agent",
                 "state": state,
@@ -190,10 +195,13 @@ def members_from_workspace_list(payload: Any, *, remote: str = "") -> list[dict[
         if not target or target in seen:
             continue
         seen.add(target)
+        raw_label = record.get("name") or record.get("label")
+        display = raw_label.strip() if isinstance(raw_label, str) else ""
         members.append(
             {
                 "kind": MEMBER_KIND,
                 "name": target,
+                "display": display if display and display != target else "",
                 "remote": (remote or "").strip(),
                 "source": "workspace",
                 "state": None,
