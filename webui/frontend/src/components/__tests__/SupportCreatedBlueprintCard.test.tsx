@@ -129,3 +129,36 @@ describe('SupportCreatedBlueprintCard (REQ-158 / #440)', () => {
     expect(screen.queryByTestId('support-nl-save-blueprint')).not.toBeInTheDocument()
   })
 })
+
+// #769 — the View/Edit reveal is a deliberate "show me the code" action: the
+// card breaks out of the bubble's inline width (near-full pane) and the code
+// surface shows the whole file — no cramped box, no inner height cap.
+describe('SupportCreatedBlueprintCard code reveal (#769)', () => {
+  beforeEach(() => {
+    vi.mocked(createCustomBlueprint).mockReset()
+    window.localStorage.clear()
+  })
+
+  it('revealed card breaks out to full width and the code surface is uncapped', async () => {
+    renderCard()
+    fireEvent.click(screen.getByRole('button', { name: VIEW_EDIT_CODE_LABEL }))
+    const card = screen.getByTestId('support-nl-blueprint-card')
+    expect(card.dataset.revealed).toBe('true')
+    expect(card.className).toContain('support-nl-card--revealed')
+
+    const code = screen.getByTestId('support-nl-code')
+    expect(code.className).toContain('w-full')
+    // "See the whole thing": generous floor, vertical resize allowed, and no
+    // collapsed max-height cap class.
+    expect(code.className).toContain('min-h-96')
+    expect(code.className).toContain('resize-y')
+    expect(code.className).not.toContain('max-h-')
+  })
+
+  it('hidden state stays compact (no breakout class, no textarea)', () => {
+    renderCard()
+    const card = screen.getByTestId('support-nl-blueprint-card')
+    expect(card.className).not.toContain('support-nl-card--revealed')
+    expect(screen.queryByTestId('support-nl-code')).toBeNull()
+  })
+})

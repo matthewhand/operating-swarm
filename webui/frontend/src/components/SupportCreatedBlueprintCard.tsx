@@ -73,9 +73,16 @@ export default function SupportCreatedBlueprintCard({
 
   return (
     <div
-      className="card bg-base-100 border border-base-300 mt-2"
+      className={`card bg-base-100 border border-base-300 mt-2 ${
+        revealed
+          ? // #769: a deliberate "show me the code" breaks out of the bubble's
+            // inline width — near-full chat-pane width, no cramped box.
+            'support-nl-card--revealed -mx-3 sm:-mx-8 w-[calc(100%+1.5rem)] sm:w-[calc(100%+4rem)] max-w-none'
+          : ''
+      }`}
       data-testid="support-nl-blueprint-card"
       data-blueprint-id={card.id}
+      data-revealed={revealed ? 'true' : undefined}
     >
       <div className="card-body p-3 gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -149,7 +156,13 @@ export default function SupportCreatedBlueprintCard({
           <Textarea
             aria-label="Blueprint Python source"
             data-testid="support-nl-code"
-            className="min-h-40 font-mono text-xs"
+            className={`w-full font-mono text-xs ${
+              revealed
+                ? // #769: see the whole thing — generous floor, user-resizable,
+                  // no max-height cap.
+                  'min-h-96 resize-y leading-relaxed'
+                : 'min-h-40'
+            }`}
             value={card.code}
             readOnly
             spellCheck={false}
