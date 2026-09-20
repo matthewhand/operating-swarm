@@ -2589,6 +2589,23 @@ html:not([data-theme="light"]) .os-composer__send,
   opacity: 0;
   transition: opacity 0.15s ease-in-out;
 }
+/* #732: the slot is always mounted and always reserves the same width, so
+   swapping the glyph (↵ / Esc / placeholder) cannot re-flow the pill. */
+.os-composer__hint-slot {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 2.1rem;
+  flex-shrink: 0;
+}
+.os-composer__hint-slot .os-composer__hint {
+  opacity: 0;
+}
+.os-composer:hover .os-composer__hint-slot .os-composer__hint[data-testid='composer-send-hint'],
+.os-composer:focus-within .os-composer__hint-slot .os-composer__hint[data-testid='composer-send-hint'],
+.os-composer:hover .os-composer__hint-slot .os-composer__hint[data-testid='composer-clear-hint'],
+.os-composer:focus-within .os-composer__hint-slot .os-composer__hint[data-testid='composer-clear-hint'] {
+  opacity: 1;
+}
 .os-composer:hover .os-composer__hint,
 .os-composer:focus-within .os-composer__hint {
   opacity: 1;

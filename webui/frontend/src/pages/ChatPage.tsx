@@ -5130,25 +5130,40 @@ const ChatPage = () => {
                     aria-expanded={isSlashOpen}
                     aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
                   />
-                  {sendNowHint ? (
-                    /* #631: the ↵ reveal exists ONLY to announce the interrupt-
-                       send action while a queued send waits. No queue → no hint. */
-                    <kbd
-                      className="os-composer__hint kbd kbd-xs"
-                      data-testid="composer-send-hint"
-                      title="Send Now! ↵"
-                    >
-                      ↵
-                    </kbd>
-                  ) : !input ? null : (
-                    <kbd
-                      className="os-composer__hint kbd kbd-xs"
-                      data-testid="composer-clear-hint"
-                      title="Esc to clear"
-                    >
-                      Esc
-                    </kbd>
-                  )}
+                  {/* #732: ONE permanently mounted slot — the kbd used to
+                      mount/unmount with the draft, re-flowing the pill on the
+                      first and last keystroke. The glyph swaps in place; the
+                      node (and its reserved width) never changes. */}
+                  <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
+                    {sendNowHint ? (
+                      /* #631: the ↵ reveal exists ONLY to announce the interrupt-
+                         send action while a queued send waits. No queue → no hint. */
+                      <kbd
+                        className="os-composer__hint kbd kbd-xs"
+                        data-testid="composer-send-hint"
+                        title="Send Now! ↵"
+                      >
+                        ↵
+                      </kbd>
+                    ) : input ? (
+                      <kbd
+                        className="os-composer__hint kbd kbd-xs"
+                        data-testid="composer-clear-hint"
+                        title="Esc to clear"
+                      >
+                        Esc
+                      </kbd>
+                    ) : (
+                      <kbd
+                        className="os-composer__hint kbd kbd-xs"
+                        data-testid="composer-hint-placeholder"
+                        title=""
+                        aria-hidden="true"
+                      >
+                        ↵
+                      </kbd>
+                    )}
+                  </span>
                   {renderRoutingPicker()}
                   <button
                     type="button"
