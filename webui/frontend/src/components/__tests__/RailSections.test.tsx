@@ -372,3 +372,105 @@ describe('REQ-209 sidepane agent sections', () => {
     })
   })
 })
+
+describe('#802 / #801 — pinning never erases section membership', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    localStorage.setItem(PINNED_AGENTS_STORAGE_KEY, '[]')
+    localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, '[]')
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('right-click Unpin on a sectioned agent returns it to its assigned section', async () => {
+    // Rakazo lives in sec_stuff AND is pinned (the #802 setup).
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: { rakazo: 'sec_stuff' },
+      }),
+    )
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'rakazo', name: 'Rakazo' }]),
+    )
+    renderRail()
+    await loadedList()
+
+    // While pinned, the row is stripped from section lists (existing contract).
+    expect(within(sectionById('sec_stuff')!).queryByRole('link', { name: /Rakazo/ })).not.toBeInTheDocument()
+
+    // Right-click the pin → Unpin.
+    const grid = screen.getByTestId('agent-fav-grid')
+    fireEvent.contextMenu(within(grid).getByRole('link', { name: 'Rakazo' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Unpin' }))
+
+    // #802: the agent must land back INSIDE its assigned section.
+    await waitFor(() => {
+      expect(within(sectionById('sec_stuff')!).getByRole('link', { name: /Rakazo/ })).toBeInTheDocument()
+    })
+    expect(within(sectionById(UNASSIGNED_SECTION_ID)!).queryByRole('link', { name: /Rakazo/ })).not.toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership.rakazo).toBe('sec_stuff')
+  })
+
+  it('Move to → New section on a PINNED agent unpins it into the new section (#801)', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'rakazo', name: 'Rakazo' }]),
+    )
+    renderRail()
+    await loadedList()
+    const grid = screen.getByTestId('agent-fav-grid')
+    fireEvent.contextMenu(within(grid).getByRole('link', { name: 'Rakazo' }))
+    await chooseMoveTo(NEW_SECTION_PLACEHOLDER)
+    const rename = await screen.findByTestId('rail-section-rename')
+    fireEvent.change(rename, { target: { value: 'moved' } })
+    fireEvent.blur(rename)
+    await waitFor(() => {
+      expect(screen.queryByTestId('rail-section-rename')).not.toBeInTheDocument()
+    })
+
+    // #801: the agent is unpinned AND rendered inside the new section.
+    await waitFor(() => {
+      expect(within(screen.getByTestId('agent-fav-grid')).queryByRole('link', { name: 'Rakazo' })).not.toBeInTheDocument()
+    })
+    const custom = screen
+      .getAllByTestId('rail-section')
+      .find((node) => node.getAttribute('data-section-custom') === 'true')
+    expect(custom).toBeTruthy()
+    expect(within(custom!).getByTestId('rail-section-name')).toHaveTextContent('moved')
+    expect(within(custom!).getByRole('link', { name: /Rakazo/ })).toBeInTheDocument()
+  })
+
+  it('Move to → existing section on a PINNED agent unpins it into that section (#801)', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+      }),
+    )
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'rakazo', name: 'Rakazo' }]),
+    )
+    renderRail()
+    await loadedList()
+    const grid = screen.getByTestId('agent-fav-grid')
+    fireEvent.contextMenu(within(grid).getByRole('link', { name: 'Rakazo' }))
+    await chooseMoveTo('stuff')
+
+    await waitFor(() => {
+      expect(within(sectionById('sec_stuff')!).getByRole('link', { name: /Rakazo/ })).toBeInTheDocument()
+    })
+    expect(within(screen.getByTestId('agent-fav-grid')).queryByRole('link', { name: 'Rakazo' })).not.toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership.rakazo).toBe('sec_stuff')
+    expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
+  })
+})

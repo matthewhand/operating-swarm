@@ -1360,6 +1360,16 @@ export default function AgentSidebar({
   const handleMoveTo = useCallback(
     (agentId: string, target: string) => {
       if (!agentId) return
+      // #801: a pinned agent moved to a section must LEAVE the pin grid —
+      // excludePinnedFromList strips pinned ids from the section lists, so
+      // keeping the pin would park the agent in limbo (membership set, row
+      // rendered nowhere). Unpinning matches drag-to-section behavior.
+      const wasPinned = isPinnedId(agentId)
+      if (wasPinned) {
+        setPins((current) =>
+          current.some((pin) => pin.id === agentId) ? unpinAgent(agentId, current) : current,
+        )
+      }
       if (target === NEW_SECTION_TARGET) {
         const created = createSectionWithAgent(sectionState, agentId)
         setSectionState(created.state)
