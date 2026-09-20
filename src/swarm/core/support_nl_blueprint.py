@@ -64,6 +64,7 @@ class NlBlueprintSpec:
     graph_label: str
     edges: tuple[tuple[str, str], ...]
     class_name: str
+    roster: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -320,8 +321,16 @@ def create_nl_blueprint(prompt: str, *, persist: bool = False) -> CreatedNlBluep
     template = interpret_nl(prompt)
     draft = _spec_for_template(template)
     blueprint_id = unique_blueprint_id(draft.blueprint_id)
+    # #750: creative asks ("3 philosophers, each reinterpreting the previous")
+    # derive a roster spec instead of collapsing onto the canned First Team.
+    derived = derive_spec_from_prompt(prompt)
+    if derived is not None and template == TEMPLATE_TEAM:
+        draft = derived
+        blueprint_id = unique_blueprint_id(draft.blueprint_id)
     spec = _spec_for_template(template, blueprint_id=blueprint_id)
-    code = render_apikind_python(spec)
+    if draft.template == "derived":
+        spec = draft
+    code = render_spec_python(spec)
     item = {
         "id": spec.blueprint_id,
         "name": spec.title,
@@ -368,6 +377,11 @@ def wants_nl_create(user_text: str) -> bool:
         )
     ):
         return False
+    # #750: creative team asks — "3 philosophers, each reinterpreting the
+    # previous", "council of 4 critics", "squad of two poets". A create/build
+    # verb near a buildable noun is an ask; docs questions are not.
+    if _CREATE_TEAM_RE.search(lowered):
+        return True
     return any(
         phrase in lowered
         for phrase in (
@@ -380,6 +394,12 @@ def wants_nl_create(user_text: str) -> bool:
             "first team",
         )
     ) or ("engineer" in lowered and "tester" in lowered)
+
+
+_CREATE_TEAM_RE = re.compile(
+    r"\b(create|build|make|design|give me|set up|add)\b[^\n]{0,60}?\b"
+    r"(blueprint|team|workflow|pipeline|squad|council|panel|agents?)\b",
+)
 
 
 def wants_code_reveal(user_text: str) -> bool:
@@ -403,6 +423,10 @@ def nl_design_is_specified(user_text: str) -> bool:
     text = (user_text or "").strip().lower()
     if not text:
         return False
+    # #750: a parseable count+role ask ("3 philosophers") is specified —
+    # derive the roster rather than interrogating the user further.
+    if derive_spec_from_prompt(text) is not None:
+        return True
     if any(word in text for word in ("skeptic", "circular", "punt-back", "punt back")):
         return True
     if any(
@@ -480,6 +504,334 @@ def nl_create_or_socratic(
             )
         return socratic_team_design_question()
     return None
+
+
+_GENERAL_CLASS_BODY = '''\
+"""Support-created team — generated, user did not write this."""
+
+from typing import Any, ClassVar
+
+from agents import Agent
+
+from swarm.core.kind_bases import ApiKindBase
+
+
+class {class_name}(ApiKindBase):
+    """{title}. Built by Support from the discussion (#750)."""
+
+    metadata: ClassVar[dict[str, Any]] = {{
+        "name": "{blueprint_id}",
+        "title": "{title}",
+        "description": "{description}",
+        "version": "0.1.0",
+        "tags": ["support-nl", "team", "derived"],
+        "rail": True,
+        "workflow": "handoff",
+        "required_mcp_servers": [],
+        "env_vars": [],
+    }}
+
+    DECLARED_EDGES: ClassVar[tuple[tuple[str, str], ...]] = ({edge_pairs},)
+    ROSTER: ClassVar[tuple[tuple[str, str], ...]] = ({roster_pairs},)
+
+    def create_starting_agent(self, mcp_servers):  # noqa: ARG002
+        agents: dict[str, Agent] = {{}}
+        for name, instructions in self.ROSTER:
+            agents[name] = Agent(name=name, instructions=instructions, handoffs=[])
+        for src, dst in self.DECLARED_EDGES:
+            src_agent = agents.get(src)
+            dst_agent = agents.get(dst)
+            if src_agent is not None and dst_agent is not None:
+                src_agent.handoffs.append(dst_agent)
+        starts = [
+            name
+            for name, _ in self.ROSTER
+            if not any(dst == name for _, dst in self.DECLARED_EDGES)
+        ]
+        return agents[starts[0]] if starts else agents[self.ROSTER[0][0]]
+
+    async def run(self, messages, **kwargs):
+        async for chunk in super().run(messages, **kwargs):
+            yield chunk
+'''
+
+
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+_ROLE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "the",
+    "blueprint",
+    "team",
+    "workflow",
+    "pipeline",
+    "member",
+    "agent",
+    "each",
+    "every",
+    "new",
+    "me",
+    "us",
+    "it",
+    "them",
+    "that",
+    "this",
+    "way",
+    "time",
+    "step",
+}
+
+_MAX_ROSTER = 8
+
+_COUNT_ROLE_RE = re.compile(
+    r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+([a-z]+)",
+)
+_OF_ROLE_RE = re.compile(r"\b(?:of|with)\s+([a-z]+)s\b")
+
+
+def _singular(role: str) -> str:
+    if len(role) > 3 and role.endswith("s") and not role.endswith("ss"):
+        return role[:-1]
+    return role
+
+
+def _parse_count_role(lowered: str) -> tuple[int, str] | None:
+    m = _COUNT_ROLE_RE.search(lowered)
+    if m:
+        raw_count, word = m.group(1), m.group(2)
+        count = _NUMBER_WORDS.get(raw_count) or int(raw_count)
+        role = _singular(word)
+        if role not in _ROLE_STOPWORDS and role not in _NUMBER_WORDS:
+            return min(count, _MAX_ROSTER), role
+    m = _OF_ROLE_RE.search(lowered)
+    if m:
+        role = _singular(m.group(1))
+        if role not in _ROLE_STOPWORDS and role not in _NUMBER_WORDS:
+            return 2, role
+    return None
+
+
+def derive_spec_from_prompt(prompt: str) -> NlBlueprintSpec | None:
+    """Heuristic NL → roster+edges spec (#750 deterministic fallback).
+
+    Parses "N <role>s" (digits or words) plus topology cues: "each
+    reinterprets the previous" → reinterpretation chain; "in a loop" →
+    chain closed back to the first member. Returns ``None`` when no count
+    and no role noun can be parsed — the caller then uses the fixed
+    templates or asks the Socratic question. Never invents names beyond
+    "<Role> <n>"; honesty over flourish.
+    """
+    text = (prompt or "").strip()
+    if not text:
+        return None
+    parsed = _parse_count_role(text.lower())
+    if parsed is None:
+        return None
+    count, role = parsed
+    lowered = text.lower()
+    reinterprets = any(
+        cue in lowered
+        for cue in ("reinterpret", "each one re", "build on", "respond to", "previous")
+    )
+    loops = "loop" in lowered or "circular" in lowered
+
+    members: list[tuple[str, str]] = []
+    role_display = role.title()
+    for i in range(1, count + 1):
+        name = f"{role_display} {i}"
+        if i == 1:
+            instructions = (
+                f"You are {name}. Open the inquiry: state your position "
+                "on the user's topic."
+            )
+        elif reinterprets:
+            instructions = (
+                f"You are {name}. Reinterpret the previous {role}'s position "
+                "and add your own."
+            )
+        else:
+            instructions = (
+                f"You are {name}. Continue the previous {role}'s work; "
+                "add your own contribution."
+            )
+        members.append((name, instructions))
+
+    edges_list = [
+        (members[i][0], members[i + 1][0]) for i in range(len(members) - 1)
+    ]
+    if loops and len(members) > 2:
+        edges_list.append((members[-1][0], members[0][0]))
+
+    ident = slugify_blueprint_id(f"{role}s_{count}")
+    title = f"{count} {role_display}s"
+    if reinterprets:
+        title += " — reinterpretation chain"
+    if loops:
+        title += " (loop)"
+    return NlBlueprintSpec(
+        template="derived",
+        blueprint_id=ident,
+        title=title,
+        description=(
+            f"{count} {role}s derived from the discussion by Support "
+            f"(#750). Sequential handoffs; you did not write Python."
+        ),
+        graph_label=" → ".join(name for name, _ in members)
+        + (" → " + members[0][0] if loops and len(members) > 2 else ""),
+        edges=tuple(edges_list),
+        class_name=class_name_for_id(ident),
+        roster=tuple(members),
+    )
+
+
+def _render_roster_pairs(roster: tuple[tuple[str, str], ...]) -> str:
+    return ", ".join(f"({name!r}, {text!r})" for name, text in roster)
+
+
+def render_spec_python(spec: NlBlueprintSpec) -> str:
+    """Codegen for derived/inference specs: ROSTER + DECLARED_EDGES driven.
+
+    One generalized body instead of a new template per topology — agents are
+    built from the roster, handoffs wired from the edges, and the start node
+    is the member with no incoming edge.
+    """
+    if not spec.roster:
+        return render_apikind_python(spec)
+    edge_pairs = ", ".join(f"({src!r}, {dst!r})" for src, dst in spec.edges)
+    return _GENERAL_CLASS_BODY.format(
+        class_name=spec.class_name,
+        blueprint_id=spec.blueprint_id,
+        title=spec.title,
+        description=spec.description,
+        edge_pairs=edge_pairs,
+        roster_pairs=_render_roster_pairs(spec.roster),
+    )
+
+
+def spec_from_roster_payload(
+    payload: dict[str, Any],
+) -> tuple[NlBlueprintSpec, list[str]]:
+    """Validate an inference-tool roster payload into a spec (#750).
+
+    Returns ``(spec, errors)`` — errors non-empty means the payload was
+    rejected (bad edges, empty roster, oversize roster).
+    """
+    errors: list[str] = []
+    title = str(payload.get("title") or "").strip() or "Discussion team"
+    raw_roster = payload.get("roster") or []
+    roster: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    if not isinstance(raw_roster, list):
+        errors.append("roster must be a list")
+        raw_roster = []
+    for entry in raw_roster[:_MAX_ROSTER]:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        instructions = str(entry.get("instructions") or "").strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        roster.append(
+            (name, instructions or f"You are {name}. Do your part of the team's work.")
+        )
+    if len(roster) < 1:
+        errors.append("roster needs at least one named member")
+    names = {name for name, _ in roster}
+    edges_list: list[tuple[str, str]] = []
+    raw_edges = payload.get("edges") or []
+    if isinstance(raw_edges, list):
+        for edge in raw_edges:
+            try:
+                src, dst = str(edge[0]), str(edge[1])
+            except (TypeError, IndexError, KeyError):
+                errors.append("each edge must be [source, target]")
+                continue
+            if src not in names or dst not in names:
+                errors.append(f"edge {src!r} → {dst!r} references a member outside the roster")
+                continue
+            edges_list.append((src, dst))
+    if errors:
+        return (
+            NlBlueprintSpec(
+                template="derived",
+                blueprint_id="invalid",
+                title=title,
+                description="",
+                graph_label="",
+                edges=(),
+                class_name="InvalidBlueprint",
+                roster=(),
+            ),
+            errors,
+        )
+    ident = unique_blueprint_id(slugify_blueprint_id(title))
+    graph_label = " → ".join(name for name, _ in roster)
+    return (
+        NlBlueprintSpec(
+            template="derived",
+            blueprint_id=ident,
+            title=title,
+            description=str(payload.get("description") or "").strip()
+            or "Team designed with Support from the discussion (#750).",
+            graph_label=graph_label,
+            edges=tuple(edges_list),
+            class_name=class_name_for_id(ident),
+            roster=tuple(roster),
+        ),
+        [],
+    )
+
+
+def synthesize_from_roster_payload(payload: dict[str, Any]) -> str:
+    """The ``create_blueprint`` tool handler: inference designs, this executes.
+
+    Validates the model-provided roster/edges, generates the ApiKindBase
+    class, persists the seat (usable immediately — #723 invalidation), and
+    returns the transcript card. Errors come back as text for the model to
+    relay or retry.
+    """
+    spec, errors = spec_from_roster_payload(payload)
+    if errors:
+        return f"Error: could not create that blueprint — {'; '.join(errors)}."
+    code = render_spec_python(spec)
+    item = {
+        "id": spec.blueprint_id,
+        "name": spec.title,
+        "description": spec.description,
+        "category": "api",
+        "tags": [SUPPORT_NL_SOURCE, "team", "derived"],
+        "code": code,
+        "kind": "api",
+        "rail": True,
+        "source": SUPPORT_NL_SOURCE,
+        "requirements": "",
+        "required_mcp_servers": [],
+        "env_vars": [],
+    }
+    stored = persist_custom_item(item)
+    created = CreatedNlBlueprint(
+        spec=spec,
+        code=code,
+        usable=True,
+        chat_href=f"/chat?blueprint={spec.blueprint_id}",
+        persisted=True,
+        item=stored,
+    )
+    return created.user_reply()
 
 
 _PIPELINE_CLASS_BODY = '''\

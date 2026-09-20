@@ -28,6 +28,7 @@ from swarm.core.support_context import (
 from swarm.core.support_nl_blueprint import (
     create_nl_blueprint,
     nl_create_or_socratic,
+    synthesize_from_roster_payload,
     wants_code_reveal,
 )
 
@@ -152,6 +153,39 @@ def _function_tool(fn):
         return fn
 
 
+def build_create_blueprint_tool():
+    """#750: the create_blueprint tool handler, unwrapped for direct testing.
+
+    The coordinator registers ``_create_blueprint_from_json`` (below) as the
+    LLM-facing tool; tests call this raw handler with a parsed payload dict.
+    """
+    return synthesize_from_roster_payload
+
+
+@_function_tool
+def _create_blueprint_from_json(spec_json: str) -> str:
+    """Create a team blueprint from the discussion's design.
+
+    Pass a JSON object: {"title": str, "description": str,
+    "roster": [{"name": str, "instructions": str}],
+    "edges": [["<member name>", "<member name>"]]}.
+    Edges must reference roster names; a sequential chain reads
+    [[A, B], [B, C]]. This validates the design, generates the ApiKindBase
+    class, persists the seat so it is immediately usable in chat, and
+    returns the confirmation card with its /chat link. You never write
+    Python — design the roster and graph from what the user asked for.
+    """
+    import json
+
+    try:
+        payload = json.loads(spec_json)
+    except Exception:
+        return "Error: spec_json must be valid JSON."
+    if not isinstance(payload, dict):
+        return "Error: spec_json must be a JSON object with title/roster/edges."
+    return synthesize_from_roster_payload(payload)
+
+
 @_function_tool
 def get_live_context() -> str:
     """Current agents list and whether inference is configured. No secrets."""
@@ -263,6 +297,12 @@ class SupportBlueprint(BlueprintBase):
                         ),
                     )
                 )
+            # #750: the LLM designs teams from the discussion itself — this
+            # tool executes the design (validate → generate → persist).
+            try:
+                coordinator.tools.append(_create_blueprint_from_json)
+            except Exception as exc:  # pragma: no cover
+                logger.debug("create_blueprint tool wiring skipped: %s", exc)
         except Exception as exc:  # pragma: no cover
             logger.debug("Support as_tool wiring skipped: %s", exc)
         return coordinator
