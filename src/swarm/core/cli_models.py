@@ -251,8 +251,13 @@ async def probe_list_models(
 
     exe = _resolve_executable(argv[0], which=which)
     if exe is None:
+        # #716: name the searched scope — a container deployment scans only
+        # its mounts, and a bare "on PATH" reads as nonsense to a user whose
+        # host install is simply not visible in-container.
         return _result_with_optional_presets(
-            name, f"{name}: CLI not installed (no {argv[0]!r} on PATH)"
+            name,
+            f"{name}: CLI not installed — no {argv[0]!r} on the scanned PATH "
+            "(user bin dirs + SWARM_CLI_PATH_DIRS + PATH)",
         )
 
     resolved = [exe, *argv[1:]]

@@ -158,15 +158,25 @@ _EXTRA_BIN_REL = (
     (".local", "bin"),
     ("bin",),
     (".grok", "bin"),
+    (".opencode", "bin"),
     (".npm-global", "bin"),
     (".local", "share", "pnpm"),
 )
 
 
 def extra_cli_path_dirs() -> list[str]:
-    """User and nvm bin dirs that commonly hold grok/agy/pi/opencode."""
+    """User and nvm bin dirs that commonly hold grok/agy/pi/opencode.
+
+    ``SWARM_CLI_PATH_DIRS`` (``os.pathsep``-joined) extends the scan — the
+    deployment knob for containerised runs whose host bin mounts differ
+    (#716/#717). Configured dirs come first and must exist.
+    """
     home = os.path.expanduser("~")
     dirs: list[str] = []
+    configured = os.environ.get("SWARM_CLI_PATH_DIRS", "")
+    for d in configured.split(os.pathsep):
+        if d.strip() and os.path.isdir(d) and d not in dirs:
+            dirs.append(d)
     for parts in _EXTRA_BIN_REL:
         path = os.path.join(home, *parts)
         if os.path.isdir(path):

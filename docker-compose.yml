@@ -124,6 +124,17 @@ services:
       - "${HOME}/.config/swarm:${HOME}/.config/swarm:ro"
       # Writable state: async /v1/responses task store (Django DB is Postgres).
       - "${HOME}/.local/share/swarm:${HOME}/.local/share/swarm"
+      # #716/#717: host CLI binaries, ro, at identical paths so the catalog's
+      # discovery (extra_cli_path_dirs/which_cli) sees what the host sees —
+      # agy/opencode/grok et al. Missing dirs are created empty (no discovery
+      # impact); SWARM_CLI_PATH_DIRS can point discovery at anything else.
+      - "${HOME}/.local/bin:${HOME}/.local/bin:ro"
+      - "${HOME}/bin:${HOME}/bin:ro"
+      - "${HOME}/.grok/bin:${HOME}/.grok/bin:ro"
+      - "${HOME}/.opencode/bin:${HOME}/.opencode/bin:ro"
+      - "${HOME}/.npm-global/bin:${HOME}/.npm-global/bin:ro"
+      - "${HOME}/.local/share/pnpm:${HOME}/.local/share/pnpm:ro"
+      - "${HOME}/.nvm/versions/node:${HOME}/.nvm/versions/node:ro"
     depends_on:
       postgres:
         condition: service_healthy
