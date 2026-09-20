@@ -192,7 +192,7 @@ test('left-rail Search opens the command palette overlay, not an in-place filter
     'Search',
   )
   await expect(palette.getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'true')
-  for (const tab of ['Messages', 'Bots', 'Groups', 'Files', 'Links', 'Routines', 'Actions']) {
+  for (const tab of ['Messages', 'Agents', 'Teams', 'Files', 'Links', 'Routines', 'Actions']) {
     await expect(palette.getByRole('tab', { name: tab })).toBeVisible()
   }
   await expect(list.getByRole('link', { name: /Codey/ })).toBeVisible()

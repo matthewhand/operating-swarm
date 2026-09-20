@@ -168,7 +168,7 @@ test('Search Bots tab lists agents; Actions stay operator links (REQ-17 / #322)'
   const palette = page.getByRole('dialog', { name: 'Search' })
   await expect(palette).toBeVisible()
 
-  await palette.getByRole('tab', { name: 'Bots' }).click()
+  await palette.getByRole('tab', { name: 'Agents' }).click()
   await expect(palette.getByRole('option', { name: /Support/ })).toBeVisible()
   await expect(palette.getByRole('option', { name: /Codey/ })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Chat message' })).toBeVisible()

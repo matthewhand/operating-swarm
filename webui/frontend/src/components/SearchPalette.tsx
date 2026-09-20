@@ -11,12 +11,20 @@ import {
   Users,
   Workflow,
 } from 'lucide-react'
-import { fetchBlueprints } from '../lib/api'
+import {
+  fetchBlueprints,
+  fetchCliAgents,
+  fetchHerdrAgents,
+  fetchRemotes,
+  fetchTeamRosters,
+} from '../lib/api'
 import { openChromeOverlay, type ChromeOverlay } from '../lib/chromeOverlay'
 import { openSettingsSheet } from './SettingsSheet'
 import { agentMarkIndex, loadHiddenAgentIds, unhideAgentId } from '../lib/hiddenAgents'
 import { railSeatAgents } from '../lib/railSeats'
 import { agentLabel } from '../lib/supportAgent'
+import { remoteHideId, remoteDisplayName } from '../lib/remotesCatalog'
+import { parseTeamRosters, teamHideId } from '../lib/teamRosters'
 import { dispatchToggleTheme } from '../lib/theme'
 import { searchShortcutLabel } from '../lib/keybindingTips'
 import AgentAvatar from './AgentAvatar'
@@ -25,8 +33,8 @@ import { OverlayFocusTrap } from './OverlayFocusTrap'
 export const SEARCH_PALETTE_TABS = [
   'All',
   'Messages',
-  'Bots',
-  'Groups',
+  'Agents',
+  'Teams',
   'Files',
   'Links',
   'Routines',
@@ -53,7 +61,7 @@ export interface HiddenRailRow {
   description?: string
   href?: string
   avatarPath?: string | null
-  tab?: 'Bots' | 'Groups'
+  tab?: 'Agents' | 'Teams'
 }
 
 export interface SearchPaletteOptions {
@@ -112,18 +120,114 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     enabled: open,
     retry: 1,
   })
+  // #677: the palette's universe is the whole rail, not just recipe seats —
+  // the same feeds AgentSidebar reads, so CLI / remote / herdr / team seats
+  // are searchable here too.
   const agents = railSeatAgents(blueprintsQuery.data?.data ?? [])
+  const cliQuery = useQuery({
+    queryKey: ['cli-agents'],
+    queryFn: fetchCliAgents,
+    enabled: open,
+    retry: 1,
+  })
+  const remotesQuery = useQuery({
+    queryKey: ['remotes-list'],
+    queryFn: fetchRemotes,
+    enabled: open,
+    retry: 1,
+  })
+  const herdrQuery = useQuery({
+    queryKey: ['herdr-agents'],
+    queryFn: fetchHerdrAgents,
+    enabled: open,
+    retry: 1,
+  })
+  const rostersQuery = useQuery({
+    queryKey: ['team-rosters'],
+    queryFn: fetchTeamRosters,
+    enabled: open,
+    retry: 1,
+  })
+  const cliAgents = cliQuery.data?.rail ?? []
+  const remoteConnections = remotesQuery.data?.data ?? []
+  const herdrAgents = herdrQuery.data?.data ?? []
+  const teams = parseTeamRosters(rostersQuery.data ?? [])
 
   const rows = useMemo<PaletteRow[]>(() => {
-    const botRows: PaletteRow[] = agents.map((agent) => ({
-      id: `bot-${agent.id}`,
-      tab: 'Bots',
-      name: agentLabel(agent),
-      description: agent.description || `${agentLabel(agent)} agent`,
-      href: `/chat?blueprint=${encodeURIComponent(agent.id)}`,
-      agentId: agent.id,
-      avatarPath: agent.avatar_path,
-    }))
+    const seen = new Set<string>()
+    const botRows: PaletteRow[] = []
+    // Recipe / blueprint seats.
+    for (const agent of agents) {
+      seen.add(agent.id)
+      botRows.push({
+        id: `bot-${agent.id}`,
+        tab: 'Agents',
+        name: agentLabel(agent),
+        description: agent.description || `${agentLabel(agent)} agent`,
+        href: `/chat?blueprint=${encodeURIComponent(agent.id)}`,
+        agentId: agent.id,
+        avatarPath: agent.avatar_path,
+      })
+    }
+    // Named CLI / API seats from /v1/cli-agents/ (rail list).
+    for (const seat of cliAgents) {
+      if (seen.has(seat.id)) continue
+      seen.add(seat.id)
+      botRows.push({
+        id: `bot-${seat.id}`,
+        tab: 'Agents',
+        name: seat.name || seat.id,
+        description: seat.description || `${seat.cli} CLI agent`,
+        href: `/chat?blueprint=${encodeURIComponent(seat.id)}`,
+        agentId: seat.id,
+        avatarPath: null,
+      })
+    }
+    // Configured remotes — each is a chat target of its own.
+    for (const remote of remoteConnections) {
+      const rid = remote.id
+      if (!rid || seen.has(remoteHideId(rid))) continue
+      seen.add(remoteHideId(rid))
+      botRows.push({
+        id: `bot-${remoteHideId(rid)}`,
+        tab: 'Agents',
+        name: remoteDisplayName(remote),
+        description: remote.kind ? `${remote.kind} remote` : 'Remote agent host',
+        href: `/chat?remote=${encodeURIComponent(rid)}`,
+        agentId: remoteHideId(rid),
+        avatarPath: null,
+      })
+    }
+    // Herdr seats.
+    for (const seat of herdrAgents) {
+      const hid = `herdr:${seat.name}`
+      if (!seat.name || seen.has(hid)) continue
+      seen.add(hid)
+      botRows.push({
+        id: `bot-${hid}`,
+        tab: 'Agents',
+        name: seat.name,
+        description: seat.remote ? `Herdr · ${seat.remote}` : 'Herdr · localhost',
+        href: `/chat?remote=herdr&session=${encodeURIComponent(seat.name)}`,
+        agentId: hid,
+        avatarPath: null,
+      })
+    }
+    // Teams — their own section so compositions are reachable from search.
+    const teamRows: PaletteRow[] = []
+    for (const team of teams) {
+      teamRows.push({
+        id: `team-row-${team.id}`,
+        tab: 'Teams',
+        name: team.name || team.id,
+        description:
+          team.description ||
+          `Team · ${team.members?.length ?? 0} member${(team.members?.length ?? 0) === 1 ? '' : 's'}`,
+        href: `/chat?team=${encodeURIComponent(team.id)}`,
+        agentId: teamHideId(team.id),
+        avatarPath: null,
+      })
+    }
     const actionRows: PaletteRow[] = [
       {
         id: 'action-theme',
@@ -163,7 +267,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         description: 'Unhide agents without leaving chat',
         action: () => {
           setHiddenOnly(true)
-          setTab('Bots')
+          setTab('Agents')
         },
       },
       {
@@ -216,8 +320,8 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         action: () => openSettingsSheet({ section: 'speech' }),
       },
     ]
-    return [...botRows, ...actionRows]
-  }, [agents])
+    return [...botRows, ...teamRows, ...actionRows]
+  }, [agents, cliAgents, remoteConnections, herdrAgents, teams])
 
   /**
    * #549: rail-supplied hidden rows. Merged in only for the hidden view — normal
@@ -228,7 +332,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     const rows: HiddenRailRow[] = options?.hiddenRows ?? []
     return rows.map((row) => ({
       id: `hidden-rail-${row.id}`,
-      tab: row.tab ?? 'Bots',
+      tab: row.tab ?? 'Agents',
       name: row.name,
       description: row.description || 'Hidden from the rail',
       href: row.href,
@@ -246,7 +350,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     const seen = new Set<string>()
     return universe.filter((row) => {
       if (hiddenOnly) {
-        if (row.tab !== 'Bots') return false
+        if (row.tab !== 'Agents') return false
         if (!row.agentId || !hiddenIds.includes(row.agentId)) return false
         if (seen.has(row.agentId)) return false
         seen.add(row.agentId)
@@ -273,7 +377,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     setHiddenIds(ids)
     if (options?.filterHidden) {
       setHiddenOnly(true)
-      setTab('Bots')
+      setTab('Agents')
     } else {
       setHiddenOnly(false)
       setTab(options?.tab || 'All')
@@ -287,7 +391,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
       const detail = (e as CustomEvent<SearchPaletteOptions>).detail
       if (detail?.filterHidden) {
         setHiddenOnly(true)
-        setTab('Bots')
+        setTab('Agents')
       } else if (detail?.tab) {
         setTab(detail.tab)
       }
@@ -522,7 +626,7 @@ function RowIcon({
   avatarPath?: string | null
   name?: string
 }) {
-  if (tab === 'Bots') {
+  if (tab === 'Agents') {
     const botId = agentId || id.replace(/^bot-/, '')
     const mark = agentMarkIndex(botId)
     return (
@@ -543,7 +647,7 @@ function RowIcon({
   const Icon =
     tab === 'Messages'
       ? MessageSquare
-      : tab === 'Groups'
+      : tab === 'Teams'
         ? Users
         : tab === 'Files'
           ? FileText

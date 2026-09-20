@@ -9,7 +9,7 @@ import {
 
 const SCOPES: { id: SearchScope; label: string }[] = [
   { id: 'all', label: 'All' },
-  { id: 'bots', label: 'Bots' },
+  { id: 'bots', label: 'Agents' },
   { id: 'messages', label: 'Messages' },
   { id: 'delegations', label: 'Delegations' },
 ]
@@ -121,7 +121,7 @@ export function SearchPopup({
             type="search"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search bots, messages…"
+            placeholder="Search agents, messages…"
             className="input input-sm input-ghost flex-1 px-0 focus:outline-none"
             aria-label="Search query"
           />
@@ -182,7 +182,7 @@ export function SearchPopup({
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium truncate">{hit.title}</span>
                   <span className="block text-[11px] text-base-content/50 truncate">
-                    {hit.kind === 'bot' ? 'Bot' : hit.kind === 'message' ? 'Message' : 'Delegation'}
+                    {hit.kind === 'bot' ? 'Agent' : hit.kind === 'message' ? 'Message' : 'Delegation'}
                     {' · '}
                     {hit.subtitle}
                   </span>

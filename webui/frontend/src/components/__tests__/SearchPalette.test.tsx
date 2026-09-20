@@ -38,13 +38,47 @@ function renderPalette(open = true, onClose = vi.fn()) {
 
 describe('SearchPalette', () => {
   beforeEach(() => {
+    // #677: URL-aware stub — the palette reads the same feeds the rail does
+    // (blueprints, cli-agents rail, remotes, herdr, team rosters), and the
+    // coalesced remotes fetch hits `/v1/remotes/` (plural).
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ object: 'list', data: blueprints }),
-      } as Response),
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/remotes/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/herdr')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/team-rosters/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ clis: [], rail: [] }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: blueprints }),
+        } as Response
+      }),
     )
   })
 
@@ -94,11 +128,11 @@ describe('SearchPalette', () => {
     expect(screen.getByRole('tab', { name: 'Messages' })).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('Bots tab lists Support + rail seats and Enter chooses a /chat href (REQ-17 / #322)', async () => {
+  it('Agents tab lists Support + rail seats and Enter chooses a /chat href (REQ-17 / #322)', async () => {
     const { onClose } = renderPalette()
     expect(await screen.findByRole('option', { name: /Codey/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: 'Bots' }))
-    expect(screen.getByRole('tab', { name: 'Bots' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: 'Agents' }))
+    expect(screen.getByRole('tab', { name: 'Agents' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('option', { name: /Support/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /Codey/ })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Toggle theme/ })).not.toBeInTheDocument()
@@ -200,7 +234,7 @@ describe('SearchPalette', () => {
       } as Response),
     )
     renderPalette()
-    fireEvent.click(screen.getByRole('tab', { name: 'Bots' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Agents' }))
     expect(await screen.findByRole('option', { name: /Support/ })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Poets/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Chuck/ })).not.toBeInTheDocument()
@@ -303,13 +337,33 @@ function renderRoutedPalette() {
 
 describe('SearchPalette choose + actions (REQ-5c #322)', () => {
   beforeEach(() => {
+    // #677: URL-aware stub — strict empty payloads for the rail feeds the
+    // palette now reads, so only /v1/blueprints/ returns the fixture (no
+    // duplicate rows from a leaky fallback).
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ object: 'list', data: blueprints }),
-      } as Response),
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/remotes/') || url.includes('/herdr') || url.includes('/v1/team-rosters/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ clis: [], rail: [] }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: blueprints }),
+        } as Response
+      }),
     )
   })
 
@@ -469,5 +523,90 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
 
     // No generic Bot lucide icon inside the bot avatar slot
     expect(avatarSlot?.querySelector('.lucide-bot')).toBeNull()
+  })
+})
+
+// #677 — the palette's universe is the whole rail: relabel Bots → Agents,
+// list every seat kind (recipes, CLI rail, remotes, herdr), and give teams
+// their own tab so compositions are reachable from search.
+describe('#677 search covers every seat kind', () => {
+  const cliSeat = {
+    id: 'pixi-helper',
+    object: 'cli.agent' as const,
+    name: 'Pixi Helper',
+    cli: 'qwen',
+    kind: 'cli' as const,
+    description: 'Named qwen CLI seat',
+    installed: true,
+  }
+  const remoteSeat = { id: 'trueforge', kind: 'trueforge', title: 'TrueForge GTX' }
+  const herdrSeat = {
+    id: 7,
+    object: 'herdr.agent' as const,
+    kind: 'herdr' as const,
+    name: 'pane-one',
+    remote: 'ubuntu-gtx',
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
+  }
+  const teamRoster = {
+    object: 'team_roster' as const,
+    id: 'crew',
+    name: 'Crew',
+    description: 'Demo squad',
+    members: [{ id: 'codey', name: 'Codey', kind: 'agent', role: 'coder', source: 'catalog' }],
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/remotes/')) {
+          return { ok: true, status: 200, json: async () => ({ object: 'list', data: [remoteSeat] }) } as Response
+        }
+        if (url.includes('/herdr')) {
+          return { ok: true, status: 200, json: async () => ({ object: 'list', data: [herdrSeat] }) } as Response
+        }
+        if (url.includes('/v1/team-rosters/')) {
+          return { ok: true, status: 200, json: async () => ({ object: 'list', data: [teamRoster] }) } as Response
+        }
+        if (url.includes('/v1/cli-agents/')) {
+          return { ok: true, status: 200, json: async () => ({ clis: ['qwen'], rail: [cliSeat] }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ object: 'list', data: blueprints }) } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('renames the Bots tab to Agents', async () => {
+    renderPalette()
+    expect(screen.queryByRole('tab', { name: 'Bots' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Agents' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Teams' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Groups' })).not.toBeInTheDocument()
+  })
+
+  it('Agents tab lists recipe, CLI, remote, and herdr seats', async () => {
+    renderPalette()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Agents' }))
+    expect(await screen.findByRole('option', { name: /Codey/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Pixi Helper/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /TrueForge GTX/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /pane-one/ })).toBeInTheDocument()
+  })
+
+  it('Teams tab lists team compositions and navigates to the team chat', async () => {
+    const { onClose } = renderRoutedPalette()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Teams' }))
+    const crew = await screen.findByRole('option', { name: /Crew/ })
+    fireEvent.click(crew)
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.getByTestId('palette-loc')).toHaveTextContent('/chat?team=crew')
   })
 })

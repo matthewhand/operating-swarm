@@ -1150,7 +1150,7 @@ export default function AgentSidebar({
         name: team.name || team.id,
         description: team.description || 'Team hidden from the rail',
         href: `/chat?team=${encodeURIComponent(team.id)}`,
-        tab: 'Bots',
+        tab: 'Agents',
       })
     }
     for (const remote of hiddenRemotes) {
@@ -1159,7 +1159,7 @@ export default function AgentSidebar({
         name: remote.title,
         description: remoteDisplayName(remote) || 'Remote hidden from the rail',
         href: `/chat?remote=${encodeURIComponent(remote.id)}`,
-        tab: 'Bots',
+        tab: 'Agents',
       })
     }
     for (const agent of hiddenAgents) {
@@ -1169,7 +1169,7 @@ export default function AgentSidebar({
         description: agent.description || 'Agent hidden from the rail',
         href: agentChatHref(agent.id),
         avatarPath: agent.avatar_path ?? null,
-        tab: 'Bots',
+        tab: 'Agents',
       })
     }
     return rows

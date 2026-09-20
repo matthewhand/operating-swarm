@@ -157,7 +157,7 @@ function App() {
       setSearchOpen(true)
     }
     const onOpenHidden = () => {
-      setSearchOptions({ filterHidden: true, tab: 'Bots' })
+      setSearchOptions({ filterHidden: true, tab: 'Agents' })
       setSearchOpen(true)
     }
     const onOpenSettings = (event: Event) => {
