@@ -52,9 +52,7 @@ describe('#681 ComposerPickerDialog', () => {
   it('stage 2 shows the breadcrumb and the Use-default row first', () => {
     renderDialog()
     fireEvent.click(screen.getByText('API gateway'))
-    expect(screen.getByTestId('composer-picker-breadcrumb').textContent).toContain(
-      'Providers › API gateway',
-    )
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('API gateway')
     const rows = screen
       .getAllByTestId('composer-picker-row')
       .map((el) => el.textContent)
@@ -92,7 +90,8 @@ describe('#681 ComposerPickerDialog', () => {
     // The click focused the row button; Escape must still reach the dialog.
     fireEvent.keyDown(screen.getByTestId('composer-picker'), { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()
-    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('Providers')
+    // #837: stage 1 has no breadcrumb header — the filter input leads.
+    expect(screen.queryByTestId('composer-picker-breadcrumb')).toBeNull()
     fireEvent.keyDown(screen.getByTestId('composer-picker'), { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
   })

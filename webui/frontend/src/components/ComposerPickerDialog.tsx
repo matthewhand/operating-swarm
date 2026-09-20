@@ -198,29 +198,27 @@ export default function ComposerPickerDialog({
       className="os-composer-picker absolute bottom-full left-0 z-50 mb-2 min-w-72 max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-xl"
       data-testid="composer-picker"
     >
-      <div className="flex items-center gap-1 border-b border-base-300 px-3 py-2">
-        {state.stage === 'options' ? (
-          <>
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs gap-0.5 px-1"
-              data-testid="composer-picker-breadcrumb-back"
-              aria-label="Back to providers"
-              onClick={() => setState(backOneStage(state) ?? initialComposerPickerState())}
-            >
-              Providers
-              <ChevronRight className="h-3 w-3" aria-hidden="true" />
-            </button>
-            <span data-testid="composer-picker-breadcrumb" className="text-sm opacity-80">
-              Providers › {state.provider?.label}
-            </span>
-          </>
-        ) : (
-          <span data-testid="composer-picker-breadcrumb" className="text-sm font-medium">
+      {/* #837: stage 1 has no header — "Providers" is redundant with the
+          filter placeholder, the rows, and the footer link. Stage 2 keeps a
+          single breadcrumb row: back to providers › <provider name>, stated
+          once. */}
+      {state.stage === 'options' && (
+        <div className="flex items-center gap-1 border-b border-base-300 px-3 py-2">
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs gap-0.5 px-1"
+            data-testid="composer-picker-breadcrumb-back"
+            aria-label="Back to providers"
+            onClick={() => setState(backOneStage(state) ?? initialComposerPickerState())}
+          >
+            <ChevronRight className="h-3 w-3 rotate-180" aria-hidden="true" />
             Providers
+          </button>
+          <span data-testid="composer-picker-breadcrumb" className="text-sm opacity-80">
+            {state.provider?.label}
           </span>
-        )}
-      </div>
+        </div>
+      )}
       <div className="px-3 py-2">
         <input
           ref={inputRef}

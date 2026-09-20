@@ -2076,9 +2076,7 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
       el.textContent?.includes('OpenMousBot'),
     )
     fireEvent.click(boundRow!)
-    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent(
-      'Providers › OpenMousBot',
-    )
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('OpenMousBot')
     const rows = screen.getAllByTestId('composer-picker-row')
     // No agents are listed for this remote in the fixture, so the default row
     // is the provider-fallback form (no declared default id to name).
@@ -4618,7 +4616,8 @@ describe('ChatPage API model palette (#281)', () => {
     expect(pill).toHaveTextContent('Orchestration')
     fireEvent.click(pill)
     const dialog = await screen.findByTestId('composer-picker')
-    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('Providers')
+    // #837: stage 1 drops the redundant 'Providers' header entirely.
+    expect(screen.queryByTestId('composer-picker-breadcrumb')).toBeNull()
     expect(screen.getByTestId('composer-picker-input')).toBeInTheDocument()
     expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
     expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
@@ -4632,9 +4631,7 @@ describe('ChatPage API model palette (#281)', () => {
     })
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     fireEvent.click(await screen.findByText('API gateway'))
-    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent(
-      'Providers › API gateway',
-    )
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('API gateway')
     // Use-default row first, then the real profiles from the payload.
     const rows = screen.getAllByTestId('composer-picker-row')
     expect(rows[0]).toHaveTextContent('Use default for API gateway')
