@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useSearchParams } from 'react-router-dom'
+import { waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '../../components/DaisyUI'
 import ChatPage from '../ChatPage'
@@ -249,5 +250,102 @@ describe('#782 — notice rows are bubble-theme aware', () => {
     await pushStatus('speech')
     expect(screen.getByTestId('chat-status')).toBeTruthy()
     expect(screen.queryByTestId('irc-notice-line')).toBeNull()
+  })
+})
+
+describe('#804 — cross-kind picks land on a real seat', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+    Element.prototype.scrollIntoView = vi.fn()
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/blueprints')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [
+                { id: 'support', name: 'Support', description: 'Support agent' },
+                { id: 'codey', name: 'Codey', description: 'Codey agent', kind: 'api' },
+              ],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/cli-agents')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              clis: ['codex'],
+              discovered: ['codex'],
+              installed: ['codex'],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/llm-profiles')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              profiles: [{ id: 'claude-work', name: 'Claude Work', model: 'claude-work' }],
+              default_llm_profile: 'orchestration',
+              default_llm_ready: true,
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  function SearchProbe() {
+    const [params] = useSearchParams()
+    return <div data-testid="search-probe">{params.toString()}</div>
+  }
+
+  function renderWithProbe(initialEntry: string) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <SearchProbe />
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  it('an API pick from a CLI seat lands on ?blueprint= with the profile applied', async () => {
+    renderWithProbe('/chat?blueprint=cli_agent&cli=codex')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    // Open the routing pill and pick the API gateway provider.
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('API gateway'))
+    // Stage 2 lists the profile; pick it.
+    fireEvent.click(await screen.findByText('Claude Work'))
+    await waitFor(() => {
+      expect(screen.getByTestId('search-probe').textContent).toContain('blueprint=api_agent')
+    })
+    const probe = screen.getByTestId('search-probe').textContent ?? ''
+    expect(probe).toContain('model=claude-work')
+    expect(probe).not.toContain('cli=')
+    expect(probe).not.toContain('agent=')
   })
 })

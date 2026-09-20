@@ -441,6 +441,7 @@ import {
 import { productModesWhenSettled } from '../lib/productModes'
 import { recordBackendUse } from '../lib/backendAudit'
 import { isHiddenRoutingLabel, type RoutingSeatKind } from '../lib/routingPath'
+import { seatParamsForPick, type SeatPickKind } from '../lib/seatRouting'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
 const SHOW_MESSAGE_ACTIONS = isExperimentalEnabled('chat_message_actions')
@@ -1160,16 +1161,24 @@ const ChatPage = () => {
   }, [blueprints, cliAgents, remotes, teams])
   // #502 doctrine: choosing an out-of-scope agent navigates to it — it never
   // rewrites the current seat's provider/model binding.
+  // #804: the destination kind decides which seat param gets written —
+  // ?blueprint= for api, ?cli= for cli (the param the CLI resolution chain
+  // actually consumes), ?remote=/ ?team= as before — and every other kind's
+  // marker plus per-seat state (?session=, ?model=) is dropped so nothing
+  // bleeds across. The old code wrote a dead ?agent= that nothing read.
   const navigateToPaletteAgent = useCallback(
-    (targetId: string, kind?: RoutingSeatKind | 'team') => {
+    (
+      targetId: string,
+      kind?: RoutingSeatKind | 'team',
+      detail?: { apiModel?: string },
+    ) => {
+      const pickKind: SeatPickKind =
+        kind === 'cli' ? 'cli' : kind === 'remote' ? 'remote' : kind === 'team' ? 'team' : 'api'
+      const patch = seatParamsForPick(pickKind, targetId, { apiModel: detail?.apiModel })
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
-        next.delete('team')
-        next.delete('remote')
-        next.delete('session')
-        if (kind === 'team') next.set('team', targetId)
-        else if (kind === 'remote') next.set('remote', targetId)
-        else next.set('agent', targetId)
+        for (const key of patch.delete) next.delete(key)
+        for (const [key, value] of Object.entries(patch.set)) next.set(key, value)
         return next
       })
     },

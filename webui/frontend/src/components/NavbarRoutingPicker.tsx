@@ -76,7 +76,13 @@ export interface NavbarRoutingPickerProps {
   /** #504: every configured option across kinds — what "show all" reveals. */
   allAgents?: RoutingAgentOption[]
   /** #504: cross-kind navigation (agent ≠ navigation doctrine, #502). */
-  onNavigateAgent?: (agentId: string, kind?: RoutingSeatKind | 'team') => void
+  /** #804: `detail.apiModel` carries a gateway-profile pick so the api_agent
+   * landing can apply it as the profile (model dimension). */
+  onNavigateAgent?: (
+    agentId: string,
+    kind?: RoutingSeatKind | 'team',
+    detail?: { apiModel?: string },
+  ) => void
   /** REQ-870: the CLI model probe is in flight (palette Loading state). */
   loading?: boolean
   /**
@@ -236,7 +242,10 @@ export function NavbarRoutingPicker({
         return
       }
       // #504 + #502: picking an option from another kind navigates to that
-      // agent — it never rewrites the current seat's binding.
+      // agent — it never rewrites the current seat's binding. #804: the
+      // destination kind rides along so ChatPage can set the seat param that
+      // kind actually reads (?cli= for cli, ?blueprint= for api, …) instead
+      // of writing a dead ?agent=.
       if (kind && kind !== seatKind && onNavigateAgent) {
         onNavigateAgent(agentId, kind)
         return
@@ -355,10 +364,22 @@ export function NavbarRoutingPicker({
         return
       }
       if (provider.kind !== seatKind) {
-        // The API gateway is not a navigable seat — a cross-kind pick of it
-        // from a non-API seat has no destination, so it stays inert.
-        if (provider.kind === 'api' || !onNavigateAgent) return
-        onNavigateAgent(option?.id ?? provider.defaultOptionId ?? bare, provider.kind)
+        // #804: cross-kind picks are never inert. The destination kind rides
+        // in the callback so ChatPage can land the pick on the seat param
+        // that kind actually reads — an API pick (previously dropped here)
+        // resolves to ?blueprint= (the api_agent gateway for a default pick,
+        // or a named api blueprint); a CLI pick resolves to ?cli=.
+        if (!onNavigateAgent) return
+        const dest = option?.id ?? provider.defaultOptionId ?? bare
+        const destKind = provider.kind === 'team' ? 'team' : provider.kind
+        // #804: stage-2 options under API are LLM PROFILES, not blueprint ids
+        // — land on the api_agent gateway (empty id) with the profile applied
+        // as its model (?model= is what the gateway's routing consumes).
+        if (provider.kind === 'api' && option) {
+          onNavigateAgent('', 'api', { apiModel: option.id })
+        } else {
+          onNavigateAgent(dest, destKind)
+        }
         return
       }
       if (option) {

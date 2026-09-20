@@ -197,3 +197,73 @@ describe('#711 CLI resumable sessions in the two-stage picker', () => {
     expect(() => fireEvent.click(screen.getByText('codex main session'))).not.toThrow()
   })
 })
+
+describe('#804 — cross-kind picks are never inert', () => {
+  it('picking API gateway from a CLI seat navigates to the api seat', async () => {
+    const navigate = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="cli"
+        aria-label="CLI"
+        agents={[{ id: 'codex', label: 'codex', kind: 'cli' as const }]}
+        selectedAgent="codex"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        onNavigateAgent={navigate}
+        twoStage={{
+          providers: [
+            { id: 'api', label: 'API gateway', kind: 'api', description: 'LLM profiles' },
+          ],
+          getProviderOptions: (provider) =>
+            provider.kind === 'api'
+              ? [
+                  { id: 'claude-work', label: 'Claude Work' },
+                  { id: 'orchestration', label: 'orchestration' },
+                ]
+              : [],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('API gateway'))
+    // Stage 2: pick a named profile — the pick must navigate, not drop.
+    fireEvent.click(screen.getByText('Claude Work'))
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledTimes(1)
+    })
+    // Stage-2 options under API are profiles: land on the gateway (empty id)
+    // with the profile applied as its model.
+    expect(navigate).toHaveBeenCalledWith('', 'api', { apiModel: 'claude-work' })
+  })
+
+  it('accepting the API default (no profiles) still lands on the gateway seat', async () => {
+    const navigate = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="cli"
+        aria-label="CLI"
+        agents={[{ id: 'codex', label: 'codex', kind: 'cli' as const }]}
+        selectedAgent="codex"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        onNavigateAgent={navigate}
+        twoStage={{
+          providers: [
+            { id: 'api', label: 'API gateway', kind: 'api', description: 'LLM profiles' },
+          ],
+          getProviderOptions: () => [],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('API gateway'))
+    // Accept the always-on "Use default" row → navigate to the gateway.
+    fireEvent.click(screen.getAllByTestId('composer-picker-row')[0])
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledTimes(1)
+    })
+    expect(navigate).toHaveBeenCalledWith('api', 'api')
+  })
+})
