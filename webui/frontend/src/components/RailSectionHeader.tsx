@@ -4,7 +4,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import { MessageSquare, MessageSquareOff } from 'lucide-react'
+import { MessageSquareOff } from 'lucide-react'
 import { DisclosureChevron } from './DisclosureChevron'
 import {
   EMPTY_SECTION_HINT,
@@ -128,33 +128,21 @@ export default function RailSectionHeader({
               {displayName}
             </span>
             <span className="os-rail-section-tail" data-testid="rail-section-tail">
-              {custom ? (
+              {custom && internalOnly ? (
                 <button
                   type="button"
                   className="os-rail-section-lock"
                   data-testid="rail-section-awareness-toggle"
-                  aria-pressed={Boolean(internalOnly)}
-                  aria-label={
-                    internalOnly
-                      ? 'Inter-agent awareness off — members isolated'
-                      : 'Inter-agent awareness on'
-                  }
-                  title={
-                    internalOnly
-                      ? 'Awareness off — members operate in isolation, unaware of section peers'
-                      : 'Awareness on — section peers share context and can route to one another'
-                  }
+                  aria-pressed={true}
+                  aria-label="Inter-agent awareness off — members isolated"
+                  title="Awareness off — members operate in isolation, unaware of section peers"
                   onClick={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
                     onToggleTalkLock?.()
                   }}
                 >
-                  {internalOnly ? (
-                    <MessageSquareOff className="h-3.5 w-3.5" aria-hidden="true" />
-                  ) : (
-                    <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-                  )}
+                  <MessageSquareOff className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               ) : null}
               <span

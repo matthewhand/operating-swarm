@@ -374,30 +374,55 @@ describe('REQ-209 sidepane agent sections', () => {
     const unassigned = sectionById(UNASSIGNED_SECTION_ID)!
     expect(within(unassigned).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
     const stuff = sectionById('sec_stuff')!
-    const lock = within(stuff).getByTestId('rail-section-awareness-toggle')
-    expect(lock).toHaveAttribute('aria-pressed', 'false')
-    expect(lock).toHaveAttribute('aria-label', 'Inter-agent awareness on')
-    fireEvent.click(lock)
+    // #968: when awareness is on (default), speech bubble icon is omitted to avoid header clutter
+    expect(within(stuff).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
+
+    // Right-click header to isolate members
+    fireEvent.contextMenu(within(stuff).getByTestId('rail-section-header'))
+    const menu1 = await screen.findByRole('menu', { name: 'Actions for stuff' })
+    fireEvent.click(within(menu1).getByRole('menuitem', { name: 'Isolate members (no peer awareness)' }))
+
     await waitFor(() => {
       expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
     })
     expect(
       JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}').sections[0].internalOnly,
     ).toBe(true)
-    first.unmount()
-    renderRail()
-    await loadedList()
-    expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
-    expect(within(sectionById('sec_stuff')!).getByTestId('rail-section-awareness-toggle')).toHaveAttribute(
-      'aria-label',
-      'Inter-agent awareness off — members isolated',
-    )
-    fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
-    const menu = await screen.findByRole('menu', { name: 'Actions for stuff' })
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Enable inter-agent awareness' }))
+
+    // Once isolated (internalOnly: true), the icon appears in the header
+    const lock = within(sectionById('sec_stuff')!).getByTestId('rail-section-awareness-toggle')
+    expect(lock).toHaveAttribute('aria-pressed', 'true')
+    expect(lock).toHaveAttribute('aria-label', 'Inter-agent awareness off — members isolated')
+
+    // Clicking the visible toggle restores awareness and hides the icon
+    fireEvent.click(lock)
     await waitFor(() => {
       expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'false')
     })
+    expect(within(sectionById('sec_stuff')!).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
+
+    // Right-click context menu toggle lifecycle after remount
+    first.unmount()
+    renderRail()
+    await loadedList()
+
+    // Isolate via context menu
+    fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
+    const menu2 = await screen.findByRole('menu', { name: 'Actions for stuff' })
+    fireEvent.click(within(menu2).getByRole('menuitem', { name: 'Isolate members (no peer awareness)' }))
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
+    })
+    expect(within(sectionById('sec_stuff')!).getByTestId('rail-section-awareness-toggle')).toBeInTheDocument()
+
+    // Enable awareness via context menu
+    fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
+    const menu3 = await screen.findByRole('menu', { name: 'Actions for stuff' })
+    fireEvent.click(within(menu3).getByRole('menuitem', { name: 'Enable inter-agent awareness' }))
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'false')
+    })
+    expect(within(sectionById('sec_stuff')!).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
   })
 })
 
