@@ -52,14 +52,21 @@ export interface ComposerTeamSource {
   defaultMemberId?: string
 }
 
+export interface ComposerBlueprintSource {
+  id: string
+  label: string
+  description?: string
+}
+
 export interface ComposerSources {
   api?: ComposerApiSource
   clis?: readonly ComposerCliSource[]
   remotes?: readonly ComposerRemoteSource[]
   teams?: readonly ComposerTeamSource[]
+  blueprints?: readonly ComposerBlueprintSource[]
 }
 
-/** Stage-1 rows, in a stable kind order: api, cli, remote, team. */
+/** Stage-1 rows, in a stable kind order: api, cli, remote, blueprint. */
 export function buildComposerProviders(sources: ComposerSources): ComposerProviderOption[] {
   const rows: ComposerProviderOption[] = []
   if (sources.api) {
@@ -97,13 +104,25 @@ export function buildComposerProviders(sources: ComposerSources): ComposerProvid
       ...(remote.optionsPending ? { optionsPending: true } : {}),
     })
   }
-  for (const team of sources.teams ?? []) {
+  // #832: group custom blueprints and teams under a single 'Custom Blueprint' provider
+  const customBlueprints = sources.blueprints ?? []
+  const customTeams = sources.teams ?? []
+  const blueprintCount = customBlueprints.length
+  const teamCount = customTeams.length
+  if (blueprintCount > 0 || teamCount > 0) {
+    const descParts: string[] = []
+    if (blueprintCount > 0) {
+      descParts.push(`${blueprintCount} blueprint${blueprintCount === 1 ? '' : 's'}`)
+    }
+    if (teamCount > 0) {
+      descParts.push(`${teamCount} team${teamCount === 1 ? '' : 's'}`)
+    }
     rows.push({
-      id: `team:${team.id}`,
-      label: team.label,
-      kind: 'team',
-      defaultOptionId: team.defaultMemberId,
-      description: team.members?.length ? `${team.members.length} member(s)` : undefined,
+      id: 'custom_blueprint',
+      label: 'Custom Blueprint',
+      kind: 'blueprint',
+      defaultOptionId: customBlueprints[0]?.id ?? customTeams[0]?.id,
+      description: descParts.join(', '),
     })
   }
   return rows
@@ -132,8 +151,29 @@ export function composerOptionsForProvider(
     const remote = (sources.remotes ?? []).find((r) => r.id === id)
     return (remote?.agents ?? []).map((a) => ({ id: a.id, label: a.label }))
   }
+  if (provider.kind === 'blueprint' || provider.id === 'custom_blueprint') {
+    const options: ModelSearchOption[] = []
+    for (const b of sources.blueprints ?? []) {
+      options.push({
+        id: b.id,
+        label: b.label,
+        description: b.description,
+        tag: 'blueprint',
+        kind: 'blueprint',
+      })
+    }
+    for (const t of sources.teams ?? []) {
+      options.push({
+        id: t.id,
+        label: t.label,
+        tag: 'team',
+        kind: 'team',
+      })
+    }
+    return options
+  }
   if (provider.kind === 'team') {
-    const id = provider.id.slice('team:'.length)
+    const id = provider.id.replace(/^team:/, '')
     const team = (sources.teams ?? []).find((t) => t.id === id)
     return (team?.members ?? []).map((m) => ({ id: m.id, label: m.label }))
   }

@@ -345,3 +345,70 @@ describe('#804 — cross-kind picks are never inert', () => {
     expect(navigate).toHaveBeenCalledWith('api', 'api')
   })
 })
+
+describe('#832 Custom Blueprint / Team routing in the two-stage picker', () => {
+  it('picking a blueprint option navigates to api seat with blueprint id', async () => {
+    const navigate = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="cli"
+        aria-label="CLI"
+        agents={[{ id: 'codex', label: 'codex', kind: 'cli' as const }]}
+        selectedAgent="codex"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        onNavigateAgent={navigate}
+        twoStage={{
+          providers: [
+            { id: 'custom_blueprint', label: 'Custom Blueprint', kind: 'blueprint' },
+          ],
+          getProviderOptions: () => [
+            { id: 'bp_triage', label: 'Triage Bot', tag: 'blueprint' },
+            { id: 'team:dev_swarm', label: 'Dev Swarm', tag: 'team' },
+          ],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    const dialog = await screen.findByTestId('composer-picker')
+    fireEvent.click(within(dialog).getByText('Custom Blueprint'))
+    fireEvent.click(await within(dialog).findByText('Triage Bot'))
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith('bp_triage', 'api')
+    })
+  })
+
+  it('picking a team option navigates to team seat with team id', async () => {
+    const navigate = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="cli"
+        aria-label="CLI"
+        agents={[{ id: 'codex', label: 'codex', kind: 'cli' as const }]}
+        selectedAgent="codex"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        onNavigateAgent={navigate}
+        twoStage={{
+          providers: [
+            { id: 'custom_blueprint', label: 'Custom Blueprint', kind: 'blueprint' },
+          ],
+          getProviderOptions: () => [
+            { id: 'bp_triage', label: 'Triage Bot', tag: 'blueprint' },
+            { id: 'team:dev_swarm', label: 'Dev Swarm', tag: 'team' },
+          ],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    const dialog = await screen.findByTestId('composer-picker')
+    fireEvent.click(within(dialog).getByText('Custom Blueprint'))
+    fireEvent.click(await within(dialog).findByText('Dev Swarm'))
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith('dev_swarm', 'team')
+    })
+  })
+})
+

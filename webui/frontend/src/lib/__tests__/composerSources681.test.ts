@@ -62,9 +62,9 @@ describe('#681 provider list from live sources', () => {
       'cli:codex',
       'cli:grok',
       'remote:openmousbot',
-      'team:demo',
+      'custom_blueprint',
     ])
-    expect(rows.map((r) => r.kind)).toEqual(['api', 'cli', 'cli', 'remote', 'team'])
+    expect(rows.map((r) => r.kind)).toEqual(['api', 'cli', 'cli', 'remote', 'blueprint'])
   })
 
   it('empty payloads yield no rows — no stubs', () => {
@@ -80,7 +80,7 @@ describe('#681 provider list from live sources', () => {
     expect(byId.get('cli:codex')?.defaultOptionId).toBe('codex')
     expect(byId.get('cli:grok')?.defaultOptionId).toBe('grok')
     expect(byId.get('remote:openmousbot')?.defaultOptionId).toBe('omb:planner')
-    expect(byId.get('team:demo')?.defaultOptionId).toBe('team:demo:worker1')
+    expect(byId.get('custom_blueprint')?.defaultOptionId).toBe('demo')
   })
 })
 
@@ -113,13 +113,35 @@ describe('#682/#683 stage-2 option sets per provider', () => {
   })
 
   it('remote provider lists its agent bots; team lists its members', () => {
-    const rows = buildComposerProviders({ remotes, teams })
+    const rows = buildComposerProviders({ remotes })
     const remote = rows.find((r) => r.id === 'remote:openmousbot')!
-    const team = rows.find((r) => r.id === 'team:demo')!
     expect(composerOptionsForProvider({ remotes }, remote)).toHaveLength(2)
-    expect(composerOptionsForProvider({ teams }, team)).toEqual([
+    const teamProvider = { id: 'team:demo', label: 'demo team', kind: 'team' as const }
+    expect(composerOptionsForProvider({ teams }, teamProvider)).toEqual([
       { id: 'team:demo:worker1', label: 'worker1' },
     ])
+  })
+
+  it('#832: custom blueprint provider lists defined blueprints and teams', () => {
+    const blueprints = [{ id: 'codey', label: 'Codey', description: 'Coding bot' }]
+    const rows = buildComposerProviders({ blueprints, teams })
+    const bpRow = rows.find((r) => r.id === 'custom_blueprint')!
+    expect(bpRow).toBeDefined()
+    expect(bpRow.kind).toBe('blueprint')
+    expect(bpRow.label).toBe('Custom Blueprint')
+    expect(bpRow.description).toBe('1 blueprint, 1 team')
+    expect(bpRow.defaultOptionId).toBe('codey')
+
+    const options = composerOptionsForProvider({ blueprints, teams }, bpRow)
+    expect(options).toEqual([
+      { id: 'codey', label: 'Codey', description: 'Coding bot', tag: 'blueprint', kind: 'blueprint' },
+      { id: 'demo', label: 'demo team', tag: 'team', kind: 'team' },
+    ])
+  })
+
+  it('#832: omits custom_blueprint provider row when neither blueprints nor teams exist', () => {
+    const rows = buildComposerProviders({ api, clis, remotes })
+    expect(rows.find((r) => r.id === 'custom_blueprint')).toBeUndefined()
   })
 
   it('unknown remote/team/cli ids yield no options (api has a single id-independent gateway)', () => {

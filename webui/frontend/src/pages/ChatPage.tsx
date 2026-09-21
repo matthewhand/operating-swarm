@@ -4142,12 +4142,18 @@ const ChatPage = () => {
         label: t.name || t.id,
         members: (t.members ?? []).map((m) => ({ id: m.id, label: m.name || m.id })),
       })),
+      blueprints: blueprints.map((b) => ({
+        id: b.id,
+        label: b.name || b.id,
+        description: b.description,
+      })),
     }),
     [
       llmProfilesQuery.data,
       discoveredClis,
       configuredRemoteRows,
       teamsQuery.data,
+      blueprints,
       activeRemoteId,
       remoteNavbarAgents,
       currentCli,

@@ -9,7 +9,7 @@
  */
 import type { ModelSearchOption } from './modelSearch'
 
-export type ComposerProviderKind = 'api' | 'cli' | 'remote' | 'team'
+export type ComposerProviderKind = 'api' | 'cli' | 'remote' | 'team' | 'blueprint'
 
 /** Stage-1 row: a provider, with the default option it would apply (if any). */
 export interface ComposerProviderOption {

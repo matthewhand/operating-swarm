@@ -379,6 +379,14 @@ export function NavbarRoutingPicker({
         twoStage?.onResumeSession?.(option.id)
         return
       }
+      if (provider.kind === 'blueprint' || option?.tag === 'blueprint' || option?.tag === 'team') {
+        if (!onNavigateAgent) return
+        const rawId = option?.id ?? provider.defaultOptionId ?? ''
+        const isTeam = option?.tag === 'team' || rawId.startsWith('team:')
+        const targetId = rawId.replace(/^(team|blueprint):/, '')
+        onNavigateAgent(targetId, isTeam ? 'team' : 'api')
+        return
+      }
       if (provider.kind !== seatKind) {
         // #804: cross-kind picks are never inert. The destination kind rides
         // in the callback so ChatPage can land the pick on the seat param
