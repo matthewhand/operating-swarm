@@ -450,6 +450,9 @@ function toSidebarDynamic(subagent: DynamicSubagent): SidebarAgent {
     kind: 'subagent',
     rail: true,
     avatar_path: subagent.avatar_path,
+    // #843: spawn/execution time feeds the rail's time slot — previously
+    // dropped here, which is why subagent rows never showed a timestamp.
+    last_message_at: subagent.timestamp ?? null,
   }
 }
 

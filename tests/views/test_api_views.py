@@ -576,7 +576,9 @@ class TestCustomBlueprintsView:
     def test_create_custom_blueprint_duplicate_id(
         self, mock_get_library, api_client, mock_custom_blueprints
     ):
-        """Test creating a custom blueprint with duplicate ID returns error."""
+        """#809: duplicate ids fork to the next free <base>_N, not 409 —
+        silently overwriting was the old failure mode; refusing broke
+        "Add as agent". Creating a usable, uniquely-named seat resolves it."""
         mock_get_library.return_value = {"installed": [], "custom": mock_custom_blueprints}
 
         payload = {
@@ -586,9 +588,10 @@ class TestCustomBlueprintsView:
 
         response = api_client.post("/v1/blueprints/custom/", data=payload, format="json")
 
-        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        assert "error" in data
+        assert data["id"] == "my_custom_agent_2"
+        assert "error" not in data
 
     @patch("swarm.views.api_views.save_user_blueprint_library")
     @patch("swarm.views.api_views.get_user_blueprint_library")

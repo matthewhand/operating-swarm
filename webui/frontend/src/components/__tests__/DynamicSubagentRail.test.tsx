@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, act, fireEvent, within } from '@testing-library/react'
+import { render, screen, act, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import AgentSidebar from '../AgentSidebar'
@@ -228,5 +228,56 @@ describe('Dynamic Subagents Rail Integration (AgentSidebar first-class citizen)'
     const updated = loadDynamicSubagents().find((s) => s.id === 'sub-status')
     expect(updated?.status).toBe('completed')
     expect(updated?.summary).toBe('Task finished successfully')
+  })
+})
+
+// #843: subagent spawn timestamps must survive the SidebarAgent mapping —
+// the rail's time slot reads last_message_at, which used to be dropped here,
+// leaving subagent rows as the only seats without an activity time.
+describe('Dynamic Subagent activity timestamps (#843)', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    clearDynamicSubagents()
+    vi.stubGlobal('fetch', mockFetch())
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+  })
+
+  afterEach(() => {
+    window.localStorage.clear()
+    clearDynamicSubagents()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('renders the spawn timestamp on the subagent rail row', async () => {
+    registerDynamicSubagent({
+      id: 'sub-timed',
+      name: 'Timed Worker',
+      parentAgentId: 'codey',
+      role: 'engineer',
+      status: 'completed',
+      timestamp: Date.now(),
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentSidebar open={true} blueprints={baseBlueprints} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(
+      () => {
+        const row = document.querySelector('[data-rail-id="sub-timed"]')
+        expect(row).not.toBeNull()
+        expect(within(row as HTMLElement).getByText('Just now')).toBeInTheDocument()
+      },
+      { timeout: 5000 },
+    )
   })
 })

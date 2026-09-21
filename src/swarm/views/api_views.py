@@ -226,6 +226,17 @@ class BlueprintsListView(APIView):
         try:
             available_blueprints = async_to_sync(get_available_blueprints)()
             data = []
+            # #843: the rail's time slot needs an honest instant per blueprint
+            # row, same as remotes/teams. The chat store is the cross-device
+            # source that actually knows; a seat with no persisted thread
+            # stays without the key (no fabricated "now").
+            from swarm.core.chat_store import rail_activity_index, user_key_for
+
+            _user = getattr(request, "user", None)
+            if _user is not None and getattr(_user, "is_authenticated", False):
+                _activity = rail_activity_index(user_key=user_key_for(_user))
+            else:
+                _activity = rail_activity_index(user_key="u0")
             # Filters: search, required_mcp
             search = (request.query_params.get("search") or "").strip().lower()
             required_mcp = (request.query_params.get("required_mcp") or "").strip().lower()
@@ -268,7 +279,7 @@ class BlueprintsListView(APIView):
                         else:
                             navbar_items = []
 
-                    data.append({
+                    row = {
                         "id": blueprint_id,
                         "object": "blueprint",
                         "name": name,
@@ -287,7 +298,13 @@ class BlueprintsListView(APIView):
                         "rail": metadata_rail(meta),
                         "navbar_items": navbar_items,
                         **blueprint_role_fields(meta),
-                    })
+                    }
+                    # #843: thread ids are the bare blueprint id for both
+                    # catalog rows and custom library seats.
+                    _instant = _activity.get(blueprint_id)
+                    if _instant:
+                        row["last_message_at"] = _instant
+                    data.append(row)
             else:
                 logger.error(f"Unexpected type from get_available_blueprints: {type(available_blueprints)}")
 
@@ -298,6 +315,11 @@ class BlueprintsListView(APIView):
                 for row in custom_library_to_blueprint_rows(_custom_library_items())
                 if row.get("id") and row["id"] not in seen
             ]
+            # #843: custom seats ride the same store stamp as catalog rows.
+            for row in custom_seats:
+                _instant = _activity.get(row["id"])
+                if _instant:
+                    row["last_message_at"] = _instant
             if search:
                 custom_seats = [
                     row
