@@ -182,7 +182,15 @@ export function NavbarRoutingPicker({
     () => routingFaceParts(path, selectedModels),
     [path, selectedModels],
   )
-  const joined = useMemo(() => joinRoutingPath(faceParts), [faceParts])
+  const joined = useMemo(() => {
+    // #743: specific-first — the pill truncates on the right, so the exact
+    // model/agent must lead and the generic provider clips, never vice versa.
+    // routingFaceParts returns [agent, model?, effort?]; display it inverted.
+    if (faceParts.length >= 2) {
+      return joinRoutingPath([faceParts[1], faceParts[0], ...faceParts.slice(2)])
+    }
+    return joinRoutingPath(faceParts)
+  }, [faceParts])
   // CLI seats always expose the model pill so its label can show the probed
   // model even before anything is chosen (REQ-870).
   const showModel =
@@ -468,11 +476,12 @@ export function NavbarRoutingPicker({
 
   if (agents.length === 0 && !placeholder) return null
 
-  // #629: one combined trigger — `provider/model` (·effort when active).
-  // Empty segments render as `—`, never dangling dividers.
+  // #629: one combined trigger. #743: specific-first — `model/provider`
+  // (·effort when active) so truncation clips the generic provider suffix,
+  // never the exact model/agent. Empty segments render as `—`.
   const combinedLabel = [
-    agentLabel || '—',
     showModel ? modelLabel || '—' : null,
+    agentLabel || '—',
     showEffort ? effortLabel || '—' : null,
   ]
     .filter((part): part is string => part !== null)

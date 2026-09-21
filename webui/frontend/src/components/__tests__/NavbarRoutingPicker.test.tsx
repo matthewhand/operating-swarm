@@ -4,7 +4,8 @@
  *
  * Every seat kind opens the shared search palette — scoped by default with a
  * removable chip (#504) — and the composer shows ONE combined pill labelled
- * `provider/model(/effort)` (#629) instead of three separate pills.
+ * `model/provider(/effort)` (#629, specific-first per #743) instead of three
+ * separate pills.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -64,11 +65,13 @@ describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
     document.documentElement.removeAttribute('dir')
   })
 
-  it('#629: renders ONE combined pill labelled provider/model/effort', () => {
+  it('#629 + #743: renders ONE combined pill labelled model/provider/effort (specific-first)', () => {
     renderPicker()
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent(
-      'agy/gemini-3.8-flash/medium',
-    )
+    const pill = screen.getByTestId('routing-pill-agent')
+    expect(pill).toHaveTextContent('gemini-3.8-flash/agy/medium')
+    // #743: accessible title/data-value reflect the same inverted path.
+    expect(pill).toHaveAttribute('title', 'gemini-3.8-flash / agy / medium')
+    expect(pill).toHaveAttribute('data-value', 'gemini-3.8-flash / agy / medium')
     // The retired per-dimension pills are gone.
     expect(screen.queryByTestId('routing-pill-model')).not.toBeInTheDocument()
     expect(screen.queryByTestId('routing-pill-effort')).not.toBeInTheDocument()
@@ -76,7 +79,7 @@ describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
 
   it('#629: empty segments render as — and never leave dangling dividers', () => {
     renderPicker({ models: [], selectedModel: '', preferredEffort: undefined })
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy/—')
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('—/agy')
   })
 
   it('#504: every kind opens the palette (CLI included), not a flyout', () => {

@@ -4190,10 +4190,10 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
     expect(screen.getAllByTestId('navbar-routing-picker')).toHaveLength(1)
     expect(screen.getByTestId('routing-face')).toHaveAttribute(
       'title',
-      'agy / gemini-3.8-flash / medium',
+      'gemini-3.8-flash / agy / medium',
     )
-    // #629: the combined pill carries all three segments.
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy/gemini-3.8-flash/medium')
+    // #629 + #743: the combined pill carries all three segments, specific-first.
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('gemini-3.8-flash/agy/medium')
 
     // #681/#682: the two-stage picker carries the effort pick — descend into
     // the agy provider, then the probed model row is a model-dimension pick,
@@ -4204,7 +4204,7 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent('Effort: medium → high')
     expect(status.className).not.toMatch(/chat-start|chat-end/)
-    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'agy / gemini-3.8-flash / high')
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'gemini-3.8-flash / agy / high')
   })
 })
 describe('ChatPage seat state survives navigation (#229)', () => {
