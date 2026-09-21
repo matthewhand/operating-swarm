@@ -23,3 +23,30 @@ describe('#688 Unassigned section visibility', () => {
     expect(skip).toContain('!draggingId')
   })
 })
+
+describe('#729 Unassigned dead space & drop-zone reach', () => {
+  const tsx = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8')
+  const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+
+  it('idle scroller reserves no drag-era bottom gap (pb expands only mid-drag)', () => {
+    expect(tsx).toMatch(/draggingId \? 'pb-16' : 'pb-4'/)
+  })
+
+  it('idle agent list keeps no 3rem min-height; dragging restores the affordance', () => {
+    expect(tsx).toMatch(/os-agent-list--dragging/)
+    const draggingRule = css.match(/\.os-agent-list--dragging\s*\{[^}]*\}/)
+    expect(draggingRule).toBeTruthy()
+    expect(draggingRule![0]).toContain('min-height')
+    // the idle rule no longer forces 3rem of dead space
+    const idleRule = css.match(/\.os-agent-list\s*\{[^}]*\}/)
+    expect(idleRule).toBeTruthy()
+    expect(idleRule![0]).not.toContain('min-height: 3rem')
+  })
+
+  it('empty Unassigned drop target is expanded (~2x) with a dashed affordance', () => {
+    const rule = css.match(/\.os-rail-section-empty--unassigned\s*\{[^}]*\}/)
+    expect(rule).toBeTruthy()
+    expect(rule![0]).toContain('min-height')
+    expect(rule![0]).toContain('dashed')
+  })
+})

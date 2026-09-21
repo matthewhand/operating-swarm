@@ -1491,8 +1491,12 @@ button.os-agent-row {
   box-shadow: inset 0 2px 0 color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 .os-agent-list {
-  min-height: 3rem;
   border-radius: 0.65rem;
+}
+/* #729: the list floor is a drag-drop affordance — active only while a drag
+   is in progress, so idle rail height is not consumed by dead space. */
+.os-agent-list--dragging {
+  min-height: 3rem;
 }
 .os-agent-list--unfav {
   outline: 2px dashed color-mix(in srgb, var(--color-primary) 55%, var(--color-base-300));
@@ -1957,6 +1961,12 @@ button.os-agent-row {
 /* #781: the Unassigned pool is a benign reassignment target — deliberately
    NOT the error/red family of the Delete bin. Info/cyan accent, visible name. */
 .os-rail-section-empty--unassigned {
+  /* #729: an expanded, easily hit target — roughly twice the idle hint's
+     height — with the dashed affordance always visible on the empty pool. */
+  min-height: 3.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: color-mix(in srgb, var(--color-info, #0ea5e9) 75%, var(--color-base-content));
   border: 1px dashed color-mix(in srgb, var(--color-info, #0ea5e9) 45%, transparent);
   border-radius: 0.5rem;

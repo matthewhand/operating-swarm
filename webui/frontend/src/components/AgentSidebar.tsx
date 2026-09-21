@@ -3614,7 +3614,11 @@ export default function AgentSidebar({
           <nav
             ref={navScrollRef}
             onScroll={updateCanScroll}
-            className="os-rail-scroller min-h-0 flex-1 overflow-y-auto px-2 pb-16"
+            className={`os-rail-scroller min-h-0 flex-1 overflow-y-auto px-2 ${
+              /* #729: the 4rem bottom pad exists to clear the drag ghost; it
+                 is dead space when idle — active rows get the height back. */
+              draggingId ? 'pb-16' : 'pb-4'
+            }`}
             data-testid="rail-agent-scroller"
             aria-label="Agent list"
             onContextMenu={(event) => {
@@ -3630,7 +3634,11 @@ export default function AgentSidebar({
                 exactly the informative noise this ticket bans. Product modes are
                 still discoverable where they belong: Settings → Rail. */}
             <div
-              className={`os-agent-list ${listDropActive ? 'os-agent-list--unfav' : ''}`}
+              className={`os-agent-list ${listDropActive ? 'os-agent-list--unfav' : ''} ${
+                /* #729: the 3rem floor is a drop affordance, not an idle
+                   requirement — reserve it only while a drag can use it. */
+                draggingId ? 'os-agent-list--dragging' : ''
+              }`}
               data-testid="agent-list-drop"
               data-unfavourite-target="true"
               onDragOver={allowListUnfavourite}

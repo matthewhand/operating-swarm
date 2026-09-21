@@ -827,10 +827,13 @@ describe('AgentSidebar Grok rail', () => {
     expect(nameEl).toHaveAttribute('title', 'Support')
   })
 
-  it('#404 agent list scroller has footer clearance padding', async () => {
+  it('#404 agent list scroller has footer clearance padding (idle: pb-4; #729 expands to pb-16 mid-drag)', async () => {
     renderSidebar()
     await screen.findByRole('navigation', { name: 'Agent list' })
-    expect(screen.getByTestId('rail-agent-scroller').className).toMatch(/pb-16/)
+    // #729 supersedes the constant pb-16: the 4rem drag-era clearance is
+    // reserved only while a drag is in progress; idle rows reclaim the height.
+    expect(screen.getByTestId('rail-agent-scroller').className).toMatch(/pb-4/)
+    expect(screen.getByTestId('rail-agent-scroller').className).not.toMatch(/pb-16/)
   })
 
   it('paints a red dot on rail-server-icon when local WS is disconnected (REQ-195)', async () => {
