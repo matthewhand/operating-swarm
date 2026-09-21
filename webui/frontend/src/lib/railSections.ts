@@ -2,8 +2,10 @@
  * REQ-209: Sidepane agent sections (membership + names + collapse).
  *
  * Custom sections are ordered headers. Agents with no membership sit in the
- * implicit Unassigned bucket. Persistence is localStorage for v1
- * (`swarm_rail_sections`); Django prefs (#540) later. Pinned favourites are
+ * implicit Unassigned bucket. Persistence is local-first
+ * (`swarm_rail_sections`) with debounced server sync through
+ * /v1/preferences/ (`rail_sections`, #786) — the server bag wins on
+ * hydrate; localStorage is the immediate cache. Pinned favourites are
  * not a section — the pin grid stays above this list.
  */
 
@@ -45,11 +47,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-export function parseRailSections(raw: string | null): RailSectionsState {
-  if (!raw) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed)) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
+export function parseRailSectionsValue(parsed: unknown): RailSectionsState {
+  if (!isRecord(parsed)) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
     const sections: RailSection[] = []
     if (Array.isArray(parsed.sections)) {
       for (const item of parsed.sections) {
@@ -78,6 +77,12 @@ export function parseRailSections(raw: string | null): RailSectionsState {
       membership,
       unassignedCollapsed: Boolean(parsed.unassignedCollapsed),
     }
+}
+
+export function parseRailSections(raw: string | null): RailSectionsState {
+  if (!raw) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
+  try {
+    return parseRailSectionsValue(JSON.parse(raw))
   } catch {
     return { ...EMPTY_RAIL_SECTIONS, membership: {} }
   }
@@ -88,6 +93,21 @@ export function loadRailSections(): RailSectionsState {
     return parseRailSections(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY))
   } catch {
     return { ...EMPTY_RAIL_SECTIONS, membership: {} }
+  }
+}
+
+/** True when the bag defines anything — used to avoid clobbering local state with an empty server default (#786). */
+export function railSectionsHasContent(state: RailSectionsState | null | undefined): boolean {
+  if (!state) return false
+  return state.sections.length > 0 || Object.keys(state.membership).length > 0
+}
+
+/** True when this browser has ever persisted a sections bag (#786 import guard). */
+export function hasRailSectionsStorage(): boolean {
+  try {
+    return localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) !== null
+  } catch {
+    return false
   }
 }
 

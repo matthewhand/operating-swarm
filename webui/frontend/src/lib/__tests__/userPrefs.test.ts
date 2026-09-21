@@ -441,3 +441,106 @@ describe('userPrefs', () => {
     expect(patchBody.bubble_theme).toBe('irc')
   })
 })
+
+// #786 — rail_sections server persistence: parse, apply, seed, and sync.
+describe('#786 rail_sections sync', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    __resetUserPrefsCacheForTests()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  const serverBag = {
+    object: 'user_preferences' as const,
+    empty: false,
+    favourites: [],
+    hidden_agents: [],
+    hostname_override: '',
+    rail_sections: {
+      sections: [{ id: 'sec_a', name: 'Fancy', collapsed: false, internalOnly: true }],
+      membership: { jeeves: 'sec_a' },
+      unassignedCollapsed: true,
+    },
+  }
+
+  it('parses rail_sections from the server bag (top-level and values-bag fallback)', () => {
+    expect(parseUserPrefs(serverBag)?.rail_sections?.membership).toEqual({ jeeves: 'sec_a' })
+    expect(parseUserPrefs(serverBag)?.rail_sections?.sections[0]?.name).toBe('Fancy')
+
+    const legacy = { ...serverBag, rail_sections: undefined, values: { rail_sections: serverBag.rail_sections } }
+    expect(parseUserPrefs(legacy)?.rail_sections?.membership).toEqual({ jeeves: 'sec_a' })
+
+    expect(parseUserPrefs({ ...serverBag, rail_sections: undefined })?.rail_sections).toBeUndefined()
+  })
+
+  it('hydrate adopts a populated server layout into local storage', async () => {
+    localStorage.setItem('swarm_rail_sections', JSON.stringify({ sections: [], membership: {} }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(serverBag)),
+    )
+    const next = await hydrateRailPrefs()
+    expect(next.source).toBe('server')
+    expect(next.sections?.membership).toEqual({ jeeves: 'sec_a' })
+    const cached = JSON.parse(localStorage.getItem('swarm_rail_sections') || '{}')
+    expect(cached.membership).toEqual({ jeeves: 'sec_a' })
+    expect(cached.sections[0]?.internalOnly).toBe(true)
+  })
+
+  it('hydrate does NOT clobber local sections with an empty server default', async () => {
+    localStorage.setItem(
+      'swarm_rail_sections',
+      JSON.stringify({ sections: [{ id: 'sec_local', name: 'Mine' }], membership: {} }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ ...serverBag, rail_sections: { sections: [], membership: {}, unassignedCollapsed: false } })),
+    )
+    const next = await hydrateRailPrefs()
+    expect(next.sections?.sections[0]?.id).toBe('sec_local')
+    expect(JSON.parse(localStorage.getItem('swarm_rail_sections') || '{}').sections[0]?.id).toBe('sec_local')
+  })
+
+  it('first import seeds the server row with this browser\'s sections', async () => {
+    localStorage.setItem(
+      'swarm_rail_sections',
+      JSON.stringify({
+        sections: [{ id: 'sec_seed', name: 'Seeded', collapsed: false }],
+        membership: { grok: 'sec_seed' },
+      }),
+    )
+    const fetchMock = vi.fn(async (_input: RequestInfo, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return jsonResponse({ ...serverBag, ...JSON.parse(String(init.body)), empty: false })
+      }
+      return jsonResponse({ ...serverBag, empty: true, rail_sections: undefined })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const next = await hydrateRailPrefs()
+    expect(next.source).toBe('import')
+    const patch = fetchMock.mock.calls.find((entry) => entry[1]?.method === 'PATCH')
+    const body = JSON.parse(String(patch?.[1]?.body || '{}'))
+    expect(body.rail_sections?.membership).toEqual({ grok: 'sec_seed' })
+    expect(body.rail_sections?.sections[0]?.name).toBe('Seeded')
+  })
+
+  it('saveUserPrefs forwards rail_sections to the PATCH body', async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo, _init?: RequestInit) => jsonResponse({ ...serverBag, empty: false }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await saveUserPrefs({
+      rail_sections: { sections: [{ id: 'sec_x', name: 'X', collapsed: false }], membership: {} },
+    })
+    const patch = (fetchMock.mock.calls as unknown as Array<[RequestInfo, RequestInit]>).find(
+      (entry) => entry[1]?.method === 'PATCH',
+    )
+    const body = JSON.parse(String(patch?.[1]?.body || '{}'))
+    expect(body.rail_sections?.sections[0]?.id).toBe('sec_x')
+  })
+})

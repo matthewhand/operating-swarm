@@ -88,6 +88,7 @@ class UserPreferencesView(APIView):
                 "bubble_theme": serializers.CharField(
                     required=False, allow_blank=True, max_length=64
                 ),
+                "rail_sections": serializers.DictField(required=False),
                 "values": serializers.DictField(required=False),
             },
         ),
@@ -108,6 +109,7 @@ class UserPreferencesView(APIView):
                 prefs.THEME_KEY,
                 prefs.THEME_NAVBAR_MODE_KEY,
                 prefs.BUBBLE_THEME_KEY,
+                prefs.RAIL_SECTIONS_KEY,
                 "values",
             )
         ):
@@ -118,7 +120,7 @@ class UserPreferencesView(APIView):
                         "hostname_override, context_auto_compress_pct, "
                         "context_strategy, context_cull_trigger_pct, "
                         "context_cull_fraction_pct, theme, theme_navbar_mode, "
-                        "bubble_theme, values."
+                        "bubble_theme, rail_sections, values."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -189,6 +191,13 @@ class UserPreferencesView(APIView):
             patch[prefs.THEME_NAVBAR_MODE_KEY] = body[prefs.THEME_NAVBAR_MODE_KEY]
         if prefs.BUBBLE_THEME_KEY in body:
             patch[prefs.BUBBLE_THEME_KEY] = body[prefs.BUBBLE_THEME_KEY]
+        if prefs.RAIL_SECTIONS_KEY in body:
+            if not isinstance(body.get(prefs.RAIL_SECTIONS_KEY), dict):
+                return Response(
+                    {"error": "rail_sections must be an object."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            patch[prefs.RAIL_SECTIONS_KEY] = body[prefs.RAIL_SECTIONS_KEY]
 
         current = row.values if row is not None else {}
         merged = prefs.merge_values(current, patch)

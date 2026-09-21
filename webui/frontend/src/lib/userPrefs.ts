@@ -28,6 +28,14 @@ import {
 } from './pinnedAgents'
 import { saveAgentRemoteBinding } from './agentRemote'
 import {
+  hasRailSectionsStorage,
+  loadRailSections,
+  parseRailSectionsValue,
+  railSectionsHasContent,
+  saveRailSections,
+  type RailSectionsState,
+} from './railSections'
+import {
   applyLocalAgentDropdowns,
   loadAllLocalAgentDropdowns,
   parseAgentDropdowns,
@@ -100,6 +108,8 @@ export interface UserPrefs {
   theme?: Theme
   theme_navbar_mode?: NavbarThemeToggleMode
   bubble_theme?: string
+  /** #786: sidepane sections + membership, server-persisted. */
+  rail_sections?: RailSectionsState
   values?: Record<string, unknown>
   agent_dropdowns: AgentDropdowns
 }
@@ -114,6 +124,8 @@ export type RailPrefs = {
   pins: PinnedAgent[]
   hidden: string[]
   hostnameOverride: string
+  /** #786: sidepane layout, when the hydrate source carried one. */
+  sections?: RailSectionsState
   source: 'server' | 'import' | 'local'
 }
 
@@ -181,6 +193,11 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
       : undefined
   const bubbleThemeRaw = rec.bubble_theme ?? values.bubble_theme
   const bubbleTheme = typeof bubbleThemeRaw === 'string' ? bubbleThemeRaw.trim() : undefined
+  // #786: server-persisted sidepane layout (top-level canonical key, with a
+  // values-bag fallback for rows written before the registry entry).
+  const railSectionsRaw = rec.rail_sections ?? values.rail_sections
+  const railSections =
+    railSectionsRaw === undefined ? undefined : parseRailSectionsValue(railSectionsRaw)
   return {
     object: 'user_preferences',
     principal: typeof rec.principal === 'string' ? rec.principal : '',
@@ -196,6 +213,7 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
     theme,
     theme_navbar_mode: themeNavbarMode,
     bubble_theme: bubbleTheme,
+    rail_sections: railSections,
     values,
     agent_dropdowns:
       Object.keys(fromTop).length > 0 ? fromTop : fromValues,
@@ -235,9 +253,18 @@ export function applyPrefsToLocal(prefs: {
   theme?: Theme
   theme_navbar_mode?: NavbarThemeToggleMode
   bubble_theme?: string
+  rail_sections?: RailSectionsState
 }): void {
   savePinnedAgents(prefs.favourites)
   saveHiddenAgentIds(prefs.hidden_agents)
+  // #786: adopt only a layout that actually defines something — the backend
+  // canonicalizes every row to include an empty rail_sections default, so
+  // emptiness cannot be told apart from "written before #786". An empty
+  // server bag leaves the local cache alone; the debounced sync pushes the
+  // local layout up instead.
+  if (railSectionsHasContent(prefs.rail_sections) && prefs.rail_sections) {
+    saveRailSections(prefs.rail_sections)
+  }
   if (typeof prefs.hostname_override === 'string') {
     applyHostnameOverride(prefs.hostname_override)
   }
@@ -311,6 +338,7 @@ export async function saveUserPrefs(patch: {
   theme?: Theme
   theme_navbar_mode?: NavbarThemeToggleMode
   bubble_theme?: string
+  rail_sections?: RailSectionsState
   values?: Record<string, unknown>
   agent_dropdowns?: AgentDropdowns
 }): Promise<UserPrefs | null> {
@@ -325,6 +353,7 @@ export async function saveUserPrefs(patch: {
     patch.theme === undefined &&
     patch.theme_navbar_mode === undefined &&
     patch.bubble_theme === undefined &&
+    patch.rail_sections === undefined &&
     patch.values === undefined &&
     patch.agent_dropdowns === undefined
   ) {
@@ -349,6 +378,7 @@ export async function saveUserPrefs(patch: {
   if (patch.theme !== undefined) body.theme = patch.theme
   if (patch.theme_navbar_mode !== undefined) body.theme_navbar_mode = patch.theme_navbar_mode
   if (patch.bubble_theme !== undefined) body.bubble_theme = patch.bubble_theme
+  if (patch.rail_sections !== undefined) body.rail_sections = patch.rail_sections
   const values = { ...(patch.values || {}) }
   if (patch.agent_dropdowns !== undefined) values.agent_dropdowns = patch.agent_dropdowns
   if (Object.keys(values).length > 0) body.values = values
@@ -420,16 +450,27 @@ export async function hydrateRailPrefs(
         }
       }
     }
+    // #786: the effective layout after hydrate — the server's when it has
+    // content, otherwise this browser's untouched local bag.
+    const sections = railSectionsHasContent(server.rail_sections)
+      ? server.rail_sections
+      : hasRailSectionsStorage()
+        ? loadRailSections()
+        : undefined
     return {
       pins: server.favourites,
       hidden: server.hidden_agents,
       hostnameOverride: server.hostname_override,
+      sections,
       source: 'server',
     }
   }
   const local = localRailSnapshot(catalog)
   const localDropdowns = loadAllLocalAgentDropdowns()
   if (server?.empty) {
+    // #786: one-time import — this browser's sections bag seeds the server
+    // row only when the browser has actually persisted one.
+    const localSections = hasRailSectionsStorage() ? loadRailSections() : undefined
     await saveUserPrefs({
       favourites: local.pins,
       hidden_agents: local.hidden,
@@ -438,8 +479,9 @@ export async function hydrateRailPrefs(
       theme: initialTheme(),
       theme_navbar_mode: initialNavbarThemeMode(),
       bubble_theme: loadBubbleTheme(),
+      ...(localSections ? { rail_sections: localSections } : {}),
     })
-    return { ...local, source: 'import' }
+    return { ...local, sections: localSections, source: 'import' }
   }
   return local
 }

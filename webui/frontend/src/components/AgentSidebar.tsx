@@ -230,6 +230,7 @@ import {
   deleteSection,
   isUnassignedSection,
   loadRailSections,
+  railSectionsHasContent,
   moveAgentToSection,
   moveSection,
   partitionRowsBySection,
@@ -1099,6 +1100,12 @@ export default function AgentSidebar({
       setPins(next.pins)
       setHiddenIds(next.hidden)
       setHostname(next.hostnameOverride || defaultHostname())
+      // #786: the server bag wins when it actually defines a layout; an
+      // empty server default never clobbers this browser's local sections —
+      // the debounced sync below pushes the local bag up instead.
+      if (railSectionsHasContent(next.sections)) {
+        setSectionState(next.sections as RailSectionsState)
+      }
       setPrefsReady(true)
     })
     return () => {
@@ -1119,10 +1126,12 @@ export default function AgentSidebar({
         favourites: pins,
         hidden_agents: resolvedHiddenIds,
         hostname_override: override,
+        // #786: sidepane layout syncs with the same debounce.
+        rail_sections: sectionState,
       })
     }, 300)
     return () => window.clearTimeout(handle)
-  }, [pins, resolvedHiddenIds, hostname, prefsReady])
+  }, [pins, resolvedHiddenIds, hostname, sectionState, prefsReady])
 
   useEffect(() => {
     const onSettings = () => setSettingsTick((n) => n + 1)

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings as django_settings
+
 from swarm.auth import request_principal, token_principal
 from swarm.core.context_compress_policy import (
     AUTO_COMPRESS_PCT_KEY,
@@ -74,6 +76,10 @@ PREF_REGISTRY: dict[str, dict[str, str]] = {
         "type": "bubble_theme_string",
         "description": "Chat message bubble styling theme.",
     },
+    "rail_sections": {
+        "type": "rail_sections",
+        "description": "Sidepane custom sections, agent membership, and collapsed states (#786).",
+    },
 }
 
 SECRET_KEY_FRAGMENTS = (
@@ -97,6 +103,7 @@ CULL_FRACTION_KEY = CULL_FRACTION_PCT_KEY
 THEME_KEY = "theme"
 THEME_NAVBAR_MODE_KEY = "theme_navbar_mode"
 BUBBLE_THEME_KEY = "bubble_theme"
+RAIL_SECTIONS_KEY = "rail_sections"
 
 DEFAULT_THEME = "system"
 VALID_THEMES = ("system", "light", "dark")
@@ -115,6 +122,33 @@ def is_secret_key(name: str) -> bool:
     return any(fragment in lowered for fragment in SECRET_KEY_FRAGMENTS)
 
 
+def primary_operator_principal() -> str:
+    """Principal of the primary installation operator (#786).
+
+    The first active superuser's username when one exists, else ``admin``.
+    Used as the guest fallback so an operator's rail layout follows them
+    across browsers/devices instead of fragmenting per ephemeral session.
+    """
+    username = "admin"
+    try:
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        operator = (
+            User.objects.filter(is_superuser=True, is_active=True)
+            .order_by("pk")
+            .only("username")
+            .first()
+        )
+        if operator is not None and operator.get_username().strip():
+            username = operator.get_username().strip()
+    except Exception:
+        # Any DB problem falls back to the static 'admin' principal — the
+        # preferences row must never fail to resolve because of this lookup.
+        pass
+    return f"user:{username}"
+
+
 def preference_identity(request) -> tuple[object | None, str, bool]:
     """Return ``(user_or_None, principal, is_guest)`` for this request.
 
@@ -131,6 +165,14 @@ def preference_identity(request) -> tuple[object | None, str, bool]:
     if principal:
         return None, principal, False
 
+    # #786: when API auth is not configured, guests resolve to the primary
+    # installation operator (first active superuser, else 'admin') instead of
+    # minting disjoint ephemeral session keys — an operator's rail layout
+    # follows them across browsers/devices. Authenticated user/token rows
+    # still win above; with auth enabled, session guests stay isolated.
+    if not bool(getattr(django_settings, "ENABLE_API_AUTH", False)):
+        return None, primary_operator_principal(), True
+
     session = getattr(request, "session", None)
     if session is not None:
         if not session.session_key:
@@ -138,9 +180,8 @@ def preference_identity(request) -> tuple[object | None, str, bool]:
         if session.session_key:
             return None, f"session:{session.session_key}", True
 
-    # Last resort (no session middleware). Still not a global singleton:
-    # token_principal of empty is unused; isolate as anonymous-unsessioned.
-    return None, "session:anonymous", True
+    # No session middleware — still land on the shared operator bag.
+    return None, primary_operator_principal(), True
 
 
 def normalize_favourite(value: Any) -> dict[str, str] | None:
@@ -257,6 +298,56 @@ def normalize_bubble_theme(raw: Any) -> str:
     return cleaned[:BUBBLE_THEME_MAX_LEN]
 
 
+def normalize_rail_sections(raw: Any) -> dict[str, Any]:
+    """Shape-validating normalizer for the sidepane layout bag (#786).
+
+    Keeps only well-formed sections (id + optional name/collapsed/internalOnly),
+    an id→id membership map, and the unassigned-collapsed flag. Anything
+    malformed is dropped, never raised — a corrupt client payload must not
+    wedge the whole preferences row.
+    """
+    if not isinstance(raw, dict):
+        return {"sections": [], "membership": {}, "unassignedCollapsed": False}
+    sections: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw.get("sections") or []:
+        if not isinstance(item, dict):
+            continue
+        section_id = item.get("id")
+        if not isinstance(section_id, str) or not section_id.strip():
+            continue
+        section_id = section_id.strip()
+        if section_id in seen or section_id == "unassigned":
+            continue
+        seen.add(section_id)
+        name = item.get("name")
+        sections.append(
+            {
+                "id": section_id,
+                "name": name.strip() if isinstance(name, str) else "",
+                "collapsed": bool(item.get("collapsed")),
+                "internalOnly": bool(item.get("internalOnly")),
+            }
+        )
+    valid_ids = {s["id"] for s in sections}
+    membership: dict[str, str] = {}
+    raw_membership = raw.get("membership")
+    if isinstance(raw_membership, dict):
+        for agent_id, section_id in raw_membership.items():
+            if (
+                isinstance(agent_id, str)
+                and agent_id.strip()
+                and isinstance(section_id, str)
+                and section_id.strip() in valid_ids
+            ):
+                membership[agent_id.strip()] = section_id.strip()
+    return {
+        "sections": sections,
+        "membership": membership,
+        "unassignedCollapsed": bool(raw.get("unassignedCollapsed")),
+    }
+
+
 def empty_values() -> dict[str, Any]:
     return {
         FAVOURITES_KEY: [],
@@ -269,6 +360,7 @@ def empty_values() -> dict[str, Any]:
         THEME_KEY: DEFAULT_THEME,
         THEME_NAVBAR_MODE_KEY: DEFAULT_NAVBAR_THEME_MODE,
         BUBBLE_THEME_KEY: "",
+        RAIL_SECTIONS_KEY: {"sections": [], "membership": {}, "unassignedCollapsed": False},
     }
 
 
@@ -299,6 +391,8 @@ def coerce_values(raw: Any) -> dict[str, Any]:
             out[key] = normalize_theme_navbar_mode(value)
         elif key == BUBBLE_THEME_KEY:
             out[key] = normalize_bubble_theme(value)
+        elif key == RAIL_SECTIONS_KEY:
+            out[key] = normalize_rail_sections(value)
         elif key == AGENT_DROPDOWNS_KEY:
             out[key] = normalize_agent_dropdowns(value)
         else:
@@ -342,6 +436,8 @@ def merge_values(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, An
             merged[key] = normalize_theme_navbar_mode(value)
         elif key == BUBBLE_THEME_KEY:
             merged[key] = normalize_bubble_theme(value)
+        elif key == RAIL_SECTIONS_KEY:
+            merged[key] = normalize_rail_sections(value)
         elif key == AGENT_DROPDOWNS_KEY:
             merged[key] = normalize_agent_dropdowns(value)
         else:
@@ -380,6 +476,7 @@ def public_payload(
         THEME_KEY: normalize_theme(bag.get(THEME_KEY)),
         THEME_NAVBAR_MODE_KEY: normalize_theme_navbar_mode(bag.get(THEME_NAVBAR_MODE_KEY)),
         BUBBLE_THEME_KEY: normalize_bubble_theme(bag.get(BUBBLE_THEME_KEY)),
+        RAIL_SECTIONS_KEY: normalize_rail_sections(bag.get(RAIL_SECTIONS_KEY)),
         "values": extras_bag(bag),
         "registry": [
             {"key": key, **meta} for key, meta in PREF_REGISTRY.items()
@@ -401,6 +498,7 @@ __all__ = [
     "HIDDEN_KEY",
     "HOSTNAME_KEY",
     "PREF_REGISTRY",
+    "RAIL_SECTIONS_KEY",
     "THEME_KEY",
     "THEME_NAVBAR_MODE_KEY",
     "coerce_values",
@@ -413,9 +511,11 @@ __all__ = [
     "normalize_favourites",
     "normalize_hostname_override",
     "normalize_id_list",
+    "normalize_rail_sections",
     "normalize_theme",
     "normalize_theme_navbar_mode",
     "preference_identity",
+    "primary_operator_principal",
     "public_payload",
     "token_principal",
 ]
