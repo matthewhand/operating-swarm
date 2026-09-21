@@ -109,6 +109,8 @@ import {
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
+  moveRailIdAfter,
+  dropHalfFromClientY,
   peekRailDrag,
   saveRailOrder,
 } from '../lib/railOrder'
@@ -1744,6 +1746,16 @@ export default function AgentSidebar({
     [railOrder, visibleRowIds, persistVisibleOrder],
   )
 
+  // #761: bottom-half drop — the moved row lands immediately BELOW the target.
+  const reorderAfter = useCallback(
+    (fromId: string, afterId: string) => {
+      if (!fromId || !afterId || fromId === afterId) return
+      const base = mergeRailOrder(railOrder, visibleRowIds)
+      persistVisibleOrder(moveRailIdAfter(base, fromId, afterId))
+    },
+    [railOrder, visibleRowIds, persistVisibleOrder],
+  )
+
   const handleAgentCreated = useCallback(
     (created: { id: string; name: string; kind: AgentKind }) => {
       setAddWizardOpen(false)
@@ -2151,8 +2163,15 @@ export default function AgentSidebar({
     if (fromId && fromId !== targetId) {
       const targetSection = sectionIdForAgent(targetId, sectionState)
       setSectionState((current) => moveAgentToSection(current, fromId, targetSection))
+      // #761: relative placement — the pointer's half of the target row
+      // decides above/below; dropping onto any row of a section also assigns
+      // into that section (above). Pinned drops unpin into place either way.
+      const half = dropHalfFromClientY(event.clientY, event.currentTarget.getBoundingClientRect())
       if (isPinnedId(fromId)) {
         setPins((current) => unpinAgent(fromId, current))
+      }
+      if (half === 'below') {
+        reorderAfter(fromId, targetId)
       } else {
         reorderBefore(fromId, targetId)
       }

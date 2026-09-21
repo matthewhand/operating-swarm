@@ -9,6 +9,8 @@ import {
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
+  moveRailIdAfter,
+  dropHalfFromClientY,
   notifyGenerationComplete,
   saveRailOrder,
 } from '../railOrder'
@@ -38,6 +40,24 @@ describe('railOrder persistence', () => {
     expect(loadRailOrder()).toEqual([])
     localStorage.setItem(RAIL_ORDER_STORAGE_KEY, JSON.stringify([1, '', 'ok', 'ok']))
     expect(loadRailOrder()).toEqual(['ok'])
+  })
+
+  it('#761: moves a row AFTER another (bottom-half drop)', () => {
+    const start = ['support', 'codey', 'stewie']
+    expect(moveRailIdAfter(start, 'stewie', 'support')).toEqual(['support', 'stewie', 'codey'])
+    expect(moveRailIdAfter(start, 'codey', 'codey')).toEqual(start)
+    expect(moveRailIdAfter(start, 'stewie', 'missing')).toEqual(start)
+  })
+
+  it('#761: dropHalfFromClientY reads the pointer position against the row midpoint', () => {
+    const rect = { top: 100, height: 40 } as DOMRect
+    expect(dropHalfFromClientY(110, rect)).toBe('above')
+    expect(dropHalfFromClientY(100, rect)).toBe('above')
+    expect(dropHalfFromClientY(120, rect)).toBe('below')
+    expect(dropHalfFromClientY(140, rect)).toBe('below')
+    // zero-height rects (jsdom, detached rows) default to 'above'
+    const empty = { top: 0, height: 0 } as DOMRect
+    expect(dropHalfFromClientY(0, empty)).toBe('above')
   })
 
   it('applies stored order and appends new catalog rows', () => {

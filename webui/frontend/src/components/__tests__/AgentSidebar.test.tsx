@@ -95,6 +95,8 @@ function mockDataTransfer() {
 
 function dragTo(source: Element, target: Element) {
   const dataTransfer = mockDataTransfer()
+  // #761: zero-height jsdom rects resolve to 'above' (insert-before), the
+  // historical behavior this suite pins.
   fireEvent.dragStart(source, { dataTransfer })
   fireEvent.dragEnter(target, { dataTransfer })
   fireEvent.dragOver(target, { dataTransfer })
