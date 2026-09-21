@@ -609,3 +609,47 @@ class TestWebsocketRemoteKind:
         assert "slack" in html.unescape(frames[-1])
 
         await communicator.disconnect()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_server_managed_context_remote_submits_only_latest_turn(self, monkeypatch):
+        """#851: Server-managed context remotes receive only the latest user turn."""
+        from unittest.mock import AsyncMock, patch
+
+        _, headers = await make_authenticated_headers("asgi-ws-server-managed")
+        communicator = WebsocketCommunicator(
+            application, _unique_ws_path(), headers=headers
+        )
+        connected, _ = await communicator.connect()
+        assert connected
+        await expect_spa_hello(communicator)
+
+        captured_messages = []
+
+        class _MockBlueprint:
+            server_managed_context = True
+
+            async def run(self, messages, **kwargs):
+                captured_messages.append(list(messages))
+                yield {"content": "server managed reply"}
+
+        with patch("swarm.views.utils.get_blueprint_instance", new=AsyncMock(return_value=_MockBlueprint())):
+            # 1. First turn
+            await _drain_turn(
+                communicator,
+                {"message": "turn 1", "params": {"remote": "slack", "target": "c1:t1"}},
+            )
+            assert len(captured_messages) == 1
+            assert captured_messages[-1] == [{"role": "user", "content": "turn 1"}]
+
+            # 2. Second turn: should receive ONLY turn 2, omitting prior history
+            await _drain_turn(
+                communicator,
+                {"message": "turn 2", "params": {"remote": "slack", "target": "c1:t1"}},
+            )
+            assert len(captured_messages) == 2
+            assert len(captured_messages[-1]) == 1
+            assert captured_messages[-1][0]["content"] == "turn 2"
+
+        await communicator.disconnect()
+

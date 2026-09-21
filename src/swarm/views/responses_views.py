@@ -409,7 +409,8 @@ class ResponsesView(APIView):
         backend_meta = None
         try:
             # user_id scopes memory per authenticated principal (not shared "default").
-            async_generator = blueprint_instance.run(messages, stream=False, user_id=user_id)
+            run_messages = _messages_for_blueprint(blueprint_instance, messages)
+            async_generator = blueprint_instance.run(run_messages, stream=False, user_id=user_id)
             async for chunk in async_generator:
                 if isinstance(chunk, dict) and chunk.get("meta"):
                     backend_meta = chunk["meta"]  # which CLI(s) answered (system_fingerprint)
@@ -455,7 +456,8 @@ class ResponsesView(APIView):
             async_generator = None
             try:
                 # user_id scopes memory per authenticated principal (not shared "default").
-                async_generator = blueprint_instance.run(messages, stream=True, user_id=user_id)
+                run_messages = _messages_for_blueprint(blueprint_instance, messages)
+                async_generator = blueprint_instance.run(run_messages, stream=True, user_id=user_id)
                 async for chunk in async_generator:
                     if isinstance(chunk, dict) and chunk.get("meta"):
                         backend_meta = chunk["meta"]
@@ -615,6 +617,44 @@ class _Cancelled(Exception):
     """Raised inside the worker when a cancel was requested mid-run."""
 
 
+def _messages_for_blueprint(
+    blueprint_instance: Any,
+    messages: list[dict[str, Any]],
+    params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Conditionally omit prior message history if the provider has server_managed_context (#851)."""
+    server_managed = getattr(blueprint_instance, "server_managed_context", False)
+    if not server_managed:
+        caps = getattr(blueprint_instance, "capabilities", None)
+        if isinstance(caps, dict):
+            server_managed = bool(caps.get("server_managed_context"))
+        elif hasattr(caps, "server_managed_context"):
+            server_managed = bool(caps.server_managed_context)
+    if not server_managed and params and isinstance(params, dict):
+        remote_name = params.get("remote") or params.get("name")
+        if remote_name:
+            from swarm.core.remote_harness import capabilities_for
+
+            remote_caps = capabilities_for(str(remote_name))
+            server_managed = getattr(remote_caps, "server_managed_context", False)
+
+    if server_managed and messages:
+        last_user = next(
+            (
+                m
+                for m in reversed(messages)
+                if isinstance(m, dict) and m.get("role") == "user"
+            ),
+            messages[-1],
+        )
+        return (
+            [last_user]
+            if isinstance(last_user, dict)
+            else [{"role": "user", "content": str(last_user)}]
+        )
+    return messages
+
+
 async def _consume_blueprint(
     blueprint_instance: Any, messages: list[dict[str, Any]], cancel_check: Any = None,
     on_progress: Any = None, user_id: str | None = None,
@@ -630,7 +670,8 @@ async def _consume_blueprint(
     """
     final_message = None
     backend_meta = None
-    async for chunk in blueprint_instance.run(messages, stream=False, user_id=user_id):
+    run_messages = _messages_for_blueprint(blueprint_instance, messages)
+    async for chunk in blueprint_instance.run(run_messages, stream=False, user_id=user_id):
         if cancel_check is not None and cancel_check():
             raise _Cancelled()
         if isinstance(chunk, dict):

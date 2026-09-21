@@ -36,6 +36,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "description": "Nous Hermes / local Hermes gateway — OpenAI-compatible remote team.",
         "color": "#22d3ee",
         "icon": "🛰️",
+        "server_managed_context": False,
     },
     "openmausbot": {
         "name": "OpenMausBot",
@@ -43,6 +44,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "description": "OpenMausBot multi-agent workspace, addressed as one remote team.",
         "color": "#a78bfa",
         "icon": "🐭",
+        "server_managed_context": False,
     },
     "rakazo": {
         "name": "Rakazo",
@@ -50,6 +52,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "description": "Rakazo agent service, addressed as one remote team.",
         "color": "#fb7185",
         "icon": "⚡",
+        "server_managed_context": False,
     },
     "herdr": {
         "name": "Herdr",
@@ -61,6 +64,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "color": "#fbbf24",
         "icon": "🐃",
         "transport": "herdr",
+        "server_managed_context": True,
     },
     "dsh": {
         "name": "DeepSeek Harness",
@@ -74,6 +78,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "icon": "🧩",
         "default_base_url": "http://127.0.0.1:3080/v1",
         "launch": "ollama launch dsh",
+        "server_managed_context": False,
     },
     "letta": {
         "name": "Letta",
@@ -82,6 +87,25 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "color": "#9333ea",
         "icon": "🧠",
         "transport": "http",
+        "server_managed_context": True,
+    },
+    "flowise": {
+        "name": "Flowise",
+        "specialty": "Flowise AI flow execution",
+        "description": "Flowise visual AI workflows and chatbot flows.",
+        "color": "#0284c7",
+        "icon": "🌊",
+        "transport": "http",
+        "server_managed_context": True,
+    },
+    "slack": {
+        "name": "Slack",
+        "specialty": "Slack thread integration",
+        "description": "Slack workspace thread chat integration.",
+        "color": "#4a154b",
+        "icon": "💬",
+        "transport": "http",
+        "server_managed_context": True,
     },
 }
 
@@ -262,6 +286,17 @@ def chat_remote(
 ) -> str:
     """POST OpenAI-style chat completions to a remote agentic team."""
     fid = normalize_framework(framework) or (framework or "").strip().lower()
+    from swarm.core.remote_harness import capabilities_for
+
+    caps = capabilities_for(fid)
+    server_managed = getattr(caps, "server_managed_context", False) or fid in (
+        "letta",
+        "memgpt",
+        "herdr",
+        "flowise",
+        "slack",
+    )
+
     if fid in ("letta", "memgpt"):
         return chat_letta(
             base_url,
@@ -278,8 +313,24 @@ def chat_remote(
             prompt = str(messages[-1].get("content") or "")
         return chat_herdr(prompt, target=model, timeout_ms=int(timeout * 1000))
 
+    if server_managed:
+        if isinstance(messages, list) and messages:
+            last_turn = next(
+                (m for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user"),
+                messages[-1],
+            )
+            submitted_messages = (
+                [last_turn]
+                if isinstance(last_turn, dict)
+                else [{"role": "user", "content": str(last_turn)}]
+            )
+        else:
+            submitted_messages = [{"role": "user", "content": str(messages)}]
+    else:
+        submitted_messages = messages
+
     endpoint = completions_url(base_url)
-    payload = json.dumps({"model": model or "default", "messages": messages}).encode("utf-8")
+    payload = json.dumps({"model": model or "default", "messages": submitted_messages}).encode("utf-8")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     token = api_key or resolve_remote_api_key(framework)
     if token:
@@ -341,6 +392,7 @@ def listed_remote_specs(
             "model": "default",
             "target": "",
             "transport": meta.get("transport") or "http",
+            "server_managed_context": bool(meta.get("server_managed_context", False)),
         }
     for key, overlay in cfg_block.items():
         if not isinstance(overlay, dict):

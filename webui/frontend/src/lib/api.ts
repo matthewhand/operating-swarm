@@ -810,6 +810,8 @@ export interface RemoteCapabilities {
   routines?: boolean
   sessions?: boolean
   transport?: string
+  server_managed_context?: boolean
+  serverManagedContext?: boolean
 }
 
 export interface RemoteConnection {

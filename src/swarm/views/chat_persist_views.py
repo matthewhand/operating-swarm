@@ -281,11 +281,25 @@ def chat_thread(request):
             session_title = row.title or ""
         except Exception:
             session_title = ""
+
+    server_managed = False
+    if is_herdr:
+        server_managed = True
+    elif agent_raw and str(agent_raw).startswith(("remote:", "remote-")):
+        rname = str(agent_raw).replace("remote:", "").replace("remote-", "").split("-")[0]
+        try:
+            from swarm.core.remote_harness import capabilities_for
+
+            server_managed = getattr(capabilities_for(rname), "server_managed_context", False)
+        except Exception:
+            server_managed = False
+
     payload = {
         "agent_id": agent,
         "conversation_id": conversation_id,
         "session_title": session_title,
         "kind": kind,
+        "server_managed_context": server_managed,
         # REQ-808: CLI threads are editable too (edit restarts the provider
         # session); only remote threads stay read-only.
         "editable": can_edit_agent_messages(agent_raw or agent),

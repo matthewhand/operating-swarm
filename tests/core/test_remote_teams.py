@@ -518,3 +518,81 @@ def test_chat_remote_delegates_to_herdr(monkeypatch):
         args, kwargs = mock_herdr.call_args
         assert args[0] == "run task"
         assert kwargs["target"] == "w1:p1"
+
+
+def test_server_managed_context_capabilities():
+    """#851: verify server_managed_context capability flags across remotes."""
+    from swarm.core.remote_harness import capabilities_for
+
+    assert capabilities_for("letta").server_managed_context is True
+    assert capabilities_for("flowise").server_managed_context is True
+    assert capabilities_for("herdr").server_managed_context is True
+    assert capabilities_for("slack").server_managed_context is True
+    assert capabilities_for("hermes").server_managed_context is False
+    assert capabilities_for("omb").server_managed_context is False
+    assert capabilities_for("rakazo").server_managed_context is False
+    assert capabilities_for("trueforge").server_managed_context is False
+
+    # As dict contains the flag
+    caps_dict = capabilities_for("letta").as_dict()
+    assert caps_dict["server_managed_context"] is True
+    assert capabilities_for("hermes").as_dict()["server_managed_context"] is False
+
+
+def test_chat_remote_server_managed_submits_only_latest_turn():
+    """#851: stateful remotes receive only the latest turn, stateless receive full history."""
+    from swarm.core.remote_teams import chat_remote
+
+    captured_reqs = []
+
+    class _Resp:
+        def read(self):
+            return b'{"choices": [{"message": {"content": "ok"}}]}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class _Opener:
+        def open(self, req, timeout=0):
+            captured_reqs.append(req)
+            return _Resp()
+
+    history = [
+        {"role": "user", "content": "turn 1"},
+        {"role": "assistant", "content": "reply 1"},
+        {"role": "user", "content": "turn 2"},
+    ]
+
+    with patch("swarm.core.remote_teams.urllib.request.build_opener", return_value=_Opener()):
+        # 1. Stateless framework (hermes) receives full history
+        reply_stateless = chat_remote(
+            "http://127.0.0.1:9090/v1", history, framework="hermes"
+        )
+        assert reply_stateless == "ok"
+        payload_stateless = json.loads(captured_reqs[-1].data.decode("utf-8"))
+        assert payload_stateless["messages"] == history
+
+        # 2. Stateful framework (slack) receives ONLY the latest turn
+        reply_stateful = chat_remote(
+            "http://127.0.0.1:9090/v1", history, framework="slack"
+        )
+        assert reply_stateful == "ok"
+        payload_stateful = json.loads(captured_reqs[-1].data.decode("utf-8"))
+        assert payload_stateful["messages"] == [{"role": "user", "content": "turn 2"}]
+
+
+def test_listed_remote_specs_includes_server_managed_context():
+    """#851: listed_remote_specs exposes server_managed_context."""
+    from swarm.core.remote_teams import listed_remote_specs
+
+    specs = {s["agent_id"]: s for s in listed_remote_specs(expand=False)}
+    assert specs["letta"]["server_managed_context"] is True
+    assert specs["herdr"]["server_managed_context"] is True
+    assert specs["flowise"]["server_managed_context"] is True
+    assert specs["slack"]["server_managed_context"] is True
+    assert specs["hermes"]["server_managed_context"] is False
+    assert specs["openmausbot"]["server_managed_context"] is False
+

@@ -131,6 +131,8 @@ class RemoteCapabilities:
     # List payload carries resumable session rows (Hermes, AnythingLLM threads).
     sessions: bool = False
     transport: str = "http"
+    # #851: Server-side conversation context management (omit prior history).
+    server_managed_context: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -261,6 +263,7 @@ def capabilities_for(impl_id: str) -> RemoteCapabilities:
 
         rid = kind_of_instance(rid)
     computer = rid in {"omb", "rakazo"}
+    server_managed = rid in {"letta", "flowise", "herdr", "slack"}
     return RemoteCapabilities(
         list=True,
         send=True,
@@ -270,6 +273,7 @@ def capabilities_for(impl_id: str) -> RemoteCapabilities:
         routines=rid == "trueforge",
         sessions=rid in {"hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "slack"},
         transport=REMOTE_IMPL_TRANSPORT.get(rid, "http"),
+        server_managed_context=server_managed,
     )
 
 

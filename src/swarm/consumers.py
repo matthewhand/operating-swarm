@@ -1283,6 +1283,36 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                             f"_Skill `{name}` not found — running without it._",
                         )
                     )
+            server_managed = getattr(blueprint_instance, "server_managed_context", False)
+            if not server_managed:
+                caps = getattr(blueprint_instance, "capabilities", None)
+                if isinstance(caps, dict):
+                    server_managed = bool(caps.get("server_managed_context"))
+                elif hasattr(caps, "server_managed_context"):
+                    server_managed = bool(caps.server_managed_context)
+            if not server_managed and params and isinstance(params, dict):
+                remote_name = params.get("remote") or params.get("name")
+                if remote_name:
+                    from swarm.core.remote_harness import capabilities_for
+
+                    remote_caps = capabilities_for(str(remote_name))
+                    server_managed = getattr(remote_caps, "server_managed_context", False)
+
+            if server_managed and model_messages:
+                last_user = next(
+                    (
+                        m
+                        for m in reversed(model_messages)
+                        if isinstance(m, dict) and m.get("role") == "user"
+                    ),
+                    model_messages[-1],
+                )
+                model_messages = (
+                    [last_user]
+                    if isinstance(last_user, dict)
+                    else [{"role": "user", "content": str(last_user)}]
+                )
+
             streamed_any = False
             async for chunk in blueprint_instance.run(model_messages):
                 # #198: enter-to-interrupt — stop before processing the next
