@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.0.0"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.8.4",
@@ -57,7 +57,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "@types/three": "^0.169.0",
