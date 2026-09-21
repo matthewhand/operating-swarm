@@ -86,6 +86,8 @@ export interface TeamRoster {
   personas?: Array<{ name: string }>
   /** #601: server-stamped activity instant (epoch ms), absent when unknown. */
   lastMessageAt?: number
+  /** #844: server-derived recent-activity snippet, absent when unknown. */
+  lastMessage?: string
 }
 
 /** One-team fixture so the sidepane stays visible without a live roster file. */
@@ -200,7 +202,15 @@ function parseRoster(raw: unknown): TeamRoster | null {
     ...(personaCount != null ? { persona_count: personaCount } : {}),
     ...(personas ? { personas } : {}),
     ...parseRosterLastMessageAt(rec),
+    ...parseRosterLastMessageText(rec),
   }
+}
+
+/** #844: pass the server snippet through (validated string). */
+function parseRosterLastMessageText(rec: Record<string, unknown>): { lastMessage: string } | Record<string, never> {
+  const raw = rec.last_message ?? rec.lastMessage
+  if (typeof raw === 'string' && raw.trim()) return { lastMessage: raw }
+  return {}
 }
 
 /** #601: server stamps ISO-8601 or epoch-ms; normalise to epoch ms or absent. */

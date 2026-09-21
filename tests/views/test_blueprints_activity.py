@@ -1,6 +1,6 @@
 """#843 — blueprint rows carry rail activity so every seat shows a timestamp.
 
-CLI seats get disk mtime, remotes/teams get ``rail_activity_index`` stamps
+CLI seats get disk mtime, remotes/teams get ``rail_activity_summaries`` stamps
 (already wired). Blueprints were the gap: ``BlueprintsListView`` never asked
 the chat store, so API agents showed a timestamp only from the *current
 browser's* localStorage. The store is the cross-device source of truth.

@@ -339,6 +339,8 @@ export interface Blueprint {
   personas?: Array<{ name: string }>
   /** #843: newest persisted-thread instant for this seat (ISO-8601 or epoch ms). Missing = no activity yet. */
   last_message_at?: string | number | null
+  /** #844: newest human-visible turn text (server-derived snippet). Missing = snippet only from local sessions. */
+  last_message?: string | null
   /** Navbar items contributed by this blueprint (e.g. token counter for API agents). */
   navbar_items?: Array<{ id: string; kind: string; label?: string; [key: string]: any }> | null
 }

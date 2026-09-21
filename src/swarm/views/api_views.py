@@ -230,13 +230,13 @@ class BlueprintsListView(APIView):
             # row, same as remotes/teams. The chat store is the cross-device
             # source that actually knows; a seat with no persisted thread
             # stays without the key (no fabricated "now").
-            from swarm.core.chat_store import rail_activity_index, user_key_for
+            from swarm.core.chat_store import rail_activity_summaries, user_key_for
 
             _user = getattr(request, "user", None)
             if _user is not None and getattr(_user, "is_authenticated", False):
-                _activity = rail_activity_index(user_key=user_key_for(_user))
+                _activity = rail_activity_summaries(user_key=user_key_for(_user))
             else:
-                _activity = rail_activity_index(user_key="u0")
+                _activity = rail_activity_summaries(user_key="u0")
             # Filters: search, required_mcp
             search = (request.query_params.get("search") or "").strip().lower()
             required_mcp = (request.query_params.get("required_mcp") or "").strip().lower()
@@ -301,9 +301,11 @@ class BlueprintsListView(APIView):
                     }
                     # #843: thread ids are the bare blueprint id for both
                     # catalog rows and custom library seats.
-                    _instant = _activity.get(blueprint_id)
-                    if _instant:
-                        row["last_message_at"] = _instant
+                    _summary = _activity.get(blueprint_id)
+                    if _summary:
+                        row["last_message_at"] = _summary["at"]
+                        if _summary.get("text"):
+                            row["last_message"] = _summary["text"]
                     data.append(row)
             else:
                 logger.error(f"Unexpected type from get_available_blueprints: {type(available_blueprints)}")
@@ -317,9 +319,11 @@ class BlueprintsListView(APIView):
             ]
             # #843: custom seats ride the same store stamp as catalog rows.
             for row in custom_seats:
-                _instant = _activity.get(row["id"])
-                if _instant:
-                    row["last_message_at"] = _instant
+                _summary = _activity.get(row["id"])
+                if _summary:
+                    row["last_message_at"] = _summary["at"]
+                    if _summary.get("text"):
+                        row["last_message"] = _summary["text"]
             if search:
                 custom_seats = [
                     row

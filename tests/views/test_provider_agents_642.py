@@ -37,7 +37,7 @@ def _remotes_ctx(specs):
         lambda: list(specs.values()),
     )
     p3 = patch("swarm.views.remotes_api.remotes_core.list_team_members", lambda: [])
-    p4 = patch("swarm.core.chat_store.rail_activity_index", lambda **_activity: {})
+    p4 = patch("swarm.core.chat_store.rail_activity_summaries", lambda **_activity: {})
     return p1, p2, p3, p4
 
 

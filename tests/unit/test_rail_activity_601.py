@@ -51,3 +51,43 @@ def test_activity_index_user_key_scopes_results(tmp_path):
 
 def test_activity_index_no_store_returns_empty(tmp_path):
     assert chat_store.rail_activity_index(base_dir=tmp_path, user_key="u0") == {}
+
+
+def test_activity_summaries_carry_snippet_and_time(tmp_path):
+    """#844: summaries add the newest human-visible message text per seat."""
+    _seed(tmp_path, "remote-trueforge", "2026-09-18T10:00:00+00:00")
+    sums = chat_store.rail_activity_summaries(base_dir=tmp_path, user_key="u0")
+    row = sums["remote-trueforge"]
+    assert row["at"] == "2026-09-18T10:00:00+00:00"
+    assert "hi remote-trueforge" in row["text"]
+
+
+def test_activity_summaries_skip_chrome_tail(tmp_path):
+    """#844: the snippet is the newest non-chrome turn, not status chrome."""
+    path = chat_store._active_path("u0", "api-seat", chat_store.store_dir(base_dir=tmp_path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = chat_store.empty_record(user_key="u0", agent_id="api-seat")
+    record["updated_at"] = "2026-09-18T12:00:00+00:00"
+    record["messages"] = [
+        {"role": "user", "content": "real question"},
+        {"role": "assistant", "content": "real answer"},
+        {"role": "status", "content": "running tools…"},
+    ]
+    chat_store._atomic_write(path, record)
+    sums = chat_store.rail_activity_summaries(base_dir=tmp_path, user_key="u0")
+    assert "running tools" not in sums["api-seat"]["text"]
+    assert sums["api-seat"]["text"].startswith("real")
+
+
+def test_activity_summaries_cap_and_flatten_text(tmp_path):
+    """#844: snippets are single-line and bounded for rail rendering."""
+    path = chat_store._active_path("u0", "big", chat_store.store_dir(base_dir=tmp_path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = chat_store.empty_record(user_key="u0", agent_id="big")
+    record["updated_at"] = "2026-09-18T13:00:00+00:00"
+    record["messages"] = [{"role": "assistant", "content": "x" * 500 + "\n" + "y" * 500}]
+    chat_store._atomic_write(path, record)
+    sums = chat_store.rail_activity_summaries(base_dir=tmp_path, user_key="u0")
+    text = sums["big"]["text"]
+    assert "\n" not in text
+    assert len(text) <= 200

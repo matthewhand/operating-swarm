@@ -37,7 +37,10 @@ def _remotes_ctx(specs, activity):
         lambda: list(specs.values()),
     )
     p3 = patch("swarm.views.remotes_api.remotes_core.list_team_members", lambda: [])
-    p4 = patch("swarm.core.chat_store.rail_activity_index", lambda **_activity: activity)
+    p4 = patch(
+        "swarm.core.chat_store.rail_activity_summaries",
+        lambda **_activity: {k: {"at": v, "text": ""} for k, v in activity.items()},
+    )
     return p1, p2, p3, p4
 
 
@@ -66,8 +69,8 @@ def test_team_rosters_list_stamps_last_message_at(api_client, monkeypatch):
         lambda: {"demo-team": {"id": "demo-team", "name": "Demo Team", "members": []}},
     )
     monkeypatch.setattr(
-        "swarm.core.chat_store.rail_activity_index",
-        lambda **_activity: {"team-demo-team": "2026-09-18T11:00:00+00:00"},
+        "swarm.core.chat_store.rail_activity_summaries",
+        lambda **_activity: {"team-demo-team": {"at": "2026-09-18T11:00:00+00:00", "text": ""}},
     )
     resp = api_client.get("/v1/team-rosters/")
     assert resp.status_code == 200
@@ -81,7 +84,7 @@ def test_team_rosters_list_omits_instant_when_store_has_none(api_client, monkeyp
         "swarm.views.team_rosters_api.load_team_rosters",
         lambda: {"demo-team": {"id": "demo-team", "name": "Demo Team", "members": []}},
     )
-    monkeypatch.setattr("swarm.core.chat_store.rail_activity_index", lambda **_activity: {})
+    monkeypatch.setattr("swarm.core.chat_store.rail_activity_summaries", lambda **_activity: {})
     resp = api_client.get("/v1/team-rosters/")
     row = resp.json()["data"][0]
     assert not row.get("last_message_at")

@@ -551,6 +551,78 @@ def rail_activity_index(
     return {seat: updated for seat, (_rank, updated) in newest.items()}
 
 
+# #844: rail snippets are one short line — bounded at write time so the
+# catalog payload cannot balloon with long transcripts.
+SNIPPET_MAX_CHARS = 160
+
+
+def _snippet_from_turns(turns: Any) -> str:
+    """Newest human-visible turn text, flattened and capped (#844).
+
+    Chrome (status/system chatter) never becomes the snippet: the rail row
+    should read like the conversation, not like telemetry.
+    """
+    if not isinstance(turns, list):
+        return ""
+    try:
+        from swarm.core.transcript_roles import is_chrome_message
+
+        candidates = [t for t in reversed(turns) if not is_chrome_message(t)]
+    except Exception:
+        candidates = [t for t in reversed(turns) if isinstance(t, dict)]
+    for turn in candidates:
+        if not isinstance(turn, dict):
+            continue
+        text = str(turn.get("content") or "").strip()
+        if not text:
+            continue
+        flattened = " ".join(text.split())
+        if len(flattened) > SNIPPET_MAX_CHARS:
+            flattened = flattened[: SNIPPET_MAX_CHARS - 1].rstrip() + "…"
+        return flattened
+    return ""
+
+
+def rail_activity_summaries(
+    *,
+    base_dir: Path | None = None,
+    user_key: str = "u0",
+) -> dict[str, dict[str, str]]:
+    """Newest instant **and** snippet per seat across persisted threads (#844).
+
+    Same sweep as :func:`rail_activity_index` but each value carries the
+    newest human-visible turn text alongside the ISO instant:
+    ``{seat: {"at": iso, "text": snippet}}``. Seats with only chrome turns
+    still surface (the instant is real) with an empty snippet. Feeds the
+    catalog's ``last_message_at`` / ``last_message`` so every rail row can
+    hydrate its activity line on first paint, whatever the agent kind.
+    """
+    uk = _safe_id(user_key)
+    if uk is None:
+        return {}
+    root = store_dir(base_dir=base_dir) / "active" / uk
+    if not root.is_dir():
+        return {}
+    newest: dict[str, tuple[float, str, str]] = {}
+    for path in root.glob("*.json"):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        seat = path.stem.split("__", 1)[0]
+        record = _read_json(path) or {}
+        updated = record.get("updated_at")
+        if not (isinstance(updated, str) and updated.strip()):
+            continue
+        instant = _parse_iso(updated)
+        rank = instant.timestamp() if instant is not None else mtime
+        snippet = _snippet_from_turns(record.get("messages"))
+        current = newest.get(seat)
+        if current is None or rank >= current[0]:
+            newest[seat] = (rank, updated, snippet)
+    return {seat: {"at": updated, "text": text} for seat, (_r, updated, text) in newest.items()}
+
+
 def normalize_cli_sessions(raw: Any) -> dict[str, str]:
     """``{cli_name: session_id}`` with unsafe keys/values dropped (no secrets)."""
     from swarm.core.cli_sessions import sanitize_cli_session_id

@@ -37,6 +37,8 @@ export interface RemoteEntry {
   capabilities?: { sessions?: boolean; list?: boolean; send?: boolean }
   /** #601: server-stamped activity instant (epoch ms), absent when unknown. */
   lastMessageAt?: number
+  /** #844: server-derived recent-activity snippet, absent when unknown. */
+  lastMessage?: string
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -140,6 +142,7 @@ export function parseRemote(raw: unknown): RemoteEntry | null {
     agents,
     capabilities,
     ...parseLastMessageAt(rec),
+    ...parseLastMessageText(rec),
   }
 }
 
@@ -151,6 +154,13 @@ function parseLastMessageAt(rec: Record<string, unknown>): { lastMessageAt: numb
     const parsed = Date.parse(raw)
     if (Number.isFinite(parsed)) return { lastMessageAt: parsed }
   }
+  return {}
+}
+
+/** #844: pass the server snippet through (validated string). */
+function parseLastMessageText(rec: Record<string, unknown>): { lastMessage: string } | Record<string, never> {
+  const raw = rec.last_message ?? rec.lastMessage
+  if (typeof raw === 'string' && raw.trim()) return { lastMessage: raw }
   return {}
 }
 
