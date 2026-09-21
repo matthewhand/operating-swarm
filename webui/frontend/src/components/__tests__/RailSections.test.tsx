@@ -372,11 +372,11 @@ describe('REQ-209 sidepane agent sections', () => {
     const first = renderRail()
     await loadedList()
     const unassigned = sectionById(UNASSIGNED_SECTION_ID)!
-    expect(within(unassigned).queryByTestId('rail-section-talk-lock')).not.toBeInTheDocument()
+    expect(within(unassigned).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
     const stuff = sectionById('sec_stuff')!
-    const lock = within(stuff).getByTestId('rail-section-talk-lock')
+    const lock = within(stuff).getByTestId('rail-section-awareness-toggle')
     expect(lock).toHaveAttribute('aria-pressed', 'false')
-    expect(lock).toHaveAttribute('aria-label', 'Talk externally')
+    expect(lock).toHaveAttribute('aria-label', 'Inter-agent awareness on')
     fireEvent.click(lock)
     await waitFor(() => {
       expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
@@ -388,13 +388,13 @@ describe('REQ-209 sidepane agent sections', () => {
     renderRail()
     await loadedList()
     expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
-    expect(within(sectionById('sec_stuff')!).getByTestId('rail-section-talk-lock')).toHaveAttribute(
+    expect(within(sectionById('sec_stuff')!).getByTestId('rail-section-awareness-toggle')).toHaveAttribute(
       'aria-label',
-      'Talk internal only',
+      'Inter-agent awareness off — members isolated',
     )
     fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
     const menu = await screen.findByRole('menu', { name: 'Actions for stuff' })
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Talk externally' }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Enable inter-agent awareness' }))
     await waitFor(() => {
       expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'false')
     })

@@ -251,8 +251,10 @@ export function sectionMenuItems(opts: {
     { id: 'section-create', label: 'New section', group: 0 },
     { id: 'section-rename', label: 'Rename', group: 0 },
     {
+      // #828: awareness-first framing — the padlock read as security locking;
+      // the toggle is about whether section peers know about each other.
       id: 'section-talk-lock',
-      label: opts.internalOnly ? 'Talk externally' : 'Talk internal only',
+      label: opts.internalOnly ? 'Enable inter-agent awareness' : 'Isolate members (no peer awareness)',
       group: 0,
     },
     {

@@ -247,10 +247,12 @@ describe('sectionMenuItems (REQ-209)', () => {
       'section-move-down',
       'section-delete',
     ])
-    expect(items.find((item) => item.id === 'section-talk-lock')?.label).toBe('Talk internal only')
+    expect(items.find((item) => item.id === 'section-talk-lock')?.label).toBe(
+      'Isolate members (no peer awareness)',
+    )
     expect(sectionMenuItems({ canMoveUp: true, canMoveDown: true, internalOnly: true }).find(
       (item) => item.id === 'section-talk-lock',
-    )?.label).toBe('Talk externally')
+    )?.label).toBe('Enable inter-agent awareness')
     expect(items.find((item) => item.id === 'section-move-up')?.disabled).toBe(true)
     expect(items.at(-1)).toMatchObject({ id: 'section-delete', danger: true, label: 'Delete' })
   })

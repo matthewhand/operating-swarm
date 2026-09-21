@@ -57,6 +57,8 @@ import {
   removeRoleSlot,
   removeToolSlot,
   reorderMembers,
+  COS_ELIGIBLE_KINDS,
+  newToolSlot,
   restoreCosId,
   ROLE_DRAG_MIME,
   ROSTER_DRAG_MIME,
@@ -73,6 +75,7 @@ import {
   type ComposableTeamRole,
   type RoleSlot,
   type TeamRosterMember,
+  type TeamToolDraft,
   type ToolSlot,
 } from '../lib/teamRoster'
 
@@ -795,7 +798,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           data-testid="team-cos-fieldset"
         >
           <legend className="px-1 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/45">
-            Team
+            Team Lead
           </legend>
           <label className="flex flex-col gap-1 text-sm">
             <select
@@ -817,7 +820,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                 applyChiefOfStaff(next ? next : null, false)
               }}
             >
-              <option value={FIRST_AGENT_VALUE}>First agent</option>
+              <option value={FIRST_AGENT_VALUE}>First agent (roster #1)</option>
               {!leadFollowsFirst && !chiefOfStaffId ? (
                 <option value={NO_COS_VALUE} hidden />
               ) : null}
@@ -831,9 +834,10 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           {members.length === 0 ? (
             <p className="mt-2 text-xs text-base-content/50">{COS_EMPTY_ROSTER_HINT}</p>
           ) : (
-            <p className="mt-2 text-xs text-base-content/50">
-              First agent is roster #1. Drag members to reorder. Remotes stay off
-              this list until runtime can inject a CoS brief.
+            <p className="mt-2 text-xs text-base-content/50" data-testid="team-lead-hint">
+              The Team Lead is the primary agent you converse with directly. Other
+              team members assist the lead either as internal tools or via direct
+              handoff. Remotes stay off this list until runtime can inject a CoS brief.
             </p>
           )}          {instructionsOpen ? (
             <Textarea
@@ -919,12 +923,18 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                     kind: member.kind,
                     source: member.source,
                   }
+                  // #839: the roster's first agent IS the Team Lead while the
+                  // lead follows roster order; otherwise the explicit CoS pick.
+                  const isLead = leadFollowsFirst
+                    ? index === 0
+                    : Boolean(chiefOfStaffId) && member.id === chiefOfStaffId
                   return (
                     <li key={`${member.kind}:${member.source}`}>
                       <article
                         draggable
                         data-testid="roster-member"
                         data-index={index}
+                        data-is-lead={isLead ? 'true' : 'false'}
                         className="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2 cursor-grab active:cursor-grabbing"
                         onDragStart={(event) => onRosterDragStart(event, index)}
                         onDragOver={onRosterDragOver}
@@ -947,6 +957,31 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                           {index + 1}
                         </span>
                         <span className="font-medium">{agentDisplayName(member)}</span>
+                        {isLead ? (
+                          <span
+                            className="badge badge-sm border-amber-300/60 bg-amber-100/70 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300"
+                            data-testid="roster-lead-badge"
+                          >
+                            👑 Lead
+                          </span>
+                        ) : COS_ELIGIBLE_KINDS.includes(member.kind) ? (
+                          <DelegationToggle
+                            memberId={member.id}
+                            toolSlots={toolSlots}
+                            onSet={(next) =>
+                              setToolSlots((prev) => {
+                                const stripped = prev.filter(
+                                  (slot) =>
+                                    !(
+                                      (slot.tool.type === 'as_tool' && slot.tool.agent === member.id) ||
+                                      (slot.tool.type === 'handoff' && slot.tool.to === member.id)
+                                    ),
+                                )
+                                return [...stripped, newToolSlot(next)]
+                              })
+                            }
+                          />
+                        ) : null}
                         <button
                           type="button"
                           className="btn btn-ghost btn-xs ml-auto"
@@ -1445,5 +1480,70 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       )}
       </div>
     </Modal>
+  )
+}
+
+/**
+ * #839 — per-member delegation toggle in the roster list: `as tool` (the
+ * lead calls the member via its tool) or `handoff` (the lead passes the turn
+ * over). Inline segmented control replacing the old hidden-in-Tools-tab
+ * wiring; the choice lands in the same toolSlots the Tools pane serializes,
+ * so both views stay one source of truth.
+ */
+function DelegationToggle({
+  memberId,
+  toolSlots,
+  onSet,
+}: {
+  memberId: string
+  toolSlots: ToolSlot[]
+  onSet: (next: TeamToolDraft) => void
+}) {
+  const current: 'as_tool' | 'handoff' | null = toolSlots.some(
+    (slot) => slot.tool.type === 'as_tool' && slot.tool.agent === memberId,
+  )
+    ? 'as_tool'
+    : toolSlots.some((slot) => slot.tool.type === 'handoff' && slot.tool.to === memberId)
+      ? 'handoff'
+      : null
+  const setMode = (mode: 'as_tool' | 'handoff') => {
+    if (current === mode) return
+    onSet(mode === 'as_tool' ? { type: 'as_tool', agent: memberId } : { type: 'handoff', to: memberId })
+  }
+  return (
+    <span
+      className="inline-flex overflow-hidden rounded-full border border-base-300 text-[11px] leading-none"
+      data-testid="delegation-toggle"
+      data-member={memberId}
+      role="group"
+      aria-label={`How the lead uses ${memberId}`}
+    >
+      <button
+        type="button"
+        className={`px-2 py-1 transition-colors ${
+          current === 'as_tool'
+            ? 'bg-primary/15 font-semibold text-primary'
+            : 'text-base-content/55 hover:bg-base-200'
+        }`}
+        aria-pressed={current === 'as_tool'}
+        data-testid="delegation-as-tool"
+        onClick={() => setMode('as_tool')}
+      >
+        as tool
+      </button>
+      <button
+        type="button"
+        className={`px-2 py-1 transition-colors ${
+          current === 'handoff'
+            ? 'bg-primary/15 font-semibold text-primary'
+            : 'text-base-content/55 hover:bg-base-200'
+        }`}
+        aria-pressed={current === 'handoff'}
+        data-testid="delegation-handoff"
+        onClick={() => setMode('handoff')}
+      >
+        handoff
+      </button>
+    </span>
   )
 }

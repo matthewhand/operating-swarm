@@ -354,7 +354,7 @@ describe('TeamComposer first-launch overlay', () => {
     const select = await screen.findByTestId('team-cos-select')
     expandInstructions()
     expect(select).toBeDisabled()
-    expect(select).toHaveDisplayValue('First agent')
+    expect(select).toHaveDisplayValue('First agent (roster #1)')
     expect(within(screen.getByTestId('team-cos-fieldset')).queryByRole('option', { name: /no chief of staff/i })).not.toBeInTheDocument()
     expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)
     expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
@@ -362,7 +362,7 @@ describe('TeamComposer first-launch overlay', () => {
     await addAvailableAgent('API')
     const enabled = screen.getByTestId('team-cos-select')
     expect(enabled).not.toBeDisabled()
-    expect(enabled).toHaveDisplayValue('First agent')
+    expect(enabled).toHaveDisplayValue('First agent (roster #1)')
     expect(enabled).toHaveValue(FIRST_AGENT_VALUE)
     expect(screen.getByTestId('team-cos-instructions')).not.toBeDisabled()
   })
@@ -426,7 +426,7 @@ describe('TeamComposer first-launch overlay', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
     expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
-    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent (roster #1)')
     expect(screen.getByTestId('team-cos-select')).toHaveValue(FIRST_AGENT_VALUE)
     expect(screen.getByTestId('team-cos-instructions')).toHaveValue(
       'prefer grok_agent for revision control',
@@ -435,7 +435,7 @@ describe('TeamComposer first-launch overlay', () => {
     fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: 'grok' } })
     expect(screen.getByTestId('team-cos-select')).toHaveValue('grok')
     fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: FIRST_AGENT_VALUE } })
-    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent (roster #1)')
     expect(screen.getByTestId('team-cos-instructions')).not.toBeDisabled()
   })
 
@@ -444,7 +444,7 @@ describe('TeamComposer first-launch overlay', () => {
     await addAvailableAgent('Remote')
     expandInstructions()
     const select = screen.getByTestId('team-cos-select')
-    expect(select).toHaveDisplayValue('First agent')
+    expect(select).toHaveDisplayValue('First agent (roster #1)')
     expect(within(select).queryByRole('option', { name: /acp/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/cos n\/a/i)).not.toBeInTheDocument()
     expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
@@ -462,7 +462,7 @@ describe('TeamComposer first-launch overlay', () => {
     expect(within(rows[0]).getByText('Jeeves')).toBeInTheDocument()
     expect(within(rows[1]).getByTestId('roster-index')).toHaveTextContent('2')
     expect(within(rows[1]).getByText('grok')).toBeInTheDocument()
-    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent (roster #1)')
     expect(screen.getByTestId('team-cos-select')).toHaveValue(FIRST_AGENT_VALUE)
 
     fireEvent.drop(rows[0], {
@@ -474,7 +474,7 @@ describe('TeamComposer first-launch overlay', () => {
     expect(within(reordered[0]).getByTestId('roster-index')).toHaveTextContent('1')
     expect(within(reordered[1]).getByText('Jeeves')).toBeInTheDocument()
     expect(within(reordered[1]).getByTestId('roster-index')).toHaveTextContent('2')
-    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent')
+    expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent (roster #1)')
 
     fireEvent.change(screen.getByLabelText(/team name/i), {
       target: { value: 'Research Squad' },
@@ -851,5 +851,60 @@ describe('#841 — no backend jargon in user-facing copy', () => {
     expect(container.textContent).not.toMatch(/teams\.json/)
     expect(container.textContent).not.toMatch(/team_rosters\.json/)
     expect(container.textContent).toMatch(/Compose a roster of API, CLI, and remote agents/i)
+  })
+})
+
+describe('#839 — Team Lead naming, lead badge, per-member delegation toggle', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    agentsFixture = AGENTS
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  async function composerWithTwoApiMembers() {
+    renderComposer()
+    await addAvailableAgent('API') // jeeves → roster #1 (lead)
+    await addAvailableAgent('CLI') // grok → roster #2
+  }
+
+  it('labels the coordinator fieldset "Team Lead" with explanatory copy', async () => {
+    await composerWithTwoApiMembers()
+    const fieldset = screen.getByTestId('team-cos-fieldset')
+    expect(within(fieldset).getByText('Team Lead')).toBeInTheDocument()
+    expect(screen.getByTestId('team-lead-hint').textContent).toMatch(/Team Lead is the primary agent/i)
+  })
+
+  it('shows the 👑 Lead badge on the first roster member only', async () => {
+    await composerWithTwoApiMembers()
+    const members = screen.getAllByTestId('roster-member')
+    expect(members).toHaveLength(2)
+    expect(within(members[0]).getByTestId('roster-lead-badge')).toBeInTheDocument()
+    expect(within(members[1]).queryByTestId('roster-lead-badge')).toBeNull()
+  })
+
+  it('non-lead API/CLI members get an as tool | handoff toggle; choices persist into toolSlots', async () => {
+    await composerWithTwoApiMembers()
+    const second = screen.getAllByTestId('roster-member')[1]
+    const toggle = within(second).getByTestId('delegation-toggle')
+    expect(toggle.getAttribute('data-member')).toBe('grok')
+
+    fireEvent.click(within(toggle).getByTestId('delegation-as-tool'))
+    expect(within(toggle).getByTestId('delegation-as-tool')).toHaveAttribute('aria-pressed', 'true')
+    // Toggling again replaces rather than duplicates:
+    fireEvent.click(within(toggle).getByTestId('delegation-handoff'))
+    expect(within(toggle).getByTestId('delegation-handoff')).toHaveAttribute('aria-pressed', 'true')
+    expect(within(toggle).getByTestId('delegation-as-tool')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('remote members get no delegation toggle (they cannot be coordinated yet)', async () => {
+    renderComposer()
+    await addAvailableAgent('API')
+    await addAvailableAgent('Remote') // placeholder remote
+    const remoteMember = screen.getAllByTestId('roster-member')[1]
+    expect(within(remoteMember).queryByTestId('delegation-toggle')).toBeNull()
   })
 })

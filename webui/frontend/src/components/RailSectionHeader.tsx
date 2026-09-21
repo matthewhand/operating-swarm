@@ -4,7 +4,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import { Lock, LockOpen } from 'lucide-react'
+import { MessageSquare, MessageSquareOff } from 'lucide-react'
 import { DisclosureChevron } from './DisclosureChevron'
 import {
   EMPTY_SECTION_HINT,
@@ -132,10 +132,18 @@ export default function RailSectionHeader({
                 <button
                   type="button"
                   className="os-rail-section-lock"
-                  data-testid="rail-section-talk-lock"
+                  data-testid="rail-section-awareness-toggle"
                   aria-pressed={Boolean(internalOnly)}
-                  aria-label={internalOnly ? 'Talk internal only' : 'Talk externally'}
-                  title={internalOnly ? 'Talk internal only' : 'Talk externally'}
+                  aria-label={
+                    internalOnly
+                      ? 'Inter-agent awareness off — members isolated'
+                      : 'Inter-agent awareness on'
+                  }
+                  title={
+                    internalOnly
+                      ? 'Awareness off — members operate in isolation, unaware of section peers'
+                      : 'Awareness on — section peers share context and can route to one another'
+                  }
                   onClick={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
@@ -143,9 +151,9 @@ export default function RailSectionHeader({
                   }}
                 >
                   {internalOnly ? (
-                    <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                    <MessageSquareOff className="h-3.5 w-3.5" aria-hidden="true" />
                   ) : (
-                    <LockOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                    <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
                   )}
                 </button>
               ) : null}
