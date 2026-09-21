@@ -410,6 +410,54 @@ def enhance_user_prompt(prompt: str) -> str:
         return cleaned if cleaned else trimmed
     except Exception:
         return trimmed
+def draft_system_instruction(
+    *,
+    name: str = "",
+    brief: str = "",
+    current: str = "",
+) -> tuple[str, str]:
+    """#932: AI-assisted system-instruction drafting for the agent popup.
+
+    Returns ``(status, draft)`` where status is ``"success"`` when the default
+    LLM produced the draft and ``"fallback"`` when a heuristic template was
+    used because no LLM was reachable. Never raises.
+    """
+    agent = (name or "this agent").strip() or "this agent"
+    brief = (brief or "").strip()
+    current = (current or "").strip()
+    if not brief and not current:
+        brief = f"a general-purpose assistant named {agent}"
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You write system instructions for AI agents. Reply with the "
+                "instruction text only — no preamble, no code fences, no quotes. "
+                "Keep it under 120 words, concrete and behavioural."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Agent name: {agent}\n"
+                + (f"What the agent should do: {brief}\n" if brief else "")
+                + (f"Current instruction to improve:\n{current}\n" if current else "")
+                + "Write the improved system instruction."
+            ),
+        },
+    ]
+    try:
+        draft = default_chat(messages, max_tokens=400, timeout=30.0).strip()
+    except Exception:
+        draft = ""
+    if not draft:
+        role_bit = f" — {brief}" if brief else ""
+        draft = (
+            f"You are {agent}{role_bit}. Be concise and concrete. "
+            "When unsure, ask one clarifying question before acting."
+        )
+        return "fallback", draft
+    return "success", draft
 
 
 def _extract_json(text: str) -> Any:

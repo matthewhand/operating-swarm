@@ -4726,6 +4726,18 @@ const ChatPage = () => {
             <ComputerControlStub
               agentId={activeChatAgentId}
               agentName={selectedAgentName}
+              agentDetails={
+                selectedAgent
+                  ? {
+                      id: selectedAgent.id,
+                      name: selectedAgent.name,
+                      kind: (selectedAgent as { kind?: string | null }).kind ?? null,
+                      instructions: (selectedAgent as { instructions?: string | null }).instructions ?? null,
+                      provider: (selectedAgent as { provider?: string | null }).provider ?? null,
+                      model: (selectedAgent as { model?: string | null }).model ?? null,
+                    }
+                  : null
+              }
             />
             {/* #752: hide the dark/light toggle first on narrow viewports so the
                 agent identity and search stay prominent. */}

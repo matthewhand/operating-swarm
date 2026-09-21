@@ -32,6 +32,7 @@ from swarm.views.agent_router_views import (
     agent_context_view,
     agent_conversations_view,
     agent_delegations_view,
+    assist_draft_view,
     create_designed_agent,
     delegate_agent_view,
     delete_designed_agent,
@@ -483,6 +484,8 @@ urlpatterns = [
     path("v1/agents/remote-catalog/", list_remote_catalog, name="list_remote_catalog"),
     path("v1/agents/remote-launch/", launch_remote_framework, name="launch_remote_framework"),
     path("v1/agents/quickstarts/", generate_agent_quickstarts, name="generate_agent_quickstarts"),
+    # #932: AI-drafted system instructions for the agent popup's overlay writer.
+    path("v1/agents/assist-draft/", assist_draft_view, name="assist-draft"),
     path("v1/agents/design/", create_designed_agent, name="create_designed_agent"),
     path("v1/agents/designs/", list_designed_agents, name="list_designed_agents"),
     path("v1/agents/design/<str:agent_id>/", delete_designed_agent, name="delete_designed_agent"),

@@ -255,7 +255,7 @@ export function ComputerRoutinesPane({
                   <li key={routine.id}>
                     <button
                       type="button"
-                      className="flex items-start gap-3 text-left"
+                      className="btn btn-sm justify-start gap-3 border-base-300 bg-base-100 text-left hover:bg-base-200"
                       onClick={() => openEditor(routine)}
                     >
                       <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

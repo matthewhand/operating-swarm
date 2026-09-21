@@ -496,6 +496,11 @@ class CustomBlueprintDetailView(APIView):
                 "rail",
                 "source",
                 "remote",
+                # #932: the agent popup's inline customisation (instruction
+                # writer + provider/model pick) persists through PATCH.
+                "instructions",
+                "provider",
+                "model",
             ]:
                 if key in body:
                     item[key] = body[key]

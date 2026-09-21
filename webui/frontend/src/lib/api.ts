@@ -316,6 +316,10 @@ export interface Blueprint {
   suggestions_agent?: string | null
   /** Optional openai-agents workflow hint (handoff / as_tool). Metadata only. */
   workflow?: BlueprintWorkflow | string | null
+  /** #932: agent popup inline customisation (API seats). */
+  instructions?: string | null
+  provider?: string | null
+  model?: string | null
   /** Leftover webui/django-chat recipe. Pickers must hide these (REQ-75). */
   webui?: boolean | null
   /** REQ-170: true = AGENTS rail seat. Missing/false = catalog-only. */

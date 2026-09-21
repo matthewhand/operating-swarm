@@ -685,6 +685,29 @@ def generate_agent_quickstarts(request):
     return JsonResponse({"status": "success", "quickstarts": items})
 
 
+@enforce_api_auth
+@require_http_methods(["POST"])
+def assist_draft_view(request):
+    """#932: AI-draft a system instruction from a short brief (+ current text).
+
+    Never errors on LLM outage — degrades to a heuristic template so the
+    popup's overlay can always apply something.
+    """
+    from swarm.core.llm_assist import draft_system_instruction
+
+    try:
+        body = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    name = str(body.get("name") or "").strip()[:80]
+    brief = str(body.get("brief") or body.get("purpose") or "").strip()[:2000]
+    current = str(body.get("current") or body.get("system_prompt") or "").strip()[:4000]
+    draft_status, draft = draft_system_instruction(name=name, brief=brief, current=current)
+    return JsonResponse({"status": draft_status, "draft": draft})
+
+
 @require_http_methods(["GET"])
 def list_remote_catalog(request):
     """Remote agentic frameworks that can sit on the team like any other agent."""
