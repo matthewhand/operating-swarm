@@ -35,6 +35,7 @@ from swarm.core.roles.base import ROLE_CSS_CLASS_PREFIX
 from swarm.core.roles.registry import ROLE_REGISTRY
 
 ROLE_DEFAULT = "default"
+ROLE_ADMIN = "admin"
 ROLE_SUPPORT = "support"
 ROLE_GATE = "gate"
 ROLE_SKEPTIC = "skeptic"
@@ -247,14 +248,15 @@ def is_chief_of_staff(role: Any) -> bool:
 
 
 def can_manage_agent_lifecycle(role: Any) -> bool:
-    """True for Support / CoS — the only roles that get create/archive tools (REQ-154)."""
+    """True for Admin / Support / CoS — the only roles that get create/archive tools (REQ-154)."""
     canonical = normalize_agent_role(role)
-    return canonical == ROLE_SUPPORT or canonical == ROLE_CHIEF_OF_STAFF or is_chief_of_staff(role)
+    return canonical in (ROLE_ADMIN, ROLE_SUPPORT, ROLE_CHIEF_OF_STAFF) or is_chief_of_staff(role)
 
 
 def can_manage_topology(role: Any) -> bool:
-    """True for CoS only — section/talk-ACL tools (Issue #219). Support stays lifecycle-only."""
-    return is_chief_of_staff(role)
+    """True for Admin / CoS — section/talk-ACL tools (Issue #219). Support stays lifecycle-only."""
+    canonical = normalize_agent_role(role)
+    return canonical == ROLE_ADMIN or is_chief_of_staff(role)
 
 
 def role_css_class(role: Any) -> str:

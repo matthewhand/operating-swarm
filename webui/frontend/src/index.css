@@ -1575,6 +1575,10 @@ button.os-agent-row {
   outline-offset: 1px;
 }
 .os-agent-role-badge[data-role="support"] { color: #3d8f8a; }
+.os-agent-role-badge[data-role="admin"] {
+  color: #d97706;
+  font-weight: 600;
+}
 .os-agent-role-badge[data-role="gate"] { color: #c47a3a; }
 .os-agent-role-badge[data-role="skeptic"] { color: #7a6b9b; }
 .os-agent-role-badge[data-role="advisor"] { color: #8a7a4a; }

@@ -46,6 +46,16 @@ AUX_CANCEL_TYPE = "cancel_auxiliary"
 SPA_HELLO_TYPE = "spa_hello"
 
 
+def _is_bootstrap_turn(blueprint_id: str, params) -> bool:
+    """True when this turn should be served by the Bootstrap provider (#893)."""
+    try:
+        from swarm.core.bootstrap_provider import is_bootstrap_active
+
+        return is_bootstrap_active(blueprint_id, params)
+    except Exception:
+        return False
+
+
 async def _expand_model_messages(consumer, messages):
     """Inline image attachment bytes as OpenAI ``image_url`` parts (REQ-811)."""
     if not any(
@@ -786,6 +796,10 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                         await self.respond_with_team_stub(
                             params, message_text, contents_div_id
                         )
+                elif blueprint_id and _is_bootstrap_turn(blueprint_id, params):
+                    await self.respond_with_bootstrap(
+                        blueprint_id, contents_div_id, message_text, params=params
+                    )
                 elif blueprint_id:
                     await self.respond_with_blueprint(
                         blueprint_id, contents_div_id, params=params
@@ -949,6 +963,47 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 await self.emit_tool_event(payload)
         except Exception:
             logger.debug("teammate_task emit skipped", exc_info=True)
+
+    async def respond_with_bootstrap(
+        self, blueprint_id, contents_div_id, message_text, params=None
+    ):
+        """Deterministic onboarding reply for the Admin bootstrap seat (#893).
+
+        No LLM inference is called. Intent is detected via keyword scan and a
+        pre-written response is streamed character-by-character so the UI feels
+        live.  Kickstart chips are emitted as a ``suggestions`` tool event after
+        the text.
+        """
+        from swarm.core.bootstrap_provider import bootstrap_reply
+
+        _ = blueprint_id  # reserved for future per-agent customisation
+        _ = params
+        response = bootstrap_reply(message_text or "")
+        text: str = response["text"]
+        chips: list[str] = response.get("chips", [])
+
+        # Stream the reply in small chunks (word-by-word) for a live feel.
+        words = text.split(" ")
+        assembled: list[str] = []
+        for i, word in enumerate(words):
+            if self._cancel_event().is_set():
+                break
+            chunk = (word + " ") if i < len(words) - 1 else word
+            assembled.append(chunk)
+            await self.send(text_data=_oob_append_html(contents_div_id, chunk))
+            await asyncio.sleep(0.015)
+
+        full_text = "".join(assembled)
+        _record_turn(self, "assistant", full_text, ts=_message_ts())
+        final_html = render_to_string(
+            "websocket_partials/final_system_message.html",
+            {"contents_div_id": contents_div_id, "message": full_text},
+        )
+        await self.send(text_data=final_html)
+        await self._persist_completed_turn()
+
+        if chips:
+            await self.emit_tool_event({"type": "suggestions", "suggestions": chips})
 
     async def respond_with_blueprint(self, blueprint_id, contents_div_id, params=None):
         """Generate the assistant reply by running a discovered blueprint."""

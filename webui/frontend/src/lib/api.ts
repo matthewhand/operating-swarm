@@ -276,6 +276,7 @@ export interface ListResponse<T> {
 /** Visual / wiring role on a Team member (REQ-9 / REQ-25 / REQ-28 / REQ-42 / REQ-75). */
 export type AgentRole =
   | 'default'
+  | 'admin'
   | 'support'
   | 'gate'
   | 'skeptic'

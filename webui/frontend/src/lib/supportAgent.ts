@@ -5,6 +5,8 @@ import { buildSkillRequest } from './skills'
 
 /** Default Support seat — first in the conversation rail (badge-only role colour). */
 export const SUPPORT_AGENT_ID = 'support'
+/** Default Admin seat — zero-config onboarding seat (#893). */
+export const ADMIN_AGENT_ID = 'starter-admin'
 /** Catalog ids that ship for the gate seat (`tool_gate` is an alias). */
 export const GATE_AGENT_ID = 'gate'
 export const TOOL_GATE_AGENT_ID = 'tool_gate'
@@ -12,6 +14,7 @@ export const SKEPTIC_AGENT_ID = 'skeptic'
 
 const GATE_ID_ALIASES = new Set([GATE_AGENT_ID, TOOL_GATE_AGENT_ID, 'tool-gate', 'toolgate'])
 const SKEPTIC_ID_ALIASES = new Set([SKEPTIC_AGENT_ID, 'reviewer'])
+const ADMIN_ID_ALIASES = new Set([ADMIN_AGENT_ID, 'admin', 'administrator'])
 
 function stubBlueprint(
   id: string,
@@ -41,6 +44,14 @@ export const SYNTHETIC_SUPPORT: Blueprint = stubBlueprint(
   'support',
 )
 
+/** Synthetic Admin blueprint stub (#893) — shown when /v1/blueprints has no admin seat. */
+export const SYNTHETIC_ADMIN: Blueprint = stubBlueprint(
+  ADMIN_AGENT_ID,
+  'Admin',
+  'Onboarding guide and administrator. Configure your first LLM provider to unlock full AI.',
+  'admin',
+)
+
 export const SYNTHETIC_GATE: Blueprint = stubBlueprint(
   GATE_AGENT_ID,
   'Safety',
@@ -67,6 +78,10 @@ export function isSupportAgent(agent: { id: string; name?: string | null }): boo
   return agentId(agent) === SUPPORT_AGENT_ID || agentName(agent) === 'support'
 }
 
+export function isAdminAgent(agent: { id: string; name?: string | null }): boolean {
+  return ADMIN_ID_ALIASES.has(agentId(agent)) || agentName(agent) === 'admin'
+}
+
 export function isGateAgent(agent: { id: string; name?: string | null }): boolean {
   const name = agentName(agent)
   return (
@@ -81,9 +96,10 @@ export function isSkepticAgent(agent: { id: string; name?: string | null }): boo
   return SKEPTIC_ID_ALIASES.has(agentId(agent)) || agentName(agent) === 'skeptic'
 }
 
-/** Ensure Support / gate / skeptic exist even when /v1/blueprints has no such seat. */
+/** Ensure Support / Admin / gate / skeptic exist even when /v1/blueprints has no such seat. */
 export function ensureSupportAgent(agents: Blueprint[]): Blueprint[] {
   const next = [...agents]
+  if (!next.some(isAdminAgent)) next.unshift(SYNTHETIC_ADMIN)
   if (!next.some(isSupportAgent)) next.unshift(SYNTHETIC_SUPPORT)
   if (!next.some(isGateAgent)) next.push(SYNTHETIC_GATE)
   if (!next.some(isSkepticAgent)) next.push(SYNTHETIC_SKEPTIC)
@@ -92,8 +108,8 @@ export function ensureSupportAgent(agents: Blueprint[]): Blueprint[] {
 
 export function sortSupportFirst(agents: Blueprint[]): Blueprint[] {
   return [...agents].sort((a, b) => {
-    const as = isSupportAgent(a) ? 0 : 1
-    const bs = isSupportAgent(b) ? 0 : 1
+    const as = isSupportAgent(a) || isAdminAgent(a) ? 0 : 1
+    const bs = isSupportAgent(b) || isAdminAgent(b) ? 0 : 1
     if (as !== bs) return as - bs
     return (a.name || a.id).localeCompare(b.name || b.id)
   })

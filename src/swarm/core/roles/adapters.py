@@ -23,6 +23,7 @@ from swarm.core.roles.base import Role, RoleContext, RoleOutcome
 from swarm.core.roles.registry import register_role
 
 __all__ = [
+    "AdminRole",
     "DefaultRole",
     "SupportRole",
     "GateRole",
@@ -32,6 +33,29 @@ __all__ = [
     "EngineerRole",
     "SuggestionsRole",
 ]
+
+
+
+@register_role
+class AdminRole(Role):
+    """Administrator / onboarding seat (#893).
+
+    Has full lifecycle (create/archive agents) and topology (section ACL) authority.
+    When the agent provider is set to ``bootstrap``, the consumer routes turns through
+    the deterministic Bootstrap provider instead of LLM inference, guiding the user to
+    configure their first inference provider.
+    """
+
+    id: ClassVar[str] = "admin"
+    aliases: ClassVar[tuple[str, ...]] = ("admin", "administrator", "sysadmin")
+    label: ClassVar[str] = "Admin"
+    badge: ClassVar[str | None] = "Admin"
+    allowed_everywhere: ClassVar[bool] = True
+    mechanism: ClassVar[str] = "implement"
+    mechanism_detail: ClassVar[str] = (
+        "Administrator seat: full agent lifecycle + topology scope. "
+        "Onboards fresh installs via the Bootstrap provider when no LLM is configured."
+    )
 
 
 @register_role
@@ -46,6 +70,7 @@ class DefaultRole(Role):
     mechanism_detail: ClassVar[str] = (
         "Worker agent executing standard conversational turns without role overrides."
     )
+
 
 
 @register_role
