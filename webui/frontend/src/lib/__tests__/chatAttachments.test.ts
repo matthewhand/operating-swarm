@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   attachmentCaption,
+  attachmentCategory,
   composerFileAttachSupported,
   createPendingAttachment,
   dataTransferHasFiles,
@@ -63,7 +64,22 @@ describe('chatAttachments helpers', () => {
     expect(pending.name).toBe('notes.txt')
     expect(pending.status).toBe('uploading')
     expect(pending.previewUrl).toBeNull()
+    expect(pending.abortController).toBeInstanceOf(AbortController)
     expect(readyAttachmentIds([{ ...pending, uploadId: 'att-1' }])).toEqual(['att-1'])
     expect(attachmentCaption(['notes.txt'])).toBe('Attached notes.txt')
+  })
+
+  it('categorizes file types accurately', () => {
+    expect(attachmentCategory({ type: 'image/jpeg', name: 'photo.jpg' })).toBe('image')
+    expect(attachmentCategory({ name: 'graphic.PNG' })).toBe('image')
+    expect(attachmentCategory({ name: 'data.csv' })).toBe('table')
+    expect(attachmentCategory({ name: 'ledger.xlsx' })).toBe('table')
+    expect(attachmentCategory({ name: 'main.ts' })).toBe('code')
+    expect(attachmentCategory({ name: 'script.py' })).toBe('code')
+    expect(attachmentCategory({ name: 'config.json' })).toBe('code')
+    expect(attachmentCategory({ name: 'readme.md' })).toBe('code')
+    expect(attachmentCategory({ name: 'report.pdf' })).toBe('document')
+    expect(attachmentCategory({ name: 'notes.txt' })).toBe('document')
+    expect(attachmentCategory({ name: 'archive.tar.gz' })).toBe('other')
   })
 })

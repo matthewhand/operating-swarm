@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type ChangeEvent,
   type ClipboardEvent,
+  type DragEvent,
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
@@ -126,6 +127,7 @@ import ComposerAttachChips from '../components/ComposerAttachChips'
 import {
   attachmentCaption,
   createPendingAttachment,
+  dataTransferHasFiles,
   filesFromList,
   imageFilesFromClipboard,
   readyAttachmentIds,
@@ -197,7 +199,6 @@ import {
   scrollTranscriptToBottom,
 } from '../lib/composerInset'
 import {
-  dispatchSetComposerShowProvider,
   initialComposerShowProvider,
   COMPOSER_SHOW_PROVIDER_SET_EVENT,
   COMPOSER_SHOW_PROVIDER_STORAGE_KEY,
@@ -2922,6 +2923,33 @@ const ChatPage = () => {
   // keeps a constant control count and never shifts under the pointer.
   const composerBusy = status === 'open' && generationIsInFlight(messages, awaitingAssistant)
 
+  const [composerDragOver, setComposerDragOver] = useState(false)
+  const dragCounterRef = useRef(0)
+
+  const handleComposerDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer?.types)) return
+    event.preventDefault()
+    dragCounterRef.current += 1
+    if (dragCounterRef.current === 1) {
+      setComposerDragOver(true)
+    }
+  }, [])
+
+  const handleComposerDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer?.types)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const handleComposerDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer?.types)) return
+    event.preventDefault()
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1)
+    if (dragCounterRef.current === 0) {
+      setComposerDragOver(false)
+    }
+  }, [])
+
   const enqueueComposerFiles = useCallback((files: File[]) => {
     if (files.length === 0) return
     const room = Math.max(0, 8 - pendingAttachments.length)
@@ -2929,7 +2957,7 @@ const ChatPage = () => {
     if (incoming.length === 0) return
     setPendingAttachments((prev) => [...prev, ...incoming])
     incoming.forEach((item) => {
-      void uploadChatAttachment(item.file)
+      void uploadChatAttachment(item.file, item.abortController?.signal)
         .then((record) => {
           setPendingAttachments((prev) =>
             prev.map((row) =>
@@ -2939,7 +2967,13 @@ const ChatPage = () => {
             ),
           )
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          if (
+            (err instanceof DOMException && err.name === 'AbortError') ||
+            (err as { name?: string })?.name === 'AbortError'
+          ) {
+            return
+          }
           setPendingAttachments((prev) =>
             prev.map((row) =>
               row.localId === item.localId ? { ...row, status: 'error' } : row,
@@ -2949,21 +2983,68 @@ const ChatPage = () => {
     })
   }, [pendingAttachments.length])
 
+  const handleComposerDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!dataTransferHasFiles(event.dataTransfer?.types)) return
+      event.preventDefault()
+      dragCounterRef.current = 0
+      setComposerDragOver(false)
+      if (!composerMenu.addFiles.enabled) {
+        addToast({
+          type: 'info',
+          title: 'Add files',
+          message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
+        })
+        return
+      }
+      const files = filesFromList(event.dataTransfer?.files)
+      if (files.length > 0) {
+        enqueueComposerFiles(files)
+      }
+    },
+    [addToast, composerMenu.addFiles.enabled, composerMenu.addFiles.reason, enqueueComposerFiles],
+  )
+
   const handleComposerPaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
       const files = imageFilesFromClipboard(event.clipboardData)
       if (files.length === 0) return
       event.preventDefault()
+      if (!composerMenu.addFiles.enabled) {
+        addToast({
+          type: 'info',
+          title: 'Add files',
+          message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
+        })
+        return
+      }
       enqueueComposerFiles(files)
     },
-    [enqueueComposerFiles],
+    [addToast, composerMenu.addFiles.enabled, composerMenu.addFiles.reason, enqueueComposerFiles],
   )
 
   const clearPendingAttachments = useCallback(() => {
     setPendingAttachments((prev) => {
-      prev.forEach((item) => revokePreviewUrl(item.previewUrl))
+      prev.forEach((item) => {
+        item.abortController?.abort()
+        revokePreviewUrl(item.previewUrl)
+      })
       return []
     })
+  }, [])
+
+  const pendingAttachmentsRef = useRef(pendingAttachments)
+  useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments
+  }, [pendingAttachments])
+
+  useEffect(() => {
+    return () => {
+      pendingAttachmentsRef.current.forEach((item) => {
+        item.abortController?.abort()
+        revokePreviewUrl(item.previewUrl)
+      })
+    }
   }, [])
 
   const sendText = useCallback(
@@ -3168,16 +3249,24 @@ const ChatPage = () => {
   const submitUserText = useCallback(
     (text: string) => {
       const trimmed = text.trim()
-      if (!trimmed && readyAttachmentIds(pendingAttachments).length === 0) return
+      const readyAttach = readyAttachmentIds(pendingAttachments)
+      if (!trimmed && readyAttach.length === 0) return
       // REQ-845 / #167: never drop a typed message on a closed/connecting socket. Keep
       // it in the per-conversation queue; the drain effect sends it on reopen.
       if (status !== 'open') {
-        queued.enqueue(trimmed)
-        addToast({
-          type: 'info',
-          title: 'Queued',
-          message: 'Chat is reconnecting — your message will send when the socket is back.',
-        })
+        const fallbackText =
+          trimmed ||
+          (readyAttach.length > 0
+            ? attachmentCaption(pendingAttachments.map((item) => item.name))
+            : '')
+        if (fallbackText) {
+          queued.enqueue(fallbackText)
+          addToast({
+            type: 'info',
+            title: 'Queued',
+            message: 'Chat is reconnecting — your message will send when the socket is back.',
+          })
+        }
         return
       }
       // REQ-171A-3 / #603: queue before assistant_start, not only while
@@ -3200,7 +3289,14 @@ const ChatPage = () => {
           isApiBlueprintId(selectedBlueprint) ||
           (selectedAgent as { kind?: string } | undefined)?.kind === 'api'
         if (!apiSeatProven) {
-          queued.enqueue(trimmed)
+          const fallbackText =
+            trimmed ||
+            (readyAttach.length > 0
+              ? attachmentCaption(pendingAttachments.map((item) => item.name))
+              : '')
+          if (fallbackText) {
+            queued.enqueue(fallbackText)
+          }
           return
         }
       }
@@ -5279,7 +5375,19 @@ const ChatPage = () => {
                 recentIds={recentSlashIds}
               />
               <div className="os-composer-row">
-              <div className={`os-composer ${replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0 ? 'flex-col items-stretch !rounded-2xl !p-2' : ''} ${replyTarget ? 'os-composer--reply' : ''} ${queued.rows.length > 0 ? 'os-composer--queued' : ''}`}>
+              <div
+                className={`os-composer ${
+                  replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0
+                    ? 'flex-col items-stretch !rounded-2xl !p-2'
+                    : ''
+                } ${replyTarget ? 'os-composer--reply' : ''} ${
+                  queued.rows.length > 0 ? 'os-composer--queued' : ''
+                } ${composerDragOver ? 'os-composer--drag-over' : ''}`}
+                onDragEnter={handleComposerDragEnter}
+                onDragOver={handleComposerDragOver}
+                onDragLeave={handleComposerDragLeave}
+                onDrop={handleComposerDrop}
+              >
                 {/* #925: the queued pane mounts INSIDE .os-composer at the very
                     top, extending directly out of the message input box above
                     the reply and attachment preview strips. */}
@@ -5328,6 +5436,7 @@ const ChatPage = () => {
                   onRemove={(localId) => {
                     setPendingAttachments((prev) => {
                       const gone = prev.find((row) => row.localId === localId)
+                      gone?.abortController?.abort()
                       revokePreviewUrl(gone?.previewUrl)
                       return prev.filter((row) => row.localId !== localId)
                     })
@@ -5540,6 +5649,7 @@ const ChatPage = () => {
                     </span>
                   ) : null}
                 </div>
+                </div>{/* /os-composer */}
                 {/* #632: the primary action lives OUTSIDE the input box, to its
                     right. Idle: send (↑) when there is a draft. Busy: square
                     stop (□) — and the send stays beside it when a draft is
@@ -5567,7 +5677,6 @@ const ChatPage = () => {
                     <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
                   </button>
                 ) : null}
-              </div>
               </div>{/* /os-composer-row */}
             </div>
           </form>

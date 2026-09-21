@@ -2540,6 +2540,12 @@ button.os-agent-row {
   border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
   background: color-mix(in srgb, var(--color-base-200) 80%, var(--color-base-100));
 }
+.os-composer--drag-over {
+  border-color: var(--color-primary);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-base-200)) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
 .os-composer__input {
   flex: 1;
   min-width: 0;
@@ -3842,36 +3848,144 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 
 .os-attach-chip {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border-radius: 0.55rem;
+  border-radius: 0.5rem;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
   background: color-mix(in srgb, var(--color-base-200) 80%, var(--color-base-100));
   color: var(--color-base-content);
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
+  box-sizing: border-box;
+}
+
+.os-attach-chip--image {
+  width: 4rem;
+  height: 4rem;
+}
+
+.os-attach-chip--file {
+  height: 4rem;
+  min-width: 9rem;
+  max-width: 14rem;
+}
+
+.os-attach-chip__content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: calc(0.5rem - 1px);
+  overflow: hidden;
 }
 
 .os-attach-chip__thumb {
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 4rem;
+  height: 4rem;
   object-fit: cover;
-  border-radius: 0.35rem;
+  border-radius: calc(0.5rem - 1px);
+  display: block;
+}
+
+.os-attach-chip__file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.os-attach-chip__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+  flex-shrink: 0;
+}
+
+.os-attach-chip__details {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.os-attach-chip__name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-base-content);
+}
+
+.os-attach-chip__size {
+  font-size: 0.65rem;
+  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  margin-top: 0.15rem;
+}
+
+.os-attach-chip__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-radius: calc(0.5rem - 1px);
+  z-index: 10;
+}
+
+.os-attach-chip__overlay--uploading {
+  background: color-mix(in srgb, var(--color-base-100) 80%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+.os-attach-chip__overlay--error {
+  background: color-mix(in srgb, var(--color-error) 18%, var(--color-base-100));
+  border: 1px solid color-mix(in srgb, var(--color-error) 40%, transparent);
+  color: var(--color-error);
+}
+
+.os-attach-chip__error-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .os-attach-chip__remove {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  z-index: 20;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 0;
-  background: transparent;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   cursor: pointer;
-  opacity: 0.65;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
 .os-attach-chip__remove:hover {
-  opacity: 1;
+  background: var(--color-error, #ef4444);
+  color: #ffffff;
+  border-color: transparent;
+  transform: scale(1.1);
 }
 
 .os-chat-gap,

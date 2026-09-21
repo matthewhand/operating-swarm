@@ -230,9 +230,17 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 }
 
 /** Multipart POST. Do not set Content-Type — the browser supplies the boundary. */
-export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
-  const headers = buildHeaders(false)
+export async function apiPostForm<T>(
+  path: string,
+  body: FormData,
+  init?: RequestInit,
+): Promise<T> {
+  const headers = {
+    ...buildHeaders(false),
+    ...init?.headers,
+  }
   const response = await fetch(path, {
+    ...init,
     method: 'POST',
     headers,
     body,

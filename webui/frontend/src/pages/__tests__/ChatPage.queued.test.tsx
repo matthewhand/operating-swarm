@@ -72,24 +72,6 @@ function finishStreaming(ws: MockWebSocket, id = 'message-response-abc123', repl
   )
 }
 
-function deliverMockInference(ws: MockWebSocket, reply: string, id = 'message-response-mock1') {
-  ws.onmessage?.(
-    new MessageEvent('message', {
-      data: `<div id="message-list" hx-swap-oob="beforeend"><div class="user-message">echo</div></div>`,
-    }),
-  )
-  ws.onmessage?.(
-    new MessageEvent('message', {
-      data: `<div id="message-list" hx-swap-oob="beforeend"><div id="${id}" class="assistant-message"></div></div>`,
-    }),
-  )
-  ws.onmessage?.(
-    new MessageEvent('message', {
-      data: `<div id="${id}" class="assistant-message" hx-swap-oob="true">${reply}</div>`,
-    }),
-  )
-}
-
 
 async function openSocket() {
   await act(async () => {
