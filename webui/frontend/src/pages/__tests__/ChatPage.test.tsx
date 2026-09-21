@@ -4094,7 +4094,10 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
     // Reopening lands on stage 1 — descend into antigravity again, then pick
     // its probed model row.
     fireEvent.click(await screen.findByText('antigravity'))
-    fireEvent.click(await screen.findByText('grok-4'))
+    // #757: the closed pill now shows the leaf model, so the 'grok-4' row is
+    // no longer unique by text — click inside the two-stage dialog.
+    const pickerDialog = screen.getByTestId('composer-picker')
+    fireEvent.click(within(pickerDialog).getByText('grok-4'))
     // #743/#884: the pill reads specific-first (model / provider).
     expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'grok-4 / antigravity')
 
@@ -4194,8 +4197,9 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
       'title',
       'gemini-3.8-flash / agy / medium',
     )
-    // #629 + #743: the combined pill carries all three segments, specific-first.
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('gemini-3.8-flash/agy/medium')
+    // #757: the closed pill shows the leaf model only; the full path stays
+    // on title/data-value (asserted above via routing-face title).
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('gemini-3.8-flash')
 
     // #681/#682: the two-stage picker carries the effort pick — descend into
     // the agy provider, then the probed model row is a model-dimension pick,

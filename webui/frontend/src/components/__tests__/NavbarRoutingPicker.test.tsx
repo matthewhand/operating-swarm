@@ -65,11 +65,15 @@ describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
     document.documentElement.removeAttribute('dir')
   })
 
-  it('#629 + #743: renders ONE combined pill labelled model/provider/effort (specific-first)', () => {
+  it('#629 + #743 + #757: one pill; closed label is the LEAF, title/data-value keep the full path', () => {
     renderPicker()
     const pill = screen.getByTestId('routing-pill-agent')
-    expect(pill).toHaveTextContent('gemini-3.8-flash/agy/medium')
-    // #743: accessible title/data-value reflect the same inverted path.
+    // #757: the closed pill shows ONLY the most specific entity — the model
+    // for direct providers. No provider suffix, no effort segment.
+    expect(pill).toHaveTextContent('gemini-3.8-flash')
+    expect(pill).not.toHaveTextContent('/agy')
+    expect(pill).not.toHaveTextContent('medium')
+    // #743: accessible title/data-value still reflect the full inverted path.
     expect(pill).toHaveAttribute('title', 'gemini-3.8-flash / agy / medium')
     expect(pill).toHaveAttribute('data-value', 'gemini-3.8-flash / agy / medium')
     // The retired per-dimension pills are gone.
@@ -77,9 +81,11 @@ describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
     expect(screen.queryByTestId('routing-pill-effort')).not.toBeInTheDocument()
   })
 
-  it('#629: empty segments render as — and never leave dangling dividers', () => {
+  it('#757: with no model chosen the pill falls back to the agent name, never "—"', () => {
     renderPicker({ models: [], selectedModel: '', preferredEffort: undefined })
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('—/agy')
+    const pill = screen.getByTestId('routing-pill-agent')
+    expect(pill).toHaveTextContent('agy')
+    expect(pill).not.toHaveTextContent('—')
   })
 
   it('#504: every kind opens the palette (CLI included), not a flyout', () => {

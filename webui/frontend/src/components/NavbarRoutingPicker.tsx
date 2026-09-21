@@ -476,16 +476,20 @@ export function NavbarRoutingPicker({
 
   if (agents.length === 0 && !placeholder) return null
 
-  // #629: one combined trigger. #743: specific-first — `model/provider`
-  // (·effort when active) so truncation clips the generic provider suffix,
-  // never the exact model/agent. Empty segments render as `—`.
-  const combinedLabel = [
-    showModel ? modelLabel || '—' : null,
-    agentLabel || '—',
-    showEffort ? effortLabel || '—' : null,
-  ]
-    .filter((part): part is string => part !== null)
-    .join('/')
+  // #629: one combined trigger. #757: the closed pill displays ONLY the
+  // most specific entity — the model for direct providers, the sub-agent
+  // for multi-agent remotes, the remote name for single-agent remotes.
+  // The full inverted path (#743) stays on title/data-value and inside the
+  // two-stage dialog. "—" never appears on the closed pill: the label falls
+  // back through model → agent → placeholder.
+  const modelPart = showModel ? modelLabel : ''
+  // '—' and 'Agents' are group placeholders, not a bound entity — the closed
+  // pill must show the most specific BOUND thing (model → agent → placeholder).
+  const modelLeaf =
+    modelPart && modelPart !== '—' && modelPart !== 'Agents' ? modelPart : ''
+  const leafLabel = modelLeaf || agentLabel || placeholder || '—'
+  void showEffort
+  void effortLabel
 
   return (
     <div
@@ -508,7 +512,7 @@ export function NavbarRoutingPicker({
           openTwoStage()
         }}
       >
-        {pill(combinedLabel)}
+        {pill(leafLabel)}
       </div>
       {twoStage ? (
         twoStageDialog
