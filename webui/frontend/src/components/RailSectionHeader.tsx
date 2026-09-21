@@ -128,6 +128,27 @@ export default function RailSectionHeader({
               {displayName}
             </span>
             <span className="os-rail-section-tail" data-testid="rail-section-tail">
+              {custom ? (
+                <button
+                  type="button"
+                  className="os-rail-section-lock"
+                  data-testid="rail-section-talk-lock"
+                  aria-pressed={Boolean(internalOnly)}
+                  aria-label={internalOnly ? 'Talk internal only' : 'Talk externally'}
+                  title={internalOnly ? 'Talk internal only' : 'Talk externally'}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onToggleTalkLock?.()
+                  }}
+                >
+                  {internalOnly ? (
+                    <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                  ) : (
+                    <LockOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                </button>
+              ) : null}
               <span
                 className="os-rail-section-count inline group-hover/section:hidden"
                 data-testid="rail-section-count"
@@ -143,27 +164,6 @@ export default function RailSectionHeader({
               </span>
             </span>
           </button>
-          {custom ? (
-            <button
-              type="button"
-              className="os-rail-section-lock"
-              data-testid="rail-section-talk-lock"
-              aria-pressed={Boolean(internalOnly)}
-              aria-label={internalOnly ? 'Talk internal only' : 'Talk externally'}
-              title={internalOnly ? 'Talk internal only' : 'Talk externally'}
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                onToggleTalkLock?.()
-              }}
-            >
-              {internalOnly ? (
-                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-              ) : (
-                <LockOpen className="h-3.5 w-3.5" aria-hidden="true" />
-              )}
-            </button>
-          ) : null}
         </>
       )}
     </div>
