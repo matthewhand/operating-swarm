@@ -61,8 +61,8 @@ describe('#506: Settings Aesthetics section', () => {
     openAesthetics()
     const select = screen.getByRole('combobox', { name: 'Bubble theme' }) as HTMLSelectElement
     const options = Array.from(select.options).map((option) => option.value)
-    // All four registered themes, registry order.
-    expect(options).toEqual(['speech', 'simple', 'irc', 'feed'])
+    // All registered themes, registry order (#808: feed retired).
+    expect(options).toEqual(['speech', 'simple', 'irc'])
     expect(select).toHaveValue('speech') // DEFAULT_BUBBLE_THEME when unset
   })
 

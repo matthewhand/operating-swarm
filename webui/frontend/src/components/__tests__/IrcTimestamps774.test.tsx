@@ -10,9 +10,12 @@
  * Contract: IRC renders a timestamp cell on EVERY row — the real time when
  * known, an honest `--:--` when not — and every row carries the divider.
  */
+import fs from 'node:fs'
+import path from 'node:path'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ChatMessageBubble } from '../ChatMessageBubble'
+import { IrcNoticeLine } from '../IrcNoticeLine'
 
 function renderRow(overrides: Partial<Parameters<typeof ChatMessageBubble>[0]> = {}) {
   const props: Parameters<typeof ChatMessageBubble>[0] = {
@@ -59,18 +62,18 @@ describe('#774 IRC — timestamp on every line', () => {
   })
 })
 
-describe('#774 IRC — divider ownership (superseded by #721)', () => {
-  // #721 moved the divider to ONE transcript-level rail
-  // (`irc-gutter-rail`, covered by IrcGutterRowDivider675). Rows render
-  // without a per-row divider; system-preload keeps its pill path.
-  it('system-preload rows render without a per-row divider', () => {
-    renderRow({ role: 'system', isSystemPreload: true })
-    expect(screen.getByTestId('chat-system-preload')).toBeTruthy()
-    expect(screen.queryByTestId('irc-gutter-divider')).toBeNull()
+describe('#774 IRC — divider on every row', () => {
+  it('system-preload rows are covered by the transcript gutter rail', () => {
+    // #721 superseded the per-row divider: the transcript-level rail
+    // (`.os-irc-gutter-rail`) spans every row including system preloads.
+    const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf-8')
+    expect(css).toMatch(/\.os-chat-transcript\[data-bubble-theme=['"]irc['"]\] \.os-irc-gutter-rail/)
   })
 
-  it('regular rows render without a per-row divider', () => {
-    renderRow()
-    expect(screen.queryByTestId('irc-gutter-divider')).toBeNull()
+  it('notice rows render their own gutter divider span', () => {
+    render(
+      <IrcNoticeLine speaker="system" text="notice" rowKey="n1" />,
+    )
+    expect(screen.getByTestId('irc-gutter-divider')).toBeTruthy()
   })
 })

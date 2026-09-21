@@ -42,7 +42,6 @@ describe('streamReplies (#220)', () => {
     expect(streamingPartialEnabled({ theme: 'speech' })).toBe(true)
     expect(streamingPartialEnabled({ theme: 'simple' })).toBe(true)
     expect(streamingPartialEnabled({ theme: 'irc' })).toBe(true)
-    expect(streamingPartialEnabled({ theme: 'feed' })).toBe(false)
   })
 
   it('applies the seat override on top of the theme gate and user toggle', () => {
@@ -51,7 +50,7 @@ describe('streamReplies (#220)', () => {
     expect(streamingPartialEnabled({ theme: 'speech', seatId: 'support' })).toBe(false)
     saveSeatStreamReplies('support', true)
     expect(streamingPartialEnabled({ theme: 'speech', seatId: 'support' })).toBe(true)
-    expect(streamingPartialEnabled({ theme: 'feed', seatId: 'support' })).toBe(false)
+    expect(streamingPartialEnabled({ theme: 'simple', seatId: 'support' })).toBe(true)
     saveStreamReplies(true)
     saveSeatStreamReplies('support', false)
     expect(streamingPartialEnabled({ theme: 'speech', seatId: 'support' })).toBe(false)

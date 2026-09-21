@@ -519,7 +519,7 @@ describe('#217: per-theme timestamp placement and message layout', () => {
   const ts = '2026-09-03T06:54:00Z'
 
   function renderThemed(
-    theme: 'speech' | 'simple' | 'irc' | 'feed',
+    theme: 'speech' | 'simple' | 'irc',
   ) {
     return render(
       <ChatMessageBubble
@@ -566,15 +566,8 @@ describe('#217: per-theme timestamp placement and message layout', () => {
     expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
   })
 
-  it('feed keeps the clock above on a full-width line', () => {
-    renderThemed('feed')
-    const row = screen.getByLabelText('Codey message')
-    expect(row).toHaveAttribute('data-message-layout', 'line')
-    expect(row).toHaveAttribute('data-timestamp-placement', 'above')
-    const slot = screen.getByTestId('bubble-time-slot')
-    expect(slot).toHaveClass('chat-header')
-    expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
-  })
+  // #808: the feed theme is retired — its full-width-line presentation went
+  // with it. The theme list is pinned in bubbleTheme.test.ts.
 })
 
 describe('REQ-867: bubble click selects text; Edit lives in MessageRowActions', () => {

@@ -24,19 +24,19 @@ describe('bubbleTheme', () => {
     localStorage.removeItem(BUBBLE_THEME_STORAGE_KEY)
   })
 
-  it('lists four ids with Speech/Simple/IRC/Feed labels', () => {
-    expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc', 'feed'])
+  it('lists three ids with Speech/Simple/IRC labels (#808: feed retired)', () => {
+    expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc'])
     expect(BUBBLE_THEME_LABELS.speech).toBe('Speech')
     expect(BUBBLE_THEME_LABELS.simple).toBe('Simple')
     expect(BUBBLE_THEME_LABELS.irc).toBe('IRC')
-    expect(BUBBLE_THEME_LABELS.feed).toBe('Feed')
   })
 
   it('parses known ids and falls back to speech', () => {
     expect(parseBubbleTheme('speech')).toBe('speech')
     expect(parseBubbleTheme('simple')).toBe('simple')
     expect(parseBubbleTheme('irc')).toBe('irc')
-    expect(parseBubbleTheme('feed')).toBe('feed')
+    // #808: the retired theme id falls back to the default.
+    expect(parseBubbleTheme('feed')).toBe(DEFAULT_BUBBLE_THEME)
     expect(parseBubbleTheme('')).toBe(DEFAULT_BUBBLE_THEME)
     expect(parseBubbleTheme(null)).toBe('speech')
     expect(parseBubbleTheme('not-a-theme')).toBe('speech')
@@ -80,7 +80,7 @@ describe('bubbleTheme', () => {
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*width:\s*var\(--irc-gutter-px\)/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*font-size:\s*0\.8125rem/)
     expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\[data-speaker\]::before\s*\{[\s\S]*text-align:\s*right/)
-    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat-end[\s\S]*justify-content:\s*flex-start/)
+    expect(css).toMatch(/\[data-bubble-theme="irc"\] \.chat\s*\{[\s\S]*?justify-content:\s*flex-start/)
     expect(css).toMatch(/\[data-timestamp-placement="below"\]/)
     expect(css).toMatch(/\[data-timestamp-placement="inline"\]/)
   })
@@ -89,11 +89,9 @@ describe('bubbleTheme', () => {
     expect(bubbleThemeSupportsStreaming('speech')).toBe(true)
     expect(bubbleThemeSupportsStreaming('simple')).toBe(true)
     expect(bubbleThemeSupportsStreaming('irc')).toBe(true)
-    expect(bubbleThemeSupportsStreaming('feed')).toBe(false)
     expect(renderStreamingAffordance('speech')).toBe('caret')
     expect(renderStreamingAffordance('simple')).toBe('caret')
     expect(renderStreamingAffordance('irc')).toBe('block')
-    expect(renderStreamingAffordance('feed')).toBe('none')
     expect(BUBBLE_THEMES.every((id) => BUBBLE_THEME_STREAMING[id].id === id)).toBe(true)
   })
 
@@ -117,14 +115,12 @@ describe('bubbleTheme registry (#217)', () => {
         'speech',
         'simple',
         'irc',
-        'feed',
       ])
-      expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc', 'feed'])
+      expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc'])
       expect(BUBBLE_THEME_LABELS).toEqual({
         speech: 'Speech',
         simple: 'Simple',
         irc: 'IRC',
-        feed: 'Feed',
       })
       expect(allBubbleThemes().every((theme) => theme instanceof BubbleThemeBase)).toBe(true)
     },
@@ -155,14 +151,6 @@ describe('bubbleTheme registry (#217)', () => {
         messageLayout: 'line',
         timestampPlacement: 'inline',
         actionRowPlacement: 'overlay',
-        showAvatar: true,
-      })
-      expect(getBubbleTheme('feed').describe()).toEqual({
-        id: 'feed',
-        label: 'Feed',
-        messageLayout: 'line',
-        timestampPlacement: 'above',
-        actionRowPlacement: 'below',
         showAvatar: true,
       })
     },
@@ -212,7 +200,7 @@ describe('#782 — bubble-theme-aware notice rows', () => {
     )
 
     // #533 card themes keep their existing disclosure chrome.
-    for (const id of ['speech', 'simple', 'feed'] as const) {
+    for (const id of ['speech', 'simple'] as const) {
       const theme = getBubbleTheme(id)
       expect(theme.renderNoticeRow('System', 'ctx culled', undefined, 'k')).toMatchObject({
         kind: 'card',

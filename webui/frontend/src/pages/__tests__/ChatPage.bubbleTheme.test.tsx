@@ -151,7 +151,7 @@ describe('REQ-810: Chat right-click bubble theme select', () => {
   })
 
   it('registers every theme id for the rail-menu picker contract', () => {
-    expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc', 'feed'])
+    expect([...BUBBLE_THEMES]).toEqual(['speech', 'simple', 'irc']) // #808
     for (const id of BUBBLE_THEMES) {
       expect(BUBBLE_THEME_LABELS[id]).toBeTruthy()
     }

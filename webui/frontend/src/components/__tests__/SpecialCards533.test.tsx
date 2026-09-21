@@ -100,7 +100,7 @@ describe('#533b-transcript — status-role messages collapse automatically', () 
   })
 })
 
-const THEMES: BubbleTheme[] = ['speech', 'simple', 'irc', 'feed']
+const THEMES: BubbleTheme[] = ['speech', 'simple', 'irc']
 
 describe('#533b — status notices render as collapsible cards in every theme', () => {
   for (const theme of THEMES) {

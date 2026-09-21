@@ -36,7 +36,7 @@ describe('#676 Apply to all (Settings → Aesthetics)', () => {
 
   it('enabled with a count when overrides differ, and clicking clears them', async () => {
     setAgentBubbleTheme('codey', 'irc')
-    setAgentBubbleTheme('zeus', 'feed')
+    setAgentBubbleTheme('zeus', 'simple')
     await renderPane()
     const btn = await screen.findByTestId('aesthetics-apply-all')
     expect(btn).not.toHaveAttribute('disabled')

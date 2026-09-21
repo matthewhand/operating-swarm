@@ -2933,7 +2933,7 @@ html:not([data-theme="light"]) .os-composer__send,
 /* #520.1 — speech: anchor the avatar to the bottom of the message row so the
    bubble visually emanates from the speaker. The avatar spans both grid rows
    already; switching its self-alignment from start to end pins it alongside
-   the bubble's tail instead of the header. Speech-scoped: feed stacks rows in
+   the bubble's tail instead of the header. Speech-scoped (#808: feed retired):
    a column, where a flex-end self-alignment would mean something else. */
 .os-chat-transcript[data-bubble-theme="speech"] .chat-start:has(.chat-image) .chat-image {
   align-self: flex-end;
@@ -2950,18 +2950,15 @@ html:not([data-theme="light"]) .os-composer__send,
   display: none !important;
 }
 
-
-
 /* REQ-810: transcript-wide bubble themes (data-bubble-theme on .os-chat-transcript). */
 .os-bubble-meta .os-bubble-time {
   display: none;
 }
-.os-chat-transcript:not([data-bubble-theme="simple"]):not([data-bubble-theme="feed"])
+.os-chat-transcript:not([data-bubble-theme="simple"])
   .os-bubble-meta:not(:has([data-testid="edited-hint"])) {
   display: none;
 }
-.os-chat-transcript[data-bubble-theme="simple"] .os-bubble-meta,
-.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-meta {
+.os-chat-transcript[data-bubble-theme="simple"] .os-bubble-meta {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
@@ -2969,24 +2966,10 @@ html:not([data-theme="light"]) .os-composer__send,
   line-height: 1.2;
   opacity: 0.85;
 }
-/* #520.2 — feed keeps its speaker label; simple drops it (avatar-free look). */
-.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-meta::before {
-  content: attr(data-speaker);
-}
+/* #520.2 — simple drops the speaker label (avatar-free look). #808: feed retired. */
 .os-chat-transcript[data-bubble-theme="simple"] .os-bubble-meta::before {
   content: none;
 }
-.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-meta::before {
-  font-weight: 600;
-  opacity: 1;
-}
-.os-chat-transcript[data-bubble-theme="feed"] .os-bubble-time {
-  display: inline;
-  color: color-mix(in srgb, var(--color-base-content) 48%, transparent);
-  opacity: 1;
-  font-weight: 400;
-}
-
 /* #217: timestamp placement is a theme override (below / inline / above). */
 .os-chat-transcript[data-timestamp-placement="below"] .chat-footer .os-bubble-time,
 .os-chat-transcript [data-timestamp-placement="below"] .os-bubble-time {
@@ -3031,8 +3014,7 @@ html:not([data-theme="light"]) .os-composer__send,
   background-color: color-mix(in srgb, var(--color-neutral) 86%, var(--color-base-100) 14%) !important;
   color: var(--color-neutral-content) !important;
 }
-.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble,
-.os-chat-transcript[data-bubble-theme="feed"] .chat-bubble {
+.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble {
   background-color: transparent !important;
   background-image: none !important;
   color: inherit !important;
@@ -3046,9 +3028,7 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-chat-transcript[data-bubble-theme="simple"] .chat-bubble::before,
 .os-chat-transcript[data-bubble-theme="simple"] .chat-bubble::after,
 .os-chat-transcript[data-bubble-theme="irc"] .chat-bubble::before,
-.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble::after,
-.os-chat-transcript[data-bubble-theme="feed"] .chat-bubble::before,
-.os-chat-transcript[data-bubble-theme="feed"] .chat-bubble::after {
+.os-chat-transcript[data-bubble-theme="irc"] .chat-bubble::after {
   content: none !important;
   display: none !important;
 }
@@ -3179,25 +3159,6 @@ html:not([data-theme="light"]) .os-composer__send,
   margin-block: 0.25rem;
 }
 
-.os-chat-transcript[data-bubble-theme="feed"] .chat,
-.os-chat-transcript[data-bubble-theme="feed"] .chat-start,
-.os-chat-transcript[data-bubble-theme="feed"] .chat-end {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  width: 100%;
-  grid-template-columns: minmax(0, 1fr);
-}
-.os-chat-transcript[data-bubble-theme="feed"] .chat-end .chat-bubble,
-.os-chat-transcript[data-bubble-theme="feed"] .chat-start .chat-bubble,
-.os-chat-transcript[data-bubble-theme="irc"] .chat-end .chat-bubble,
-.os-chat-transcript[data-bubble-theme="irc"] .chat-start .chat-bubble {
-  grid-column-start: 1;
-  justify-self: start;
-  max-width: 100%;
-}
-
 .os-bubble-theme-submenu {
   display: none;
   position: absolute;
@@ -3267,26 +3228,6 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-chat-transcript[data-bubble-theme="irc"] .chat-header {
   display: none;
 }
-.os-chat-transcript[data-bubble-theme="feed"] .chat-end,
-.os-chat-transcript[data-bubble-theme="irc"] .chat-end {
-  align-items: flex-start;
-  justify-content: flex-start;
-}
-.os-chat-transcript[data-bubble-theme="feed"] .chat-end .chat-bubble {
-  justify-self: start;
-  margin-inline-start: 0;
-}
-
-/* #520.4 — feed: every card spans the full column width (no ragged right
-   edges from content-hugging) and gets roomier padding so rows breathe. The
-   flat transparent card look is unchanged. */
-.os-chat-transcript[data-bubble-theme="feed"] .chat-start .chat-bubble,
-.os-chat-transcript[data-bubble-theme="feed"] .chat-end .chat-bubble {
-  width: 100%;
-  max-width: 100%;
-  padding: 0.35rem 0.5rem;
-}
-
 /* #166: mirror the speech-bubble tail on both sides. DaisyUI draws it as
    `.chat-bubble::before` (0.75rem `--mask-chat`); pin the geometry so neither
    side is neutralized or clipped. */

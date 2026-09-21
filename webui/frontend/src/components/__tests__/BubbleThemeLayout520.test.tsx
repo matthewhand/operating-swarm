@@ -78,10 +78,6 @@ describe('#520.2 simple — no avatar, no speaker label', () => {
     expect(css).toMatch(
       /\[data-bubble-theme="simple"\] \.os-bubble-meta::before\s*\{[\s\S]*content:\s*none/,
     )
-    // feed keeps its speaker label — the drop is simple-scoped
-    expect(css).toMatch(
-      /\[data-bubble-theme="feed"\] \.os-bubble-meta::before\s*\{[\s\S]*content:\s*attr\(data-speaker\)/,
-    )
   })
 })
 
@@ -101,16 +97,8 @@ describe('#520.3 irc — full agent name, legible floor', () => {
   })
 })
 
-describe('#520.4 feed — full-width cards with roomier padding', () => {
-  it('cards span the column and gain padding', () => {
-    const css = cssText()
-    const marker = '[data-bubble-theme="feed"] .chat-start .chat-bubble,'
-    const start = css.lastIndexOf(marker)
-    expect(start).toBeGreaterThan(-1)
-    const end = css.indexOf('\n}', start)
-    const rule = css.slice(start, end)
-    expect(rule).toContain('width: 100%')
-    expect(rule).toContain('max-width: 100%')
-    expect(rule).toContain('padding: 0.35rem 0.5rem')
+describe('#520.4 retired — feed theme removed by #808', () => {
+  it('no feed theme rules remain in the stylesheet', () => {
+    expect(cssText()).not.toMatch(/\[data-bubble-theme="feed"\]/)
   })
 })

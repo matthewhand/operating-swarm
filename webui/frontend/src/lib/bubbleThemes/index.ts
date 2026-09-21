@@ -16,4 +16,4 @@ export {
   getRegisteredBubbleTheme,
   registerBubbleTheme,
 } from './registry'
-export { FeedTheme, IrcTheme, SimpleTheme, SpeechTheme } from './themes'
+export { IrcTheme, SimpleTheme, SpeechTheme } from './themes'

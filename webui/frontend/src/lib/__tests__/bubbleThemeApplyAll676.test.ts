@@ -39,14 +39,14 @@ describe('#676 per-agent bubble theme overrides', () => {
   it('overriddenBubbleThemeCount counts overrides differing from the default', () => {
     setAgentBubbleTheme('codey', 'irc')
     setAgentBubbleTheme('support', 'speech')
-    setAgentBubbleTheme('zeus', 'feed')
-    expect(overriddenBubbleThemeCount('speech')).toBe(2) // irc + feed differ
-    expect(overriddenBubbleThemeCount('irc')).toBe(2) // speech + feed differ
+    setAgentBubbleTheme('zeus', 'simple')
+    expect(overriddenBubbleThemeCount('speech')).toBe(2) // irc + simple differ
+    expect(overriddenBubbleThemeCount('irc')).toBe(2) // speech + simple differ
   })
 
   it('applyBubbleThemeToAll clears every override and reports the count', () => {
     setAgentBubbleTheme('codey', 'irc')
-    setAgentBubbleTheme('zeus', 'feed')
+    setAgentBubbleTheme('zeus', 'simple')
     expect(applyBubbleThemeToAll('speech')).toBe(2)
     expect(agentBubbleThemeOverrides()).toEqual({})
   })

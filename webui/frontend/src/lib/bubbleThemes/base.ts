@@ -1,7 +1,7 @@
 import { parseCreatedAtMs } from '../chatTime'
 import { statusLineLabel } from '../statusLineText'
 
-export type BubbleTheme = 'speech' | 'simple' | 'irc' | 'feed'
+export type BubbleTheme = 'speech' | 'simple' | 'irc'
 export type MessageLayout = 'bubble' | 'line'
 export type TimestampPlacement = 'below' | 'above' | 'inline'
 /** #505 / REQ-907 — where the message action/reaction row lives. */

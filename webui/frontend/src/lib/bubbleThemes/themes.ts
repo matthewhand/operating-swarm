@@ -44,14 +44,6 @@ export class IrcTheme extends BubbleThemeBase {
   }
 }
 
-/** Dense event feed: full-width line, timestamp above with the speaker. */
-export class FeedTheme extends BubbleThemeBase {
-  readonly id = 'feed' as const
-  readonly label = 'Feed'
-  override readonly messageLayout = 'line' as const
-}
-
 registerBubbleTheme(new SpeechTheme())
 registerBubbleTheme(new SimpleTheme())
 registerBubbleTheme(new IrcTheme())
-registerBubbleTheme(new FeedTheme())

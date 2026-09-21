@@ -8,7 +8,6 @@ import {
 export {
   allBubbleThemes,
   BubbleThemeBase,
-  FeedTheme,
   formatBubbleTime,
   IrcTheme,
   registerBubbleTheme,
@@ -48,7 +47,6 @@ export const BUBBLE_THEME_STREAMING: Record<BubbleTheme, BubbleThemeStreaming> =
   speech: { id: 'speech', supportsStreaming: true, renderStreamingAffordance: 'caret' },
   simple: { id: 'simple', supportsStreaming: true, renderStreamingAffordance: 'caret' },
   irc: { id: 'irc', supportsStreaming: true, renderStreamingAffordance: 'block' },
-  feed: { id: 'feed', supportsStreaming: false, renderStreamingAffordance: 'none' },
 }
 
 export function bubbleThemeSupportsStreaming(theme: BubbleTheme): boolean {
