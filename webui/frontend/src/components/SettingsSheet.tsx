@@ -115,6 +115,11 @@ import {
   type ContextStrategy,
 } from '../lib/contextCull'
 import {
+  dispatchSetComposerShowProvider,
+  initialComposerShowProvider,
+  COMPOSER_SHOW_PROVIDER_SET_EVENT,
+} from '../lib/composerShowProvider'
+import {
   initialNavbarThemeVisible,
   initialTheme,
   dispatchSetNavbarThemeVisible,
@@ -2197,6 +2202,9 @@ function GeneralPane({
 }) {
   const [themePref, setThemePref] = useState<Theme>(initialTheme)
   const [navbarVisible, setNavbarVisible] = useState<boolean>(initialNavbarThemeVisible)
+  const [composerShowProvider, setComposerShowProvider] = useState<boolean>(
+    initialComposerShowProvider,
+  )
   const [streamReplies, setStreamReplies] = useState<boolean>(loadStreamReplies)
   const bubbleTheme = loadBubbleTheme()
   const streamThemeOk = bubbleThemeSupportsStreaming(bubbleTheme)
@@ -2212,11 +2220,23 @@ function GeneralPane({
       const detail = (event as CustomEvent<boolean>).detail
       setNavbarVisible(Boolean(detail))
     }
+    const onComposerShowProviderToggle = (event: Event) => {
+      const detail = (event as CustomEvent<boolean>).detail
+      setComposerShowProvider(typeof detail === 'boolean' ? detail : initialComposerShowProvider())
+    }
     window.addEventListener(THEME_SET_EVENT, onSet)
     window.addEventListener(THEME_NAVBAR_SET_EVENT, onNavbarToggle)
+    window.addEventListener(
+      COMPOSER_SHOW_PROVIDER_SET_EVENT,
+      onComposerShowProviderToggle,
+    )
     return () => {
       window.removeEventListener(THEME_SET_EVENT, onSet)
       window.removeEventListener(THEME_NAVBAR_SET_EVENT, onNavbarToggle)
+      window.removeEventListener(
+        COMPOSER_SHOW_PROVIDER_SET_EVENT,
+        onComposerShowProviderToggle,
+      )
     }
   }, [])
 
@@ -2228,6 +2248,11 @@ function GeneralPane({
   const handleNavbarChange = (visible: boolean) => {
     setNavbarVisible(visible)
     dispatchSetNavbarThemeVisible(visible)
+  }
+
+  const handleComposerShowProviderChange = (visible: boolean) => {
+    setComposerShowProvider(visible)
+    dispatchSetComposerShowProvider(visible)
   }
 
   return (
@@ -2280,6 +2305,24 @@ function GeneralPane({
           </label>
           <p className="text-xs text-base-content/60">
             Show a quick theme toggle button in the top navigation bar.
+          </p>
+        </div>
+
+        <div className="form-control">
+          <label className="label cursor-pointer justify-start gap-4">
+            <input
+              type="checkbox"
+              className="toggle"
+              checked={composerShowProvider}
+              onChange={(e) => handleComposerShowProviderChange(e.target.checked)}
+              aria-label="Show provider in message bar"
+            />
+            <span className="label-text">Show provider in message bar</span>
+          </label>
+          <p className="text-xs text-base-content/60">
+            Show the provider and model selector inside the chat message input
+            field. On mobile, this renders as a compact branded logo. Disable to
+            maximize typing space.
           </p>
         </div>
 

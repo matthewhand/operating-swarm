@@ -197,6 +197,12 @@ import {
   scrollTranscriptToBottom,
 } from '../lib/composerInset'
 import {
+  dispatchSetComposerShowProvider,
+  initialComposerShowProvider,
+  COMPOSER_SHOW_PROVIDER_SET_EVENT,
+  COMPOSER_SHOW_PROVIDER_STORAGE_KEY,
+} from '../lib/composerShowProvider'
+import {
   buildDisplayItems,
   contextTextsForMeter,
   rawOffsetForMessage,
@@ -624,6 +630,10 @@ const ChatPage = () => {
   const [useSuggestions, setUseSuggestions] = useState(() =>
     teamFromUrl ? false : loadLocalUseSuggestions(defaultBlueprintId(searchParams.get('blueprint'))),
   )
+  /** #878: show/hide the provider routing picker in the message input bar. */
+  const [composerShowProvider, setComposerShowProvider] = useState(() =>
+    initialComposerShowProvider(),
+  )
   const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
   const [suggestionChips, setSuggestionChips] = useState<string[]>([])
   const [threadReady, setThreadReady] = useState(false)
@@ -722,12 +732,30 @@ const ChatPage = () => {
       if (event.key === BUBBLE_THEME_STORAGE_KEY || event.key === null) {
         setBubbleTheme(loadBubbleTheme())
       }
+      if (
+        event.key === COMPOSER_SHOW_PROVIDER_STORAGE_KEY ||
+        event.key === null
+      ) {
+        setComposerShowProvider(initialComposerShowProvider())
+      }
+    }
+    const onComposerShowProviderChanged = (event: Event) => {
+      const detail = (event as CustomEvent<boolean>).detail
+      setComposerShowProvider(typeof detail === 'boolean' ? detail : initialComposerShowProvider())
     }
     window.addEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
     window.addEventListener('storage', onStorage)
+    window.addEventListener(
+      COMPOSER_SHOW_PROVIDER_SET_EVENT,
+      onComposerShowProviderChanged,
+    )
     return () => {
       window.removeEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
       window.removeEventListener('storage', onStorage)
+      window.removeEventListener(
+        COMPOSER_SHOW_PROVIDER_SET_EVENT,
+        onComposerShowProviderChanged,
+      )
     }
   }, [])
   /** REQ-213: view-only hide. Raw transcript / summary tree on disk stay. */
@@ -4132,6 +4160,7 @@ const ChatPage = () => {
     [composerSources],
   )
   const renderRoutingPicker = () => {
+    if (!composerShowProvider) return null
     if (showRemotesControl && !showEmptyRemoteChrome) {
       return (
         <NavbarRoutingPicker

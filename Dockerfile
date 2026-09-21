@@ -1,6 +1,6 @@
 # ADR-001 SPA (`/` + `/chat`) is gitignored; bake dist into the image so
 # Docker/Fly pullers get the dashboard instead of Django index fallback.
-FROM node:22-bookworm-slim AS frontend
+FROM node:24-bookworm-slim AS frontend
 WORKDIR /frontend
 COPY webui/frontend/package.json webui/frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund --legacy-peer-deps
