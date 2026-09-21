@@ -625,5 +625,5 @@ def list_rail_agents(
     if herdr_payload is not None:
         seats.extend(_seats_from_herdr_agents(herdr_payload))
 
-    modes = _modes_from_cli_payload(cli_payload)
-    return [seat for seat in _dedupe(seats) if _seat_allowed_for_modes(seat, modes)]
+    # #736: product-modes gating is retired — every seat ships.
+    return [seat for seat in _dedupe(seats)]

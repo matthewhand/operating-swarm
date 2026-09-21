@@ -29,22 +29,20 @@ def _start_set(payload: dict) -> set[str]:
 
 
 def test_shipped_defaults_all_modes_on(monkeypatch):
-    """2026-09-20 user decision: the mode TOGGLE was unreliable, so every
-    surface ships enabled until that control is fixed. The resolve path still
-    honors an explicit ``settings.product_modes`` override (tested below)."""
+    """#736: gating is retired — starter configs no longer advertise the
+    product-modes key, and the catalog payload advertises all-on."""
     monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
     cfg = cli_catalog.build_starter_config()
-    modes = cfg["settings"]["product_modes"]
-    assert modes == {
+    assert "product_modes" not in cfg.get("settings", {})
+    payload = cli_catalog.cli_agents_catalog_payload({})
+    assert payload["modes"] == {
         "cli": True,
         "api": True,
         "blueprint": True,
         "team": True,
         "remote": True,
     }
-    payload = cli_catalog.cli_agents_catalog_payload({})
-    assert payload["modes"] == modes
-    assert set(payload["mode_limitations"]) == set(cli_catalog.PRODUCT_MODE_KEYS)
+    assert "mode_limitations" not in payload
     rail_ids = {row["id"] for row in payload["rail"]}
     assert "cli_agent" in rail_ids
     assert "api_agent" in rail_ids

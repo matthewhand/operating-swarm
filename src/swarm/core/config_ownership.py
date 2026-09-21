@@ -286,9 +286,9 @@ _INVENTORY: tuple[dict[str, Any], ...] = (
         "secret_fields": [],
         "env_twins": {},
         "notes": (
-            "CLI-first product modes (#151 / #149). Default CLI on; API / Blueprint / "
-            "Team / Remote off until Settings → Rail enables them. Disabled modes stay "
-            "out of the default rail/navbar. Rail/picker start from discovered host CLIs."
+            "RETIRED (#736): surfaces are always-on-if-configured. The key may "
+            "still exist in legacy swarm_config.json and is ignored. Archived "
+            "contract: docs/archive/product-modes.md."
         ),
     },
     {

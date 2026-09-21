@@ -152,7 +152,7 @@ def test_list_rail_agents_merges_and_dedupes():
     assert "team:research" not in {s.id for s in seats}
 
 
-def test_list_rail_agents_cli_first_modes_hide_disabled_surfaces():
+def test_list_rail_agents_modes_advertisement_is_advisory():
     def getter(url: str, headers: dict[str, str]) -> httpx.Response:
         if url.endswith("/v1/blueprints/"):
             return _response(
@@ -194,12 +194,10 @@ def test_list_rail_agents_cli_first_modes_hide_disabled_surfaces():
         raise AssertionError(url)
 
     seats = list_rail_agents(base_url="http://127.0.0.1:8000", getter=getter)
-    assert [s.id for s in seats] == ["support", "cli_agent"]
-    assert "api_agent" not in {s.id for s in seats}
-    assert "poets" not in {s.id for s in seats}
-    assert "hermes" not in {s.id for s in seats}
-    assert "team:office" not in {s.id for s in seats}
-    assert "herdr:workbox" not in {s.id for s in seats}
+    # #736: the modes advertisement is advisory — every configured seat ships
+    # even when the (retired) payload advertises it off.
+    ids = {s.id for s in seats}
+    assert {"support", "cli_agent", "api_agent", "poets", "remote:hermes", "team:office", "herdr:workbox"} <= ids
 
 
 def test_list_rail_agents_connection_error_is_honest():

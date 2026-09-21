@@ -461,7 +461,6 @@ import {
   resolveCurrentCli,
   MANAGE_CLI_VALUE,
 } from '../lib/cliAgentContext'
-import { productModesWhenSettled } from '../lib/productModes'
 import { recordBackendUse } from '../lib/backendAudit'
 import { isHiddenRoutingLabel, type RoutingSeatKind } from '../lib/routingPath'
 import {
@@ -1248,21 +1247,10 @@ const ChatPage = () => {
     isHerdrAgent(selectedAgent as { id?: string; kind?: string }) ||
     Boolean(selectedBlueprint && isHerdrAgent({ id: selectedBlueprint }))
 
-  /* #594: same loading-state contract as the rail — `cliQuery` has no
-     `initialData`, so reading it before it settles must not be read as "this
-     server advertises nothing". */
-  const productModes = useMemo(
-    () =>
-      productModesWhenSettled({
-        data: cliQuery.data,
-        settled: !cliQuery.isPending,
-        failed: cliQuery.isError,
-      }),
-    [cliQuery.data, cliQuery.isPending, cliQuery.isError],
-  )
+  /* #736: product-modes gating is retired — surfaces are always-on if
+     configured. The remote control shows for any remote-backed seat. */
   const showRemotesControl =
-    Boolean(remoteFromUrl) ||
-    (productModes.remote && (isRemoteAgent || isRemoteBackedTeam))
+    Boolean(remoteFromUrl) || Boolean(isRemoteAgent || isRemoteBackedTeam)
   // REQ-904 / #502: the binding subject is the agent — never the provider.
   // With `?remote=X` in the URL the user is viewing a remote *seat*; there is
   // no named agent in context, so nothing may be written under X itself.
@@ -4158,7 +4146,7 @@ const ChatPage = () => {
   const composerSessionsQuery = useQuery({
     queryKey: ['cli-sessions-composer', currentCli],
     queryFn: () => fetchCliSessions(selectedBlueprint, currentCli),
-    enabled: productModes.cli && isCliAgent && Boolean(currentCli) && composerSessionsOpen,
+    enabled: isCliAgent && Boolean(currentCli) && composerSessionsOpen,
     retry: false,
   })
   const composerCliSessions = useMemo<ReadonlyArray<{ id: string; label: string }>>(() => {
@@ -4364,7 +4352,7 @@ const ChatPage = () => {
         />
       )
     }
-    if (productModes.team && teamFromUrl) {
+    if (teamFromUrl) {
       // #755: team member routing is the same composer picker every other
       // seat uses — the legacy navbar <select> is retired. All members is
       // the first row (its id is the send-target sentinel 'all'); Manage
@@ -4414,7 +4402,7 @@ const ChatPage = () => {
         />
       )
     }
-    if (productModes.cli && isCliAgent) {
+    if (isCliAgent) {
       return (
         <NavbarRoutingPicker
           seatKind="cli"
@@ -4446,7 +4434,7 @@ const ChatPage = () => {
         />
       )
     }
-    if (productModes.api && isApiAgent) {
+    if (isApiAgent) {
       /* #108, #584: API seats route through LLM profiles, not host CLIs. */
       return (
         <NavbarRoutingPicker
@@ -4699,7 +4687,7 @@ const ChatPage = () => {
               agentName={selectedAgentName}
             />
           ) : null}
-          {productModes.api && isApiAgent ? (
+          {isApiAgent ? (
             /* #580: the rail offers Select/New session on API seats — the
                navbar now keeps that promise via the same declared capability
                (seatCapabilities), not a re-derived per-surface predicate. */

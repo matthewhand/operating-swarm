@@ -29,13 +29,11 @@ import {
   fetchBlueprints,
   fetchCustomBlueprints,
   fetchConfigOwnership,
-  fetchCliAgents,
   fetchChatRetentionStats,
   triggerChatRetentionAction,
   fetchLlmProfiles,
   fetchLocalStore,
   fetchRemotes,
-  patchConfigSection,
   patchLlmProfiles,
   updateBlueprintSource,
   type Blueprint,
@@ -83,13 +81,6 @@ import {
   loadHostnameOverride,
   saveBumpCompleted,
 } from '../lib/settingsPrefs'
-import {
-  PRODUCT_MODE_KEYS,
-  PRODUCT_MODE_LABELS,
-  PRODUCT_MODE_LIMITATIONS,
-  productModesWhenSettled,
-  type ProductModes,
-} from '../lib/productModes'
 import { HOSTNAME_CHANGED_EVENT, dispatchHostnameChanged } from '../lib/hostname'
 import { agentLabel, catalogLabel } from '../lib/supportAgent'
 import {
@@ -270,7 +261,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
     'audit', 'backend', 'activity', 'log', 'diagnostics',
     'Backend audit', 'Clear log', 'No sends recorded yet',
   ],
-  rail: ['avatar', 'order', 'bump', 'surfaces', 'Bump completed agents to top', 'Bump scope', 'Manage surfaces'],
+  rail: ['avatar', 'order', 'bump', 'Bump completed agents to top', 'Bump scope'],
   'image-gen': ['image', 'images', 'generation', 'diffusion'],
   speech: ['speech', 'tts', 'stt', 'audio', 'voice', 'read-aloud', 'read aloud'],
   system: ['system', 'sqlite', 'database', 'facts', 'config', 'Config coverage', 'env-only', 'secrets'],
@@ -505,7 +496,7 @@ export default function SettingsSheet({
               {(matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming']) ||
                 matchSearch('aesthetics', 'Aesthetics', ['bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance']) ||
                 matchSearch('hostname', 'Hostname', ['network', 'ip', 'domain', 'host', 'override']) ||
-                matchSearch('rail', 'Rail', ['avatar', 'order', 'bump', 'surfaces'])) ? (
+                matchSearch('rail', 'Rail', ['avatar', 'order', 'bump'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-1">
                     General & Appearance
@@ -546,7 +537,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('rail', 'Rail', ['avatar', 'order', 'bump', 'surfaces']) ? (
+                  {matchSearch('rail', 'Rail', ['avatar', 'order', 'bump']) ? (
                     <li>
                       <button
                         type="button"
@@ -2467,36 +2458,9 @@ function RailPane({
   onBumpScope: (next: BumpScope) => void
   demoRows?: Array<{ id: string; kind?: string | null }>
 }) {
-  const queryClient = useQueryClient()
-  const { success, error: toastError } = useToast()
   // #816: sidepane dock edge — local state so the toggle repaints instantly;
   // the save announces via CustomEvent so the rail and App mirror live.
   const [currentSide, setCurrentSide] = useState<RailSide>(() => loadRailSide())
-  const modesQuery = useQuery({
-    queryKey: ['cli-agents'],
-    queryFn: fetchCliAgents,
-    retry: 1,
-  })
-  /* #594: read the modes only once the fetch has settled. Before that the
-     checkboxes would paint all-on and then flip, and a toggle pressed during
-     that window would persist a default as if it were the user's choice. */
-  const modes = productModesWhenSettled({
-    data: modesQuery.data,
-    settled: !modesQuery.isPending,
-    failed: modesQuery.isError,
-  })
-  const limitations = modesQuery.data?.mode_limitations ?? PRODUCT_MODE_LIMITATIONS
-  const saveModes = useMutation({
-    mutationFn: (next: ProductModes) =>
-      patchConfigSection('settings', { upsert: { product_modes: next } }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['cli-agents'] })
-      success('Product modes', 'Saved successfully')
-    },
-    onError: () => {
-      toastError('Product modes', 'Could not save product modes')
-    },
-  })
   return (
     <div className="space-y-4">
       <div>
@@ -2542,33 +2506,9 @@ function RailPane({
         </h5>
         <DemoSectionProfileControl rows={demoRows ?? []} />
       </section>
-      <fieldset className="space-y-3" data-testid="product-modes">
-        <legend className="text-sm font-semibold">Manage surfaces</legend>
-        <p className="text-sm text-base-content/70">
-          Fresh install starts CLI-only from discovered host CLIs. Enable API,
-          Blueprint, Team, or Remote to show those rail/navbar affordances.
-        </p>
-        {PRODUCT_MODE_KEYS.map((key) => (
-          <label key={key} className="flex cursor-pointer items-start gap-4">
-            <input
-              type="checkbox"
-              className="toggle mt-0.5"
-              checked={modes[key]}
-              disabled={saveModes.isPending || modesQuery.isPending}
-              aria-label={`Manage ${PRODUCT_MODE_LABELS[key]}`}
-              onChange={(event) =>
-                saveModes.mutate({ ...modes, [key]: event.target.checked })
-              }
-            />
-            <span>
-              <span className="label-text">Manage {PRODUCT_MODE_LABELS[key]}</span>
-              <p className="mt-0.5 text-xs text-base-content/60">
-                {limitations[key] || PRODUCT_MODE_LIMITATIONS[key]}
-              </p>
-            </span>
-          </label>
-        ))}
-      </fieldset>
+      {/* #736: the 'Manage surfaces' product-modes fieldset is retired —
+          surfaces are always-on-if-configured; the gating contract is
+          archived in docs/archive/product-modes.md. */}
       <label className="label cursor-pointer justify-start gap-4">
         <input
           type="checkbox"

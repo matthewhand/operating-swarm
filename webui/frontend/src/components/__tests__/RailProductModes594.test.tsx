@@ -1,15 +1,11 @@
 /**
- * #594 — the rail painted every product-mode-gated surface on load and then
- * dropped the gated groups once `GET /v1/cli-agents/` settled, because a fetch
- * still in flight was read as "a legacy server that advertises nothing".
- *
- * The invariant asserted here is **monotonicity**: a row that has been painted is
- * never removed. Strict set-equality across settling is unreachable by design —
- * the CLI and API seats *are* the `/v1/cli-agents/` payload, so they cannot exist
- * before it resolves — but a rail that only ever gains rows is legible, which is
- * what the ticket asked for. The specific defect is the opposite direction, and
- * the first test fails on the unfixed tree because `codey` (a blueprint seat) is
- * painted while the modes are unknown and then taken away.
+ * #736 — product-modes gating is RETIRED: rail surfaces are **always-on if
+ * configured**. The former behavior (a settled `settings.product_modes`
+ * payload removing painted rows, #594/#151) is gone — a rail that paints a
+ * row never loses it to a modes advertisement, no matter what the payload
+ * says. The #685 invariant survives unchanged: a disabled kind is absent
+ * with no notice and no "enable in Settings" copy, because nothing is
+ * ever disabled.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
@@ -37,13 +33,12 @@ function blueprint(id: string, name: string, kind?: string) {
 }
 
 /**
- * `codey` is a blueprint seat (gated). `localc` is a CLI seat, and the `cli`
- * mode is on in both the pending defaults and the settled payload — so it is the
- * marker that proves the *catalog* feed (not the modes payload) has landed.
+ * `codey` is a blueprint seat. `localc` is a CLI seat — the marker that
+ * proves the catalog feed has landed.
  */
 const BLUEPRINTS = [blueprint('codey', 'Codey'), blueprint('localc', 'Local C', 'cli')]
 
-/** Kind rows come from `/v1/cli-agents/`, alongside the modes themselves. */
+/** Kind rows come from `/v1/cli-agents/`, alongside the (now advisory) modes. */
 const CLI_RAIL = [
   {
     id: 'cli_agent',
@@ -65,13 +60,14 @@ const CLI_RAIL = [
   },
 ]
 
-const SHIPPED_MODES = { cli: true, api: false, blueprint: false, team: false, remote: false }
+/** A legacy payload advertising every mode OFF — now ignored (#736). */
+const ALL_OFF_MODES = { cli: false, api: false, blueprint: false, team: false, remote: false }
 
 function ok(payload: unknown) {
   return { ok: true, status: 200, json: async () => payload } as Response
 }
 
-describe('#594 product modes settle before they paint the rail', () => {
+describe('#736 the rail is always-on if configured', () => {
   let resolveCli: (value: Response) => void
 
   /** `/v1/cli-agents/` is held open so "in flight" is a real, observed state. */
@@ -130,10 +126,7 @@ describe('#594 product modes settle before they paint the rail', () => {
     })
   }
 
-  /**
-   * Resolve the modes payload and wait until it has actually been applied — the
-   * caller names the row (or notice) that only exists once it has.
-   */
+  /** Resolve the modes payload and wait until it has actually been applied. */
   async function settle(payload: unknown, applied: () => void) {
     await act(async () => {
       resolveCli(ok(payload))
@@ -153,79 +146,46 @@ describe('#594 product modes settle before they paint the rail', () => {
     localStorage.clear()
   })
 
-  it('paints gated rows during flight (all-on workaround), and settles an explicit off by removing them', async () => {
+  it('a painted row is never removed by a modes advertisement (monotonic, always-on)', async () => {
     renderRail()
-    // 2026-09-20: shipped in-flight defaults are all-on (mode-toggle workaround),
-    // so the first paint shows every feed row — including gated `codey`.
     await flush()
     await waitFor(() => expect(rowIds()).toContain('localc'))
     const before = rowIds()
     expect(before).toContain('codey')
 
-    await settle({ clis: ['grok'], rail: CLI_RAIL, modes: SHIPPED_MODES }, () =>
+    await settle({ clis: ['grok'], rail: CLI_RAIL, modes: ALL_OFF_MODES }, () =>
       expect(rowIds()).toContain('cli_agent'),
     )
 
-    // Rows whose modes stay on are never removed; an *advertised* off is.
+    // #736: every row painted before the settle survives it — the off
+    // advertisement is advisory, never a gate.
+    for (const id of before) expect(rowIds()).toContain(id)
     expect(rowIds()).toContain('cli_agent')
-    expect(rowIds()).not.toContain('codey')
-    expect(rowIds()).not.toContain('api_agent')
+    expect(rowIds()).toContain('api_agent')
+    expect(rowIds()).toContain('codey')
   })
 
-  it('an all-on settled payload keeps every painted row (superset guarantee)', async () => {
+  it('#685: no notice, no enable-in-Settings copy — nothing is ever disabled', async () => {
     renderRail()
-    await flush()
-    await waitFor(() => expect(rowIds()).toContain('localc'))
-    const before = rowIds()
-
-    await settle(
-      { clis: ['grok'], rail: CLI_RAIL, modes: { cli: true, api: true, blueprint: true, team: true, remote: true } },
-      () => expect(rowIds()).toContain('api_agent'),
-    )
-
-    const after = rowIds()
-    expect(after).toContain('api_agent')
-    for (const id of before) expect(after).toContain(id)
-  })
-
-  it('#685: a disabled kind is completely absent — no notice, no enable-in-Settings copy', async () => {
-    renderRail()
-    await settle({ clis: ['grok'], rail: CLI_RAIL, modes: SHIPPED_MODES }, () =>
+    await settle({ clis: ['grok'], rail: CLI_RAIL, modes: ALL_OFF_MODES }, () =>
       expect(rowIds()).toContain('cli_agent'),
     )
 
-    expect(rowIds()).not.toContain('codey')
-    expect(rowIds()).not.toContain('api_agent')
     // The informative-noise pattern #685 bans, gone from every rail surface.
     expect(screen.queryByTestId('rail-mode-notice')).not.toBeInTheDocument()
     expect(document.body.textContent).not.toContain('hidden by product modes')
     expect(document.body.textContent).not.toContain('enable in Settings')
   })
 
-  it('never counts a mode-gated row as Hidden — Hide and a surface switch are different axes', async () => {
+  it('Hide stays its own axis — absence by hide is never confused with a mode', async () => {
     renderRail()
-    await settle({ clis: ['grok'], rail: CLI_RAIL, modes: SHIPPED_MODES }, () =>
+    await settle({ clis: ['grok'], rail: CLI_RAIL, modes: ALL_OFF_MODES }, () =>
       expect(rowIds()).toContain('cli_agent'),
     )
 
-    // `codey` and `api_agent` are gated out of the rows above, yet Hidden stays
-    // empty and offers no Unhide — the two reasons a row can be absent stay apart.
+    // No row is hidden by the (ignored) modes payload, so Hidden stays empty
+    // and offers no Unhide.
     expect(screen.getByTestId('hidden-bots-row').getAttribute('data-empty')).toBe('true')
     expect(screen.queryByTestId('os-hidden-bots-count')).not.toBeInTheDocument()
-  })
-
-  it('keeps the #149 legacy contract: a payload with no modes key shows every surface', async () => {
-    renderRail()
-    await flush()
-    await waitFor(() => expect(rowIds()).toContain('localc'))
-
-    await settle({ clis: ['grok'], rail: CLI_RAIL }, () =>
-      expect(rowIds()).toContain('api_agent'),
-    )
-
-    // A settled payload that advertises no `modes` key is the legacy case and
-    // keeps every surface, exactly as #149 defined it.
-    await waitFor(() => expect(rowIds()).toContain('codey'))
-    expect(rowIds()).toContain('api_agent')
   })
 })

@@ -56,7 +56,6 @@ import {
   loadDynamicSubagents,
   type DynamicSubagent,
 } from '../lib/dynamicSubagents'
-import { productModesWhenSettled } from '../lib/productModes'
 import { useOptionalToast } from './DaisyUI'
 import {
   CLI_PROCESS_STOPPED_TOAST,
@@ -1257,31 +1256,14 @@ export default function AgentSidebar({
   const visibleCount = visibleAgents.length + visibleTeams.length + visibleRemotes.length
   const loadingList = !propBlueprints && blueprintsQuery.isPending && teamsQuery.isPending
   const loadFailed = blueprintsQuery.isError && teamsQuery.isError && visibleCount === 0
-  /* #594: `cliQuery` carries the product modes and has no `initialData`, so
-     reading it while it is still in flight used to mean "a legacy server that
-     advertises nothing" — every surface on. The rail therefore painted
-     CLI + API + blueprint + team + remote rows and then dropped the gated
-     groups a moment later. Start from the narrowest rail and grow. */
-  const productModes = useMemo(
-    () =>
-      productModesWhenSettled({
-        data: cliQuery.data,
-        settled: !cliQuery.isPending,
-        failed: cliQuery.isError,
-      }),
-    [cliQuery.data, cliQuery.isPending, cliQuery.isError],
-  )
+  /* #736: product-modes gating is retired — surfaces are always-on if
+     configured. Every group renders from the payloads alone. */
   const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
-  const cliAgents = productModes.cli
-    ? visibleAgents.filter((agent) => isCliRailAgent(agent))
-    : []
-  const apiAgents = productModes.api
-    ? visibleAgents.filter((agent) => isApiRailAgent(agent))
-    : []
+  const cliAgents = visibleAgents.filter((agent) => isCliRailAgent(agent))
+  const apiAgents = visibleAgents.filter((agent) => isApiRailAgent(agent))
   const otherAgents = visibleAgents.filter((agent) => {
     if (isSupportAgent(agent) || isCliRailAgent(agent) || isApiRailAgent(agent)) return false
-    if (isHerdrAgent(agent)) return productModes.remote
-    return productModes.blueprint
+    return true
   })
   const catalogRows = useMemo<RailRow[]>(() => {
     const supportRows: RailRow[] = supportAgents.map((agent) => ({
@@ -1299,20 +1281,16 @@ export default function AgentSidebar({
       id: agent.id,
       agent,
     }))
-    const teamRows: RailRow[] = productModes.team
-      ? visibleRootTeams.map((team) => ({
-          kind: 'team',
-          id: teamHideId(team.id),
-          team,
-        }))
-      : []
-    const remoteRows: RailRow[] = productModes.remote
-      ? visibleRemotes.map((remote) => ({
-          kind: 'remote',
-          id: remoteHideId(remote.id),
-          remote,
-        }))
-      : []
+    const teamRows: RailRow[] = visibleRootTeams.map((team) => ({
+      kind: 'team',
+      id: teamHideId(team.id),
+      team,
+    }))
+    const remoteRows: RailRow[] = visibleRemotes.map((remote) => ({
+      kind: 'remote',
+      id: remoteHideId(remote.id),
+      remote,
+    }))
     const otherRows: RailRow[] = otherAgents.map((agent) => ({
       kind: 'agent',
       id: agent.id,
@@ -1322,7 +1300,7 @@ export default function AgentSidebar({
       [...supportRows, ...cliRows, ...apiRows, ...teamRows, ...remoteRows, ...otherRows],
       pins,
     )
-  }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins, productModes])
+  }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins])
   const orderedRows = useMemo(
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],

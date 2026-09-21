@@ -169,22 +169,18 @@ def test_listed_cli_specs_are_first_class_sidebar_agents():
 def test_rail_cli_rows_use_named_kind_ids():
     rows = {r["id"]: r for r in cli_catalog.rail_cli_rows()}
     assert "cli_agent" in rows
-    assert "api_agent" in rows  # all-on defaults since the toggle workaround
+    assert "api_agent" in rows
     assert rows["cli_agent"]["kind"] == "cli"
     assert rows["cli_agent"]["name"] == "cli_agent"
-    # An explicit off still gates.
+    # #736: gating is retired — a legacy stored off still shows the seat.
     disabled = {
         r["id"]: r
         for r in cli_catalog.rail_cli_rows({"settings": {"product_modes": {"api": False}}})
     }
-    assert "api_agent" not in disabled
-    enabled = {
-        r["id"]: r
-        for r in cli_catalog.rail_cli_rows({"settings": {"product_modes": {"api": True}}})
-    }
-    assert set(enabled) == {"cli_agent", "api_agent"}
-    assert enabled["api_agent"]["kind"] == "api"
-    assert enabled["api_agent"]["name"] == "api_agent"
+    assert "api_agent" in disabled
+    assert set(disabled) == {"cli_agent", "api_agent"}
+    assert disabled["api_agent"]["kind"] == "api"
+    assert disabled["api_agent"]["name"] == "api_agent"
     assert cli_catalog.cli_from_rail_id("grok_agent") == "grok"
     assert cli_catalog.cli_from_rail_id("agy") == "agy"
     assert cli_catalog.cli_from_rail_id("grok") == "grok"
@@ -250,8 +246,8 @@ def test_build_starter_config_empty_host_still_valid():
     assert cfg["cli_agents"] == {}
     assert "llm" in cfg
     assert "cli_fusion" not in cfg  # nothing to wire
-    assert cfg["settings"]["product_modes"]["cli"] is True
-    assert cfg["settings"]["product_modes"]["api"] is True  # all-on defaults
+    # #736: starter configs no longer advertise the product-modes key.
+    assert "product_modes" not in cfg.get("settings", {})
 
 
 def test_build_starter_config_round_trips_through_registry():

@@ -94,9 +94,10 @@ describe('navbar agreement', () => {
   it('the navbar mounts the API session switcher under the declared capability', () => {
     const src = chatPageSrc()
     expect(src).toContain('ApiSessionSwitcher')
-    // Gated by productModes.api && isApiAgent — the navbar's declared-kind
-    // gate, not a fabricated currentCli resolution.
-    expect(src).toMatch(/productModes\.api && isApiAgent[^]*?ApiSessionSwitcher/)
+    // Gated by isApiAgent — the navbar's declared-kind gate (#736: the
+    // former productModes AND-layer is retired), not a fabricated
+    // currentCli resolution.
+    expect(src).toMatch(/isApiAgent \? \([^]*?ApiSessionSwitcher/)
   })
 
   it('neither surface derives the gate from a possibly-fabricated currentCli (#566)', () => {
