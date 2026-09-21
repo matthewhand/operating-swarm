@@ -2856,6 +2856,14 @@ html:not([data-theme="light"]) .os-composer__send,
   border-radius: 0.75rem;
   background: color-mix(in srgb, var(--color-base-200) 72%, transparent);
 }
+/* #925: queued sends mounted directly inside .os-composer */
+.os-composer .os-queued-pane {
+  width: 100%;
+  margin: 0 0 0.35rem;
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--color-base-200) 65%, transparent);
+}
+
 .os-queued-pane__list {
   display: flex;
   flex-direction: column;

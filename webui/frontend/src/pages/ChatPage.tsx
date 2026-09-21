@@ -5227,21 +5227,6 @@ const ChatPage = () => {
           className="os-chat-bottom-dock sticky bottom-0 z-20 -mx-2 sm:-mx-3 -mb-3 bg-base-100 border-t border-base-content/5"
           data-testid="chat-bottom-dock"
         >
-          {/* #885: the queued pane renders INSIDE the dock so the dock's
-              negative top margin can no longer pull the dock up over it —
-              the inset measurement now includes the pane's own height, and
-              queued rows are visible above the composer on every seat kind. */}
-          <QueuedSendPane
-            rows={queued.rows}
-            maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
-            onChangeText={queued.update}
-            onDelete={queued.remove}
-            onClearAll={queued.clearAll}
-            onHoldIdsChange={setQueuedHoldIds}
-            interruptible={
-              status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
-            }
-          />
 
           {showDemoChips ? (
             <SuggestionChips
@@ -5294,7 +5279,21 @@ const ChatPage = () => {
                 recentIds={recentSlashIds}
               />
               <div className="os-composer-row">
-              <div className={`os-composer ${replyTarget || pendingAttachments.length > 0 ? 'flex-col items-stretch !rounded-2xl !p-2' : ''} ${replyTarget ? 'os-composer--reply' : ''}`}>
+              <div className={`os-composer ${replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0 ? 'flex-col items-stretch !rounded-2xl !p-2' : ''} ${replyTarget ? 'os-composer--reply' : ''} ${queued.rows.length > 0 ? 'os-composer--queued' : ''}`}>
+                {/* #925: the queued pane mounts INSIDE .os-composer at the very
+                    top, extending directly out of the message input box above
+                    the reply and attachment preview strips. */}
+                <QueuedSendPane
+                  rows={queued.rows}
+                  maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
+                  onChangeText={queued.update}
+                  onDelete={queued.remove}
+                  onClearAll={queued.clearAll}
+                  onHoldIdsChange={setQueuedHoldIds}
+                  interruptible={
+                    status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
+                  }
+                />
                 {replyTarget && (
                   <div
                     className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs text-base-content/70 border-b border-base-content/10 mb-1 w-full"
@@ -5334,7 +5333,7 @@ const ChatPage = () => {
                     })
                   }}
                 />
-                <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget ? 'w-full' : 'flex-1'}`}>
+                <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0 ? 'w-full' : 'flex-1'}`}>
                   <div className="relative" ref={plusRef}>
                     <input
                       ref={fileInputRef}

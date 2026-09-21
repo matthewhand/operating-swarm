@@ -72,6 +72,25 @@ function finishStreaming(ws: MockWebSocket, id = 'message-response-abc123', repl
   )
 }
 
+function deliverMockInference(ws: MockWebSocket, reply: string, id = 'message-response-mock1') {
+  ws.onmessage?.(
+    new MessageEvent('message', {
+      data: `<div id="message-list" hx-swap-oob="beforeend"><div class="user-message">echo</div></div>`,
+    }),
+  )
+  ws.onmessage?.(
+    new MessageEvent('message', {
+      data: `<div id="message-list" hx-swap-oob="beforeend"><div id="${id}" class="assistant-message"></div></div>`,
+    }),
+  )
+  ws.onmessage?.(
+    new MessageEvent('message', {
+      data: `<div id="${id}" class="assistant-message" hx-swap-oob="true">${reply}</div>`,
+    }),
+  )
+}
+
+
 async function openSocket() {
   await act(async () => {
     MockWebSocket.instances[0]?.open()
@@ -104,6 +123,15 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
             status: 200,
             json: async () => ({
               rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/blueprints')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [{ id: 'support', name: 'Support', description: 'Support agent' }],
             }),
           } as Response
         }
@@ -634,4 +662,63 @@ describe('ChatPage stop button (#223)', () => {
     expect(ws.send).not.toHaveBeenCalled()
     expect(screen.getByTestId('queued-row')).toHaveTextContent('cli queue')
   })
+
+  describe('#925 queued sends inside composer', () => {
+    it('renders queued sends inside .os-composer extending out of the input card', async () => {
+      renderChat()
+      const ws = await openSocket()
+      await act(async () => {
+        startStreaming(ws)
+      })
+      fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+        target: { value: 'queued inside composer' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+      const composer = document.querySelector('.os-composer')!
+      expect(composer).toBeTruthy()
+      expect(within(composer as HTMLElement).getByTestId('queued-send-pane')).toBeTruthy()
+      expect(composer).toHaveClass('os-composer--queued')
+    })
+
+    it('renders queued sends directly above the reply strip when both exist', async () => {
+      renderChat()
+      const ws = await openSocket()
+      await act(async () => {
+        startStreaming(ws, 'message-response-1')
+      })
+      await act(async () => {
+        finishStreaming(ws, 'message-response-1', 'Hello there')
+      })
+
+      await act(async () => {
+        startStreaming(ws, 'message-response-2')
+      })
+
+      // Queue a message while turn 2 is in flight
+      fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+        target: { value: 'queued message' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+      // Arm reply on the prior message
+      const bubble = await screen.findByText('Hello there')
+      fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+      const replyBtn = await screen.findByTestId('context-menu-reply')
+      fireEvent.click(replyBtn)
+
+      const composer = document.querySelector('.os-composer')!
+      expect(composer).toBeTruthy()
+      const queuedPane = within(composer as HTMLElement).getByTestId('queued-send-pane')
+      const replyStrip = within(composer as HTMLElement).getByTestId('composer-reply-strip')
+      expect(queuedPane).toBeInTheDocument()
+      expect(replyStrip).toBeInTheDocument()
+
+      // Queued pane must sit directly above the reply strip
+      expect(queuedPane.compareDocumentPosition(replyStrip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+  })
 })
+
+
+
