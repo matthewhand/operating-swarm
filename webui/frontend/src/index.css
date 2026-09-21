@@ -412,6 +412,35 @@ html:not([data-theme="light"]) .os-composer-wrap,
    rather than taking width from the pane, so revealing it cannot shift the
    chat pane. Concealed it is `opacity: 0` + `pointer-events: none` — never
    `display: none`, so it stays in the tab order and keeps its height. */
+/* #741: hover/focus/active also draws a full-height structural spine along
+   the divider, so the pill reads as a notch in the rail's edge, not a
+   detached floating chip. */
+.os-rail-resizer {
+  --os-rail-spine: transparent;
+}
+.os-rail-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--os-rail-spine);
+  pointer-events: none;
+}
+.os-rail-resizer--right::after {
+  left: 50%;
+}
+.os-rail-resizer:hover,
+.os-rail-resizer:focus-visible,
+.os-rail-resizer--active {
+  --os-rail-spine: color-mix(
+    in srgb,
+    var(--color-primary, #3b82f6) 55%,
+    transparent
+  );
+}
 .os-rail-divider-pill {
   position: absolute;
   top: 40%;
@@ -1578,6 +1607,38 @@ button.os-agent-row {
 }
 .os-agent-sidebar--avatar-only .os-rail-scroller::-webkit-scrollbar {
   width: 0;
+}
+
+/* #765: fully collapsed (0px, divider-only). The pane body folds away and
+   what remains is the border spine with the expand pill riding it. The pill
+   must be visible *without hover* here — it is the only way back. */
+.os-agent-sidebar--collapsed {
+  overflow: visible;
+  border-right-width: 1px;
+  background: var(--os-chrome-sidebar, var(--color-base-100, #ffffff));
+}
+.os-rail-resizer--right + .os-agent-sidebar--collapsed,
+.os-agent-sidebar--collapsed .os-rail-scroller,
+.os-agent-sidebar--collapsed .os-rail-search-row,
+.os-agent-sidebar--collapsed > .flex,
+.os-agent-sidebar--collapsed .os-rail-scroll-fade {
+  display: none;
+}
+.os-agent-sidebar--collapsed .os-rail-divider-pill,
+.os-agent-sidebar--collapsed .os-rail-resizer:hover .os-rail-divider-pill,
+.os-agent-sidebar--collapsed .os-rail-resizer:focus-within .os-rail-divider-pill {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* The resizer is positioned at the pane's edge; at 0px the pane is flush
+   with the viewport edge, so pin the hit-zone to the outside. */
+.os-agent-sidebar--collapsed .os-rail-resizer {
+  right: -5px;
+  width: 10px;
+}
+.os-agent-sidebar--collapsed.os-rail-side-right-target .os-rail-resizer {
+  right: auto;
+  left: -5px;
 }
 
 /* REQ-99: Left-rail fade above Plugins footer (scroll soft-edge) */

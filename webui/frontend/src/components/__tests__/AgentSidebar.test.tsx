@@ -3224,3 +3224,144 @@ describe('#783/#781/#784 — drag footer: zero shift, distinct drop zones, cente
     expect(sheet).toMatch(/\.os-agent-sidebar--avatar-only \.os-rail-hostname-row/)
   })
 })
+
+describe('#765 — drag the divider to the edge: full collapse to 0px and back', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('dragging the resizer below the collapse threshold snaps the rail fully shut', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const handle = await screen.findByTestId('rail-resize-handle')
+
+    fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1 })
+    // Drag left past COLLAPSE_SNAP_THRESHOLD (52) from a 256px start…
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 120, pointerId: 1 }))
+    })
+    // …release: width 256 - 80 = 176 normally, but the snap contract sends
+    // the rail to 0px only below the threshold; 176 stays continuous.
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 120, pointerId: 1 }))
+    })
+    expect(rail.style.width).toBe('176px')
+
+    // Now drag past the threshold: 256 - 230 = 26 < 52 → collapsed.
+    fireEvent.pointerDown(handle, { clientX: 256, pointerId: 2 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 26, pointerId: 2 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 26, pointerId: 2 }))
+    })
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+    expect(rail).toHaveClass('os-agent-sidebar--collapsed')
+    expect(rail.style.width).toBe('0px')
+    // Persisted, so a reload restores the divider-only state.
+    expect(localStorage.getItem('swarm_rail_width')).toBe('0')
+  })
+
+  it('dragging open from the collapsed state snaps first to avatar width', async () => {
+    localStorage.setItem('swarm_rail_width', '0')
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+
+    // The expand pill is the only way back and is visible without hover.
+    const expand = screen.getByRole('button', { name: 'Expand sidebar' })
+    fireEvent.click(expand)
+    expect(rail).toHaveAttribute('data-collapsed', 'false')
+    expect(rail.style.width).toBe('256px')
+    expect(localStorage.getItem('swarm_rail_width')).toBe('256')
+  })
+
+  it('the collapse button now conceals fully (0px) and keyboard Home matches', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const handle = await screen.findByTestId('rail-resize-handle')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+    expect(rail.style.width).toBe('0px')
+
+    // End re-opens from the collapsed state.
+    fireEvent.keyDown(handle, { key: 'End' })
+    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
+    expect(rail.getAttribute('data-avatar-only')).toBe('false')
+  })
+})
+
+describe('#741 — the pill is a handle: drag from it resizes, click still toggles', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('dragging from the pill resizes the rail (no stopPropagation wall)', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const pill = await screen.findByTestId('rail-divider-pill')
+
+    fireEvent.pointerDown(pill, { clientX: 256, pointerId: 7 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 336, pointerId: 7 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 336, pointerId: 7 }))
+    })
+    // 256 + 80 = 336 — the drag went through to the shared resize body.
+    expect(rail.style.width).toBe('336px')
+    expect(localStorage.getItem('swarm_rail_width')).toBe('336')
+  })
+
+  it('a plain click on the pill still toggles, and the next click is not swallowed', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+
+    // Click collapse → collapses.
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+
+    // Click expand → expands. (A leaked drag-guard would eat this.)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }))
+    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
+    expect(rail.style.width).toBe('256px')
+
+    // And collapse works again — intent gate fully reset.
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+  })
+
+  it('a drag ended on the pill does not toggle on release', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const pill = await screen.findByTestId('rail-divider-pill')
+
+    fireEvent.pointerDown(pill, { clientX: 256, pointerId: 8 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 296, pointerId: 8 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 296, pointerId: 8 }))
+    })
+    // The synthetic click React would fire after the gesture:
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    // Width is the dragged value (296), not the toggle's 0px.
+    expect(rail.style.width).toBe('296px')
+    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
+  })
+})

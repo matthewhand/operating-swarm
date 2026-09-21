@@ -292,6 +292,8 @@ import {
   MIN_RAIL_WIDTH,
   MAX_RAIL_WIDTH,
   DEFAULT_RAIL_WIDTH,
+  isFullyCollapsedWidth,
+  COLLAPSED_RAIL_WIDTH,
 } from '../lib/railResize'
 import { loadRailSide, RAIL_SIDE_EVENT, type RailSide } from '../lib/railSide'
 import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
@@ -706,14 +708,18 @@ export default function AgentSidebar({
   const [railWidth, setRailWidth] = useState(() => loadRailWidth())
   const [isResizing, setIsResizing] = useState(false)
   const isAvatarOnly = !narrow && isAvatarOnlyWidth(railWidth)
+  // #765: the divider-only state — the pane body collapses entirely and only
+  // the border spine + the expand pill remain (a strict subset of avatar-only).
+  const isCollapsed = !narrow && isFullyCollapsedWidth(railWidth)
 
   const concealSidebar = useCallback(() => {
     if (narrow) {
       onClose?.()
       return
     }
-    setRailWidth(MIN_RAIL_WIDTH)
-    saveRailWidth(MIN_RAIL_WIDTH)
+    // #765: conceal now means the full edge collapse — 0px, divider only.
+    setRailWidth(COLLAPSED_RAIL_WIDTH)
+    saveRailWidth(COLLAPSED_RAIL_WIDTH)
   }, [narrow, onClose])
 
   const expandSidebar = useCallback(() => {
@@ -721,18 +727,35 @@ export default function AgentSidebar({
     saveRailWidth(DEFAULT_RAIL_WIDTH)
   }, [])
 
+  // #741: the pill button's click is intent-gated — after a drag from the
+  // pill, the trailing click gesture is the END of the resize, not a toggle.
+  const handlePillToggle = useCallback(() => {
+    if (pillDraggedRef.current) {
+      pillDraggedRef.current = false
+      return
+    }
+    if (isAvatarOnly) {
+      expandSidebar()
+    } else {
+      concealSidebar()
+    }
+  }, [isAvatarOnly, expandSidebar, concealSidebar])
+
   const startDragXRef = useRef(0)
   const startWidthRef = useRef(railWidth)
+  // #741: set when a drag started on the pill — the follow-up click must be
+  // swallowed so the toggle does not fire at drag end.
+  const pillDraggedRef = useRef(false)
 
-  const handleResizeStart = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault()
+  // #741: shared drag body — the resizer strip and the pill (via intent
+  // detection) both funnel here, so a grab anywhere on the divider resizes.
+  const beginResizeDrag = useCallback(
+    (startClientX: number, pointerId: number, target: HTMLElement | null) => {
       setIsResizing(true)
-      startDragXRef.current = event.clientX
+      startDragXRef.current = startClientX
       startWidthRef.current = railWidth
-      const target = event.currentTarget
       try {
-        target.setPointerCapture(event.pointerId)
+        target?.setPointerCapture(pointerId)
       } catch {}
 
       // #816: on the right edge the row grows leftwards, so the pointer
@@ -752,7 +775,7 @@ export default function AgentSidebar({
       const handlePointerUp = (e: PointerEvent) => {
         setIsResizing(false)
         try {
-          target.releasePointerCapture(e.pointerId)
+          target?.releasePointerCapture(e.pointerId)
         } catch {}
         window.removeEventListener('pointermove', handlePointerMove)
         window.removeEventListener('pointerup', handlePointerUp)
@@ -772,6 +795,14 @@ export default function AgentSidebar({
       window.addEventListener('pointercancel', handlePointerUp)
     },
     [railWidth, railSide],
+  )
+
+  const handleResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      beginResizeDrag(event.clientX, event.pointerId, event.currentTarget)
+    },
+    [beginResizeDrag],
   )
 
   const handleResizeKeyDown = useCallback(
@@ -795,8 +826,9 @@ export default function AgentSidebar({
         })
       } else if (event.key === 'Home') {
         event.preventDefault()
-        setRailWidth(MIN_RAIL_WIDTH)
-        saveRailWidth(MIN_RAIL_WIDTH)
+        // #765: Home walks all the way to the collapsed divider-only state.
+        setRailWidth(COLLAPSED_RAIL_WIDTH)
+        saveRailWidth(COLLAPSED_RAIL_WIDTH)
       } else if (event.key === 'End') {
         event.preventDefault()
         const max = clampRailWidth(MAX_RAIL_WIDTH, window.innerWidth)
@@ -3303,13 +3335,21 @@ export default function AgentSidebar({
             ? 'translate-x-0'
             : railSide === 'right'
               ? 'translate-x-full'
-              : '-translate-x-full'
-        } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''}`}
-        style={!narrow ? { width: `${railWidth}px` } : { width: '16rem' }}
+              : '-translate-x-full'            } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''} ${
+          isCollapsed ? 'os-agent-sidebar--collapsed' : ''
+        }`}
+        style={
+          !narrow
+            ? isCollapsed
+              ? { width: `${COLLAPSED_RAIL_WIDTH}px` }
+              : { width: `${railWidth}px` }
+            : { width: '16rem' }
+        }
         aria-label="Agents"
         data-testid="os-agent-rail"
         data-rail-open={open ? 'true' : 'false'}
         data-avatar-only={isAvatarOnly ? 'true' : 'false'}
+        data-collapsed={isCollapsed ? 'true' : 'false'}
         aria-hidden={drawerHidden || undefined}
         {...(drawerHidden ? { inert: '' } : {})}
       >
@@ -3338,15 +3378,45 @@ export default function AgentSidebar({
                 coarse pointers where hover does not exist. Its own
                 pointerdown never reaches the resizer, so a drag that starts
                 on the pill cannot resize. */}
+            {/* #741: the pill is a handle now, not a click-only button that
+                blocks the divider. Pointer-down records the origin and the
+                window listeners watch for movement: past the slop it becomes
+                a resize (funnelling into the same drag body as the strip).
+                The toggle itself is intent-gated in handlePillToggle — the
+                trailing click after a drag is the end of the resize, not a
+                toggle. */}
             <span
               className="os-rail-divider-pill"
               data-testid="rail-divider-pill"
-              onPointerDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => {
+                if (narrow) return
+                event.stopPropagation()
+                const startX = event.clientX
+                const pointerId = event.pointerId
+                // React nulls currentTarget after the handler returns — the
+                // drag body needs the element for pointer capture.
+                const pillEl = event.currentTarget
+                pillDraggedRef.current = false
+                const onMove = (e: PointerEvent) => {
+                  if (pillDraggedRef.current || Math.abs(e.clientX - startX) > 4) {
+                    pillDraggedRef.current = true
+                    window.removeEventListener('pointermove', onMove)
+                    window.removeEventListener('pointerup', onUp)
+                    beginResizeDrag(startX, pointerId, pillEl)
+                  }
+                }
+                const onUp = () => {
+                  window.removeEventListener('pointermove', onMove)
+                  window.removeEventListener('pointerup', onUp)
+                }
+                window.addEventListener('pointermove', onMove)
+                window.addEventListener('pointerup', onUp)
+              }}
             >
               {isAvatarOnly ? (
-                <SidebarExpandButton onClick={expandSidebar} />
+                <SidebarExpandButton onClick={handlePillToggle} />
               ) : (
-                <SidebarConcealButton onClick={concealSidebar} />
+                <SidebarConcealButton onClick={handlePillToggle} />
               )}
             </span>
           </div>
