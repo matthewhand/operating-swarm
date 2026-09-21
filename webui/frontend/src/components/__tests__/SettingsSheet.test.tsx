@@ -1495,7 +1495,8 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
 
       const select = screen.getByRole('combobox', { name: 'Theme' })
       expect(select).toBeInTheDocument()
-      expect(select).toHaveValue('dark')
+      // #847: 'system' is the default theme state.
+      expect(select).toHaveValue('system')
 
       // Switch to light
       fireEvent.change(select, { target: { value: 'light' } })
@@ -1524,20 +1525,25 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
       expect(localStorage.getItem('os.streamReplies')).toBe('1')
     })
 
-    it('toggles navbar theme control visibility and persists flag', () => {
+    it('sets the navbar theme-control visibility mode and persists it (#847)', () => {
       renderSheet()
       fireEvent.click(screen.getByRole('button', { name: 'General' }))
 
-      const toggle = screen.getByRole('checkbox', { name: 'Show theme control in top bar' })
-      expect(toggle).toBeChecked()
+      const select = screen.getByRole('combobox', { name: 'Light/dark toggle in top bar' })
+      expect(select).toBeInTheDocument()
+      expect(select).toHaveValue('if_not_system')
 
-      fireEvent.click(toggle)
-      expect(toggle).not.toBeChecked()
-      expect(localStorage.getItem('swarm_theme_navbar')).toBe('false')
+      fireEvent.change(select, { target: { value: 'always' } })
+      expect(select).toHaveValue('always')
+      expect(localStorage.getItem('swarm_theme_navbar_mode')).toBe('always')
 
-      fireEvent.click(toggle)
-      expect(toggle).toBeChecked()
-      expect(localStorage.getItem('swarm_theme_navbar')).toBe('true')
+      fireEvent.change(select, { target: { value: 'never' } })
+      expect(select).toHaveValue('never')
+      expect(localStorage.getItem('swarm_theme_navbar_mode')).toBe('never')
+
+      fireEvent.change(select, { target: { value: 'if_not_system' } })
+      expect(select).toHaveValue('if_not_system')
+      expect(localStorage.getItem('swarm_theme_navbar_mode')).toBe('if_not_system')
     })
 
     it('shows Auto-compress at default 80 and PATCHes 50 without Django copy', async () => {

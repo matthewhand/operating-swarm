@@ -56,7 +56,6 @@ import {
   remoteKinds,
 } from '../lib/remotes'
 import {
-  LLM_TASK_CLASSES,
   TASK_CLASS_LABELS,
   missingProfileWarning,
   uiStatusWarnings,
@@ -116,17 +115,14 @@ import {
   type ContextStrategy,
 } from '../lib/contextCull'
 import {
-  dispatchSetComposerShowProvider,
-  initialComposerShowProvider,
-  COMPOSER_SHOW_PROVIDER_SET_EVENT,
-} from '../lib/composerShowProvider'
-import {
-  initialNavbarThemeVisible,
+  initialNavbarThemeMode,
   initialTheme,
-  dispatchSetNavbarThemeVisible,
+  dispatchSetNavbarThemeMode,
   dispatchSetTheme,
+  THEME_NAVBAR_MODE_SET_EVENT,
   THEME_NAVBAR_SET_EVENT,
   THEME_SET_EVENT,
+  type NavbarThemeToggleMode,
   type Theme,
 } from '../lib/theme'
 import {
@@ -234,7 +230,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   ],
   providers: ['providers', 'provider', 'overview', 'backend', 'api profiles', 'cli runtimes'],
   definition: ['definition', 'explain', 'instructions', 'prompt'],
-  blueprint: ['blueprints', 'recipes', 'custom', 'editor'],
+  blueprint: ['blueprints', 'recipes', 'python', 'custom'],
   remotes: [
     'remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh',
     'Add a remote', 'Add remote', 'available remote kinds', 'Remote ID',
@@ -257,7 +253,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
     'Add LLM profile', 'Advanced', 'Rate limits', 'What can be overridden per task',
   ],
   mcp: [
-    'mcp', 'mcpServers', 'mcp servers', 'tools', 'modelcontextprotocol',
+    'mcp', 'tools', 'modelcontextprotocol',
     'Configured MCP servers', 'Command', 'Args (comma-separated)',
     'Secret env name (optional)',
   ],
@@ -276,7 +272,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   ],
   rail: ['avatar', 'order', 'bump', 'surfaces', 'Bump completed agents to top', 'Bump scope', 'Manage surfaces'],
   'image-gen': ['image', 'images', 'generation', 'diffusion'],
-  speech: ['speech', 'tts', 'stt', 'audio', 'voice', 'read-aloud', 'read aloud'],
+  speech: ['speech', 'tts', 'stt', 'audio', 'voice'],
   system: ['system', 'sqlite', 'database', 'facts', 'config', 'Config coverage', 'env-only', 'secrets'],
   plugins: ['plugins', 'openapi', 'marketplace', 'tools', 'connectors'],
 }
@@ -2202,10 +2198,7 @@ function GeneralPane({
   demoRows?: Array<{ id: string; kind?: string | null }>
 }) {
   const [themePref, setThemePref] = useState<Theme>(initialTheme)
-  const [navbarVisible, setNavbarVisible] = useState<boolean>(initialNavbarThemeVisible)
-  const [composerShowProvider, setComposerShowProvider] = useState<boolean>(
-    initialComposerShowProvider,
-  )
+  const [navbarMode, setNavbarMode] = useState<NavbarThemeToggleMode>(initialNavbarThemeMode)
   const [streamReplies, setStreamReplies] = useState<boolean>(loadStreamReplies)
   const bubbleTheme = loadBubbleTheme()
   const streamThemeOk = bubbleThemeSupportsStreaming(bubbleTheme)
@@ -2217,27 +2210,23 @@ function GeneralPane({
         setThemePref(detail)
       }
     }
+    const onNavbarMode = (event: Event) => {
+      const detail = (event as CustomEvent<NavbarThemeToggleMode>).detail
+      if (detail === 'if_not_system' || detail === 'always' || detail === 'never') {
+        setNavbarMode(detail)
+      }
+    }
     const onNavbarToggle = (event: Event) => {
       const detail = (event as CustomEvent<boolean>).detail
-      setNavbarVisible(Boolean(detail))
-    }
-    const onComposerShowProviderToggle = (event: Event) => {
-      const detail = (event as CustomEvent<boolean>).detail
-      setComposerShowProvider(typeof detail === 'boolean' ? detail : initialComposerShowProvider())
+      setNavbarMode(detail ? 'always' : 'never')
     }
     window.addEventListener(THEME_SET_EVENT, onSet)
+    window.addEventListener(THEME_NAVBAR_MODE_SET_EVENT, onNavbarMode)
     window.addEventListener(THEME_NAVBAR_SET_EVENT, onNavbarToggle)
-    window.addEventListener(
-      COMPOSER_SHOW_PROVIDER_SET_EVENT,
-      onComposerShowProviderToggle,
-    )
     return () => {
       window.removeEventListener(THEME_SET_EVENT, onSet)
+      window.removeEventListener(THEME_NAVBAR_MODE_SET_EVENT, onNavbarMode)
       window.removeEventListener(THEME_NAVBAR_SET_EVENT, onNavbarToggle)
-      window.removeEventListener(
-        COMPOSER_SHOW_PROVIDER_SET_EVENT,
-        onComposerShowProviderToggle,
-      )
     }
   }, [])
 
@@ -2246,14 +2235,9 @@ function GeneralPane({
     dispatchSetTheme(value)
   }
 
-  const handleNavbarChange = (visible: boolean) => {
-    setNavbarVisible(visible)
-    dispatchSetNavbarThemeVisible(visible)
-  }
-
-  const handleComposerShowProviderChange = (visible: boolean) => {
-    setComposerShowProvider(visible)
-    dispatchSetComposerShowProvider(visible)
+  const handleNavbarModeChange = (mode: NavbarThemeToggleMode) => {
+    setNavbarMode(mode)
+    dispatchSetNavbarThemeMode(mode)
   }
 
   return (
@@ -2284,46 +2268,33 @@ function GeneralPane({
             value={themePref}
             onChange={(e) => handleThemeChange(e.target.value as Theme)}
           >
+            <option value="system">Use system (default)</option>
             <option value="light">Light</option>
             <option value="dark">Dark</option>
-            <option value="system">Use system</option>
           </select>
           <p className="text-xs text-base-content/60">
             Choose light, dark, or follow your operating system appearance (prefers-color-scheme).
           </p>
         </div>
 
-        <div className="form-control">
-          <label className="label cursor-pointer justify-start gap-4">
-            <input
-              type="checkbox"
-              className="toggle"
-              checked={navbarVisible}
-              onChange={(e) => handleNavbarChange(e.target.checked)}
-              aria-label="Show theme control in top bar"
-            />
-            <span className="label-text">Show theme control in top bar</span>
+        <div className="form-control w-full max-w-xs space-y-1">
+          <label htmlFor="os-navbar-theme-mode-select" className="label py-0">
+            <span className="label-text font-medium">Light/dark toggle in top bar</span>
           </label>
+          <select
+            id="os-navbar-theme-mode-select"
+            aria-label="Light/dark toggle in top bar"
+            data-testid="os-navbar-theme-mode-select"
+            className="select select-bordered w-full"
+            value={navbarMode}
+            onChange={(e) => handleNavbarModeChange(e.target.value as NavbarThemeToggleMode)}
+          >
+            <option value="if_not_system">If not system (default)</option>
+            <option value="always">Always</option>
+            <option value="never">Never</option>
+          </select>
           <p className="text-xs text-base-content/60">
-            Show a quick theme toggle button in the top navigation bar.
-          </p>
-        </div>
-
-        <div className="form-control">
-          <label className="label cursor-pointer justify-start gap-4">
-            <input
-              type="checkbox"
-              className="toggle"
-              checked={composerShowProvider}
-              onChange={(e) => handleComposerShowProviderChange(e.target.checked)}
-              aria-label="Show provider in message bar"
-            />
-            <span className="label-text">Show provider in message bar</span>
-          </label>
-          <p className="text-xs text-base-content/60">
-            Show the provider and model selector inside the chat message input
-            field. On mobile, this renders as a compact branded logo. Disable to
-            maximize typing space.
+            Controls when the quick theme button appears in the top navigation bar.
           </p>
         </div>
 
@@ -2835,7 +2806,7 @@ function LlmProfilesPane({
     [
       ...(remote?.warnings ?? []),
       missingProfileWarning(defaultId, remote, fallback),
-      ...((LLM_TASK_CLASSES).map((cls) =>
+      ...((['orchestration', 'auxiliary', 'delegation'] as const).map((cls) =>
         overrideOn ? missingProfileWarning(taskMap[cls], remote, fallback) : null,
       )),
     ].filter((text): text is string => Boolean(text)),
@@ -3116,7 +3087,7 @@ function LlmProfilesPane({
       {overrideOn ? (
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium">Task class map</legend>
-          {LLM_TASK_CLASSES.map((cls) => (
+          {(['orchestration', 'auxiliary', 'delegation'] as const).map((cls) => (
             <Select
               key={cls}
               label={TASK_CLASS_LABELS[cls]}
