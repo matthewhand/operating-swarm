@@ -8,7 +8,7 @@
  * existing change semantics (persist, URL, cross-kind navigation) are reused.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import NavbarRoutingPicker, { type RoutingPathChange } from '../NavbarRoutingPicker'
 import type { ComposerProviderOption } from '../../lib/composerPicker'
 
@@ -235,6 +235,84 @@ describe('#804 — cross-kind picks are never inert', () => {
     // Stage-2 options under API are profiles: land on the gateway (empty id)
     // with the profile applied as its model.
     expect(navigate).toHaveBeenCalledWith('', 'api', { apiModel: 'claude-work' })
+  })
+
+  it('#899: with onProviderReconfigure, an API-profile pick RECONFIGURES instead of jumping seats', async () => {
+    const navigate = vi.fn()
+    const reconfigure = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="cli"
+        aria-label="CLI"
+        agents={[{ id: 'codex', label: 'codex', kind: 'cli' as const }]}
+        selectedAgent="codex"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        onNavigateAgent={navigate}
+        onProviderReconfigure={reconfigure}
+        twoStage={{
+          providers: [
+            { id: 'api', label: 'API gateway', kind: 'api', description: 'LLM profiles' },
+          ],
+          getProviderOptions: (provider) =>
+            provider.kind === 'api'
+              ? [
+                  { id: 'claude-work', label: 'Claude Work' },
+                  { id: 'orchestration', label: 'orchestration' },
+                ]
+              : [],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('API gateway'))
+    fireEvent.click(screen.getByText('Claude Work'))
+    await waitFor(() => {
+      expect(reconfigure).toHaveBeenCalledTimes(1)
+    })
+    expect(reconfigure).toHaveBeenCalledWith('claude-work')
+    // The seat keeps its identity — no navigation, no api_agent jump.
+    expect(navigate).not.toHaveBeenCalled()
+    // The dialog closes after the reconfigure pick.
+    await waitFor(() => {
+      expect(screen.queryByTestId('composer-picker')).toBeNull()
+    })
+  })
+
+  it('#899: legacy fallback (no onProviderReconfigure) still navigates for un-migrated callers', async () => {
+    const navigate = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="cli"
+        aria-label="CLI"
+        agents={[{ id: 'codex', label: 'codex', kind: 'cli' as const }]}
+        selectedAgent="codex"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        onNavigateAgent={navigate}
+        twoStage={{
+          providers: [
+            { id: 'api', label: 'API gateway', kind: 'api', description: 'LLM profiles' },
+          ],
+          getProviderOptions: (provider) =>
+            provider.kind === 'api'
+              ? [
+                  { id: 'claude-work', label: 'Claude Work' },
+                  { id: 'orchestration', label: 'orchestration' },
+                ]
+              : [],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    const dialog = await screen.findByTestId('composer-picker')
+    fireEvent.click(within(dialog).getByText('API gateway'))
+    fireEvent.click(await within(dialog).findByText('Claude Work'))
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith('', 'api', { apiModel: 'claude-work' })
+    })
   })
 
   it('accepting the API default (no profiles) still lands on the gateway seat', async () => {

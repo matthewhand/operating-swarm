@@ -456,7 +456,11 @@ import {
 import { productModesWhenSettled } from '../lib/productModes'
 import { recordBackendUse } from '../lib/backendAudit'
 import { isHiddenRoutingLabel, type RoutingSeatKind } from '../lib/routingPath'
-import { seatParamsForPick, type SeatPickKind } from '../lib/seatRouting'
+import {
+  providerReconfigureNotice,
+  seatParamsForPick,
+  type SeatPickKind,
+} from '../lib/seatRouting'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
 const SHOW_MESSAGE_ACTIONS = isExperimentalEnabled('chat_message_actions')
@@ -1564,6 +1568,28 @@ const ChatPage = () => {
     [threadKey, teamFromUrl, remoteFromUrl, selectedBlueprint],
   )
 
+  // #899: a cross-kind API-profile pick is a PROVIDER reconfiguration for the
+  // current seat, never a seat jump — navigating to api_agent here dropped the
+  // user's CLI/remote context. Until per-seat backend override exists, the
+  // honest behavior is to keep the seat and say exactly what happened.
+  const reconfigureProviderForSeat = useCallback(
+    (profile: string) => {
+      const kind: 'api' | 'cli' | 'remote' | 'team' =
+        isRemoteAgent || isRemoteBackedTeam ? 'remote' : isCliAgent ? 'cli' : 'api'
+      const statusMsg: ChatMessage = {
+        key: `provider-reconfigure-${Date.now()}`,
+        role: 'status',
+        text: providerReconfigureNotice(profile, kind),
+        streaming: false,
+        ts: new Date().toISOString(),
+      }
+      setThreads((prev) => ({
+        ...prev,
+        [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
+      }))
+    },
+    [isRemoteAgent, isRemoteBackedTeam, isCliAgent, threadKey],
+  )
   const applyCliRoutingChange = useCallback(
     (next: RoutingPathChange) => {
       if (next.changed === 'agent') {
@@ -4119,6 +4145,7 @@ const ChatPage = () => {
           }))}
           allAgents={allPaletteAgents}
           onNavigateAgent={navigateToPaletteAgent}
+          onProviderReconfigure={reconfigureProviderForSeat}
           selectedAgent={selectedRemoteId}
           models={remoteNavbarAgents.map((row) => row.id)}
           modelOptions={remoteNavbarAgents}
@@ -4185,6 +4212,7 @@ const ChatPage = () => {
           preferredEffort={persistedDropdown.effort}
           allAgents={allPaletteAgents}
           onNavigateAgent={navigateToPaletteAgent}
+          onProviderReconfigure={reconfigureProviderForSeat}
           loading={isCliAgent && (cliModelsQuery.isFetching || cliModelsQuery.isLoading)}
           onTwoStageOpen={() => setComposerSessionsOpen(true)}
           twoStage={{

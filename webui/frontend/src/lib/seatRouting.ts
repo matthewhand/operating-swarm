@@ -39,6 +39,27 @@ export interface SeatPickOpts {
 }
 
 /**
+ * #899: honest copy for a provider pick the current seat cannot apply.
+ * The picker only surfaces API-gateway profiles as a reconfiguration —
+ * it must never silently jump seats (#899's bug), so the attempt is
+ * acknowledged with what happened and what will actually work.
+ */
+export function providerReconfigureNotice(
+  profile: string,
+  currentKind: 'api' | 'cli' | 'remote' | 'team',
+): string {
+  const seatLabel =
+    currentKind === 'cli'
+      ? 'CLI agent'
+      : currentKind === 'remote'
+        ? 'remote agent'
+        : currentKind === 'team'
+          ? 'team'
+          : 'API agent'
+  return `Provider profile '${profile}' noted — the ${seatLabel} keeps its own backend. Use the agent picker (stage 1 → API gateway) to switch to that profile as a seat.`
+}
+
+/**
  * The canonical seat-param patch for a cross-kind pick.
  *
  * - `api`: `?blueprint=<id>` (empty id → the `api_agent` gateway); a gateway

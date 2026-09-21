@@ -106,6 +106,13 @@ export interface NavbarRoutingPickerProps {
    * callers can defer-fetch the payloads stage 2 needs (cli-sessions).
    */
   onTwoStageOpen?: () => void
+  /**
+   * #899: a cross-kind API-profile pick is a PROVIDER reconfiguration for the
+   * current seat, not a seat jump. When provided, the pick routes here (the
+   * seat keeps its identity); the legacy seat-jump fallback only fires when
+   * this callback is absent.
+   */
+  onProviderReconfigure?: (profile: string) => void
   'aria-label'?: string
 }
 
@@ -127,6 +134,7 @@ export function NavbarRoutingPicker({
   twoStage,
   onTwoStageOpen,
   onNavigateAgent,
+  onProviderReconfigure,
   loading = false,
   'aria-label': ariaLabel,
 }: NavbarRoutingPickerProps) {
@@ -384,6 +392,13 @@ export function NavbarRoutingPicker({
         // — land on the api_agent gateway (empty id) with the profile applied
         // as its model (?model= is what the gateway's routing consumes).
         if (provider.kind === 'api' && option) {
+          // #899: reconfigure the CURRENT seat's provider backend — switching
+          // the user to api_agent here dropped their CLI/remote context.
+          if (onProviderReconfigure) {
+            onProviderReconfigure(option.id)
+            setPaletteOpen(false)
+            return
+          }
           onNavigateAgent('', 'api', { apiModel: option.id })
         } else {
           onNavigateAgent(dest, destKind)
