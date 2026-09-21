@@ -222,13 +222,30 @@ def _blueprint_section_model(agent_id: str, config: dict[str, Any]) -> str | Non
     return model_id_for_profile(profile_name.strip(), config) or None
 
 
+def validate_compaction_context_window(
+    model_id: str,
+    config: dict[str, Any] | None = None,
+    min_tokens: int = 32768,
+) -> tuple[bool, str | None]:
+    """Validate that the chosen compaction model advertises sufficient context window (>=32k)."""
+    try:
+        from swarm.core.context_compress_policy import resolve_model_context_max
+
+        max_ctx = resolve_model_context_max(model_id=model_id, config=config)
+        if max_ctx is not None and max_ctx < min_tokens:
+            warning = (
+                f"Compaction model '{model_id}' context window ({max_ctx}) is less than "
+                f"recommended minimum ({min_tokens})."
+            )
+            logger.warning(warning)
+            return False, warning
+    except Exception:
+        pass
+    return True, None
+
+
 def resolve_compact_model(agent_id: str = "") -> str:
-    """Agent LLM profile, else Settings / env default. Raises if none configured."""
-    env_model = (
-        (os.environ.get("LITELLM_MODEL") or "").strip()
-        or (os.environ.get("OPENAI_MODEL") or "").strip()
-        or (os.environ.get("DEFAULT_LLM") or "").strip()
-    )
+    """#859: Resolve compaction model using dedicated compaction override, env, auxiliary, then agent/default."""
     config: dict[str, Any] | None = None
     try:
         from swarm.core.llm_task_routing import load_swarm_config
@@ -238,21 +255,68 @@ def resolve_compact_model(agent_id: str = "") -> str:
         logger.debug("compact model: swarm config unavailable")
         config = None
 
+    from swarm.core.llm_task_routing import (
+        TASK_CLASS_AUXILIARY,
+        TASK_CLASS_COMPACTION,
+        model_id_for_profile,
+        resolve_for_task,
+        stored_task_map,
+    )
+
+    # 1. Dedicated compaction override in settings: settings.task_llm_profiles.get("compaction")
     if isinstance(config, dict):
+        compaction_profile = stored_task_map(config).get(TASK_CLASS_COMPACTION)
+        if compaction_profile:
+            resolved = model_id_for_profile(compaction_profile, config)
+            if resolved:
+                validate_compaction_context_window(resolved, config)
+                return resolved
+
+    # 2. Environment check: SWARM_COMPACTION_MODEL or AUXILIARY_LLM_MODEL
+    env_compaction = (
+        (os.environ.get("SWARM_COMPACTION_MODEL") or "").strip()
+        or (os.environ.get("AUXILIARY_LLM_MODEL") or "").strip()
+    )
+    if env_compaction:
+        validate_compaction_context_window(env_compaction, config)
+        return env_compaction
+
+    # 3. Fallback: resolve_for_task(TASK_CLASS_AUXILIARY, config)
+    if isinstance(config, dict):
+        try:
+            aux_route = resolve_for_task(TASK_CLASS_AUXILIARY, config)
+            if aux_route and aux_route.profile and aux_route.profile != "default" and not aux_route.used_fallback:
+                resolved = model_id_for_profile(aux_route.profile, config)
+                if resolved:
+                    validate_compaction_context_window(resolved, config)
+                    return resolved
+        except Exception:
+            logger.debug("compact model: auxiliary task routing fallback failed")
+
+    # 4. Fallback: Agent / default chat model / other env vars
+    if isinstance(config, dict) and agent_id:
         agent_model = _blueprint_section_model(agent_id, config)
         if agent_model:
+            validate_compaction_context_window(agent_model, config)
             return agent_model
 
-    if env_model:
-        return env_model
+    other_env = (
+        (os.environ.get("LITELLM_MODEL") or "").strip()
+        or (os.environ.get("OPENAI_MODEL") or "").strip()
+        or (os.environ.get("DEFAULT_LLM") or "").strip()
+    )
+    if other_env:
+        validate_compaction_context_window(other_env, config)
+        return other_env
 
     if isinstance(config, dict):
         try:
-            from swarm.core.llm_task_routing import model_id_for_profile, resolve_chat_model
+            from swarm.core.llm_task_routing import resolve_chat_model
 
             route = resolve_chat_model(config)
             model = model_id_for_profile(route.profile, config)
-            if model:
+            if model and model != "default":
+                validate_compaction_context_window(model, config)
                 return model
         except Exception:
             logger.debug("compact model: settings default unavailable")

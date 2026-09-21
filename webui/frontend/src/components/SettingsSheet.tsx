@@ -56,6 +56,7 @@ import {
   remoteKinds,
 } from '../lib/remotes'
 import {
+  LLM_TASK_CLASSES,
   TASK_CLASS_LABELS,
   missingProfileWarning,
   uiStatusWarnings,
@@ -2834,7 +2835,7 @@ function LlmProfilesPane({
     [
       ...(remote?.warnings ?? []),
       missingProfileWarning(defaultId, remote, fallback),
-      ...((['orchestration', 'auxiliary', 'delegation'] as const).map((cls) =>
+      ...((LLM_TASK_CLASSES).map((cls) =>
         overrideOn ? missingProfileWarning(taskMap[cls], remote, fallback) : null,
       )),
     ].filter((text): text is string => Boolean(text)),
@@ -3115,7 +3116,7 @@ function LlmProfilesPane({
       {overrideOn ? (
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium">Task class map</legend>
-          {(['orchestration', 'auxiliary', 'delegation'] as const).map((cls) => (
+          {LLM_TASK_CLASSES.map((cls) => (
             <Select
               key={cls}
               label={TASK_CLASS_LABELS[cls]}

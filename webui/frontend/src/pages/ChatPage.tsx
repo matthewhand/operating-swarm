@@ -16,6 +16,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUp, AlertCircle, ChevronDown, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Server, Settings, Square, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
+import ChatMessageInput from '../components/ChatMessageInput'
 import {
   Alert,
   ConfirmModal,
@@ -5583,6 +5584,31 @@ const ChatPage = () => {
                     )}
                     {plusOpen && pluginsPanelOpen && <ComposerPluginsPanel onClose={() => setPlusOpen(false)} />}
                   </div>
+                  {/* #858/#860: API seats get the enhanced composer — inline
+                      ghost-text autocomplete + sparkle enhance. Other kinds
+                      keep the plain textarea (autocomplete is API-model
+                      backed; CLI/remote input would need per-provider wiring). */}
+                  {isApiAgent ? (
+                    <ChatMessageInput
+                      textareaRef={composerRef}
+                      value={input}
+                      onApplyText={setInput}
+                      agentId={selectedBlueprint || undefined}
+                      conversationId={conversationId || undefined}
+                      textareaProps={{
+                        rows: 1,
+                        className: 'os-composer__input',
+                        placeholder: composerPlaceholder,
+                        value: input,
+                        onChange: handleInputChange,
+                        onPaste: handleComposerPaste,
+                        'aria-label': 'Chat message',
+                        'aria-haspopup': 'listbox',
+                        'aria-expanded': isSlashOpen,
+                        'aria-controls': isSlashOpen ? 'composer-slash-menu' : undefined,
+                      }}
+                    />
+                  ) : (
                   <textarea
                     ref={composerRef}
                     rows={1}
@@ -5597,6 +5623,7 @@ const ChatPage = () => {
                     aria-expanded={isSlashOpen}
                     aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
                   />
+                  )}
                   {/* #732: ONE permanently mounted slot — the kbd used to
                       mount/unmount with the draft, re-flowing the pill on the
                       first and last keystroke. The glyph swaps in place; the

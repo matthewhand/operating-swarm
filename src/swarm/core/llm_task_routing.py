@@ -38,11 +38,17 @@ logger = logging.getLogger("swarm.llm_task_routing")
 TASK_CLASS_ORCHESTRATION = "orchestration"
 TASK_CLASS_AUXILIARY = "auxiliary"
 TASK_CLASS_DELEGATION = "delegation"
+TASK_CLASS_TINY = "tiny"
+TASK_CLASS_COMPACTION = "compaction"
+TASK_CLASS_AUTOCOMPLETE = "autocomplete"
 
 TASK_CLASSES: tuple[str, ...] = (
     TASK_CLASS_ORCHESTRATION,
     TASK_CLASS_AUXILIARY,
     TASK_CLASS_DELEGATION,
+    TASK_CLASS_TINY,
+    TASK_CLASS_COMPACTION,
+    TASK_CLASS_AUTOCOMPLETE,
 )
 
 # #356 code-summary jobs honour this map (auxiliary when override on).
@@ -63,7 +69,16 @@ TASK_TARGETS: dict[str, dict[str, float]] = {
     TASK_CLASS_AUXILIARY: {"speed": 1.0, "cost": 1.0},
     TASK_CLASS_ORCHESTRATION: {"intelligence": 0.65, "speed": 0.60, "cost": 0.50},
     TASK_CLASS_DELEGATION: {"intelligence": 1.0},
+    TASK_CLASS_TINY: {"speed": 1.0, "cost": 1.0},
+    TASK_CLASS_COMPACTION: {"intelligence": 0.70, "cost": 0.80},
+    TASK_CLASS_AUTOCOMPLETE: {"speed": 1.0, "cost": 0.90},
 }
+
+CORE_TASK_CLASSES: tuple[str, ...] = (
+    TASK_CLASS_ORCHESTRATION,
+    TASK_CLASS_AUXILIARY,
+    TASK_CLASS_DELEGATION,
+)
 
 # Pick extremes first so the leftover mid id becomes orchestration.
 _PICK_ORDER: tuple[str, ...] = (
@@ -90,6 +105,9 @@ VENDOR_PREFERRED: dict[str, dict[str, tuple[str, ...]]] = {
             "gpt-4",
         ),
         TASK_CLASS_DELEGATION: ("o3", "o3-pro", "o1", "o1-pro", "o1-preview", "gpt-5"),
+        TASK_CLASS_TINY: ("gpt-4.1-nano", "gpt-4o-mini", "gpt-3.5-turbo"),
+        TASK_CLASS_COMPACTION: ("gpt-4.1", "gpt-4o", "gpt-4o-mini"),
+        TASK_CLASS_AUTOCOMPLETE: ("gpt-4.1-nano", "gpt-4o-mini"),
     },
     "anthropic": {
         TASK_CLASS_AUXILIARY: ("claude-haiku-4-5", "claude-3-haiku", "claude-haiku"),
@@ -99,6 +117,9 @@ VENDOR_PREFERRED: dict[str, dict[str, tuple[str, ...]]] = {
             "claude-sonnet",
         ),
         TASK_CLASS_DELEGATION: ("claude-opus-4-8", "claude-3-opus", "claude-opus"),
+        TASK_CLASS_TINY: ("claude-haiku-4-5", "claude-3-haiku", "claude-haiku"),
+        TASK_CLASS_COMPACTION: ("claude-sonnet-4-6", "claude-3.5-sonnet", "claude-sonnet"),
+        TASK_CLASS_AUTOCOMPLETE: ("claude-haiku-4-5", "claude-3-haiku", "claude-haiku"),
     },
     "gemini": {
         TASK_CLASS_AUXILIARY: (
@@ -108,41 +129,65 @@ VENDOR_PREFERRED: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         TASK_CLASS_ORCHESTRATION: ("gemini-2.5-pro", "gemini-1.5-pro", "gemini-pro"),
         TASK_CLASS_DELEGATION: ("gemini-3-pro-preview", "gemini-ultra"),
+        TASK_CLASS_TINY: ("gemini-2.0-flash", "gemini-flash"),
+        TASK_CLASS_COMPACTION: ("gemini-2.5-pro", "gemini-1.5-pro", "gemini-2.0-flash"),
+        TASK_CLASS_AUTOCOMPLETE: ("gemini-2.0-flash", "gemini-flash"),
     },
     "groq": {
         TASK_CLASS_AUXILIARY: ("llama-3.1-8b", "llama3.2", "gemma"),
         TASK_CLASS_ORCHESTRATION: ("llama-3.1-70b", "mixtral"),
         TASK_CLASS_DELEGATION: ("llama-3.1-405b", "deepseek-r1"),
+        TASK_CLASS_TINY: ("llama-3.1-8b", "llama3.2"),
+        TASK_CLASS_COMPACTION: ("llama-3.1-70b", "llama-3.1-8b"),
+        TASK_CLASS_AUTOCOMPLETE: ("llama-3.1-8b", "llama3.2"),
     },
     "openrouter": {
         TASK_CLASS_AUXILIARY: ("openrouter/gpt-4o-mini", "openrouter/haiku"),
         TASK_CLASS_ORCHESTRATION: ("openrouter/gpt-4o", "openrouter/sonnet"),
         TASK_CLASS_DELEGATION: ("openrouter/o3", "openrouter/opus"),
+        TASK_CLASS_TINY: ("openrouter/gpt-4o-mini", "openrouter/haiku"),
+        TASK_CLASS_COMPACTION: ("openrouter/gpt-4o", "openrouter/sonnet"),
+        TASK_CLASS_AUTOCOMPLETE: ("openrouter/gpt-4o-mini", "openrouter/haiku"),
     },
     "litellm": {
         TASK_CLASS_AUXILIARY: ("auxiliary", "litellm-fast"),
         TASK_CLASS_ORCHESTRATION: ("orchestration", "litellm"),
         TASK_CLASS_DELEGATION: ("delegation", "litellm-reason"),
+        TASK_CLASS_TINY: ("tiny", "litellm-fast"),
+        TASK_CLASS_COMPACTION: ("compaction", "auxiliary"),
+        TASK_CLASS_AUTOCOMPLETE: ("autocomplete", "litellm-fast"),
     },
     "grok": {
         TASK_CLASS_AUXILIARY: ("grok-3-mini", "grok-2-mini"),
         TASK_CLASS_ORCHESTRATION: ("grok-3", "grok-2", "grok"),
         TASK_CLASS_DELEGATION: ("grok-4", "grok-3-reasoning"),
+        TASK_CLASS_TINY: ("grok-3-mini", "grok-2-mini"),
+        TASK_CLASS_COMPACTION: ("grok-3", "grok-2"),
+        TASK_CLASS_AUTOCOMPLETE: ("grok-3-mini", "grok-2-mini"),
     },
     "claude": {
         TASK_CLASS_AUXILIARY: ("claude-haiku-4-5", "claude-haiku"),
         TASK_CLASS_ORCHESTRATION: ("claude-sonnet-4-6", "claude-sonnet"),
         TASK_CLASS_DELEGATION: ("claude-opus-4-8", "claude-opus"),
+        TASK_CLASS_TINY: ("claude-haiku-4-5", "claude-haiku"),
+        TASK_CLASS_COMPACTION: ("claude-sonnet-4-6", "claude-sonnet"),
+        TASK_CLASS_AUTOCOMPLETE: ("claude-haiku-4-5", "claude-haiku"),
     },
     "codex": {
         TASK_CLASS_AUXILIARY: ("codex-mini", "gpt-4o-mini"),
         TASK_CLASS_ORCHESTRATION: ("codex", "gpt-5.6-terra"),
         TASK_CLASS_DELEGATION: ("o3", "codex-pro"),
+        TASK_CLASS_TINY: ("codex-mini", "gpt-4o-mini"),
+        TASK_CLASS_COMPACTION: ("codex", "gpt-5.6-terra"),
+        TASK_CLASS_AUTOCOMPLETE: ("codex-mini", "gpt-4o-mini"),
     },
     "opencode": {
         TASK_CLASS_AUXILIARY: ("litellm/orchestration",),
         TASK_CLASS_ORCHESTRATION: ("litellm/orchestration",),
         TASK_CLASS_DELEGATION: ("opencode/pro",),
+        TASK_CLASS_TINY: ("litellm/orchestration",),
+        TASK_CLASS_COMPACTION: ("litellm/orchestration",),
+        TASK_CLASS_AUTOCOMPLETE: ("litellm/orchestration",),
     },
 }
 
@@ -508,17 +553,17 @@ def auto_pick_task_models(
         warning = "No models in catalog; falling back to 'default'."
         logger.warning(warning)
         return AutoPickResult(
-            picks={cls: BUILTIN_FALLBACK for cls in TASK_CLASSES},
+            picks={cls: BUILTIN_FALLBACK for cls in CORE_TASK_CLASSES},
             default=BUILTIN_FALLBACK,
             warnings=[warning],
         )
 
-    alias_set = {name for name in (aliases or ids) if name in TASK_CLASSES and name in ids}
+    alias_set = {name for name in (aliases or ids) if name in CORE_TASK_CLASSES and name in ids}
     picks: dict[str, str] = {}
     aliases_used: list[str] = []
     remaining = list(dict.fromkeys(ids))
 
-    for cls in TASK_CLASSES:
+    for cls in CORE_TASK_CLASSES:
         if cls in alias_set and cls in remaining:
             picks[cls] = cls
             aliases_used.append(cls)
@@ -537,7 +582,10 @@ def auto_pick_task_models(
         if cls in picks:
             continue
         if not remaining:
-            reuse = picks.get(TASK_CLASS_ORCHESTRATION) or picks.get(TASK_CLASS_AUXILIARY) or ids[0]
+            if cls in (TASK_CLASS_TINY, TASK_CLASS_AUTOCOMPLETE, TASK_CLASS_AUXILIARY, TASK_CLASS_COMPACTION):
+                reuse = picks.get(TASK_CLASS_AUXILIARY) or picks.get(TASK_CLASS_ORCHESTRATION) or ids[0]
+            else:
+                reuse = picks.get(TASK_CLASS_ORCHESTRATION) or picks.get(TASK_CLASS_AUXILIARY) or ids[0]
             picks[cls] = reuse
             warnings.append(
                 f"Not enough distinct models for {cls}; reusing {reuse!r}."
@@ -725,7 +773,7 @@ def effective_auto_picks(
     catalog: Iterable[CatalogEntry] | None = None,
 ) -> AutoPickResult:
     entries = list(catalog) if catalog is not None else collect_catalog(config)
-    aliases = [entry.id for entry in entries if entry.id in TASK_CLASSES]
+    aliases = [entry.id for entry in entries if entry.id in CORE_TASK_CLASSES]
     vendors = {entry.id: infer_vendor(entry.id, owned_by=entry.owned_by) for entry in entries}
     return auto_pick_task_models(entries, aliases=aliases, vendors=vendors)
 
@@ -760,6 +808,22 @@ def effective_default_profile(
     return auto.default, warnings
 
 
+def task_env_override(task_class: str) -> str | None:
+    if task_class == TASK_CLASS_TINY:
+        forced = (os.environ.get("SWARM_TINY_MODEL") or os.environ.get("TINY_LLM_MODEL") or "").strip()
+        if forced:
+            return forced
+    elif task_class == TASK_CLASS_COMPACTION:
+        forced = (os.environ.get("SWARM_COMPACTION_MODEL") or os.environ.get("AUXILIARY_LLM_MODEL") or "").strip()
+        if forced:
+            return forced
+    elif task_class == TASK_CLASS_AUTOCOMPLETE:
+        forced = (os.environ.get("SWARM_AUTOCOMPLETE_MODEL") or os.environ.get("AUTOCOMPLETE_LLM_MODEL") or "").strip()
+        if forced:
+            return forced
+    return None
+
+
 def resolve_for_task(
     task_class: str,
     config: dict[str, Any] | None = None,
@@ -780,6 +844,14 @@ def resolve_for_task(
     known_ids = set(catalog_ids) if catalog_ids is not None else {e.id for e in entries}
     default, warnings = effective_default_profile(config, catalog=entries)
     cls = task_class if is_task_class(task_class) else TASK_CLASS_ORCHESTRATION
+    env_override = task_env_override(cls)
+    if env_override:
+        return TaskRoute(
+            profile=env_override,
+            task_class=cls,
+            override_on=True,
+            source="env",
+        )
     override = override_per_task_enabled(config)
     if not override:
         extra = warnings[0] if warnings else None
@@ -853,6 +925,77 @@ def resolve_summary_model(config: dict[str, Any] | None = None) -> TaskRoute:
 def resolve_design_model(config: dict[str, Any] | None = None) -> TaskRoute:
     """Blueprint design / coding-class work uses delegation when override on."""
     return resolve_for_task(TASK_CLASS_DESIGN, config)
+
+
+def resolve_tiny_model(config: dict[str, Any] | None = None) -> TaskRoute:
+    """#858: Small / fast model for titles, commits, prompt enhancement."""
+    route = resolve_for_task(TASK_CLASS_TINY, config)
+    if route.source == "env" or (route.override_on and not route.used_fallback):
+        return route
+    stored = stored_task_map(config).get(TASK_CLASS_TINY)
+    if stored:
+        return TaskRoute(
+            profile=stored,
+            task_class=TASK_CLASS_TINY,
+            override_on=True,
+            source="map",
+        )
+    return TaskRoute(
+        profile="tiny",
+        task_class=TASK_CLASS_TINY,
+        used_fallback=False,
+        source="default",
+    )
+
+
+def resolve_compaction_model(config: dict[str, Any] | None = None) -> TaskRoute:
+    """#859: Long-context compaction/summarization model."""
+    route = resolve_for_task(TASK_CLASS_COMPACTION, config)
+    if route.source == "env" or (route.override_on and not route.used_fallback):
+        return route
+    stored = stored_task_map(config).get(TASK_CLASS_COMPACTION)
+    if stored:
+        return TaskRoute(
+            profile=stored,
+            task_class=TASK_CLASS_COMPACTION,
+            override_on=True,
+            source="map",
+        )
+    aux_route = resolve_summary_model(config)
+    if aux_route.override_on and not aux_route.used_fallback:
+        return TaskRoute(
+            profile=aux_route.profile,
+            task_class=TASK_CLASS_COMPACTION,
+            override_on=True,
+            source="auxiliary",
+        )
+    return TaskRoute(
+        profile="auxiliary",
+        task_class=TASK_CLASS_COMPACTION,
+        used_fallback=False,
+        source="default",
+    )
+
+
+def resolve_autocomplete_model(config: dict[str, Any] | None = None) -> TaskRoute:
+    """#860: Low-latency autocompletion model."""
+    route = resolve_for_task(TASK_CLASS_AUTOCOMPLETE, config)
+    if route.source == "env" or (route.override_on and not route.used_fallback):
+        return route
+    stored = stored_task_map(config).get(TASK_CLASS_AUTOCOMPLETE)
+    if stored:
+        return TaskRoute(
+            profile=stored,
+            task_class=TASK_CLASS_AUTOCOMPLETE,
+            override_on=True,
+            source="map",
+        )
+    return TaskRoute(
+        profile="autocomplete",
+        task_class=TASK_CLASS_AUTOCOMPLETE,
+        used_fallback=False,
+        source="default",
+    )
 
 
 def load_swarm_config(config_path: str | Path | None = None) -> dict[str, Any]:
@@ -1028,7 +1171,20 @@ def settings_public_payload(config: dict[str, Any] | None = None) -> dict[str, A
     stored_default = stored_default_profile(config)
     override = override_per_task_enabled(config)
     stored_map = stored_task_map(config)
-    task_map = {cls: stored_map.get(cls) or auto.picks.get(cls, default) for cls in TASK_CLASSES}
+    task_map = {}
+    for cls in TASK_CLASSES:
+        if cls in stored_map:
+            task_map[cls] = stored_map[cls]
+        elif cls in auto.picks:
+            task_map[cls] = auto.picks[cls]
+        elif cls == TASK_CLASS_TINY:
+            task_map[cls] = "tiny"
+        elif cls == TASK_CLASS_COMPACTION:
+            task_map[cls] = "auxiliary"
+        elif cls == TASK_CLASS_AUTOCOMPLETE:
+            task_map[cls] = "autocomplete"
+        else:
+            task_map[cls] = default
     missing: list[str] = []
     known = {entry.id for entry in catalog}
     if stored_default and stored_default not in known and not profile_exists(stored_default, config):

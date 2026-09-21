@@ -19,6 +19,9 @@ export const TASK_CLASS_LABELS: Record<LlmTaskClass, string> = {
   orchestration: 'User chat / orchestration',
   auxiliary: 'Auxiliary (code summary)',
   delegation: 'Delegation (design / coding)',
+  tiny: 'Tiny (titles / commit messages)',
+  compaction: 'Compaction (long-context summary)',
+  autocomplete: 'Autocomplete (inline ghost text)',
 }
 
 export function profileIds(settings: LlmProfilesSettings | null | undefined): string[] {

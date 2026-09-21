@@ -79,3 +79,89 @@ class AnnBlueprint(BlueprintBase):
     result = BlueprintCodeValidator().validate_blueprint_code(code)
     assert result["valid"] is True
     assert not any("metadata" in w.lower() for w in result["warnings"])
+
+
+def test_tiny_chat_invokes_resolved_tiny_model(monkeypatch):
+    from swarm.core.llm_assist import tiny_chat
+
+    captured = {}
+
+    class _Msg:
+        content = "tiny response"
+
+    class _Choice:
+        message = _Msg()
+
+    class _Resp:
+        choices = [_Choice()]
+
+    class _Client:
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
+
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kwargs):
+                    captured["call_kwargs"] = kwargs
+                    return _Resp()
+
+    monkeypatch.setenv("SWARM_TINY_MODEL", "my-tiny-model")
+    monkeypatch.setattr("openai.OpenAI", _Client)
+
+    res = tiny_chat([{"role": "user", "content": "hi"}])
+    assert res == "tiny response"
+    assert captured["call_kwargs"]["model"] == "my-tiny-model"
+    assert captured["call_kwargs"]["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_generate_session_title(monkeypatch):
+    from swarm.core.llm_assist import generate_session_title
+
+    # Empty messages
+    assert generate_session_title([]) == "New Conversation"
+
+    # Under test without assist env, returns fallback
+    res = generate_session_title([{"role": "user", "content": "how to build web apps"}])
+    assert "How to build web" in res
+
+    # With assist enabled and tiny_chat mock
+    monkeypatch.setenv("SWARM_LLM_ASSIST", "1")
+    monkeypatch.setattr(
+        "swarm.core.llm_assist.tiny_chat",
+        lambda *args, **kwargs: '"Building Web Apps"',
+    )
+    res = generate_session_title([{"role": "user", "content": "how to build web apps"}])
+    assert res == "Building Web Apps"
+
+
+def test_generate_commit_message(monkeypatch):
+    from swarm.core.llm_assist import generate_commit_message
+
+    res = generate_commit_message("")
+    assert res == "chore: update code"
+
+    monkeypatch.setenv("SWARM_LLM_ASSIST", "1")
+    monkeypatch.setattr(
+        "swarm.core.llm_assist.tiny_chat",
+        lambda *args, **kwargs: "feat(inference): add tiny model override",
+    )
+    res = generate_commit_message("diff --git a/file b/file\n+new line")
+    assert res == "feat(inference): add tiny model override"
+
+
+def test_enhance_user_prompt(monkeypatch):
+    from swarm.core.llm_assist import enhance_user_prompt
+
+    assert enhance_user_prompt("") == ""
+
+    # Test mode fallback
+    assert enhance_user_prompt("write a python script") == "write a python script (enhanced)"
+
+    monkeypatch.setenv("SWARM_LLM_ASSIST", "1")
+    monkeypatch.setattr(
+        "swarm.core.llm_assist.tiny_chat",
+        lambda *args, **kwargs: "Please write a comprehensive, idiomatic Python 3 script with error handling and types.",
+    )
+    res = enhance_user_prompt("write a python script")
+    assert "idiomatic Python 3 script" in res

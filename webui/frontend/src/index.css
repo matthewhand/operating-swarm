@@ -2644,6 +2644,44 @@ pre:focus-within .os-code-copy {
 .os-composer__input::placeholder {
   color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
 }
+/* #860: ghost-text autocomplete overlay. The textarea keeps native layout;
+   the ghost mirrors it in a stacked absolute layer with an identical box. */
+.os-composer-input-wrap {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.os-composer-ghost-stack {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.os-composer-ghost-stack textarea {
+  flex: 1;
+  min-width: 0;
+}
+.os-composer-ghost {
+  position: absolute;
+  inset: 0;
+  padding: 0.45rem 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
+}
+.os-composer-ghost__spacer {
+  visibility: hidden;
+}
+/* #858: sparkle enhance button shares the mic's icon-button chrome. */
+.os-composer__icon--enhance:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .os-composer__icon {
   display: inline-flex;
   align-items: center;

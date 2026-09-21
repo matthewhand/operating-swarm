@@ -641,3 +641,61 @@ def test_raw_context_requires_login():
 def test_raw_context_requires_conversation_id(client):
     resp = client.get("/chat/raw-context/?agent=jeeves")
     assert resp.status_code == 400
+
+
+def test_resolve_compact_model_uses_dedicated_compaction_override(monkeypatch):
+    monkeypatch.setattr(
+        "swarm.core.llm_task_routing.load_swarm_config",
+        lambda: {
+            "blueprints": {"jeeves": {"llm_profile": "jeeves-expensive"}},
+            "llm": {
+                "jeeves-expensive": {"model": "claude-3-7-sonnet"},
+                "compact-custom": {"model": "qwen2.5-72b-128k"},
+            },
+            "settings": {
+                "default_llm_profile": "jeeves-expensive",
+                "override_per_task": True,
+                "task_llm_profiles": {"compaction": "compact-custom"},
+            },
+        },
+    )
+    assert resolve_compact_model("jeeves") == "qwen2.5-72b-128k"
+
+
+def test_resolve_compact_model_uses_env_overrides(monkeypatch):
+    monkeypatch.setenv("SWARM_COMPACTION_MODEL", "swarm-compact-128k")
+    monkeypatch.setattr(
+        "swarm.core.llm_task_routing.load_swarm_config",
+        lambda: {
+            "blueprints": {"jeeves": {"llm_profile": "jeeves-expensive"}},
+            "llm": {"jeeves-expensive": {"model": "claude-3-7-sonnet"}},
+            "settings": {"default_llm_profile": "default"},
+        },
+    )
+    assert resolve_compact_model("jeeves") == "swarm-compact-128k"
+
+    monkeypatch.delenv("SWARM_COMPACTION_MODEL", raising=False)
+    monkeypatch.setenv("AUXILIARY_LLM_MODEL", "aux-compact-model")
+    assert resolve_compact_model("jeeves") == "aux-compact-model"
+
+
+def test_validate_compaction_context_window():
+    from swarm.core.chat_compact import validate_compaction_context_window
+
+    ok, warn = validate_compaction_context_window("unknown-model")
+    assert ok is True
+    assert warn is None
+
+    config = {
+        "llm": {
+            "tiny-window": {"model": "tiny-model", "context_length": 4096},
+            "large-window": {"model": "large-model", "context_length": 131072},
+        }
+    }
+    ok, warn = validate_compaction_context_window("tiny-window", config=config, min_tokens=32768)
+    assert ok is False
+    assert "is less than recommended minimum" in warn
+
+    ok, warn = validate_compaction_context_window("large-window", config=config, min_tokens=32768)
+    assert ok is True
+    assert warn is None

@@ -49,6 +49,7 @@ from swarm.views.agent_router_views import (
     send_to_agent,
 )
 from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
+from swarm.views.assist_api import ChatAutocompleteAPIView, EnhancePromptAPIView
 from swarm.views.api_views import (
     BlueprintPersonasView,
     BlueprintsListView,
@@ -690,8 +691,16 @@ urlpatterns = [
     # REQ-38: composer file upload (sqlite metadata + local bytes).
     path("v1/chat/attachments", chat_attachment_upload, name="chat-attachments-no-slash"),
     path("v1/chat/attachments/", chat_attachment_upload, name="chat-attachments"),
-    # REQ-37: compact the backlog into a nested sqlite summary (raw JSON stays).
+    # #858: enhance user prompt via tiny model
+    path("v1/assist/enhance-prompt", EnhancePromptAPIView.as_view(), name="assist-enhance-prompt-no-slash"),
+    path("v1/assist/enhance-prompt/", EnhancePromptAPIView.as_view(), name="assist-enhance-prompt"),
+    # #860: inline ghost text autocompletion
+    path("v1/chat/autocomplete", ChatAutocompleteAPIView.as_view(), name="chat-autocomplete-no-slash"),
+    path("v1/chat/autocomplete/", ChatAutocompleteAPIView.as_view(), name="chat-autocomplete"),
+    # REQ-37 / #859: compact the backlog into a nested sqlite summary (raw JSON stays).
     path("chat/compact/", chat_compact, name="chat_compact"),
+    path("v1/chat/compact", chat_compact, name="v1-chat-compact-no-slash"),
+    path("v1/chat/compact/", chat_compact, name="v1-chat-compact"),
     path("chat/context-start/", chat_context_start, name="chat_context_start"),
     # #214: tick/untick whether a summary (and its span) feeds model context.
     path(

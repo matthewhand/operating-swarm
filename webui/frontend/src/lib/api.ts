@@ -425,9 +425,39 @@ export function fetchModels(): Promise<ListResponse<Model>> {
   return apiGet<ListResponse<Model>>('/v1/models/')
 }
 
-/** Task-class roles for REQ-43. These are not required model ids. */
-export const LLM_TASK_CLASSES = ['orchestration', 'auxiliary', 'delegation'] as const
+/** Task-class roles for REQ-43 (+ #858/#859/#860 inference overrides). These are not required model ids. */
+export const LLM_TASK_CLASSES = [
+  'orchestration',
+  'auxiliary',
+  'delegation',
+  'tiny',
+  'compaction',
+  'autocomplete',
+] as const
 export type LlmTaskClass = (typeof LLM_TASK_CLASSES)[number]
+
+/** #858: Expand and refine a draft prompt via the tiny model. */
+export async function enhancePrompt(
+  prompt: string,
+): Promise<{ prompt: string; enhanced: string }> {
+  return apiPost<{ prompt: string; enhanced: string }>('/v1/assist/enhance-prompt', { prompt })
+}
+
+/** #860: Inline ghost-text completion for the composer. */
+export async function fetchAutocomplete(
+  prefix: string,
+  opts?: {
+    suffix?: string
+    agent_id?: string
+    conversation_id?: string
+    max_tokens?: number
+  },
+): Promise<{ completion: string; duration_ms: number }> {
+  return apiPost<{ completion: string; duration_ms: number }>('/v1/chat/autocomplete', {
+    prefix,
+    ...opts,
+  })
+}
 
 export interface LlmProfile {
   id: string
