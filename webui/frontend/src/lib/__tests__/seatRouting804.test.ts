@@ -7,7 +7,11 @@
  * the two-stage picker dropped API picks from non-API seats entirely.
  */
 import { describe, expect, it } from 'vitest'
-import { seatParamsForPick } from '../seatRouting'
+import {
+  hydrateSeatFromSearchParams,
+  seatParamsForPick,
+  seatToSearchParams,
+} from '../seatRouting'
 
 describe('seatParamsForPick (#804)', () => {
   it('routes a CLI pick to ?cli= (the seat ChatPage actually resolves)', () => {
@@ -61,5 +65,56 @@ describe('seatParamsForPick (#804)', () => {
   it('a non-api pick clears a leftover ?model= (no bleed)', () => {
     const patch = seatParamsForPick('cli', 'codex')
     expect(patch.delete).toContain('model')
+  })
+})
+
+// #815 — canonical SeatKind/SeatDescriptor + atomic hydrate/serialize.
+describe('#815 canonical seat identity', () => {
+  it('hydrates every seat kind from search params', () => {
+    expect(hydrateSeatFromSearchParams(new URLSearchParams('blueprint=jeeves'))).toEqual({
+      kind: 'api',
+      id: 'jeeves',
+    })
+    expect(hydrateSeatFromSearchParams(new URLSearchParams('cli=grok'))).toEqual({
+      kind: 'cli',
+      id: 'grok',
+    })
+    expect(hydrateSeatFromSearchParams(new URLSearchParams('remote=omb'))).toEqual({
+      kind: 'remote',
+      id: 'omb',
+    })
+    expect(hydrateSeatFromSearchParams(new URLSearchParams('team=office'))).toEqual({
+      kind: 'team',
+      id: 'office',
+    })
+    expect(hydrateSeatFromSearchParams(new URLSearchParams(''))).toBeNull()
+  })
+
+  it('legacy ?agent= hydrates as an api seat', () => {
+    expect(hydrateSeatFromSearchParams(new URLSearchParams('agent=jeeves'))).toEqual({
+      kind: 'api',
+      id: 'jeeves',
+    })
+  })
+
+  it('seatToSearchParams atomically sets one kind and wipes the rest', () => {
+    const seen: { set: Record<string, string>; delete: string[] } = { set: {}, delete: [] }
+    seatToSearchParams({ kind: 'cli', id: 'grok' }, (set, deleteKeys) => {
+      seen.set = set
+      seen.delete = deleteKeys
+    })
+    expect(seen.set).toEqual({ cli: 'grok' })
+    expect(seen.delete).toEqual(expect.arrayContaining(['blueprint', 'remote', 'team', 'agent']))
+    expect(seen.delete).not.toContain('cli')
+  })
+
+  it('api gateway picks keep the model; other kinds drop it', () => {
+    const seen: { set: Record<string, string>; delete: string[] } = { set: {}, delete: [] }
+    seatToSearchParams({ kind: 'api', id: 'api_agent', model: 'claude-work' }, (set, deleteKeys) => {
+      seen.set = set
+      seen.delete = deleteKeys
+    })
+    expect(seen.set).toEqual({ blueprint: 'api_agent', model: 'claude-work' })
+    expect(seen.delete).toContain('session')
   })
 })

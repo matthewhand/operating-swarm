@@ -91,3 +91,68 @@ export function seatParamsForPick(
   deleteList.push(...SEAT_STATE_PARAMS.filter((p) => !(p in set)))
   return { set, delete: deleteList }
 }
+
+// #815 — canonical seat identity. The URL vocabulary (?blueprint=, ?cli=,
+// ?remote=, ?team=) already routes cross-kind picks (#804); these types name
+// the seat itself so components can hold one descriptor instead of boolean
+// soup. 'design' stays an authoring taxonomy tag under api, never a SeatKind.
+
+export type SeatKind = 'api' | 'cli' | 'remote' | 'team'
+
+export interface SeatDescriptor {
+  kind: SeatKind
+  id: string
+  /** LLM profile applied to the api_agent gateway (model dimension). */
+  model?: string
+  /** Per-seat conversation id; never inherited across seats. */
+  session?: string
+}
+
+/** The search param each SeatKind reads/writes. */
+export const SEAT_KIND_PARAM: Record<SeatKind, string> = {
+  api: 'blueprint',
+  cli: 'cli',
+  remote: 'remote',
+  team: 'team',
+}
+
+/** Parse a SeatDescriptor from search params (legacy `?agent=` honoured). */
+export function hydrateSeatFromSearchParams(
+  params: URLSearchParams | Record<string, string>,
+): SeatDescriptor | null {
+  const get = (key: string): string => {
+    if (typeof (params as URLSearchParams).get === 'function') {
+      return ((params as URLSearchParams).get(key) ?? '').trim()
+    }
+    return ((params as Record<string, string>)[key] ?? '').trim()
+  }
+  const session = get('session') || undefined
+  const model = get('model') || undefined
+  if (get('team')) return { kind: 'team', id: get('team'), session }
+  if (get('remote')) return { kind: 'remote', id: get('remote'), session }
+  if (get('cli')) return { kind: 'cli', id: get('cli'), session }
+  const blueprint = get('blueprint')
+  if (blueprint) return { kind: 'api', id: blueprint, model, session }
+  const legacyAgent = get('agent')
+  if (legacyAgent) return { kind: 'api', id: legacyAgent, model, session }
+  return null
+}
+
+/** Atomically set a seat: set its param, wipe every competing seat key + per-seat state. */
+export function seatToSearchParams(
+  seat: SeatDescriptor,
+  apply: (set: Record<string, string>, deleteKeys: string[]) => void,
+): void {
+  const set: Record<string, string> = { [SEAT_KIND_PARAM[seat.kind]]: seat.id }
+  if (seat.kind === 'api' && seat.id === 'api_agent' && seat.model) set.model = seat.model
+  if (seat.session) set.session = seat.session
+  const deleteKeys = (Object.keys(SEAT_KIND_PARAM) as SeatKind[])
+    .map((k) => SEAT_KIND_PARAM[k])
+    .filter((p) => !(p in set))
+  // Per-seat state (#804): a new seat never inherits the previous seat's
+  // conversation, and ?model= only survives when the pick set it.
+  if (!set.session) deleteKeys.push('session')
+  if (!set.model) deleteKeys.push('model')
+  deleteKeys.push('agent') // dead param — nothing reads it (#804)
+  apply(set, deleteKeys)
+}
