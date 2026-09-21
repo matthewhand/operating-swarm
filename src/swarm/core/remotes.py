@@ -3199,6 +3199,46 @@ def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | N
     return _TRUEFORGE_SEND_TIMEOUT_S
 
 
+_TRUEFORGE_ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$")
+
+
+def _trueforge_agent_id_shape(value: str) -> bool:
+    """#759: is this key an agent *id* (ULID) rather than a display name?
+
+    TrueForge secondary agents are referenced by 26-char ULID; the session
+    create schema rejects a ULID masquerading as ``agent.name`` (HTTP 400).
+    Plain test ids like ``agent-1`` and real names stay name-shaped.
+    """
+    return bool(_TRUEFORGE_ULID_RE.match((value or "").strip()))
+
+
+def _trueforge_resolve_agent_name(
+    spec: RemoteSpec, base_url: str, agent_id: str, timeout_s: float
+) -> str:
+    """#759: look up an agent's display name via ``GET /api/v1/agents``.
+
+    Best-effort: any failure (auth, unreachable, no match) returns ``''`` and
+    the caller falls back to the schema-honest ``agent.id`` shape.
+    """
+    try:
+        resp = http_json(
+            "GET",
+            f"{base_url}/api/v1/agents",
+            headers=_auth_headers(spec),
+            timeout=min(5.0, timeout_s),
+        )
+    except Exception:
+        return ""
+    body = resp.body if isinstance(resp.body, dict) else {}
+    rows = body.get("data") if isinstance(body.get("data"), list) else body.get("agents")
+    if not isinstance(rows, list):
+        return ""
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("id") or "") == agent_id:
+            return str(row.get("name") or "").strip()
+    return ""
+
+
 def _trueforge_create_session(
     spec: RemoteSpec, base_url: str, agent_name: str, timeout_s: float
 ) -> tuple[str, OperateResult | None]:
@@ -3208,11 +3248,19 @@ def _trueforge_create_session(
     way, so the auth / unreachable / id-missing sentences live here once.
     """
     name = (agent_name or "").strip() or "orchestrator"
+    agent: dict[str, str] = {"name": name}
+    if _trueforge_agent_id_shape(name):
+        # #759: a ULID is an agent id, not a name. Resolve the display name;
+        # when that fails, still send the schema-honest ``agent.id`` field.
+        resolved = _trueforge_resolve_agent_name(spec, base_url, name, timeout_s)
+        if resolved:
+            agent["name"] = resolved
+        agent["id"] = name
     sess_resp = http_json(
         "POST",
         f"{base_url}/api/v1/sessions",
         headers=_auth_headers(spec),
-        body={"agent": {"name": name}, "metadata": {}},
+        body={"agent": agent, "metadata": {}},
         timeout=min(5.0, timeout_s),
     )
     if sess_resp.status in _AUTH:
