@@ -21,6 +21,7 @@ import type { AgentStatus, AvatarEyes, AvatarTheme } from '../types/agent'
 import BlobAvatar from './BlobAvatar'
 import BeeAvatar from './BeeAvatar'
 import { Robot3DAvatar } from './Robot3DAvatar'
+import { remoteThemeFace } from './RemoteThemeFace'
 import { RobotAvatar } from './AgentSidebar/RobotAvatar'
 import AgentThemePreviewDialog from './AgentThemePreviewDialog'
 import { chooseThemeLabel } from './AgentThemeChooser'
@@ -66,6 +67,8 @@ export interface AgentAvatarProps {
   theme?: AvatarTheme
   /** Opt-in click-to-choose. Rail/pins stay false so left-click selects chat. */
   interactive?: boolean
+  /** #747: remote kind — when no custom face exists, render the platform-themed face (Letta, Slack, AnythingLLM, …) instead of the generic default. */
+  remoteKind?: string | null
 }
 
 export function resolveAgentAvatarSrc(src?: string | null): string {
@@ -98,6 +101,7 @@ export default function AgentAvatar({
   style,
   theme: forcedTheme,
   interactive,
+  remoteKind,
 }: AgentAvatarProps) {
   const [broken, setBroken] = useState(false)
   const [open, setOpen] = useState(false)
@@ -222,6 +226,42 @@ export default function AgentAvatar({
         label={alt || undefined}
       />,
     )
+  }
+
+  // #747: remotes with no custom face get their platform-themed face —
+  // across rail, pinned tiles, and chat header — instead of the generic
+  // default. This outranks the avatar *theme* (custom uploads still win via
+  // isCustom below). Waiting swaps the glyph for the bouncing dots.
+  if (remoteKind && !isCustom) {
+    const face = remoteThemeFace(remoteKind)
+    if (face) {
+      return shell(
+        {
+          'data-agent-avatar': 'remote-themed',
+          'data-avatar-theme': 'remote',
+          'data-avatar-size': size,
+          'data-eye-state': eyeState,
+          'data-remote-kind': remoteKind.toLowerCase(),
+          'data-remote-face': face.label,
+          // attrs.style replaces the outer merge, so re-include motion vars.
+          style: { ...motionStyle, ...style, ['--remote-accent' as string]: face.accent },
+        },
+        <span
+          className={`os-remote-face os-remote-face--${size} ${eyeState === 'active' ? 'os-remote-face--active' : ''}`}
+          style={{ color: face.accent }}
+          aria-hidden="true"
+        >
+          {face.render()}
+        </span>,
+        eyeState === 'active' ? (
+          <span className="os-waiting-dots" data-testid="avatar-waiting-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+        ) : null,
+      )
+    }
   }
 
   if (theme === 'robot3d') {

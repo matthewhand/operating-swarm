@@ -72,6 +72,7 @@ import {
   peekApprovalWait,
 } from '../lib/agentAttention'
 import AgentAvatar from './AgentAvatar'
+import { remoteThemeFace } from './RemoteThemeFace'
 import {
   agentRole,
   isChiefOfStaff,
@@ -2894,6 +2895,7 @@ export default function AgentSidebar({
     teamId,
     recencyFaces,
     collapsed,
+    remoteKind,
   }: {
     name: string
     face?: StackFace | null
@@ -2904,11 +2906,25 @@ export default function AgentSidebar({
     recencyFaces?: StackFace[]
     /** #639: collapsed (avatar-width) rail — one face only. */
     collapsed?: boolean
+    /** #747: remote platform kind — themes the face-less fallback. */
+    remoteKind?: string | null
   }) => {
     if (declared) {
       return <PersonaRoster roster={declared} groupId={teamId || name} label={`${name} declared members`} />
     }
     if (!face) {
+      // #747: remotes with no member faces render their platform-themed
+      // face (Letta, Slack, AnythingLLM, …) instead of the generic Users mark.
+      if (remoteKind) {
+        return (
+          <AgentAvatar
+            agentId={teamId || name}
+            alt={name}
+            size="sm"
+            remoteKind={remoteKind}
+          />
+        )
+      }
       return (
         <span
           className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
@@ -2918,7 +2934,6 @@ export default function AgentSidebar({
         </span>
       )
     }
-    // #639 (REQ-909) as revised by #817: every rail state renders exactly ONE
     // face — collapsed shows the most recently active member, wide shows the
     // chat target — and the `+N` remainder sticker (roster minus the face)
     // rides along in both. The graduated mini row is retired.
@@ -3138,6 +3153,10 @@ export default function AgentSidebar({
       teamSidepaneStack(marked.faces, remoteWorkerBusy).faces,
       defaultSessionForRemote(remote)?.memberId ?? '',
     ).face
+    // #747: sessionsForRemote fabricates a member for empty remotes, so the
+    // face is rarely null — the themed face applies whenever the chat face
+    // carries no custom avatar (uploaded faces always win).
+    const chatFaceHasAvatar = Boolean(chatFace && (chatFace.avatarSrc || chatFace.src))
     const totalMembers = remote.agents ? remote.agents.length : rawFaces.length
     const singleMember = totalMembers === 1
     const remoteRemainder = totalMembers <= 1 ? 0 : totalMembers - 1
@@ -3204,12 +3223,27 @@ export default function AgentSidebar({
         {...rowMenuHandlers(hideId, name, hidden, 'remote', sessions, remote.id)}
       >
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
-          {renderTeamAvatar({
-            name,
-            face: chatFace,
-            remainder: remoteRemainder,
-            teamId: remote.id,
-          })}
+          {!chatFaceHasAvatar && remoteThemeFace(remote.kind) ? (
+            // #747: platform-themed face (Letta, Slack, AnythingLLM, …) —
+            // only for kinds the registry actually covers, so omb/herdr and
+            // other stack remotes keep their existing member-face rendering.
+            <AgentAvatar
+              agentId={remote.id}
+              alt={name}
+              size="sm"
+              remoteKind={remote.kind}
+              active={remoteWorkerBusy}
+              status={remoteWorkerBusy ? 'working' : 'idle'}
+            />
+          ) : (
+            renderTeamAvatar({
+              name,
+              face: chatFace,
+              remainder: remoteRemainder,
+              teamId: remote.id,
+              remoteKind: remote.kind,
+            })
+          )}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
           <span className="flex min-w-0 flex-col gap-0.5">

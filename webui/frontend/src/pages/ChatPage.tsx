@@ -4493,6 +4493,7 @@ const ChatPage = () => {
                   size="lg"
                   gl
                   className="os-chat-header__avatar"
+                  remoteKind={teamFromUrl ? undefined : selectedRemote?.kind}
                 />
               </button>
             )}

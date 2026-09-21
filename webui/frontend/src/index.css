@@ -496,6 +496,53 @@ html:not([data-theme="light"]) .os-composer-wrap,
 .os-agent-avatar--active {
   overflow: visible;
 }
+
+/* #747: themed remote faces (Letta, Slack, AnythingLLM, …). Monochrome
+   glyph tinted with the platform accent, breathing pulse while the remote
+   turn is in flight so an operator can tell the round-trip is live. */
+.os-remote-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+.os-remote-face__glyph {
+  width: 62%;
+  height: 62%;
+}
+.os-remote-face--xs .os-remote-face__glyph { width: 70%; height: 70%; }
+.os-remote-face--lg .os-remote-face__glyph { width: 58%; height: 58%; }
+.os-remote-face--xl .os-remote-face__glyph { width: 55%; height: 55%; }
+.os-remote-face--active {
+  animation: os-remote-pulse 1.6s ease-in-out infinite;
+}
+@keyframes os-remote-pulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 0 color-mix(in srgb, currentColor 0%, transparent));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 55%, transparent));
+    transform: scale(1.07);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-remote-face--active {
+    animation: none;
+  }
+}
+.os-remote-monogram {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-base-content, #1f2937);
+}
+.os-agent-avatar[data-avatar-theme='remote'] {
+  background: color-mix(in srgb, var(--remote-accent, #6366f1) 12%, var(--color-base-100, #ffffff));
+  border: 1px solid color-mix(in srgb, var(--remote-accent, #6366f1) 35%, transparent);
+}
 .os-agent-avatar img {
   width: 100%;
   height: 100%;

@@ -3365,3 +3365,47 @@ describe('#741 — the pill is a handle: drag from it resizes, click still toggl
     expect(rail).not.toHaveAttribute('data-collapsed', 'true')
   })
 })
+
+describe('#747 — remote rows render their platform-themed face', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('a Letta remote with no member faces shows the Letta face, not the generic Users mark', async () => {
+    // Patch the remotes fixture for this test by re-stubbing fetch: the
+    // shared mockFetch serves omb; this test needs a letta row.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [
+                { id: 'letta-1', kind: 'letta', title: 'Letta Core', configured: true, agents: [] },
+              ],
+            }),
+          } as Response
+        }
+        return (mockFetch() as unknown as (u: RequestInfo) => Promise<Response>)(input)
+      }),
+    )
+
+    renderSidebar()
+    await waitFor(async () => {
+      const themed = document.querySelector("[data-remote-kind='letta']")
+      expect(themed).not.toBeNull()
+    })
+    expect(document.querySelector('.os-remote-face')).not.toBeNull()
+  })
+})
