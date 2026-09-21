@@ -692,7 +692,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="New team"
+      title="Manage Teams"
       size="2xl"
       className="max-h-[90vh]"
     >
@@ -718,27 +718,38 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           complex tasks.
         </p>
 
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          <Input
-            label="Team name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="research-squad"
-            size="sm"
-          />
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={resetDraft}>
-              New
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              loading={saveMutation.isPending}
-              onClick={() => saveMutation.mutate()}
+        <div className="flex flex-wrap items-end gap-2 pb-3 border-b border-base-300/60">
+          <label className="flex flex-1 min-w-[14rem] flex-col gap-1 text-sm">
+            <span className="font-medium text-xs text-base-content/70">Select team</span>
+            <select
+              className="select select-sm w-full"
+              value={savedId ?? ''}
+              aria-label="Select team"
+              onChange={(event) => {
+                const next = savedRosters.find((row) => row.id === event.target.value)
+                if (next) loadRoster(next)
+                else resetDraft()
+              }}
             >
-              Save roster
+              <option value="" disabled={Boolean(savedId)}>Choose a team…</option>
+              {savedRosters.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={resetDraft}
+              <Plus className="h-4 w-4 mr-1" aria-hidden="true" />
+              Create Team
             </Button>
-          </div>
+          </Button>
         </div>
 
         {savedRosters.length > 0 && (

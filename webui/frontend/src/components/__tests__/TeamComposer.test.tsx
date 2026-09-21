@@ -181,7 +181,7 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.getByRole('tab', { name: /^API\b/i })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: /^CLI\b/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /^Remote\b/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /new team/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /manage teams/i })).toBeInTheDocument()
   })
 
   it('tabs available agents by kind without per-row KIND_LABEL badges', async () => {
