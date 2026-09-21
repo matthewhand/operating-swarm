@@ -18,10 +18,6 @@ export interface RemoteThemeFace {
   render: () => ReactNode
 }
 
-const M = ({ d, keyName }: { d: string; keyName: string }) => (
-  <path key={keyName} d={d} fill="currentColor" />
-)
-
 /** Two-letter monogram, seeded hue per id so instances stay distinct. */
 function Monogram({ label }: { label: string }) {
   const initials = label
@@ -51,21 +47,6 @@ const LettaFace: RemoteThemeFace = {
         <circle cx="9" cy="9.2" r="0.6" fill="currentColor" stroke="none" />
         <circle cx="15" cy="11.4" r="0.6" fill="currentColor" stroke="none" />
         <circle cx="9.6" cy="14.2" r="0.6" fill="currentColor" stroke="none" />
-      </g>
-    </svg>
-  ),
-}
-
-const SlackFace: RemoteThemeFace = {
-  label: 'Slack',
-  accent: '#4a154b',
-  render: () => (
-    <svg viewBox="0 0 24 24" className="os-remote-face__glyph" aria-hidden="true">
-      <g fill="currentColor">
-        <M keyName="s1" d="M9.1 2.5a1.9 1.9 0 0 0 0 3.8h1.9V4.4a1.9 1.9 0 0 0-1.9-1.9Zm0 5.1H4.4a1.9 1.9 0 1 0 0 3.8h4.7a1.9 1.9 0 1 0 0-3.8Z" />
-        <M keyName="s2" d="M21.5 9.5a1.9 1.9 0 0 0-3.8 0v1.9h1.9a1.9 1.9 0 0 0 1.9-1.9Zm-5.1 0V4.8a1.9 1.9 0 1 0-3.8 0v4.7a1.9 1.9 0 1 0 3.8 0Z" />
-        <M keyName="s3" d="M14.9 21.5a1.9 1.9 0 0 0 0-3.8H13v1.9a1.9 1.9 0 0 0 1.9 1.9Zm0-5.1h4.7a1.9 1.9 0 1 0 0-3.8h-4.7a1.9 1.9 0 1 0 0 3.8Z" />
-        <M keyName="s4" d="M2.5 14.5a1.9 1.9 0 0 0 3.8 0v-1.9H4.4a1.9 1.9 0 0 0-1.9 1.9Zm5.1 0v4.7a1.9 1.9 0 1 0 3.8 0v-4.7a1.9 1.9 0 1 0-3.8 0Z" />
       </g>
     </svg>
   ),
@@ -134,7 +115,6 @@ const OpenWebUIFace: RemoteThemeFace = {
 /** #747: the per-kind registry. Ids match `REMOTE_KIND_LABELS` keys. */
 export const REMOTE_THEME_FACES: Record<string, RemoteThemeFace> = {
   letta: LettaFace,
-  slack: SlackFace,
   anythingllm: AnythingLLMFace,
   flowise: FlowiseFace,
   n8n: N8nFace,

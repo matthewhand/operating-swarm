@@ -554,7 +554,7 @@ class TestWebsocketRemoteKind:
         instruction = "status?"
         user_html, notices, frames, _ = await _drain_turn(
             communicator,
-            {"message": instruction, "params": {"remote": "slack", "target": "w1:p1"}},
+            {"message": instruction, "params": {"remote": "hermes", "target": "w1:p1"}},
         )
         assert instruction in user_html
         # Replies are HTML; the canned text carries the prompt in &#x27; quotes.
@@ -577,7 +577,7 @@ class TestWebsocketRemoteKind:
         from swarm.core import remotes as remotes_core
 
         def _not_configured(*_args, **_kwargs):
-            raise remotes_core.RemoteError("Remote 'slack' is not configured")
+            raise remotes_core.RemoteError("Remote 'hermes' is not configured")
 
         # Deterministic: do not depend on the developer's own remotes config.
         monkeypatch.setattr(remotes_core, "load_remote", _not_configured)
@@ -592,11 +592,11 @@ class TestWebsocketRemoteKind:
 
         _, _, frames, _ = await _drain_turn(
             communicator,
-            {"message": "hello", "params": {"remote": "slack", "target": "w1:p1"}},
+            {"message": "hello", "params": {"remote": "hermes", "target": "w1:p1"}},
         )
         reply = html.unescape(frames[-1])
         # A sentence that names the remote and what is wrong with it.
-        assert "slack" in reply
+        assert "hermes" in reply
         assert "not configured" in reply
         # Not a dump: no upstream JSON body and no raw gap identifier.
         assert "{" not in reply
@@ -604,9 +604,9 @@ class TestWebsocketRemoteKind:
 
         # The socket survived: a second turn still gets an answer.
         _, _, frames, _ = await _drain_turn(
-            communicator, {"message": "and now?", "params": {"remote": "slack"}}
+            communicator, {"message": "and now?", "params": {"remote": "hermes"}}
         )
-        assert "slack" in html.unescape(frames[-1])
+        assert "hermes" in html.unescape(frames[-1])
 
         await communicator.disconnect()
 
@@ -637,7 +637,7 @@ class TestWebsocketRemoteKind:
             # 1. First turn
             await _drain_turn(
                 communicator,
-                {"message": "turn 1", "params": {"remote": "slack", "target": "c1:t1"}},
+                {"message": "turn 1", "params": {"remote": "letta", "target": "c1:t1"}},
             )
             assert len(captured_messages) == 1
             assert captured_messages[-1] == [{"role": "user", "content": "turn 1"}]
@@ -645,7 +645,7 @@ class TestWebsocketRemoteKind:
             # 2. Second turn: should receive ONLY turn 2, omitting prior history
             await _drain_turn(
                 communicator,
-                {"message": "turn 2", "params": {"remote": "slack", "target": "c1:t1"}},
+                {"message": "turn 2", "params": {"remote": "letta", "target": "c1:t1"}},
             )
             assert len(captured_messages) == 2
             assert len(captured_messages[-1]) == 1

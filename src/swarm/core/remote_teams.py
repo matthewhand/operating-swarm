@@ -98,15 +98,6 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "transport": "http",
         "server_managed_context": True,
     },
-    "slack": {
-        "name": "Slack",
-        "specialty": "Slack thread integration",
-        "description": "Slack workspace thread chat integration.",
-        "color": "#4a154b",
-        "icon": "💬",
-        "transport": "http",
-        "server_managed_context": True,
-    },
 }
 
 _ALIASES = {
@@ -294,7 +285,6 @@ def chat_remote(
         "memgpt",
         "herdr",
         "flowise",
-        "slack",
     )
 
     if fid in ("letta", "memgpt"):

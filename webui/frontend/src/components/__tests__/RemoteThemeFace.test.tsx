@@ -15,7 +15,7 @@ import { REMOTE_THEME_FACES, monogramFaceFor, remoteThemeFace } from '../RemoteT
 describe('#747 registry', () => {
   it('covers the first-class remote platforms', () => {
     expect(Object.keys(REMOTE_THEME_FACES).sort()).toEqual(
-      ['anythingllm', 'flowise', 'letta', 'n8n', 'openwebui', 'slack'].sort(),
+      ['anythingllm', 'flowise', 'letta', 'n8n', 'openwebui'].sort(),
     )
     for (const [, face] of Object.entries(REMOTE_THEME_FACES)) {
       expect(face.label.length).toBeGreaterThan(0)
@@ -25,7 +25,7 @@ describe('#747 registry', () => {
 
   it('resolves kinds case-insensitively and rejects unknowns', () => {
     expect(remoteThemeFace('Letta')?.label).toBe('Letta')
-    expect(remoteThemeFace('SLACK')?.label).toBe('Slack')
+    expect(remoteThemeFace('AnythingLLM')?.label).toBe('AnythingLLM')
     expect(remoteThemeFace('herdr')).toBeUndefined()
     expect(remoteThemeFace(null)).toBeUndefined()
   })
@@ -48,11 +48,11 @@ describe('#747 AgentAvatar remote theme resolution', () => {
   })
 
   it('exposes the kind + face labels as data attributes and the accent color', () => {
-    const { container } = renderAvatar({ remoteKind: 'slack' })
+    const { container } = renderAvatar({ remoteKind: 'anythingllm' })
     const themed = container.querySelector("[data-avatar-theme='remote']")
     expect(themed).not.toBeNull()
-    expect(themed?.getAttribute('data-remote-kind')).toBe('slack')
-    expect(themed?.getAttribute('data-remote-face')).toBe('Slack')
+    expect(themed?.getAttribute('data-remote-kind')).toBe('anythingllm')
+    expect(themed?.getAttribute('data-remote-face')).toBe('AnythingLLM')
     // Accent rides the root style as a CSS custom property.
     expect(themed?.getAttribute('style')).toContain('--remote-accent')
     expect(container.querySelector('.os-remote-face')).not.toBeNull()

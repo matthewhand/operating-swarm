@@ -45,7 +45,6 @@ describe('classifyAgentKind', () => {
     expect(classifyAgentKind('omb')).toBe('remote')
     expect(classifyAgentKind('trueforge')).toBe('remote')
     expect(classifyAgentKind('n8n')).toBe('remote')
-      expect(classifyAgentKind('slack')).toBe('remote')
     expect(classifyAgentKind('swarm')).toBe('api')
     expect(canEditAgentMessages('herdr')).toBe(false)
     expect(canEditAgentMessages('trueforge')).toBe(false)

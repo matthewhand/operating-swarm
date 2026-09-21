@@ -91,7 +91,6 @@ def test_rakazo_401_names_the_fix_and_keeps_the_fail_prefix():
         "rakazo",
         "trueforge",
         "anythingllm",
-        "slack",
         "letta",
         "openwebui",
         "flowise",

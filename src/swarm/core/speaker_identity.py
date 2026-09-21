@@ -126,11 +126,6 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "path": "delimiter",
         "notes": "n8n webhook/chat workflow resume; session is workflow id or webhook path.",
     },
-    "remote:slack": {
-        "name_field": "stripped",
-        "path": "delimiter",
-        "notes": "Slack bot threads as sessions; resume key is channel:thread_ts.",
-    },
     "remote:omb": {
         "name_field": "stripped",
         "path": "delimiter",

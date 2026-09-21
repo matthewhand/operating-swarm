@@ -158,7 +158,6 @@ _GAP_HINTS: dict[str, str] = {
         "then retry — /health stays public but /rpc/* needs a session."
     ),
     "rakazo_rpc_unusable": "point base_url at the Rakazo API (:3100), not the Vite UI (:5173).",
-    "slack_thread_required": "pick a Slack thread first.",
     "trueforge_no_session": (
         "point the send at a TrueForge session id (Settings → Remotes lists the "
         "agents it can start one for), or start a session for that agent first."
@@ -242,7 +241,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         ),
         "version": "0.2.0",
         "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "n8n", "slack", "ops", "tools"],
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "n8n", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -266,8 +265,6 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "FLOWISE_API_KEY",
             "N8N_BASE_URL",
             "N8N_API_KEY",
-            "SLACK_BASE_URL",
-            "SLACK_BOT_TOKEN",
         ],
     }
 
@@ -382,16 +379,6 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_letta",
                 "Hand off to the Letta remote operator (health/list/send).",
-            ),
-            "slack": (
-                "SlackRemote",
-                (
-                    "You operate Slack via the bot API. List threads as sessions "
-                    "and send into an existing channel/thread. Never mint a new "
-                    "Slack app."
-                ),
-                "consult_slack",
-                "Hand off to the Slack remote operator (health/list/send).",
             ),
             "n8n": (
                 "N8nRemote",

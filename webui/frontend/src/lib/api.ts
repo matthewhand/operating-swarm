@@ -776,7 +776,6 @@ export type RemoteKindId =
   | 'openwebui'
   | 'flowise'
   | 'n8n'
-  | 'slack'
   | 'omb'
   | 'rakazo'
   | 'herdr'

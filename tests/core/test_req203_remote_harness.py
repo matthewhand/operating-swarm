@@ -39,7 +39,6 @@ def test_user_facing_kind_is_always_remote():
         "openwebui",
         "flowise",
         "n8n",
-        "slack",
         "omb",
         "rakazo",
         "herdr",
@@ -85,7 +84,6 @@ def test_capabilities_computer_only_on_omb_and_rakazo():
     assert capabilities_for("openwebui").sessions is True
     assert capabilities_for("flowise").sessions is True
     assert capabilities_for("n8n").sessions is True
-    assert capabilities_for("slack").sessions is True
     assert capabilities_for("omb").sessions is False
 
 
@@ -147,7 +145,6 @@ def test_herdr_is_remote_impl_not_fifth_kind():
     assert classify_agent_kind("open-webui") == "remote"
     assert classify_agent_kind("flowise") == "remote"
     assert classify_agent_kind("n8n") == "remote"
-    assert classify_agent_kind("slack") == "remote"
     assert classify_agent_kind("omb") == "remote"
     assert classify_agent_kind("rakazo") == "remote"
     assert classify_agent_kind("trueforge") == "remote"

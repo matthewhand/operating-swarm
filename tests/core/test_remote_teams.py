@@ -527,7 +527,6 @@ def test_server_managed_context_capabilities():
     assert capabilities_for("letta").server_managed_context is True
     assert capabilities_for("flowise").server_managed_context is True
     assert capabilities_for("herdr").server_managed_context is True
-    assert capabilities_for("slack").server_managed_context is True
     assert capabilities_for("hermes").server_managed_context is False
     assert capabilities_for("omb").server_managed_context is False
     assert capabilities_for("rakazo").server_managed_context is False
@@ -575,9 +574,9 @@ def test_chat_remote_server_managed_submits_only_latest_turn():
         payload_stateless = json.loads(captured_reqs[-1].data.decode("utf-8"))
         assert payload_stateless["messages"] == history
 
-        # 2. Stateful framework (slack) receives ONLY the latest turn
+        # 2. Stateful framework (flowise, no special-cased sender) receives ONLY the latest turn
         reply_stateful = chat_remote(
-            "http://127.0.0.1:9090/v1", history, framework="slack"
+            "http://127.0.0.1:9090/v1", history, framework="flowise"
         )
         assert reply_stateful == "ok"
         payload_stateful = json.loads(captured_reqs[-1].data.decode("utf-8"))
@@ -592,7 +591,6 @@ def test_listed_remote_specs_includes_server_managed_context():
     assert specs["letta"]["server_managed_context"] is True
     assert specs["herdr"]["server_managed_context"] is True
     assert specs["flowise"]["server_managed_context"] is True
-    assert specs["slack"]["server_managed_context"] is True
     assert specs["hermes"]["server_managed_context"] is False
     assert specs["openmausbot"]["server_managed_context"] is False
 

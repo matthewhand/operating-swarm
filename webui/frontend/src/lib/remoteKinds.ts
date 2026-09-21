@@ -8,7 +8,6 @@ export const REMOTE_KIND_LABELS: Record<string, string> = {
   openwebui: 'Open WebUI',
   flowise: 'Flowise',
   n8n: 'n8n',
-  slack: 'Slack',
   omb: OPENMOUSBOT_LABEL,
   rakazo: 'Rakazo',
   herdr: 'Herdr',
