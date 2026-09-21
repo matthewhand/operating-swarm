@@ -141,7 +141,7 @@ describe('bubbleTheme registry (#217)', () => {
         id: 'simple',
         label: 'Simple',
         messageLayout: 'bubble',
-        timestampPlacement: 'below',
+        timestampPlacement: 'inline',
         actionRowPlacement: 'below',
         showAvatar: false,
       })

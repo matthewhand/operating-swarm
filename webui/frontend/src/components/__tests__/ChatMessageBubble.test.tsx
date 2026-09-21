@@ -546,13 +546,13 @@ describe('#217: per-theme timestamp placement and message layout', () => {
     expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
   })
 
-  it('simple puts the datetimestamp below a bubble', () => {
+  it('simple sits the clock inline beside the bubble (top-aligned)', () => {
     renderThemed('simple')
     const row = screen.getByLabelText('Codey message')
     expect(row).toHaveAttribute('data-message-layout', 'bubble')
-    expect(row).toHaveAttribute('data-timestamp-placement', 'below')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'inline')
     const slot = screen.getByTestId('bubble-time-slot')
-    expect(slot).toHaveClass('chat-footer')
+    expect(slot).toHaveClass('os-bubble-time-inline')
     expect(within(slot).getByTestId('bubble-time')).toBeInTheDocument()
   })
 

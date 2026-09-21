@@ -7,11 +7,15 @@ export class SpeechTheme extends BubbleThemeBase {
   readonly label = 'Speech'
 }
 
-/** Traditional chat: rounded pills, datetimestamp below every message. */
+/** Traditional chat: rounded pills, timestamp inline beside the bubble
+    (top-aligned in the inner empty space) instead of stacking below it. */
 export class SimpleTheme extends BubbleThemeBase {
   readonly id = 'simple' as const
   readonly label = 'Simple'
-  override readonly timestampPlacement = 'below' as const
+  /** #753: top-align the timestamp beside the bubble in the inner empty
+      space (right for incoming, left for outgoing) rather than stacking it
+      below every message. */
+  override readonly timestampPlacement = 'inline' as const
   /** #520: the beside-bubble avatar and speaker label are noise here. */
   override readonly showAvatar = false
 }

@@ -68,7 +68,7 @@ describe('#520.2 simple — no avatar, no speaker label', () => {
     expect(screen.queryByTestId('avatar-child')).not.toBeInTheDocument()
   })
 
-  it('keeps the timestamp (below placement) and drops the speaker prefix in CSS', () => {
+  it('keeps the timestamp inline and drops the speaker prefix in CSS', () => {
     renderBubble('simple')
     expect(screen.getAllByTestId('bubble-time-slot').length).toBeGreaterThan(0)
     const css = cssText()
