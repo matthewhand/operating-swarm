@@ -13,6 +13,7 @@ import { ChevronDown } from 'lucide-react'
 import ModelSearchPalette, { type ModelSearchOption } from './ModelSearchPalette'
 import ComposerPickerDialog from './ComposerPickerDialog'
 import type { ComposerProviderOption } from '../lib/composerPicker'
+import { getProviderIcon } from '../lib/providerIcons'
 import {
   displayableModels,
   familyHasEffort,
@@ -500,6 +501,15 @@ export function NavbarRoutingPicker({
         openTwoStage()
       }}
     >
+      {/* #795: provider glyph — hidden on desktop (the label names it),
+          shown on mobile where it replaces the text in an icon circle. */}
+      <span className="os-routing-pill__icon" aria-hidden="true">
+        {getProviderIcon({
+          seatKind,
+          providerId: selectedAgent,
+          modelId: selectedModel,
+        })}
+      </span>
       <span className="os-routing-pill__label">{label}</span>
       <ChevronDown className="os-routing-pill__chevron" aria-hidden="true" />
     </button>

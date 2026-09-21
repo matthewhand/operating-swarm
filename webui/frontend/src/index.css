@@ -2480,6 +2480,40 @@ button.os-agent-row {
   padding-inline: 0.45rem;
   max-width: 7.5rem;
 }
+/* #795: the provider glyph rides inside the pill; hidden on desktop where the
+   text label already names the provider, shown on mobile where it replaces it. */
+.os-composer .os-routing-pill__icon {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin-inline-end: 0.15rem;
+}
+.os-composer .os-routing-pill__icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+/* #795: on narrow viewports the joined text pill ate ~120px of a ~360px row.
+   The pill collapses to a compact icon circle — the provider glyph replaces
+   the text, the full label stays on aria-label/title for a11y and desktop. */
+@media (max-width: 40rem) {
+  .os-composer .os-routing-pill {
+    width: 1.85rem;
+    height: 1.85rem;
+    min-width: 1.85rem;
+    max-width: none;
+    padding: 0;
+    border-radius: 9999px;
+    justify-content: center;
+  }
+  .os-composer .os-routing-pill__label,
+  .os-composer .os-routing-pill__chevron {
+    display: none;
+  }
+  .os-composer .os-routing-pill__icon {
+    display: inline-flex;
+    margin: 0;
+  }
+}
 .os-composer .os-routing-flyout {
   inset-block-start: auto;
   inset-block-end: calc(100% + 0.35rem);
