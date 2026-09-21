@@ -171,6 +171,7 @@ from swarm.views.speech_api import (
     SpeechTranscribeView,
 )
 from swarm.views.suggestions_api import AgentSuggestionsAPIView
+from swarm.views.diagnostics_views import DiagnosticsView
 from swarm.views.system_views import LocalStoreView
 from swarm.views.team_rosters_api import (
     TeamAgentsAPIView,
@@ -652,6 +653,10 @@ urlpatterns = [
     # Settings System section — local store facts (REQ-56). Read-only.
     path("v1/system", LocalStoreView.as_view(), name="system-local-store-no-slash"),
     path("v1/system/", LocalStoreView.as_view(), name="system-local-store"),
+    # #905: read-only diagnostics bundle for the WebUI (#906 palette, #907 modal).
+    # Slash-only: the no-slash twin would steal the base operationId in the
+    # OpenAPI schema (spectacular dedupes alphabetically); APPEND_SLASH covers it.
+    path("v1/diagnostics/", DiagnosticsView.as_view(), name="diagnostics"),
     path("teams/launch", team_launcher, name="teams_launch_no_slash"),
     path("teams/launch/", team_launcher, name="teams_launch"),
     path("teams/", team_admin, name="teams_admin"),
