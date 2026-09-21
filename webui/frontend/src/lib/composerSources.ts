@@ -42,6 +42,12 @@ export interface ComposerRemoteSource {
   defaultAgentId?: string
   /** Agent list still loading (#803) — suppresses auto-pick. */
   optionsPending?: boolean
+  /**
+   * #789 — the remote's configured Herdr panes (GET /v1/herdr-agents/),
+   * offered as stage-2 rows after any explicit agents. Picking one lands in
+   * `?session=<name>` — the same target the #543 navbar popup wrote.
+   */
+  herdrAgents?: ReadonlyArray<{ id: number | string; name: string }>
 }
 
 export interface ComposerTeamSource {
@@ -149,7 +155,11 @@ export function composerOptionsForProvider(
   if (provider.kind === 'remote') {
     const id = provider.id.slice('remote:'.length)
     const remote = (sources.remotes ?? []).find((r) => r.id === id)
-    return (remote?.agents ?? []).map((a) => ({ id: a.id, label: a.label }))
+    return [
+      ...(remote?.agents ?? []).map((a) => ({ id: a.id, label: a.label })),
+      // #789: configured herdr panes trail explicit agent bots.
+      ...(remote?.herdrAgents ?? []).map((h) => ({ id: h.name, label: h.name })),
+    ]
   }
   if (provider.kind === 'blueprint' || provider.id === 'custom_blueprint') {
     const options: ModelSearchOption[] = []
