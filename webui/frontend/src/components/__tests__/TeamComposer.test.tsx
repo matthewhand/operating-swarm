@@ -82,7 +82,7 @@ function selectAgentKindTab(kind: 'API' | 'CLI' | 'Remote') {
 }
 
 // #508: roles/tools/catalog moved behind top-level tier tabs.
-function gotoTier(name: 'Essentials' | 'Roles' | 'Tools' | 'Catalog') {
+function gotoTier(name: 'Roles' | 'Tools' | 'Catalog') {
   fireEvent.click(screen.getByRole('tab', { name }))
 }
 
@@ -248,9 +248,8 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.queryByRole('checkbox', { name: /handoff/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/gate is unwired/i)).not.toBeInTheDocument()
 
-    gotoTier('Essentials')
+    // #780: the roster never leaves the frame — add without leaving Tools.
     await addAvailableAgent('API')
-    gotoTier('Tools')
     expect(screen.getByTestId('team-tools-pane')).toHaveAttribute('aria-disabled', 'false')
     expect(screen.queryByTestId('team-tools-locked-hint')).not.toBeInTheDocument()
     expect(screen.getByRole('list', { name: /available tools list/i })).toBeInTheDocument()
@@ -598,9 +597,8 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.getByTestId('team-roles-locked-hint')).toHaveTextContent(/add agents first/i)
     expect(screen.queryByRole('list', { name: /available roles list/i })).not.toBeInTheDocument()
 
-    gotoTier('Essentials')
+    // #780: the roster never leaves the frame — add without leaving Roles.
     await addAvailableAgent('API')
-    gotoTier('Roles')
     expect(screen.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'false')
     expect(screen.queryByTestId('team-roles-locked-hint')).not.toBeInTheDocument()
     expect(screen.getByRole('list', { name: /available roles list/i })).toBeInTheDocument()
@@ -610,8 +608,8 @@ describe('TeamComposer first-launch overlay', () => {
   it('adds a role slot via drop and Add, and rejects cross-zone drags', async () => {
     renderComposer()
     await addAvailableAgent('API')
-    // #508: the roster zone (Essentials) and the roles zone (Roles) no longer
-    // share a pane, so cross-zone rejection is asserted per tier.
+    // #780: the roster zone is permanent, so cross-zone rejection is
+    // asserted against the roster zone directly and per facet pane.
     const dropZone = await screen.findByTestId('team-drop-zone')
     fireEvent.drop(dropZone, {
       dataTransfer: mockDataTransfer({ [ROLE_DRAG_MIME]: encodeDragRole('gate') }),
@@ -722,7 +720,6 @@ describe('TeamComposer first-launch overlay', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
 
     fireEvent.change(screen.getByTestId('team-role-assign-chief_of_staff'), { target: { value: '' } })
-    gotoTier('Essentials')
     expandInstructions()
     expect(screen.getByTestId('team-cos-select')).toHaveValue('')
     expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()

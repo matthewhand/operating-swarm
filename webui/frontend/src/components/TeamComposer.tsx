@@ -131,11 +131,10 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const [status, setStatus] = useState<string | null>(null)
   const [agentKindTab, setAgentKindTab] = useState<AvailableAgentKind>('api')
   const [agentKindTabTouched, setAgentKindTabTouched] = useState(false)
-  // #508: essentials-first — the advanced tiers live behind real tabs, and the
-  // "How to use this team" block collapses so the opening frame stays short.
-  const [tier, setTier] = useState<'essentials' | 'roles' | 'tools' | 'catalog'>(
-    'essentials',
-  )
+  // #780: roster-first — the team's identity/membership is not a tab. The
+  // roster block sits permanently above the facet tabs; tier selects which
+  // configuration facet renders below it.
+  const [tier, setTier] = useState<'roles' | 'tools' | 'catalog'>('roles')
   const [instructionsOpen, setInstructionsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const cosChoices = useMemo(() => eligibleCosMembers(members), [members])
@@ -699,21 +698,10 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       size="2xl"
       className="max-h-[90vh]"
     >
-      {/* #508: the shell height is set once here; the active pane scrolls
-          internally so switching tabs never resizes the frame (REQ-910). */}
+      {/* #508/#780: the shell height is set once here; the pane content
+          scrolls internally so switching facets never resizes the frame
+          (REQ-910). */}
       <div className="flex h-[70vh] flex-col" data-testid="team-composer-body">
-        <Tabs
-          tabs={[
-            { key: 'essentials', label: 'Essentials' },
-            { key: 'roles', label: 'Roles' },
-            { key: 'tools', label: 'Tools' },
-            { key: 'catalog', label: 'Catalog' },
-          ]}
-          activeTab={tier}
-          onChange={(key) => setTier(key as typeof tier)}
-          size="sm"
-          className="mb-3 shrink-0"
-        />
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       <div className="space-y-4">
         <p className="text-sm text-base-content/60">
@@ -1080,6 +1068,20 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             )}
           </section>
         </div>
+
+        {/* #780: facet tabs live BELOW the roster — switching swaps the
+            configuration facet without the roster scrolling away. */}
+        <Tabs
+          tabs={[
+            { key: 'roles', label: 'Roles' },
+            { key: 'tools', label: 'Tools' },
+            { key: 'catalog', label: 'Catalog' },
+          ]}
+          activeTab={tier}
+          onChange={(key) => setTier(key as typeof tier)}
+          size="sm"
+          className="my-3 shrink-0"
+        />
 
         {tier === 'roles' && (
         <div

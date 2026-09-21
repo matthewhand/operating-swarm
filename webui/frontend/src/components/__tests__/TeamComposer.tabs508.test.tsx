@@ -1,7 +1,8 @@
 /**
  * #508 (REQ-909) — the Teams composer is no longer one long scroll.
  *
- * Essentials (name, save/load, Chief of Staff) stay on the opening pane;
+ * #780: the roster (name, save/load, Chief of Staff) is permanent chrome
+ * above the facet tabs — it is not a tab itself;
  * roles, tools and the catalog become real panes behind the shared DaisyUI
  * `Tabs` (role=tab, Arrow/Home/End support kept by the component). Only the
  * active tier occupies the frame, and the frame's height class never changes
@@ -60,7 +61,7 @@ async function addAgent(kind: 'API' | 'CLI') {
   fireEvent.click(within(available).getAllByRole('button', { name: 'Add' })[0])
 }
 
-function gotoPane(name: 'Essentials' | 'Roles' | 'Tools' | 'Catalog') {
+function gotoPane(name: 'Roles' | 'Tools' | 'Catalog') {
   fireEvent.click(screen.getByRole('tab', { name }))
 }
 
@@ -90,12 +91,14 @@ describe('#508 Teams composer tiers', () => {
     vi.unstubAllGlobals()
   })
 
-  it('opens on Essentials: roles, tools and catalog are absent, not hidden', async () => {
+  it('opens roster-first with Roles as the default facet', async () => {
     renderComposer()
     await screen.findByTestId('team-drop-zone')
     expect(screen.getByLabelText(/team name/i)).toBeInTheDocument()
     expect(screen.getByTestId('team-cos-fieldset')).toBeInTheDocument()
-    expect(screen.queryByTestId('team-roles-pane')).not.toBeInTheDocument()
+    // #780: the roster is permanent chrome; the first facet (Roles) renders
+    // below it; the other facets are absent, not hidden.
+    expect(screen.getByTestId('team-roles-pane')).toBeInTheDocument()
     expect(screen.queryByTestId('team-tools-pane')).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/get more teams/i)).not.toBeInTheDocument()
   })
@@ -116,7 +119,7 @@ describe('#508 Teams composer tiers', () => {
     expect(screen.getByLabelText(/get more teams/i)).toBeInTheDocument()
     expect(screen.queryByTestId('team-tools-pane')).not.toBeInTheDocument()
 
-    gotoPane('Essentials')
+    // #780: the roster stays mounted through every facet switch.
     expect(screen.getByTestId('team-drop-zone')).toBeInTheDocument()
     expect(screen.queryByTestId('team-roles-pane')).not.toBeInTheDocument()
   })
@@ -169,7 +172,7 @@ describe('#508 Teams composer tiers', () => {
     expect(await screen.findByTestId('team-tool-slot')).toBeInTheDocument()
   })
 
-  it('state survives pane switches: compose on Essentials, wire on Tools, save', async () => {
+  it('state survives pane switches: compose on the roster, wire on Tools, save', async () => {
     const fetchMock = vi.mocked(fetch)
     renderComposer()
     await addAgent('API')
