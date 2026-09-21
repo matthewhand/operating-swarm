@@ -191,6 +191,7 @@ export const ROLE_ADVISOR = 'advisor'
 
 export const ROLE_BADGE_LABELS: Record<AgentRole, string> = {
   default: '',
+  admin: 'Admin',
   support: 'Support',
   gate: 'Gate',
   skeptic: 'Skeptic',

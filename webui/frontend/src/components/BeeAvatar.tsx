@@ -1,9 +1,10 @@
-import { useId, useMemo } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import {
   beeSpecForAgent,
   isFaceBeeVariant,
   type BeeSpec,
 } from '../lib/beeAvatar'
+import { seededMotionDelays } from '../lib/avatarMotion'
 
 export type BeeEyeState = 'idle' | 'active'
 
@@ -32,6 +33,27 @@ export default function BeeAvatar({
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const eyeState: BeeEyeState = active ? 'active' : 'idle'
   const duration = 8.5 + spec.wanderPhase[0] * 0.6
+  // #821: natural blink at seeded irregular intervals; reduced motion is
+  // honoured by both the JS scheduler here and the CSS blocks in index.css.
+  const [blinking, setBlinking] = useState(false)
+  const delays = useMemo(() => seededMotionDelays(agentId, 'bee'), [agentId])
+  useEffect(() => {
+    const media = typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null
+    if (media?.matches) return
+    let t: ReturnType<typeof setTimeout>
+    const schedule = () => {
+      const [lo, hi] = [2500, 5500]
+      t = setTimeout(() => {
+        setBlinking(true)
+        setTimeout(() => setBlinking(false), 120)
+        schedule()
+      }, lo + Math.random() * (hi - lo))
+    }
+    schedule()
+    return () => clearTimeout(t)
+  }, [])
 
   return (
     <svg
@@ -44,6 +66,7 @@ export default function BeeAvatar({
       data-bee-gaze={spec.gaze}
       data-bee-accent={spec.accent}
       data-bee-accessory={spec.accessory}
+      data-bee-blink={blinking ? 'true' : 'false'}
       data-eye-state={eyeState}
       data-agent-id={agentId}
       style={{
@@ -53,6 +76,11 @@ export default function BeeAvatar({
         ['--ew' as string]: `${spec.wanderPhase[1].toFixed(2)}s`,
         ['--ed' as string]: `${duration.toFixed(2)}s`,
         ['--bh' as string]: `${(1.05 + spec.wanderPhase[2] * 0.35).toFixed(2)}s`,
+        // #821: idle bob (1.8s) vs active hover (~0.6s) + wing flutter freq.
+        ['--bf' as string]: active ? (0.55 + spec.wanderPhase[2] * 0.12).toFixed(2) + 's' : '1.8s',
+        ['--wf' as string]: active ? '0.19s' : '1.1s',
+        ['--bd' as string]: `${delays.bobDelaySec.toFixed(2)}s`,
+        ['--wd' as string]: `${delays.wingDelaySec.toFixed(2)}s`,
       }}
     >
       <circle cx="32" cy="32" r="32" fill="#1D2226" />
@@ -76,7 +104,13 @@ export default function BeeAvatar({
 
 function GeometricWings({ accent }: { accent: string }) {
   return (
-    <g fill="#1D2226" stroke={accent} strokeWidth="1.7" strokeLinejoin="round">
+    <g
+      className="os-bee-wings"
+      fill="#1D2226"
+      stroke={accent}
+      strokeWidth="1.7"
+      strokeLinejoin="round"
+    >
       <path d="M18 18 C8 8 4 22 16 28 C20 24 22 20 18 18 Z" />
       <path d="M22 14 C16 2 6 10 18 22 C24 18 26 16 22 14 Z" />
       <path d="M12.5 16 L16 22" fill="none" />
@@ -425,6 +459,10 @@ function GooglyEye({
       <g className="os-bee-pupils">
         <circle r={pupil} fill="#111111" />
       </g>
+      {/* #821: eyelid — a dark disc the CSS squashes over the eye when
+          data-bee-blink flips true. No prop threading; the root attribute
+          drives every eye at once. */}
+      <circle className="os-bee-eyelid" r={sclera + 0.35} fill="#1D2226" />
     </g>
   )
 }

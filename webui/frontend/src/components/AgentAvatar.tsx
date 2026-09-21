@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useState,
   type CSSProperties,
   type KeyboardEvent,
@@ -9,6 +10,7 @@ import {
 import { useGeneratedAvatar } from '../lib/agentAvatars'
 import { hashAgentId } from '../lib/blobAvatar'
 import { isGeneratedStillSrc } from '../lib/imageGenSettings'
+import { auraPaletteForColor } from '../lib/auraPalette'
 import { useAgentStore } from '../lib/agent-store'
 import {
   isRobotPackTheme,
@@ -147,7 +149,7 @@ export default function AgentAvatar({
       ? 'active'
       : 'idle'
 
-  const shell = (attrs: Record<string, unknown>, children: ReactNode) => (
+  const shell = (attrs: Record<string, unknown>, ...children: ReactNode[]) => (
     <>
       <AvatarRoot
         choosable={choosable}
@@ -281,7 +283,15 @@ export default function AgentAvatar({
       'data-avatar-size': size,
       'data-eye-state': eyeState,
     },
-    <BlandAvatar size={size} active={eyeState === 'active'} alt={alt} />,
+    <BlandAvatar size={size} active={eyeState === 'active'} alt={alt} agentId={agentId} />,
+    // #791: while waiting on a response the eyes swap for bouncing dots.
+    eyeState === 'active' ? (
+      <span className="os-waiting-dots" data-testid="avatar-waiting-dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+    ) : null,
   )
 }
 
@@ -344,11 +354,21 @@ function BlandAvatar({
   size,
   active,
   alt,
+  agentId,
 }: {
   size: AgentAvatarSize
   active: boolean
   alt: string
+  agentId?: string | null
 }) {
+  // #823: the static gray bust becomes a fluid color aura — layered radial
+  // hotspots with coprime periods (6.4/9.2/13.5s) for endless organic swirl.
+  // The .os-bland-eyes two-dot group is retained (tests + a11y affordance);
+  // CSS fades it into the aura's luminance.
+  const color = useAgentStore((s) =>
+    agentId ? s.agents.find((agent) => agent.agent_id === agentId)?.color ?? undefined : undefined,
+  )
+  const palette = useMemo(() => auraPaletteForColor(color), [color])
   return (
     <svg
       className={`os-bland-avatar os-bland-avatar--${size} os-agent-avatar os-agent-avatar--${size} ${active ? 'os-bland-avatar--active os-agent-avatar--active' : ''}`.trim()}
@@ -360,9 +380,22 @@ function BlandAvatar({
       data-avatar-theme="bland"
       data-eye-state={active ? 'active' : 'idle'}
     >
-      <circle cx="20" cy="20" r="20" fill="#2a2a2a" />
-      <circle cx="20" cy="16" r="7" fill="#8a8a8a" />
-      <ellipse cx="20" cy="36" rx="12" ry="10" fill="#8a8a8a" />
+      <defs>
+        <radialGradient id="os-aura-base" cx="50%" cy="50%" r="65%">
+          <stop offset="0%" stopColor={palette.blobs[0]} />
+          <stop offset="100%" stopColor={palette.base} />
+        </radialGradient>
+        <clipPath id="os-aura-clip">
+          <circle cx="20" cy="20" r="20" />
+        </clipPath>
+      </defs>
+      <circle cx="20" cy="20" r="20" fill="url(#os-aura-base)" />
+      <g clipPath="url(#os-aura-clip)">
+        <circle className="os-aura-blob os-aura-blob--a" cx="14" cy="15" r="11" fill={palette.blobs[0]} />
+        <circle className="os-aura-blob os-aura-blob--b" cx="27" cy="18" r="9" fill={palette.blobs[1]} />
+        <circle className="os-aura-blob os-aura-blob--c" cx="19" cy="28" r="10" fill={palette.blobs[2]} />
+        <circle className="os-aura-glow" cx="20" cy="20" r="19.4" fill="none" stroke={palette.glow} strokeWidth="0.8" opacity="0.5" />
+      </g>
       <g className="os-bland-eyes">
         <circle cx="-3.15" cy="0" r="1.55" fill="#111111" />
         <circle cx="3.15" cy="0" r="1.55" fill="#111111" />
