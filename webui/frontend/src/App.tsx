@@ -13,6 +13,7 @@ import SettingsSheet, {
   OPEN_SETTINGS_EVENT,
   type OpenSettingsDetail,
 } from './components/SettingsSheet'
+import TechSupportModal, { OPEN_TECH_SUPPORT_EVENT } from './components/TechSupportModal'
 import { OPEN_LLM_PROFILES_EVENT, OPEN_HIDDEN_EVENT, OPEN_TEAMS_EVENT } from './lib/chromeOverlay' 
 import { RailChromeProvider, SwipeHint } from './components/RailChrome'
 import { ToastProvider } from './components/DaisyUI'
@@ -112,6 +113,7 @@ function App() {
   const [editingTeamName, setEditingTeamName] = useState<string | null>(null)
   const [teamComposerOpen, setTeamComposerOpen] = useState(false)
   const [teamsSheetOpen, setTeamsSheetOpen] = useState(false)
+  const [techSupportOpen, setTechSupportOpen] = useState(false)
 
   const openRail = useCallback(() => setRailOpen(true), [])
   const closeRail = useCallback(() => {
@@ -190,6 +192,7 @@ function App() {
     }
     const onOpenTeamComposer = () => setTeamComposerOpen(true)
     const onOpenTeams = () => setTeamsSheetOpen(true)
+    const onOpenTechSupport = () => setTechSupportOpen(true)
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -207,6 +210,7 @@ function App() {
     window.addEventListener(OPEN_TEAM_EDITOR_EVENT, onOpenTeamEditor)
     window.addEventListener(OPEN_TEAM_COMPOSER_EVENT, onOpenTeamComposer)
     window.addEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
+    window.addEventListener(OPEN_TECH_SUPPORT_EVENT, onOpenTechSupport)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener(THEME_TOGGLE_EVENT, onToggle)
@@ -219,6 +223,7 @@ function App() {
       window.removeEventListener(OPEN_TEAM_EDITOR_EVENT, onOpenTeamEditor)
       window.removeEventListener(OPEN_TEAM_COMPOSER_EVENT, onOpenTeamComposer)
       window.removeEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
+      window.removeEventListener(OPEN_TECH_SUPPORT_EVENT, onOpenTechSupport)
     }
   }, [])
 
@@ -233,6 +238,10 @@ function App() {
             setSearchOpen(false)
             setSearchOptions(undefined)
           }}
+        />
+        <TechSupportModal
+          open={techSupportOpen}
+          onClose={() => setTechSupportOpen(false)}
         />
         <SettingsSheet
           isOpen={settingsOpen}

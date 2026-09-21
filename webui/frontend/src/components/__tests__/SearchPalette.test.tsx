@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import SearchPalette, { SEARCH_PALETTE_TABS } from '../SearchPalette'
 import { THEME_TOGGLE_EVENT } from '../../lib/theme'
+import { OPEN_TECH_SUPPORT_EVENT } from '../TechSupportModal'
+import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from '../SettingsSheet'
 
 const blueprints = [
   {
@@ -108,7 +110,7 @@ describe('SearchPalette', () => {
     }
     expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'true')
 
-    const first = await screen.findByRole('option', { name: /Support/i })
+    const first = await screen.findByRole('option', { name: /^Support/i })
     expect(first).toHaveAttribute('aria-selected', 'true')
     expect(first.textContent).toMatch(/⌃1/)
 
@@ -382,7 +384,7 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
 
   it('chooses the first visible row with Ctrl+1', async () => {
     const { onClose } = renderRoutedPalette()
-    await screen.findByRole('option', { name: /Support/i })
+    await screen.findByRole('option', { name: /^Support/i })
     fireEvent.keyDown(window, { key: '1', ctrlKey: true })
     expect(onClose).toHaveBeenCalled()
     expect(screen.getByTestId('palette-loc')).toHaveTextContent('/chat?blueprint=support')
@@ -390,7 +392,7 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
 
   it('chooses the first visible row with Cmd+1 (metaKey)', async () => {
     const { onClose } = renderRoutedPalette()
-    await screen.findByRole('option', { name: /Support/i })
+    await screen.findByRole('option', { name: /^Support/i })
     fireEvent.keyDown(window, { key: '1', metaKey: true })
     expect(onClose).toHaveBeenCalled()
     expect(screen.getByTestId('palette-loc')).toHaveTextContent('/chat?blueprint=support')
@@ -398,7 +400,7 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
 
   it('closes the palette on Alt+1-9 rail hotkey without preventing default', async () => {
     const { onClose } = renderRoutedPalette()
-    await screen.findByRole('option', { name: /Support/i })
+    await screen.findByRole('option', { name: /^Support/i })
     const event = new KeyboardEvent('keydown', {
       key: '2',
       altKey: true,
@@ -610,3 +612,120 @@ describe('#677 search covers every seat kind', () => {
     expect(screen.getByTestId('palette-loc')).toHaveTextContent('/chat?team=crew')
   })
 })
+
+describe('SearchPalette Tech Support and Settings (#906, #908)', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ object: 'list', data: blueprints }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('#906: Show Tech Support action row is listed in Actions tab and opens modal', async () => {
+    let opened = false
+    const onOpen = () => {
+      opened = true
+    }
+    window.addEventListener(OPEN_TECH_SUPPORT_EVENT, onOpen)
+    const { onClose } = renderPalette()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Actions' }))
+    const actionRow = screen.getByRole('option', { name: /Show Tech Support/i })
+    expect(actionRow).toBeInTheDocument()
+
+    fireEvent.click(actionRow)
+    expect(opened).toBe(true)
+    expect(onClose).toHaveBeenCalled()
+    window.removeEventListener(OPEN_TECH_SUPPORT_EVENT, onOpen)
+  })
+
+  it('#906: Show Tech Support action row matches tech, support, diagnostics, logs, debug, troubleshooting keywords', async () => {
+    const keywords = ['tech', 'diagnostics', 'logs', 'debug', 'troubleshooting']
+    for (const kw of keywords) {
+      const { unmount } = renderPalette()
+      const input = screen.getByRole('combobox', { name: 'Search' })
+      fireEvent.change(input, { target: { value: kw } })
+      expect(screen.getByRole('option', { name: /Show Tech Support/i })).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('#906 / #908: Show Tech Support action row appears above Settings rows when query matches both', async () => {
+    renderPalette()
+    const input = screen.getByRole('combobox', { name: 'Search' })
+    fireEvent.change(input, { target: { value: 'diagnostics' } })
+
+    const options = screen.getAllByRole('option')
+    const techSupportIdx = options.findIndex((opt) => opt.id === 'os-search-row-action-tech-support')
+    const settingsIdx = options.findIndex((opt) => opt.id.startsWith('os-search-row-settings-'))
+
+    expect(techSupportIdx).toBeGreaterThanOrEqual(0)
+    expect(settingsIdx).toBeGreaterThan(techSupportIdx)
+  })
+
+  it('#908: Settings tab lists all settings sections when selected', async () => {
+    renderPalette()
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }))
+    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true')
+
+    expect(screen.getByRole('option', { name: /General/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Aesthetics/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Speech/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /MCP servers/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /System/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Remotes/i })).toBeInTheDocument()
+  })
+
+  it('#908: surfaces settings sections matching keywords and omits unrelated queries', async () => {
+    const { unmount: u1 } = renderPalette()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'theme' } })
+    expect(screen.getByRole('option', { name: /^Aesthetics:\s*theme/i })).toBeInTheDocument()
+    u1()
+
+    const { unmount: u2 } = renderPalette()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'mcpServers' } })
+    expect(screen.getByRole('option', { name: /^MCP servers:\s*mcpServers/i })).toBeInTheDocument()
+    u2()
+
+    const { unmount: u3 } = renderPalette()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'read-aloud' } })
+    expect(screen.getByRole('option', { name: /^Speech:\s*read-aloud/i })).toBeInTheDocument()
+    u3()
+
+    const { unmount: u4 } = renderPalette()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'python' } })
+    const allOptions = screen.queryAllByRole('option')
+    const settingsOptions = allOptions.filter((opt) => opt.id.startsWith('os-search-row-settings-'))
+    expect(settingsOptions).toHaveLength(0)
+    u4()
+  })
+
+  it('#908: selecting a Settings row dispatches openSettingsSheet for that section', async () => {
+    let openedDetail: OpenSettingsDetail | null = null
+    const onOpen = (e: Event) => {
+      openedDetail = (e as CustomEvent<OpenSettingsDetail>).detail
+    }
+    window.addEventListener(OPEN_SETTINGS_EVENT, onOpen)
+    const { onClose } = renderPalette()
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'read-aloud' } })
+    const speechOption = screen.getByRole('option', { name: /^Speech:\s*read-aloud/i })
+    fireEvent.click(speechOption)
+
+    expect(openedDetail).toEqual({ section: 'speech' })
+    expect(onClose).toHaveBeenCalled()
+    window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen)
+  })
+})
+

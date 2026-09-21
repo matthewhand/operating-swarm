@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Plug,
   Search,
+  Settings,
   Sparkles,
   Users,
   Workflow,
@@ -19,7 +20,8 @@ import {
   fetchTeamRosters,
 } from '../lib/api'
 import { openChromeOverlay, type ChromeOverlay } from '../lib/chromeOverlay'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet, SETTINGS_SEARCH_CONTENT, type SettingsSection } from './SettingsSheet'
+import { openTechSupportModal } from './TechSupportModal'
 import { agentMarkIndex, loadHiddenAgentIds, unhideAgentId } from '../lib/hiddenAgents'
 import { railSeatAgents } from '../lib/railSeats'
 import { agentLabel } from '../lib/supportAgent'
@@ -39,6 +41,7 @@ export const SEARCH_PALETTE_TABS = [
   'Links',
   'Routines',
   'Actions',
+  'Settings',
 ] as const
 
 export type SearchPaletteTab = (typeof SEARCH_PALETTE_TABS)[number]
@@ -87,6 +90,7 @@ interface PaletteRow {
   tab: Exclude<SearchPaletteTab, 'All'>
   name: string
   description: string
+  keywords?: string[]
   href?: string
   overlay?: ChromeOverlay
   action?: () => void
@@ -98,6 +102,28 @@ export interface SearchPaletteProps {
   open: boolean
   onClose: () => void
   options?: SearchPaletteOptions
+}
+
+const SETTINGS_SECTION_NAMES: Record<SettingsSection, string> = {
+  general: 'General',
+  aesthetics: 'Aesthetics',
+  hostname: 'Hostname',
+  rail: 'Rail',
+  providers: 'Providers',
+  'cli-agents': 'CLI agents',
+  'llm-profiles': 'LLM profiles',
+  remotes: 'Remotes',
+  sandboxes: 'Sandboxes',
+  'backend-audit': 'Backend audit',
+  mcp: 'MCP servers',
+  plugins: 'Plugins',
+  roles: 'Roles',
+  blueprint: 'Blueprints',
+  definition: 'Definition',
+  'image-gen': 'Image gen',
+  speech: 'Speech',
+  retention: 'Retention',
+  system: 'System',
 }
 
 function shortcutLabel(index: number): string {
@@ -230,6 +256,14 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     }
     const actionRows: PaletteRow[] = [
       {
+        id: 'action-tech-support',
+        tab: 'Actions',
+        name: 'Show Tech Support',
+        description: 'Open a sanitized diagnostics dump for troubleshooting',
+        keywords: ['tech', 'support', 'diagnostics', 'logs', 'debug', 'troubleshooting'],
+        action: () => openTechSupportModal(),
+      },
+      {
         id: 'action-theme',
         tab: 'Actions',
         name: 'Toggle theme',
@@ -343,8 +377,43 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
+    // #908: dynamically derive matching Settings rows from SETTINGS_SEARCH_CONTENT
+    const settingsRows: PaletteRow[] = []
+    const seenSections = new Set<string>()
+    for (const [sectionKey, keywords] of Object.entries(SETTINGS_SEARCH_CONTENT)) {
+      const section = sectionKey as SettingsSection
+      const sectionLabel = SETTINGS_SECTION_NAMES[section] ?? section
+      if (!q) {
+        settingsRows.push({
+          id: `settings-${section}-0`,
+          tab: 'Settings',
+          name: sectionLabel,
+          description: `Open the ${section} pane in Settings`,
+          action: () => openSettingsSheet({ section }),
+        })
+        continue
+      }
+      const normQ = q.replace(/[\s_-]+/g, '')
+      const matchedKw = keywords.find((k) => {
+        const lk = k.toLowerCase()
+        return lk.includes(q) || lk.replace(/[\s_-]+/g, '').includes(normQ)
+      })
+      if (matchedKw && !seenSections.has(section)) {
+        seenSections.add(section)
+        settingsRows.push({
+          id: `settings-${section}-0`,
+          tab: 'Settings',
+          name: matchedKw.toLowerCase() === section.toLowerCase() ? sectionLabel : `${sectionLabel}: ${matchedKw}`,
+          description: `Open the ${section} pane in Settings`,
+          keywords: [matchedKw, sectionLabel, section],
+          action: () => openSettingsSheet({ section }),
+        })
+      }
+    }
+
+    const allRowsWithSettings = [...rows, ...settingsRows]
     // #549: the hidden view lists the same universe the badge counted.
-    const universe = hiddenOnly ? [...extraHiddenRows, ...rows] : rows
+    const universe = hiddenOnly ? [...extraHiddenRows, ...allRowsWithSettings] : allRowsWithSettings
     // Rail rows win a duplicate id: they carry the live href/avatar the
     // blueprints feed may not have.
     const seen = new Set<string>()
@@ -357,10 +426,15 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
       } else {
         if (tab !== 'All' && row.tab !== tab) return false
       }
-      if (!q) return true
+      if (!q) {
+        if (tab === 'All' && row.tab === 'Settings') return false
+        return true
+      }
+      if (row.tab === 'Settings') return true
       return (
         row.name.toLowerCase().includes(q) ||
-        row.description.toLowerCase().includes(q)
+        row.description.toLowerCase().includes(q) ||
+        Boolean(row.keywords?.some((k) => k.toLowerCase().includes(q)))
       )
     })
   }, [query, rows, extraHiddenRows, tab, hiddenOnly, hiddenIds])
@@ -657,7 +731,9 @@ function RowIcon({
               ? Workflow
               : tab === 'Actions'
                 ? Sparkles
-                : Plug
+                : tab === 'Settings'
+                  ? Settings
+                  : Plug
   return (
     <span className="os-search-row__icon" aria-hidden="true">
       <Icon className="h-4 w-4" />

@@ -233,7 +233,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   ],
   providers: ['providers', 'provider', 'overview', 'backend', 'api profiles', 'cli runtimes'],
   definition: ['definition', 'explain', 'instructions', 'prompt'],
-  blueprint: ['blueprints', 'recipes', 'python', 'custom'],
+  blueprint: ['blueprints', 'recipes', 'custom', 'editor'],
   remotes: [
     'remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh',
     'Add a remote', 'Add remote', 'available remote kinds', 'Remote ID',
@@ -256,7 +256,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
     'Add LLM profile', 'Advanced', 'Rate limits', 'What can be overridden per task',
   ],
   mcp: [
-    'mcp', 'tools', 'modelcontextprotocol',
+    'mcp', 'mcpServers', 'mcp servers', 'tools', 'modelcontextprotocol',
     'Configured MCP servers', 'Command', 'Args (comma-separated)',
     'Secret env name (optional)',
   ],
@@ -275,7 +275,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   ],
   rail: ['avatar', 'order', 'bump', 'surfaces', 'Bump completed agents to top', 'Bump scope', 'Manage surfaces'],
   'image-gen': ['image', 'images', 'generation', 'diffusion'],
-  speech: ['speech', 'tts', 'stt', 'audio', 'voice'],
+  speech: ['speech', 'tts', 'stt', 'audio', 'voice', 'read-aloud', 'read aloud'],
   system: ['system', 'sqlite', 'database', 'facts', 'config', 'Config coverage', 'env-only', 'secrets'],
   plugins: ['plugins', 'openapi', 'marketplace', 'tools', 'connectors'],
 }
