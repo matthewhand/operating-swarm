@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import { MemoryRouter, useSearchParams } from 'react-router-dom'
-import { waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '../../components/DaisyUI'
 import ChatPage from '../ChatPage'
@@ -300,28 +299,7 @@ describe('#804 — cross-kind picks land on a real seat', () => {
     resetConversationThreads()
   })
 
-  function SearchProbe() {
-    const [params] = useSearchParams()
-    return <div data-testid="search-probe">{params.toString()}</div>
-  }
-
-  function renderWithProbe(initialEntry: string) {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    return render(
-      <QueryClientProvider client={client}>
-        <ToastProvider>
-          <MemoryRouter initialEntries={[initialEntry]}>
-            <SearchProbe />
-            <ChatPage />
-          </MemoryRouter>
-        </ToastProvider>
-      </QueryClientProvider>,
-    )
-  }
-
-  it('an API pick from a CLI seat reconfigures the seat — it never jumps to api_agent (#899)', async () => {
+  it('an API pick from a CLI seat reconfigures the seat — it never jumps to api_agent (#899)', () => {
     // Superseded by #899: the old assertion here pinned the seat-JUMP
     // (blueprint=api_agent) that #899 removed. The reconfigure contract —
     // cross-kind picks emit a status row and keep the seat's URL — is

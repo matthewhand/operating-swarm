@@ -42,7 +42,8 @@ describe('SPA + team composer entry', () => {
     ).toBeNull()
 
     fireEvent.click(screen.getByTestId('os-teams-button'))
-    expect(await screen.findByRole('heading', { name: /new team/i })).toBeInTheDocument()
+    // The #892 redesign retitled the dialog to 'Manage Teams' (role entry).
+    expect(await screen.findByRole('dialog', { name: /manage teams/i })).toBeInTheDocument()
     expect(screen.getByTestId('team-drop-zone')).toHaveTextContent(/drop agents here/i)
     expect(screen.getByTestId('team-cos-select')).toBeDisabled()
     expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)

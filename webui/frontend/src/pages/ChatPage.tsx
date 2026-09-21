@@ -5614,6 +5614,7 @@ const ChatPage = () => {
                         value: input,
                         onChange: handleInputChange,
                         onPaste: handleComposerPaste,
+                        onKeyDown: handleComposerKeyDown,
                         'aria-label': 'Chat message',
                         'aria-haspopup': 'listbox',
                         'aria-expanded': isSlashOpen,

@@ -80,7 +80,9 @@ describe('#562 the rail scroller reserves a gutter', () => {
   })
 
   it('the scrolling element actually carries the hook', () => {
-    expect(sidebar).toMatch(/className="os-rail-scroller[^"]*overflow-y-auto/)
+    // The class lives in a template literal (conditional #729 bottom pad),
+    // so the hook match allows either quote form.
+    expect(sidebar).toMatch(/os-rail-scroller[^\n]*overflow-y-auto/)
     expect(sidebar).toContain('data-testid="rail-agent-scroller"')
   })
 })

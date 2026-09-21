@@ -1010,7 +1010,9 @@ describe('SettingsSheet', () => {
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
     expect(await screen.findByLabelText('Delegation (design / coding)')).toHaveValue('o3')
-    expect(screen.getByLabelText('Auxiliary (code summary)')).toBeInTheDocument()
+    // #935 expanded the task-class set; the auxiliary label gained the
+    // session-labelling mention.
+    expect(screen.getByLabelText(/Auxiliary \(code summary/)).toBeInTheDocument()
     // #575: the map renders outside the popup (as before); the switch that
     // controls the flag is inside the popup — open it to read the state.
     expect(screen.getByTestId('override-per-task-state')).toHaveTextContent('On')

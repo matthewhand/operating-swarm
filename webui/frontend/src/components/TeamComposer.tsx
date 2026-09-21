@@ -740,6 +740,21 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             </select>
           </label>
 
+          {/* The #892 Select-team redesign dropped the name input, but the
+              save path still requires one — a new team could not be named
+              at all. Restored alongside the team picker (#780 cluster). */}
+          <label className="flex flex-1 min-w-[12rem] flex-col gap-1 text-sm">
+            <span className="font-medium text-xs text-base-content/70">Team name</span>
+            <input
+              type="text"
+              className="input input-sm w-full"
+              value={name}
+              aria-label="Team name"
+              placeholder="e.g. Research Squad"
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+
           <Button
             type="button"
             variant="outline"
@@ -855,6 +870,22 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           <Alert type="success">{status}</Alert>
         )}
 
+        {/* #892 redesign dropped the save control entirely — saveMutation had
+            no trigger, so no roster could ever be persisted. Restored (#780). */}
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? 'Saving…' : 'Save roster'}
+          </Button>          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+
         <div className="grid gap-4 lg:grid-cols-2">
           <section
             aria-label="Team roster drop zone"
@@ -866,8 +897,8 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
               dragOver
                 ? 'border-primary bg-base-200'
                 : 'border-base-content/25 bg-base-200/70'
-            }`}
-          >
+            }`
+          }>
             <div className="mb-3 flex items-center gap-2 text-sm font-medium text-base-content/70">
               <Users className="h-4 w-4" aria-hidden="true" />
               Roster

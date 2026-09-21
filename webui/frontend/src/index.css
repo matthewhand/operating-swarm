@@ -4076,7 +4076,8 @@ html:not([data-theme="light"]) .os-composer__send,
 
 .os-attach-chip__remove:hover {
   background: var(--color-error, #ef4444);
-  color: #ffffff;
+  /* #804 chrome contract: tokens, not bare hex (jsdom-asserted). */
+  color: var(--color-base-100);
   border-color: transparent;
   transform: scale(1.1);
 }

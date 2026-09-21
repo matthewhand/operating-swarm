@@ -146,7 +146,7 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     // #681/#682: descend into the CLI provider; probed models are its rows.
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     fireEvent.click(await screen.findByText('grok'))
-    fireEvent.click(await screen.findByText('grok-4.5'))
+    fireEvent.click((await screen.findAllByText('grok-4.5')).at(-1)!)
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'pin the next run' } })
     fireEvent.submit(composer.closest('form')!)
@@ -173,7 +173,9 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     // #504 + #103: the full provider/model id pins verbatim — no family split.
     // #681: descend into the pi provider first.
     fireEvent.click(await screen.findByText('pi'))
-    fireEvent.click(await screen.findByText('openai/gpt-4o'))
+    // The dialog row and the pill's leaf label share the text (#757);
+    // pick the dialog row (the last match rendered inside the dialog).
+    fireEvent.click((await screen.findAllByText('openai/gpt-4o')).at(-1)!)
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'pin pi' } })
     fireEvent.submit(composer.closest('form')!)
