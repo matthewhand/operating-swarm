@@ -68,9 +68,18 @@ export function saveQueuedSendsMap(map: QueuedSendMap): void {
 }
 
 export function loadQueuedSends(conversationId: string): QueuedSendRow[] {
-  const id = conversationId.trim()
+  // #885: reads are canonicalized (and legacy session-keyed rows merge in)
+  // so a remote seat's base↔session transition never orphans its queue.
+  const id = resolveRemoteQueueId(conversationId)
   if (!id) return []
-  return loadQueuedSendsMap()[id] ?? []
+  const map = loadQueuedSendsMap()
+  const merged = new Map<string, QueuedSendRow>()
+  for (const row of map[id] ?? []) merged.set(row.id, row)
+  for (const [key, rows] of Object.entries(map)) {
+    if (key === id || resolveRemoteQueueId(key) !== id) continue
+    for (const row of rows) if (!merged.has(row.id)) merged.set(row.id, row)
+  }
+  return [...merged.values()]
 }
 
 export function clearAllQueuedSends(): void {
@@ -82,7 +91,8 @@ export function clearAllQueuedSends(): void {
 }
 
 export function saveQueuedSends(conversationId: string, rows: QueuedSendRow[]): void {
-  const id = conversationId.trim()
+  // #885: writes always land under the canonical key so the queue has one home.
+  const id = resolveRemoteQueueId(conversationId)
   if (!id) return
   const all = loadQueuedSendsMap()
   if (rows.length === 0) delete all[id]
@@ -155,6 +165,34 @@ export function generationIsInFlight(
   return awaitingAssistant || messages.some((row) => row.streaming === true)
 }
 
+/**
+ * #885: canonical localStorage key for a remote seat's queue. Remote seats
+ * transition between `remote-<kind>` and `remote-<kind>-<session>` when a
+ * session is chosen or auto-selected; the queue must survive that transition
+ * instead of orphaning rows under the previous key. Both shapes resolve to
+ * the bare `remote-<kind>`; every other id passes through unchanged.
+ *
+ * Limitation: multi-hyphen remote kinds (`remote-a-b`) resolve to their first
+ * segment — no such kind exists today.
+ */
+export function resolveRemoteQueueId(conversationId: string, _sessionId?: string): string {
+  const id = conversationId.trim()
+  const match = /^remote-([^-]+?)(?:-.+)?$/.exec(id)
+  return match ? `remote-${match[1]}` : id
+}
+
+/**
+ * #885: remote harnesses execute asynchronously — the #229 seat reset clears
+ * `awaitingAssistant` before the first assistant frame starts streaming, and
+ * the drain effect would fire in that gap, removing a queued row before its
+ * pane ever renders. Remote seats therefore hold the drain gate from the
+ * moment a turn is awaited until an actual streaming row appears. API and CLI
+ * seats stream (or run locally) immediately and never need the hold.
+ */
+export function drainHoldUntilStreamStarts(seatKind: string): boolean {
+  return seatKind === 'remote'
+}
+
 export function queuedPaneMaxHeightPx(transcriptHeight: number): number {
   if (!Number.isFinite(transcriptHeight) || transcriptHeight <= 0) return 0
   return Math.max(1, Math.round(transcriptHeight / 3))
@@ -192,19 +230,22 @@ export function useQueuedSends(conversationId: string): {
   clearAll: () => void
   restore: (row: QueuedSendRow) => void
 } {
-  const [rows, setRows] = useState<QueuedSendRow[]>(() => loadQueuedSends(conversationId))
-  const idRef = useRef(conversationId)
+  // #885: the key is canonicalized so a remote seat's base↔session id
+  // transition reads and writes the same queue instead of orphaning rows.
+  const queueId = resolveRemoteQueueId(conversationId)
+  const [rows, setRows] = useState<QueuedSendRow[]>(() => loadQueuedSends(queueId))
+  const idRef = useRef(queueId)
 
   useEffect(() => {
-    if (idRef.current === conversationId) return
-    idRef.current = conversationId
-    setRows(loadQueuedSends(conversationId))
-  }, [conversationId])
+    if (idRef.current === queueId) return
+    idRef.current = queueId
+    setRows(loadQueuedSends(queueId))
+  }, [queueId])
 
   useEffect(() => {
-    if (idRef.current !== conversationId) return
-    saveQueuedSends(conversationId, rows)
-  }, [conversationId, rows])
+    if (idRef.current !== queueId) return
+    saveQueuedSends(queueId, rows)
+  }, [queueId, rows])
 
   const enqueue = useCallback((text: string) => {
     setRows((prev) => enqueueQueuedSend(prev, text))
@@ -220,8 +261,8 @@ export function useQueuedSends(conversationId: string): {
 
   const clearAll = useCallback(() => {
     setRows(() => [])
-    clearQueuedSends(conversationId)
-  }, [conversationId])
+    clearQueuedSends(queueId)
+  }, [queueId])
 
   const restore = useCallback((row: QueuedSendRow) => {
     setRows((prev) => prependQueuedSend(prev, row))

@@ -434,6 +434,7 @@ import { CLI_SESSION_HOPPED_EVENT, dispatchCliSessionHopped, hopCliSession } fro
 import { compactCliThread } from '../lib/cliCompact'
 import {
   SUGGESTION_CHIP_EVENT,
+  drainHoldUntilStreamStarts,
   generationIsInFlight,
   nextDrainableQueuedSend,
   queuedPaneMaxHeightPx,
@@ -892,6 +893,16 @@ const ChatPage = () => {
   useEffect(() => {
     setAwaitingAssistant(false)
   }, [threadKey, conversationId])
+  // #885: track whether the current thread incarnation has actually streamed.
+  // The drain hold uses this to tell the #229 reset race (awaiting cleared,
+  // harness has streamed nothing yet) apart from a genuine turn completion.
+  const streamSeenRef = useRef(false)
+  useEffect(() => {
+    streamSeenRef.current = false
+  }, [threadKey, conversationId])
+  useEffect(() => {
+    if (messages.some((row) => row.streaming === true)) streamSeenRef.current = true
+  }, [messages])
   // #229: when the seat changes or the page unmounts, clear the working
   // state published for the departed seat so its rail avatar stops animating
   // (the working set is cross-seat; nothing else would clear the old id).
@@ -3558,6 +3569,16 @@ const ChatPage = () => {
 
   useEffect(() => {
     if (generationIsInFlight(messages, awaitingAssistant) || status !== 'open') return
+    // #885: a remote seat whose harness has not streamed yet cannot be
+    // trusted to be "not in flight" — the #229 seat reset clears
+    // awaitingAssistant before the harness's first frames arrive, and
+    // draining in that gap removes the row before its pane ever renders.
+    if (
+      drainHoldUntilStreamStarts(isRemoteAgent || isRemoteBackedTeam ? 'remote' : 'api') &&
+      !streamSeenRef.current
+    ) {
+      return
+    }
     const next = nextDrainableQueuedSend(queued.rows, queuedHoldIds)
     if (!next || drainLockRef.current) return
     drainLockRef.current = true
@@ -3568,7 +3589,7 @@ const ChatPage = () => {
       setAwaitingAssistant(false)
       queued.restore(next)
     }
-  }, [awaitingAssistant, messages, queued, queuedHoldIds, sendText, status])
+  }, [awaitingAssistant, messages, queued, queuedHoldIds, sendText, status, isRemoteAgent, isRemoteBackedTeam])
 
   useEffect(() => {
     const onTerminated = (event: Event) => {
@@ -5138,23 +5159,27 @@ const ChatPage = () => {
         <div ref={listEndRef} />
         </div>
 
-        <QueuedSendPane
-          rows={queued.rows}
-          maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
-          onChangeText={queued.update}
-          onDelete={queued.remove}
-          onClearAll={queued.clearAll}
-          onHoldIdsChange={setQueuedHoldIds}
-          interruptible={
-            status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
-          }
-        />
-
         <div
           ref={bottomDockRef}
           className="os-chat-bottom-dock sticky bottom-0 z-20 -mx-2 sm:-mx-3 -mb-3 bg-base-100 border-t border-base-content/5"
           data-testid="chat-bottom-dock"
         >
+          {/* #885: the queued pane renders INSIDE the dock so the dock's
+              negative top margin can no longer pull the dock up over it —
+              the inset measurement now includes the pane's own height, and
+              queued rows are visible above the composer on every seat kind. */}
+          <QueuedSendPane
+            rows={queued.rows}
+            maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
+            onChangeText={queued.update}
+            onDelete={queued.remove}
+            onClearAll={queued.clearAll}
+            onHoldIdsChange={setQueuedHoldIds}
+            interruptible={
+              status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
+            }
+          />
+
           {showDemoChips ? (
             <SuggestionChips
               chips={demoChips}

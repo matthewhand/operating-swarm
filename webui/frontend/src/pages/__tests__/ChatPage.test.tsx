@@ -4095,7 +4095,8 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
     // its probed model row.
     fireEvent.click(await screen.findByText('antigravity'))
     fireEvent.click(await screen.findByText('grok-4'))
-    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'antigravity / grok-4')
+    // #743/#884: the pill reads specific-first (model / provider).
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'grok-4 / antigravity')
 
     first.unmount()
     renderChat('/chat?blueprint=cli_agent&mode=cli')
@@ -4105,7 +4106,8 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
 
     const restoredCli = await screen.findByTestId('routing-pill-agent')
     await waitFor(() => {
-      expect(restoredCli).toHaveAttribute('data-value', 'antigravity / grok-4')
+      // #743/#884: the pill reads specific-first (model / provider).
+      expect(restoredCli).toHaveAttribute('data-value', 'grok-4 / antigravity')
     })
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })

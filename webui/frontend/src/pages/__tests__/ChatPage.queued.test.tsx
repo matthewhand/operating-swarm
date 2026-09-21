@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, within, act, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import ChatPage from '../ChatPage'
@@ -161,6 +161,42 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     expect(row).toHaveAttribute('data-status', 'queued')
     expect(row).toHaveTextContent('queued while working')
     expect(row).toHaveTextContent('Queued')
+  })
+
+  it('#885: the queued pane renders inside the bottom dock (no negative-margin occlusion)', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'visible above dock' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    // Structural occlusion pin: the pane must live INSIDE the dock element
+    // that carries the negative top margin, never as its previous sibling.
+    const dock = screen.getByTestId('chat-bottom-dock')
+    expect(within(dock).getByTestId('queued-send-pane')).toBeTruthy()
+  })
+
+  it('#885: queueing on a remote seat renders the pane (inside the dock) while the harness turn runs', async () => {
+    renderChat('/chat?remote=letta')
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'queued on remote' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    const row = screen.getByTestId('queued-row')
+    expect(row).toHaveTextContent('queued on remote')
+    const dock = screen.getByTestId('chat-bottom-dock')
+    expect(within(dock).getByTestId('queued-send-pane')).toBeTruthy()
   })
 
   it('keeps the in-flight assistant above the queued block', async () => {

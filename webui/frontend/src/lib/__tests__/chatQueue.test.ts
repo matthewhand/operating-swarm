@@ -5,6 +5,7 @@ import {
   QUEUED_PREVIEW_MAX_CHARS,
   QUEUED_SENDS_KEY,
   clearQueuedSends,
+  drainHoldUntilStreamStarts,
   enqueueQueuedSend,
   generationIsInFlight,
   loadQueuedSends,
@@ -14,10 +15,51 @@ import {
   queuedPreviewIsTruncated,
   queuedPreviewText,
   removeQueuedSend,
+  resolveRemoteQueueId,
   saveQueuedSends,
   suggestionChipText,
   updateQueuedSend,
 } from '../chatQueue'
+
+function makeRow(id: string) {
+  return { id, text: `queued ${id}`, createdAt: Date.now() }
+}
+
+describe('#885 remote seat queue keying — base↔session transitions never orphan rows', () => {
+  beforeEach(() => {
+    localStorage.removeItem(QUEUED_SENDS_KEY)
+  })
+  afterEach(() => {
+    localStorage.removeItem(QUEUED_SENDS_KEY)
+  })
+
+  it('reads rows enqueued under the bare remote key after the session id arrives', () => {
+    saveQueuedSends('remote-letta', [makeRow('r1')])
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', ''))).toHaveLength(1)
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', 'agent-xyz'))).toHaveLength(1)
+  })
+
+  it('reads rows enqueued under the session key after a switch to the bare id', () => {
+    saveQueuedSends('remote-letta-agent-xyz', [makeRow('r2')])
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', ''))).toHaveLength(1)
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', 'agent-xyz'))).toHaveLength(1)
+  })
+
+  it('keeps distinct remotes isolated', () => {
+    saveQueuedSends('remote-letta', [makeRow('r3')])
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-herdr', ''))).toHaveLength(0)
+  })
+})
+
+describe('#885 drain hold — mid-flight remote queueing', () => {
+  it('drainHoldUntilStreamStarts pins the in-flight gate across the awaitingAssistant gap for remote seats', () => {
+    // #229 clears awaitingAssistant when the seat re-evaluates; without the
+    // hold the drain effect fires mid-turn and the row vanishes un-rendered.
+    expect(drainHoldUntilStreamStarts('remote')).toBe(true)
+    expect(drainHoldUntilStreamStarts('api')).toBe(false)
+    expect(drainHoldUntilStreamStarts('cli')).toBe(false)
+  })
+})
 
 describe('chatQueue (REQ-90)', () => {
   beforeEach(() => {
