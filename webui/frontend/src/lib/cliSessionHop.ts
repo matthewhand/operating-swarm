@@ -31,7 +31,8 @@ export interface CliSessionHopResult {
   empty: boolean
   status: string
   export_warning: string | null
-  import: 'transcript' | 'swarm'
+  /** Where the seeded context came from: native export, the #901 DB mirror, or the swarm thread. */
+  import: 'transcript' | 'swarm' | 'db_mirror'
   injection: {
     text: string
     mode: HopMode

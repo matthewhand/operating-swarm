@@ -467,3 +467,30 @@ def persist_allocated_session(
         row.title = title or NEW_TITLE
         row.save(update_fields=["title"])
     return row
+
+
+def mirror_thread_to_db(
+    user,
+    conversation_id: str,
+    turns: list[dict[str, Any]] | None,
+    *,
+    agent_id: str = "",
+) -> int:
+    """Idempotent DB mirror of one thread's display turns (#901).
+
+    Replaces the conversation's ``ChatMessage`` rows with the current turns
+    (chrome excluded). Called on turn completion (WS save path), on
+    switch-away flush, and on hop so the Django snapshot is always the
+    instant, subprocess-free context-handoff source.
+    """
+    from swarm.core.transcript_roles import is_ui_only_role
+
+    chat = get_or_create_session(user, conversation_id, agent_id=agent_id)
+    rows = [
+        ChatMessage(conversation=chat, sender=item.get("role", "user"), content=item.get("content", ""))
+        for item in turns or []
+        if isinstance(item, dict) and not is_ui_only_role(item.get("role"))
+    ]
+    ChatMessage.objects.filter(conversation=chat).delete()
+    ChatMessage.objects.bulk_create(rows)
+    return len(rows)

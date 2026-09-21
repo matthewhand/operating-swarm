@@ -429,11 +429,15 @@ def hop_backend(
     run_export: RunExport | None = None,
     announced: bool = True,
     base_dir=None,
+    user: Any = None,
 ) -> dict[str, Any]:
     """Switch backends on the same swarm conversation: new session + seed.
 
     Never mints a new Django conversation (that is Select session / design A).
     Never resumes ``to_cli``'s prior native id — including a hop back.
+    When ``user`` is provided the final thread is mirrored into Django
+    ChatMessage rows (#901) so switch-away context handoff reads the local
+    DB snapshot instantly — no export_argv subprocess, no remote calls.
     """
     agent = chat_store.normalize_agent_id(agent_id)
     source = chat_store.normalize_agent_id(from_cli)
@@ -449,11 +453,14 @@ def hop_backend(
     )
     cid = conversation_id or str(record.get("conversation_id") or "")
     export_warning = None
+    import_source = "swarm"
     imported: list[dict[str, Any]] | None = None
     if imported_messages:
         imported = parse_exported_messages(json.dumps(imported_messages))
         if not imported:
             imported = [row for row in imported_messages if isinstance(row, dict)]
+        if imported:
+            import_source = "transcript"
     elif import_session_id:
         imported, export_warning = export_provider_transcript(
             source,
@@ -461,6 +468,34 @@ def hop_backend(
             config=config,
             run_export=run_export,
         )
+        if imported:
+            import_source = "transcript"
+    elif not (record.get("messages") or []) and user is not None:
+        # #901: no native export requested and the JSON thread is empty —
+        # fall back to the Django mirror (kept fresh by turn completion and
+        # switch-away flushes). Instant, local, zero subprocess/remote calls.
+        try:
+            from swarm.core.thread_load import messages_from_db
+
+            db_rows = messages_from_db(user, cid)
+            if db_rows:
+                imported = turns_for_injection(db_rows)
+        except Exception:
+            logger.debug("hop DB-mirror fallback failed for %s", cid, exc_info=True)
+
+    elif not (record.get("messages") or []) and user is not None:
+        # #901: no native export requested and the JSON thread is empty —
+        # fall back to the Django mirror (kept fresh by turn completion and
+        # switch-away flushes). Instant, local, zero subprocess/remote calls.
+        try:
+            from swarm.core.thread_load import messages_from_db
+
+            db_rows = messages_from_db(user, cid)
+            if db_rows:
+                imported = turns_for_injection(db_rows)
+                import_source = "db_mirror"
+        except Exception:
+            logger.debug("hop DB-mirror fallback failed for %s", cid, exc_info=True)
 
     source_messages = imported if imported else list(record.get("messages") or [])
     payload = build_injection_payload(
@@ -511,6 +546,13 @@ def hop_backend(
         active_cli=target,
         base_dir=base_dir,
     )
+    if user is not None:
+        try:
+            from swarm.core.agent_sessions import mirror_thread_to_db
+
+            mirror_thread_to_db(user, cid, turns, agent_id=agent)
+        except Exception:
+            logger.debug("hop DB mirror failed for %s", cid, exc_info=True)
     clear_cli_session(
         user_key,
         agent,
@@ -542,7 +584,7 @@ def hop_backend(
         "empty": payload["empty"],
         "status": notice,
         "export_warning": export_warning,
-        "import": "transcript" if imported else "swarm",
+        "import": import_source if imported else "swarm",
         "capability": hop_capability_row(source, config),
         "target_capability": hop_capability_row(target, config),
         "injection": {

@@ -317,3 +317,36 @@ def test_parse_exported_messages_skips_junk():
     rows = parse_exported_messages(raw)
     assert [r["role"] for r in rows] == ["user", "assistant"]
     assert "sk-testfixturebbb" not in rows[1]["content"]
+
+
+@pytest.mark.django_db
+def test_hop_empty_json_uses_db_mirror_without_export(tmp_path):
+    """#901: with an empty JSON thread, hop reads the Django mirror instantly."""
+    from django.contrib.auth import get_user_model as _gum
+
+    from swarm.core.agent_sessions import mirror_thread_to_db
+
+    user = _gum().objects.create_user(username="hop-db-fallback-user", password="pw")
+    uk = chat_store.user_key_for(user)
+    mirror_thread_to_db(
+        user,
+        "thread-mirror",
+        [
+            {"role": "user", "content": "Mirrored question"},
+            {"role": "assistant", "content": "Mirrored answer"},
+        ],
+        agent_id="cli_agent",
+    )
+    result = hop_backend(
+        uk,
+        "cli_agent",
+        from_cli="grok",
+        to_cli="agy",
+        conversation_id="thread-mirror",
+        base_dir=tmp_path,
+        user=user,
+    )
+    assert result["import"] == "swarm"
+    assert result["export_warning"] is None  # no export attempted at all
+    assert "Mirrored question" in result["injection"]["text"]
+    assert "Mirrored answer" in result["injection"]["text"]
