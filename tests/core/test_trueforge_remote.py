@@ -1256,3 +1256,68 @@ def test_trueforge_send_with_no_reply_text_never_renders_payload_json(tf_server,
     assert '"events"' not in rendered
     assert "user.message" not in rendered
     assert rendered == "TrueForge turn completed"
+
+
+# --- #810: the session switcher needs real sessions, not agent names ----------
+
+
+def test_trueforge_list_attaches_real_sessions(tf_server, monkeypatch):
+    """#810: list keeps the agent rows AND attaches GET /api/v1/sessions
+    under data.sessions so the navbar History picker resumes real threads
+    instead of writing an agent name into ?session= (which 404s)."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/agents"): (
+            200,
+            {"data": [{"id": "agent-1", "name": "orchestrator"}]},
+        ),
+        ("GET", "/api/v1/sessions"): (
+            200,
+            {
+                "data": [
+                    {
+                        "id": "sess-9",
+                        "agent": "orchestrator",
+                        "metadata": {"title": "refactor the parser"},
+                        "created_at": "2026-09-21T10:00:00Z",
+                    },
+                    {"id": "sess-4", "agent": "coder", "created_at": "2026-09-20T09:00:00Z"},
+                ]
+            },
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    listed = remotes_core.operate("trueforge", "list", config=cfg)
+
+    assert listed.ok is True
+    assert listed.data["rows_are"] == "agents"
+    sessions = listed.data["sessions"]
+    assert isinstance(sessions, list) and len(sessions) == 2
+    first = sessions[0]
+    assert first["id"] == "sess-9"
+    assert first["agent"] == "orchestrator"
+    assert "refactor the parser" in str(first.get("title") or first.get("metadata"))
+    assert first.get("created_at")
+
+
+def test_trueforge_list_survives_a_sessions_endpoint_failure(tf_server, monkeypatch):
+    """#810: a broken /api/v1/sessions must not fail the whole list — the
+    agents payload still stands, sessions are honestly absent."""
+    host, port, router = tf_server
+    router.routes = {
+        ("GET", "/api/v1/agents"): (
+            200,
+            {"data": [{"id": "agent-1", "name": "orchestrator"}]},
+        ),
+        ("GET", "/api/v1/sessions"): (500, {"error": "boom"}),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    listed = remotes_core.operate("trueforge", "list", config=cfg)
+
+    assert listed.ok is True
+    assert len(listed.data["data"]) == 1
+    assert listed.data.get("sessions") in (None, [])

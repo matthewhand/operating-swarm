@@ -3115,6 +3115,10 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
         elif isinstance(result.body, list):
             agents = result.body
         count = len(agents) if isinstance(agents, list) else (1 if agents else 0)
+        # #810: fetch the real conversation sessions so the navbar History
+        # picker resumes actual threads. Best-effort — an unreachable or
+        # erroring /api/v1/sessions never fails the agents list.
+        sessions = _trueforge_sessions(spec, timeout_s)
         # #425: these rows are *agents*. A send resume key is a session id, and
         # forwarding a row id as one produced "404 Session not found". Say what
         # the rows are so the caller can tell the two apart.
@@ -3128,7 +3132,7 @@ def _trueforge_list(spec: RemoteSpec, timeout: float) -> OperateResult:
                 "send resumes on session_id"
             ),
             http_status=result.status,
-            data={**payload, "rows_are": "agents", "resume_key": "session_id"},
+            data={**payload, "rows_are": "agents", "resume_key": "session_id", "sessions": sessions},
         )
     if result.status in _AUTH:
         env_var = spec.api_key_env or f"{spec.id.upper()}_API_KEY"
@@ -3164,6 +3168,58 @@ def _trueforge_turn_state(turn_data: dict[str, Any] | None) -> str:
     if isinstance(raw_state, dict):
         return str(raw_state.get("status") or raw_state.get("state") or "").strip().lower()
     return str(raw_state or turn_data.get("status") or "").strip().lower()
+
+
+def _trueforge_sessions(spec: RemoteSpec, timeout: float) -> list[dict[str, Any]]:
+    """GET /api/v1/sessions → normalized session rows (#810).
+
+    Shape: ``{id, agent, title, created_at}``. Title prefers the session's
+    own title, then metadata.title, then ``<agent> <short-id>``. Never
+    raises — a failure returns [] and the picker simply shows nothing.
+    """
+    base_url = (spec.base_url or "").rstrip("/")
+    result = http_json(
+        "GET",
+        f"{base_url}/api/v1/sessions",
+        headers=_auth_headers(spec),
+        timeout=timeout,
+    )
+    if result.status not in _UP:
+        return []
+    body = result.body
+    rows: Any = []
+    if isinstance(body, dict):
+        rows = body.get("sessions") or body.get("data") or []
+    elif isinstance(body, list):
+        rows = body
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        session_id = str(row.get("id") or row.get("session_id") or "").strip()
+        if not session_id or session_id in seen:
+            continue
+        seen.add(session_id)
+        agent = str(row.get("agent") or row.get("agent_id") or "").strip()
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        title = str(
+            row.get("title")
+            or metadata.get("title")
+            or metadata.get("name")
+            or (f"{agent} {session_id[:8]}" if agent else session_id)
+        ).strip()
+        out.append(
+            {
+                "id": session_id,
+                "agent": agent,
+                "title": title,
+                "created_at": str(row.get("created_at") or row.get("createdAt") or "").strip(),
+            }
+        )
+    return out
 
 
 def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | None = None) -> float:

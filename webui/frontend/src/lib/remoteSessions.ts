@@ -71,7 +71,11 @@ export function sessionsFromOperateResult(
   let list: unknown = raw
   const rec = asRecord(raw)
   if (rec) {
+    // #810: real session rows win (TrueForge attaches data.sessions); when a
+    // backend stamps rows_are='agents' the agent rows must NEVER present as
+    // sessions — resuming one 404s on the remote (#425).
     if (Array.isArray(rec.sessions)) list = rec.sessions
+    else if (rec.rows_are === 'agents') list = []
     else if (Array.isArray(rec.data)) list = rec.data
     else if (Array.isArray(rec.members)) list = rec.members
   }

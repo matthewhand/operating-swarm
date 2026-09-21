@@ -261,3 +261,50 @@ describe('#852 — most recent session auto-select', () => {
     expect(mostRecentRemoteSession([])).toBeNull()
   })
 })
+
+// #810 — TrueForge: the History picker lists real sessions, never agent rows.
+describe('#810 trueforge sessions', () => {
+  const tfResult = {
+    remote: 'trueforge',
+    op: 'list',
+    ok: true,
+    data: {
+      rows_are: 'agents',
+      resume_key: 'session_id',
+      data: [{ id: 'agent-1', name: 'orchestrator' }],
+      sessions: [
+        { id: 'sess-9', agent: 'orchestrator', title: 'refactor the parser', created_at: '2026-09-21T10:00:00Z' },
+        { id: 'sess-4', agent: 'coder' },
+      ],
+    },
+  } as never
+
+  it('maps data.sessions to pickable threads with titles', () => {
+    const rows = memberSessionsFromRemoteOperate(
+      { id: 'trueforge', title: 'TrueForge', kind: 'trueforge' },
+      tfResult,
+    )
+    expect(rows.map((r) => r.memberId)).toEqual(['sess-9', 'sess-4'])
+    expect(rows[0].title).toBe('refactor the parser')
+    expect(rows[1].title).toContain('sess-4')
+    expect(rows[0].href).toContain('session=sess-9')
+  })
+
+  it('never presents agent rows as sessions when data.sessions is absent', () => {
+    const rows = memberSessionsFromRemoteOperate(
+      { id: 'trueforge', title: 'TrueForge', kind: 'trueforge' },
+      {
+        remote: 'trueforge',
+        op: 'list',
+        ok: true,
+        data: { rows_are: 'agents', data: [{ id: 'agent-1', name: 'orchestrator' }] },
+      } as never,
+    )
+    expect(rows).toEqual([])
+  })
+
+  it('composer agent rows still map from the same payload (both lists coexist)', () => {
+    const agents = remoteAgentsFromOperate((tfResult as { data: unknown }).data)
+    expect(agents.map((a) => a.id)).toEqual(['agent-1'])
+  })
+})
