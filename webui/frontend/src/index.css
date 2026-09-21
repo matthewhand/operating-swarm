@@ -1158,10 +1158,12 @@ html:not([data-theme="light"]) .os-composer-wrap,
   gap: 0.3rem;
   /* #829/#902: fixed squares. The tile must NOT derive its height from the
      fluid `1fr` column width (aspect-ratio + stretch coupling made pinned
-     tiles balloon/shrink as the rail resized). Fixed 4.5rem, centred in the
-     column; `flex: 0 0 auto` keeps the row's height width-independent. */
-  width: 4.5rem;
-  height: 4.5rem;
+     tiles balloon/shrink as the rail resized). Fixed 5.25rem, centred in the
+     column; `flex: 0 0 auto` keeps the row's height width-independent.
+     #934: 4.5rem clipped most agent names mid-word — the square is sized
+     for its content (avatar + a two-line label) instead. */
+  width: 5.25rem;
+  height: 5.25rem;
   aspect-ratio: 1 / 1;
   justify-self: center;
   flex: 0 0 auto;
@@ -1200,9 +1202,13 @@ html:not([data-theme="light"]) .os-composer-wrap,
 }
 .os-fav-tile__name {
   max-width: 100%;
+  /* #934: two lines + ellipsis. The old single nowrap line hard-clipped
+     every name longer than ~5 characters at tile width; a 2-line clamp
+     reads at pin size while still bounding the tile's height. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 0.7rem;
   font-weight: 650;
   line-height: 1.2;

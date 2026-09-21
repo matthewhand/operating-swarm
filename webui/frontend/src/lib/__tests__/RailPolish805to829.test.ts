@@ -121,9 +121,10 @@ describe('#902 pinned tile geometry is width-independent', () => {
   it('tiles are fixed squares, not fluid 1fr stretch + aspect-ratio coupling', () => {
     const tile = ruleBlock(css(), '.os-fav-tile {')
     // fixed square size — the vertical dimension must not derive from the
-    // fluid column width
-    expect(tile).toMatch(/width:\s*4\.5rem/)
-    expect(tile).toMatch(/height:\s*4\.5rem/)
+    // fluid column width. (#934 widened 4.5rem → 5.25rem for the label;
+    // the geometry doctrine itself is unchanged.)
+    expect(tile).toMatch(/width:\s*5\.25rem/)
+    expect(tile).toMatch(/height:\s*5\.25rem/)
     expect(tile).not.toMatch(/height:\s*auto/)
     expect(tile).toMatch(/justify-self:\s*center/)
     expect(tile).toMatch(/flex:\s*0 0 auto/)
@@ -133,5 +134,26 @@ describe('#902 pinned tile geometry is width-independent', () => {
     expect(ruleBlock(css(), '.os-fav-grid {')).toMatch(/justify-content:\s*space-evenly/)
     // a fixed tile width makes the container-query column churn cosmetic only
     expect(css()).toMatch(/@container \(max-width: 200px\)/)
+  })
+})
+
+describe('#934 pinned tile labels are readable', () => {
+  it('tiles give the label room: wider fixed square, not the old 4.5rem cramp', () => {
+    const tile = ruleBlock(css(), '.os-fav-tile {')
+    // The old 4.5rem square clipped most agent names mid-word. The tile is
+    // still a fixed square (#902 doctrine), just one sized for its content.
+    expect(tile).toMatch(/width:\s*5\.25rem/)
+    expect(tile).toMatch(/height:\s*5\.25rem/)
+    expect(tile).not.toMatch(/width:\s*4\.5rem/)
+  })
+
+  it('the label wraps to two lines with ellipsis instead of one hard clip', () => {
+    const name = ruleBlock(css(), '.os-fav-tile__name {')
+    expect(name).toMatch(/display:\s*-webkit-box/)
+    expect(name).toMatch(/-webkit-line-clamp:\s*2/)
+    expect(name).toMatch(/-webkit-box-orient:\s*vertical/)
+    expect(name).toMatch(/overflow:\s*hidden/)
+    // a single clipped line is the bug
+    expect(name).not.toMatch(/white-space:\s*nowrap/)
   })
 })
