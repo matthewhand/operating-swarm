@@ -16,6 +16,7 @@ from swarm.core.kind_bases import (
     CliKindBase,
     KindBase,
     RemoteKindBase,
+    TeamKindBase,
     base_class_for_kind,
 )
 
@@ -31,7 +32,9 @@ def test_kind_stamps_match_harness_types():
     assert ApiKindBase.kind == "api"
     assert CliKindBase.kind == "cli"
     assert RemoteKindBase.kind == "remote"
-    assert KIND_BASE_NAMES == ("ApiKindBase", "CliKindBase", "RemoteKindBase")
+    # #813: teams are the fourth first-class kind.
+    assert TeamKindBase.kind == "team"
+    assert KIND_BASE_NAMES == ("ApiKindBase", "CliKindBase", "RemoteKindBase", "TeamKindBase")
     assert "BlueprintBase" in ALLOWED_BLUEPRINT_BASE_NAMES
     assert set(KIND_BASE_NAMES) <= set(ALLOWED_BLUEPRINT_BASE_NAMES)
 
@@ -120,8 +123,9 @@ def _build_blueprint(module_name: str, class_name: str, config: dict | None = No
     [
         # cli_* -> CliKindBase
         *[(name, name.replace("_", " ").title().replace(" ", "") + "Blueprint", CliKindBase, "cli") for name in _CLI_BLUEPRINTS],
-        # sdlc_handoff / chatbot -> ApiKindBase
-        ("sdlc_handoff", "SdlcHandoffBlueprint", ApiKindBase, "api"),
+        # sdlc_handoff / chatbot -> ApiKindBase; #813 moves sdlc_handoff to
+        # TeamKindBase (it is a multi-agent pipeline team).
+        ("sdlc_handoff", "SdlcHandoffBlueprint", TeamKindBase, "team"),
         ("chatbot", "ChatbotBlueprint", ApiKindBase, "api"),
         # remote_harness -> RemoteKindBase
         ("remote_harness", "RemoteHarnessBlueprint", RemoteKindBase, "remote"),
@@ -145,7 +149,7 @@ def test_migrated_blueprints_subclass_kind_base(module_name, class_name, expecte
         ("cli_planner", "CliPlannerBlueprint", "cli"),
         ("cli_recurse", "CliRecurseBlueprint", "cli"),
         ("cli_roundtable", "CliRoundtableBlueprint", "cli"),
-        ("sdlc_handoff", "SdlcHandoffBlueprint", "api"),
+        ("sdlc_handoff", "SdlcHandoffBlueprint", "team"),
         ("chatbot", "ChatbotBlueprint", "api"),
         ("remote_harness", "RemoteHarnessBlueprint", "remote"),
     ],

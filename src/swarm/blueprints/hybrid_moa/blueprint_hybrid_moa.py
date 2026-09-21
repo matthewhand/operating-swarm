@@ -14,14 +14,14 @@ import os
 from pathlib import Path
 from typing import Any, ClassVar
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import TeamKindBase
 from swarm.core.moa.config import resolve_moa_preset
 from swarm.core.persona_swarm import run_hybrid_scripted
 
 logger = logging.getLogger(__name__)
 
 
-class HybridMoABlueprint(BlueprintBase):
+class HybridMoABlueprint(TeamKindBase):
     """Persona implementer applies MoA consensus (champagne A←B)."""
 
     metadata: ClassVar[dict[str, Any]] = {

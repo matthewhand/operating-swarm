@@ -5,12 +5,12 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import TeamKindBase
 
 logger = logging.getLogger(__name__)
 
 
-class DynamicTeamBlueprint(BlueprintBase):
+class DynamicTeamBlueprint(TeamKindBase):
     """
     Minimal dynamic team blueprint that proxies user messages to the configured
     LLM profile via OpenAI-compatible Chat Completions and yields a single final

@@ -55,7 +55,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import ApiKindBase
+from swarm.core.kind_bases import ApiKindBase, TeamKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.cli_tools import cli_persona, consensus_fn  # the granular tool layer
 from swarm.core.consensus import run_consensus  # noqa: F401  (Option B; see run())
@@ -63,7 +63,7 @@ from swarm.core.consensus import run_consensus  # noqa: F401  (Option B; see run
 logger = logging.getLogger(__name__)
 
 
-class HybridTeamBlueprint(ApiKindBase):
+class HybridTeamBlueprint(TeamKindBase):
     """REST coordinator + grok CLI persona + consensus panel, in one run()."""
 
     metadata: ClassVar[dict[str, Any]] = {

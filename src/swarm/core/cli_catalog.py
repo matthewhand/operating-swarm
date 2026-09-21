@@ -129,6 +129,7 @@ def seat_capabilities_payload(extra_bases: list[type] | None = None) -> dict[str
         ApiKindBase,
         CliKindBase,
         RemoteKindBase,
+        TeamKindBase,
         seat_capabilities,
     )
 
@@ -136,6 +137,7 @@ def seat_capabilities_payload(extra_bases: list[type] | None = None) -> dict[str
         "api": ApiKindBase,
         "cli": CliKindBase,
         "remote": RemoteKindBase,
+        "team": TeamKindBase,
     }
     for extra in extra_bases or []:
         kind = str(getattr(extra, "kind", "") or "").strip().lower()

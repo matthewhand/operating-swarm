@@ -5,7 +5,7 @@ SDK docs: REQ-921 / #540): how a recipe coordinates multiple named
 sub-agents through roles, and how that differs from raw openai-agents
 handoff graphs.
 
-Base: ApiKindBase. Why: coordination (routing a turn to a specialist,
+Base: TeamKindBase. Why: coordination (routing a turn to a specialist,
 collecting results, deciding) is programmatic swarm-side work — exactly
 what the API kind exists for. The sub-agents may themselves be CLI or
 remote seats; the *coordinator* is swarm-side.
@@ -45,7 +45,7 @@ from typing import Any, ClassVar
 
 from agents import Agent
 
-from swarm.core.kind_bases import ApiKindBase
+from swarm.core.kind_bases import TeamKindBase
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +56,10 @@ _COORDINATOR_PROMPT = (
 )
 
 
-class ExampleTeamOrchestratorBlueprint(ApiKindBase):
+class ExampleTeamOrchestratorBlueprint(TeamKindBase):
     """Team recipe: a coordinator that speaks to sub-agents as roles."""
 
-    kind = ApiKindBase.kind  # stamped by the base; restated for readers
+    kind = TeamKindBase.kind  # stamped by the base; restated for readers
 
     metadata: ClassVar[dict[str, Any]] = {
         "name": "example_team_orchestrator",

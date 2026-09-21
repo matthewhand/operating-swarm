@@ -25,8 +25,14 @@ logger = logging.getLogger(__name__)
 KIND_API = "api"
 KIND_CLI = "cli"
 KIND_REMOTE = "remote"
+KIND_TEAM = "team"
 
-KIND_BASE_NAMES: tuple[str, ...] = ("ApiKindBase", "CliKindBase", "RemoteKindBase")
+KIND_BASE_NAMES: tuple[str, ...] = (
+    "ApiKindBase",
+    "CliKindBase",
+    "RemoteKindBase",
+    "TeamKindBase",
+)
 ALLOWED_BLUEPRINT_BASE_NAMES: tuple[str, ...] = (
     *KIND_BASE_NAMES,
     "KindBase",
@@ -47,8 +53,9 @@ def _cap(enabled: bool, reason: str = "") -> SeatCapability:
 
 
 def _capability_names() -> tuple[str, ...]:
-    """The declared capability vocabulary (documented for #540)."""
-    return ("attach", "compact", "plugins", "routines")
+    """The declared capability vocabulary (documented for #540; the
+    ``coordination`` axis arrives with #813's TeamKindBase)."""
+    return ("attach", "compact", "plugins", "routines", "coordination")
 
 
 def seat_capability(base: type, name: str) -> SeatCapability:
@@ -297,7 +304,59 @@ class RemoteKindBase(KindBase):
             False, "Plugins are available on API and blueprint seats"
         ),
         "routines": _cap(False, "Routines drive swarm-side scheduling"),
+        "coordination": _cap(
+            False, "Cross-agent coordination is a team-seat capability (#813)"
+        ),
     }
+
+
+class TeamKindBase(KindBase):
+    """Multi-agent team template (#813).
+
+    The fourth first-class kind: the frontend already manages ``kind: 'team'``
+    seats (multi-avatar stacks, role tags, Team Composer) and the roster store
+    (``team_rosters.py``) persists compositions, wires, and CoS briefs — the
+    backend just never gave teams a common base. TeamKindBase stamps
+    ``kind='team'``, declares the ``coordination`` capability, and exposes the
+    shared hooks (roster / strategy / chief-of-staff) so coordination
+    strategies stop being ad-hoc per blueprint.
+    """
+
+    kind: ClassVar[str] = KIND_TEAM
+
+    #: Teams run swarm-side (like API seats) and add cross-agent coordination.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(True),
+        "compact": _cap(True),
+        "plugins": _cap(True),
+        "routines": _cap(True),
+        "coordination": _cap(True),
+    }
+
+    #: Coordination strategy: 'direct' (all members see the ask), 'pipeline'
+    #: (ordered handoffs), 'consensus' (collect then synthesise), 'router'
+    #: (a coordinator delegates), 'dynamic' (blueprint decides per turn).
+    strategy: ClassVar[str] = "direct"
+
+    def get_roster(self) -> list[dict[str, Any]]:
+        """Team members as JSON-safe rows. Subclasses backed by the roster
+        store return their persisted composition; the default is empty."""
+        return []
+
+    def get_strategy(self) -> str:
+        """This team's declared coordination strategy."""
+        return str(type(self).strategy)
+
+    def get_chief_of_staff(self) -> Any | None:
+        """The CoS/lead seat if one is wired, else None."""
+        return None
+
+    async def coordinate(self, instruction: str, **kwargs: Any) -> Any:
+        """Drive the declared strategy over ``instruction``. Default teams
+        without an override yield nothing meaningful — blueprints implement
+        this when they actually coordinate."""
+        logger.debug("TeamKindBase.coordinate default for %s", self.blueprint_id)
+        return None
 
 
 def base_class_for_kind(kind: str | None) -> str:
@@ -313,6 +372,7 @@ def base_class_for_kind(kind: str | None) -> str:
         KIND_API: "ApiKindBase",
         KIND_CLI: "CliKindBase",
         KIND_REMOTE: "RemoteKindBase",
+        KIND_TEAM: "TeamKindBase",
     }.get(normalized, "BlueprintBase")
 
 
@@ -325,9 +385,11 @@ __all__ = [
     "KIND_BASE_NAMES",
     "KIND_CLI",
     "KIND_REMOTE",
+    "KIND_TEAM",
     "KindBase",
     "RemoteKindBase",
     "SeatCapability",
+    "TeamKindBase",
     "base_class_for_kind",
     "seat_capabilities",
     "seat_capability",

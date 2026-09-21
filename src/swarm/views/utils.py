@@ -199,12 +199,25 @@ def _load_all_blueprint_metadata_sync():
                 ns = {}
                 exec(code, ns)
                 from swarm.core.blueprint_base import BlueprintBase
-                from swarm.core.kind_bases import ApiKindBase, CliKindBase, KindBase, RemoteKindBase
+                from swarm.core.kind_bases import (
+                    ApiKindBase,
+                    CliKindBase,
+                    KindBase,
+                    RemoteKindBase,
+                    TeamKindBase,
+                )
                 for val in ns.values():
                     if (
                         isinstance(val, type)
                         and issubclass(val, BlueprintBase)
-                        and val not in (BlueprintBase, KindBase, ApiKindBase, CliKindBase, RemoteKindBase)
+                        and val not in (
+                            BlueprintBase,
+                            KindBase,
+                            ApiKindBase,
+                            CliKindBase,
+                            RemoteKindBase,
+                            TeamKindBase,
+                        )
                     ):
                         class_type = val
                         break

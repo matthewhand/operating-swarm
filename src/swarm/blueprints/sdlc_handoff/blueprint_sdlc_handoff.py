@@ -29,7 +29,7 @@ from typing import Any, ClassVar
 from openai import AsyncOpenAI
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import ApiKindBase
+from swarm.core.kind_bases import ApiKindBase, TeamKindBase
 from swarm.core.handoff_graph import (
     PIPELINE_GRAPH_ID,
     SKEPTIC_LOOP_GRAPH_ID,
@@ -56,7 +56,7 @@ VARIANT_ALIASES = {
 }
 
 
-class SdlcHandoffBlueprint(ApiKindBase):
+class SdlcHandoffBlueprint(TeamKindBase):
     """API-only SDLC handoff graph: forced pipeline or circular skeptic."""
 
     metadata: ClassVar[dict[str, Any]] = {
