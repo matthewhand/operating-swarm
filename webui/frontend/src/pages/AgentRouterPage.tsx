@@ -18,6 +18,7 @@ import {
   Code,
   Shuffle,
   Users,
+  Plus,
 } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types/agent'
 import { agentTypeLabel, defaultRemoteMemberId, remoteMembersOf } from '../lib/agent-types'
@@ -100,7 +101,6 @@ import {
   routeMessage 
 } from '../lib/agent-api'
 import { fetchBlueprints } from '../lib/api'
-import { AgentSidebar } from '../components/AgentSidebar/AgentSidebar'
 import { AgentAvatar } from '../components/AgentSidebar/AgentAvatar'
 import { AgentMessageBubble, AgentStatusBadge, BotCommPopup, AgentDesigner, EditableField, BackendSelect, AgentRoles, defaultBackendFor, backendRouteParams } from '../components/AgentChat'
 import TeamsSheet from '../components/overlays/TeamsSheet'
@@ -126,25 +126,16 @@ export default function AgentRouterPage() {
     agents,
     selectedAgentId,
     agentStatus,
-    unreadCounts,
-    chiefOfStaffId,
-    sidebarOpen,
-    sidebarDensity,
-    collapsedSections,
-    searchQuery,
     routingStrategy,
     targetAgentId,
     delegations,
     selectedCommDelegation,
     setAgents,
+    toggleSidebar,
+    roleAssignments,
+    setAgentRole,
     selectAgent,
     setAgentStatus,
-    setChiefOfStaff,
-    toggleSidebar,
-    setSidebarDensity,
-    toggleSection,
-    setSearchQuery,
-    setRoutingStrategy,
     backendByAgent,
     setAgentBackend,
     setDelegations,
@@ -152,11 +143,6 @@ export default function AgentRouterPage() {
     setSelectedCommDelegation,
     renameAgent,
     setAgentPurpose,
-    moveAgentToSection,
-    reorderAgents,
-    favouriteIds,
-    pinFavourite,
-    unpinFavourite,
     avatarTheme,
     avatarThemeByAgent,
     setAgentAvatarTheme,
@@ -164,8 +150,6 @@ export default function AgentRouterPage() {
     avatarEyes,
     avatarEyesByAgent,
     setAgentAvatarEyes,
-    roleAssignments,
-    setAgentRole,
     defaultLlmProfile,
     llmProfileByAgent,
     setDefaultLlmProfile,
@@ -179,10 +163,7 @@ export default function AgentRouterPage() {
     blueprintByAgent,
     setAgentBlueprint,
     hiddenAgentIds,
-    hideAgent,
     unhideAgent,
-    hideAllAgents,
-    unhideAllAgents,
     quickstartsByAgent,
     setAgentQuickstarts,
     clearAgentQuickstarts,
@@ -707,60 +688,13 @@ export default function AgentRouterPage() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-base-100 font-sans text-base-content antialiased">
-      {/* 1. Left Panel: Swarm agent sidebar */}
-      <AgentSidebar
-        agents={agents}
-        selectedAgentId={selectedAgentId}
-        agentStatus={agentStatus}
-        unreadCounts={unreadCounts}
-        chiefOfStaffId={chiefOfStaffId}
-        density={sidebarDensity}
-        isOpen={sidebarOpen}
-        collapsedSections={collapsedSections}
-        searchQuery={searchQuery}
-        onSelectAgent={(id) => {
-          selectAgent(id)
-          if (id !== 'router') setRoutingStrategy('direct')
-        }}
-        onToggleOpen={toggleSidebar}
-        onSelectDensity={setSidebarDensity}
-        onToggleSection={toggleSection}
-        onSearchChange={setSearchQuery}
-        onRenameAgent={renameAgent}
-        onSetChiefOfStaff={setChiefOfStaff}
-        onMoveToSection={moveAgentToSection}
-        onRefresh={() => refetchAgents()}
-        onConsensusClick={() => {
-          setRoutingStrategy('consensus')
-          selectAgent('router')
-        }}
-        onCreateAgent={() => setDesignerOpen(true)}
-        onTeamsClick={() => setTeamsSheetOpen(true)}
-        onReorderAgents={reorderAgents}
-        favouriteIds={favouriteIds}
-        hiddenAgentIds={hiddenAgentIds}
-        onHideAgent={hideAgent}
-        onUnhideAgent={unhideAgent}
-        onHideAll={hideAllAgents}
-        onUnhideAll={unhideAllAgents}
-        messages={messages}
-        delegations={delegations}
-        onSelectDelegation={(id) => {
-          const found = delegations.find((d) => d.id === id)
-          if (found) setSelectedCommDelegation(found)
-        }}
-        onPinFavourite={pinFavourite}
-        onUnpinFavourite={unpinFavourite}
-        roleAssignments={roleAssignments}
-      />
-
       {/* 2. Middle Panel: Dynamic Chat & Execution View */}
       <main className="flex-1 flex flex-col h-full min-w-0 bg-base-100 relative">
         {/* Chat Header Bar */}
         <header className="min-h-14 border-b border-base-300/80 px-3 sm:px-4 flex flex-wrap items-start justify-between gap-2 flex-shrink-0 bg-base-100/90 backdrop-blur-md z-20" data-testid="agents-chat-header">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             {/* If sidebar is closed, show expand button */}
-            {!sidebarOpen && (
+            {(
               <button
                 type="button"
                 onClick={toggleSidebar}
@@ -770,6 +704,19 @@ export default function AgentRouterPage() {
                 <PanelLeft className="w-4 h-4" />
               </button>
             )}
+
+            {/* #930: agent creation lives here now — the duplicated sidebar
+                that used to host the create trigger was removed. */}
+            <button
+              type="button"
+              onClick={() => setDesignerOpen(true)}
+              className="btn btn-ghost btn-xs btn-circle text-base-content/70 hover:text-base-content"
+              title="New agent"
+              aria-label="New agent"
+              data-testid="agents-new-agent-button"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
 
             {/* Active Agent Info */}
             {selectedAgent && (
@@ -1324,7 +1271,8 @@ export default function AgentRouterPage() {
           onCreated={async (agentId) => {
             setDesignerOpen(false)
             await refetchAgents()
-            selectAgent(agentId)
+            // #930: the rail (App shell) owns agent selection now — route there.
+            window.location.assign(`/chat?blueprint=${encodeURIComponent(agentId)}`)
           }}
         />
       )}

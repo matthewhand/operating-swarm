@@ -78,6 +78,10 @@ describe('SPA /chat stays Chat (not /agents)', () => {
   it('keeps /agents as Agent Router (not an alias of /chat)', async () => {
     renderAppAt('/agents')
     expect(window.location.pathname).toBe('/agents')
-    expect(screen.getByLabelText('Agent sidebar')).toBeInTheDocument()
+    // #930: the diverged duplicate sidebar is gone — the page no longer mounts
+    // its own rail (no search affordance, no 'Focused' section) and the App
+    // shell is the single sidebar owner.
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(screen.queryByText('Focused')).not.toBeInTheDocument()
   })
 })
