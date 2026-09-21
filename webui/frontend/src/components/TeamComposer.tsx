@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GripVertical, Plus, Tags, Users, Wrench } from 'lucide-react'
-import { Alert, Badge, Button, Input, Modal, Tabs, Textarea } from './DaisyUI'
+import { Alert, Badge, Button, Modal, Tabs, Textarea } from './DaisyUI'
 import InstallCatalog from './InstallCatalog'
 import {
   createTeamRoster,
@@ -746,9 +746,9 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             size="sm"
             className="shrink-0"
             onClick={resetDraft}
-              <Plus className="h-4 w-4 mr-1" aria-hidden="true" />
-              Create Team
-            </Button>
+          >
+            <Plus className="h-4 w-4 mr-1" aria-hidden="true" />
+            Create Team
           </Button>
         </div>
 
