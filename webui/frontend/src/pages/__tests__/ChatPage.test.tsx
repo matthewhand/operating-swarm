@@ -2290,23 +2290,23 @@ describe('ChatPage team member dropdown', () => {
     vi.unstubAllGlobals()
   })
 
-  it('lists All members first, then name + kind/role, then Manage Teams (unlabeled)', async () => {
+  it('lists All members first, then name + kind/role, with Manage Team as the footer action (#755)', async () => {
     renderChat('/chat?team=demo-team')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(select).not.toHaveAccessibleName('Blueprint')
-    const options = within(select).getAllByRole('option')
-    expect(options.map((opt) => opt.textContent)).toEqual([
-      'All members',
-      'Codey (agent/coder)',
-      'Stewie (agent/ops)',
-      'Manage Team',
-    ])
-    expect(select).toHaveValue('codey') // #169: seat default = first roster member
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
     expect(screen.queryByText('Blueprint')).not.toBeInTheDocument()
+    const options = ['all', 'codey', 'stewie'].map((id) =>
+      screen.getByTestId(`os-model-row-${id}`).textContent,
+    )
+    // Palette rows carry group/index chrome — assert the label is present.
+    expect(options[0]).toContain('All members')
+    expect(options[1]).toContain('Codey (agent/coder)')
+    expect(options[2]).toContain('Stewie (agent/ops)')
+    expect(screen.getByTestId('os-model-manage-api')).toHaveTextContent('Manage teams')
     expect(screen.getByRole('heading', { name: 'Demo Team' })).toBeInTheDocument()
   })
 
@@ -2325,9 +2325,9 @@ describe('ChatPage team member dropdown', () => {
     expect(within(button).getByRole('img', { hidden: true })).toBeTruthy()
     expect(screen.queryByTestId('header-avatar-generations')).not.toBeInTheDocument()
 
-    // Switching the active member updates the face.
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    fireEvent.change(select, { target: { value: 'stewie' } })
+    // Switching the active member updates the face (#755 picker path).
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-stewie'))
     await waitFor(() => {
       expect(screen.getByTestId('header-team-avatar')).toHaveAttribute(
         'data-face-agent-id',
@@ -2405,15 +2405,16 @@ describe('ChatPage team member dropdown', () => {
       MockWebSocket.instances[0]?.open()
     })
     expect(await screen.findByRole('heading', { name: 'Demo Harness Kinds' })).toBeInTheDocument()
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    const options = within(select).getAllByRole('option').map((opt) => opt.textContent)
-    expect(options).toEqual([
-      'All members',
-      'Grok CLI (cli/default)',
-      'LiteLLM API (api/default)',
-      'OpenMousBot Remote (remote/default)',
-      'Manage Team',
-    ])
+    // #755: the roster rows now live in the composer picker's palette.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    const options = ['all', 'grok-cli', 'litellm-api', 'openmousbot-remote'].map((id) =>
+      screen.queryByTestId(`os-model-row-${id}`)?.textContent,
+    )
+    expect(options[0]).toContain('All members')
+    expect(options[1]).toContain('Grok CLI (cli/default)')
+    expect(options[2]).toContain('LiteLLM API (api/default)')
+    expect(options[3]).toContain('OpenMousBot Remote (remote/default)')
     expect(options.join(' ')).not.toMatch(/\bOMB\b/)
   })
 
@@ -2424,10 +2425,9 @@ describe('ChatPage team member dropdown', () => {
     })
 
     const composer = await screen.findByRole('textbox', { name: 'Chat message' })
-    // #169: the dropdown now defaults to the first member; go explicit for the all-members frame.
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'all' },
-    })
+    // #169: the picker defaults to the first member; go explicit for the all-members frame.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-all'))
     fireEvent.change(composer, { target: { value: 'hello team' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
@@ -2440,9 +2440,8 @@ describe('ChatPage team member dropdown', () => {
       params: { team: 'demo-team', target: 'all', enabled_tools: [] },
     })
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'codey' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-codey'))
     fireEvent.change(composer, { target: { value: 'just codey' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
@@ -2484,21 +2483,15 @@ describe('ChatPage team member dropdown', () => {
     })
   })
 
-  it('keeps Manage Team last with separator and does not send when that item is chosen', async () => {
+  it('keeps Manage Team as the footer action and does not send when it is chosen (#755)', async () => {
     renderChat('/chat?team=demo-team')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    const options = within(select).getAllByRole('option')
-    expect(options[options.length - 1]).toHaveValue('__manage__')
-    expect(options[options.length - 1]).toHaveTextContent('Manage Team')
-    // #727: separator is now an <optgroup> (not a disabled <option>) — check it
-    // exists between the member list and Manage Team.
-    const optgroup = select.querySelector('optgroup')
-    expect(optgroup).not.toBeNull()
-    expect(select).toHaveValue('codey') // #169: seat default = first roster member
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    expect(screen.getByTestId('os-model-manage-api')).toHaveTextContent('Manage teams')
     expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
   })
 
@@ -2511,9 +2504,8 @@ describe('ChatPage team member dropdown', () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
-      target: { value: '__manage__' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-manage-api'))
     expect(assign).toHaveBeenCalledWith('/teams/#demo-team')
     expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
   })
@@ -3223,14 +3215,16 @@ describe('ChatPage remote members (PR #318 / REQ-23)', () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(within(select).getAllByRole('option').map((opt) => opt.textContent)).toEqual([
-      'All members',
-      'Hermes (remote/default)',
-      'OpenMousBot (remote/default)',
-      'Rakazo (remote/default)',
-      'Manage Team',
-    ])
+    // #755: roster rows live in the composer picker's palette.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    const options = ['all', 'hermes', 'omb', 'rakazo'].map((id) =>
+      screen.getByTestId(`os-model-row-${id}`).textContent,
+    )
+    expect(options[0]).toContain('All members')
+    expect(options[1]).toContain('Hermes (remote/default)')
+    expect(options[2]).toContain('OpenMousBot (remote/default)')
+    expect(options[3]).toContain('Rakazo (remote/default)')
     expect(screen.getByRole('heading', { name: 'Harness Team' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
   })
@@ -3242,9 +3236,8 @@ describe('ChatPage remote members (PR #318 / REQ-23)', () => {
     })
 
     const composer = await screen.findByRole('textbox', { name: 'Chat message' })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'hermes' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-hermes'))
     fireEvent.change(composer, { target: { value: 'ping hermes' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
@@ -3922,9 +3915,9 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'stewie' },
-    })
+    // #755: the member pick rides the composer routing picker.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-stewie'))
 
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent('Team target: Codey (agent/coder) → Stewie (agent/ops)')

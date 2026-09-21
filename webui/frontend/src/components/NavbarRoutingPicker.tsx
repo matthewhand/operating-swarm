@@ -211,7 +211,7 @@ export function NavbarRoutingPicker({
     agents.find((row) => row.id === selectedAgent)?.label ||
     selectedAgent ||
     placeholder ||
-    (seatKind === 'remote' ? 'Remote' : 'Agent')
+    (seatKind === 'remote' ? 'Remote' : seatKind === 'team' ? 'Team' : 'Agent')
   const modelLabel = showModel
     ? modelLabelById.get(selectedModel) ||
       modelLabelById.get(path.model) ||
@@ -220,7 +220,15 @@ export function NavbarRoutingPicker({
       (seatKind === 'remote' && !modelWarning ? 'Agents' : '—')
     : ''
   const effortLabel = showEffort ? path.effort || '' : ''
-  const groupLabel = ariaLabel || (seatKind === 'cli' ? 'CLI' : seatKind === 'remote' ? 'Remote' : 'Routing')
+  const groupLabel =
+    ariaLabel ||
+    (seatKind === 'cli'
+      ? 'CLI'
+      : seatKind === 'remote'
+        ? 'Remote'
+        : seatKind === 'team'
+          ? 'Team members'
+          : 'Routing')
 
   useEffect(() => {
     if (!paletteOpen) return

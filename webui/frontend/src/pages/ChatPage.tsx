@@ -4364,6 +4364,56 @@ const ChatPage = () => {
         />
       )
     }
+    if (productModes.team && teamFromUrl) {
+      // #755: team member routing is the same composer picker every other
+      // seat uses — the legacy navbar <select> is retired. All members is
+      // the first row (its id is the send-target sentinel 'all'); Manage
+      // Team is the footer action, which never writes a session (#331).
+      const members = selectedTeam?.members ?? []
+      return (
+        <NavbarRoutingPicker
+          seatKind="team"
+          aria-label="Team members"
+          agents={[
+            { id: ALL_MEMBERS_TARGET, label: 'All members', kind: 'team' as const },
+            ...members.map((member) => ({
+              id: member.id,
+              label: memberOptionLabel(member),
+              kind: 'team' as const,
+            })),
+          ]}
+          selectedAgent={memberTarget || ALL_MEMBERS_TARGET}
+          models={[]}
+          selectedModel=""
+          placeholder="Team"
+          footerAction={{
+            id: MANAGE_TEAMS_VALUE,
+            label: 'Manage teams',
+            onSelect: () => {
+              window.location.assign(
+                teamFromUrl
+                  ? `${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}`
+                  : MANAGE_TEAMS_HREF,
+              )
+            },
+          }}
+          onChange={(next) => {
+            const value = next.agent
+            const prev = memberTarget
+            const prevMember = members.find((m) => m.id === prev)
+            const nextMember = members.find((m) => m.id === value)
+            const fromLabel = prev === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(prevMember || { id: prev, name: prev })
+            const toLabel = value === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(nextMember || { id: value, name: value })
+            setMemberTarget(value)
+            setSearchParams(
+              (prevParams) => applyTeamMemberSessionParam(prevParams, teamFromUrl, value),
+              { replace: true },
+            )
+            recordDropdownChange('team', fromLabel, toLabel)
+          }}
+        />
+      )
+    }
     if (productModes.cli && isCliAgent) {
       return (
         <NavbarRoutingPicker
@@ -4640,48 +4690,8 @@ const ChatPage = () => {
               }}
             />
           ) : null}
-          {productModes.team && teamFromUrl ? (
-            <select
-              className="select select-sm h-8 max-w-[12rem] border border-base-300 bg-base-100"
-              value={memberTarget}
-              aria-label="Team members"
-              onChange={(e) => {
-                const value = e.target.value
-                if (value === MANAGE_TEAMS_VALUE) {
-                  if (teamFromUrl) {
-                    window.location.assign(`${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}`)
-                  } else {
-                    window.location.assign(MANAGE_TEAMS_HREF)
-                  }
-                  return
-                }
-                const prev = memberTarget
-                const prevMember = (selectedTeam?.members ?? []).find((m) => m.id === prev)
-                const nextMember = (selectedTeam?.members ?? []).find((m) => m.id === value)
-                const fromLabel = prev === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(prevMember || { id: prev, name: prev })
-                const toLabel = value === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(nextMember || { id: value, name: value })
-                setMemberTarget(value)
-                if (teamFromUrl) {
-                  setSearchParams(
-                    (prevParams) => applyTeamMemberSessionParam(prevParams, teamFromUrl, value),
-                    { replace: true },
-                  )
-                }
-                recordDropdownChange('team', fromLabel, toLabel)
-              }}
-            >
-              <option value={ALL_MEMBERS_TARGET}>All members</option>
-              {(selectedTeam?.members ?? []).map((member) => (
-                <option key={member.id} value={member.id}>
-                  {memberOptionLabel(member)}
-                </option>
-              ))}
-              {/* #727: aria-hidden is invalid on <option>; <optgroup> renders a
-                  visual separator line in all browsers and is screen-reader safe. */}
-              <optgroup label="──────────" />
-              <option value={MANAGE_TEAMS_VALUE}>Manage Team</option>
-            </select>
-          ) : null}
+          {/* #755: the legacy team members <select> is retired — the composer
+              routing picker (seatKind=team) owns member routing now. */}
           {isCliAgent && currentCli ? (
             <CliSessionSwitcher
               agentId={selectedBlueprint}
