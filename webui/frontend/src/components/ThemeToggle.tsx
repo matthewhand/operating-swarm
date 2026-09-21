@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { saveUserPrefs } from '../lib/userPrefs'
 import { Moon, Sun } from 'lucide-react'
 import {
   dispatchSetTheme,
@@ -67,7 +68,12 @@ export default function ThemeToggle({ className = '' }: { className?: string }) 
       aria-label={ariaLabel}
       title={`Theme: ${theme}. Click to switch to ${next}`}
       data-testid="theme-toggle-btn"
-      onClick={() => dispatchSetTheme(next)}
+      onClick={() => {
+        dispatchSetTheme(next)
+        // #848: the navbar click is a preference change, so it syncs to the
+        // server like the Settings control does (no-op failure for guests).
+        void saveUserPrefs({ theme: next })
+      }}
     >
       {resolved === 'dark' ? (
         <Sun className="h-4 w-4" aria-hidden="true" />

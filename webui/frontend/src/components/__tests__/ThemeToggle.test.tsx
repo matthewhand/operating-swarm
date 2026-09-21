@@ -99,3 +99,49 @@ describe('ThemeToggle component (#847: default system & 3-way navbar toggle mode
     expect(screen.getByRole('button', { name: 'Switch to light theme' })).toBeInTheDocument()
   })
 })
+
+// #848: a navbar click is a preference change, so it must sync to
+// /v1/preferences/ like the Settings control (silent no-op for guests).
+describe('#848 — navbar theme clicks persist to user preferences', () => {
+  afterEach(() => {
+    localStorage.removeItem(THEME_STORAGE_KEY)
+    localStorage.removeItem(THEME_NAVBAR_STORAGE_KEY)
+    localStorage.removeItem(THEME_NAVBAR_MODE_STORAGE_KEY)
+    vi.unstubAllGlobals()
+  })
+
+  it('PATCHes theme when the navbar toggle is clicked', async () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'dark')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ThemeToggle />)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
+
+    await vi.waitFor(() => {
+      const patch = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          String(url).includes('/v1/preferences/') && (init as RequestInit | undefined)?.method === 'PATCH',
+      )
+      expect(patch).toBeDefined()
+      const body = JSON.parse(String((patch as unknown as [string, RequestInit])[1].body))
+      expect(body.theme).toBe('light')
+    })
+  })
+
+  it('does not crash when the sync fails (guest / offline)', async () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'dark')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+
+    render(<ThemeToggle />)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeInTheDocument()
+    })
+  })
+})
