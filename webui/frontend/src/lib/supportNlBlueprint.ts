@@ -5,7 +5,7 @@
 
 export const SUPPORT_NL_FENCE = 'swarm-nl-blueprint'
 export const SUPPORT_NL_FIXTURE = 'SUPPORT_NL_BLUEPRINT_NO_USER_PYTHON'
-export const VIEW_EDIT_CODE_LABEL = 'View / edit code'
+export const VIEW_EDIT_CODE_LABEL = 'View code'
 export const ADD_AS_AGENT_LABEL = 'Add as agent'
 export const SAVE_AS_BLUEPRINT_LABEL = 'Save as blueprint'
 

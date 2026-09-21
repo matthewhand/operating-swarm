@@ -92,7 +92,7 @@ export function buildSupportBriefing(opts: {
     ...inferenceLines,
     '',
     '### Next',
-    'Start with **Create a team** or **Create a BA → Engineer → Tester workflow**. Under the hood that is an `ApiKindBase` Python class — code stays hidden unless you **View / edit code**.',
+    'Start with **Create a team** or **Create a BA → Engineer → Tester workflow**. Under the hood that is an `ApiKindBase` Python class — code stays hidden unless you **View code**.',
     '',
     'Shortcuts: [Teams](/teams/launch/) · [Blueprint creator](/blueprint-library/creator/) · [Settings](/settings/)',
   ].join('\n')
