@@ -45,19 +45,20 @@ Every PR must satisfy all three gates before merging:
 
 1. **Backend Tests**:
    ```bash
-   source .venv/bin/activate
-   python -m pytest tests/core/ tests/views/ -x -q
+   uv run pytest tests/core/ tests/views/ -x -q
+   # or: source .venv/bin/activate && python -m pytest tests/core/ tests/views/ -x -q
    ```
 2. **Frontend Vitest Tests**:
    ```bash
    cd webui/frontend
-   npm test -- --watchAll=false
+   npm test
    ```
+   *(Runs `vitest run` in single-run mode per `package.json`)*
 3. **TypeScript & Build Verification**:
    ```bash
    cd webui/frontend
    npm run build
-   # or: npx tsc --noEmit
+   # or: npm run type-check (tsc --noEmit)
    ```
    *Never merge if `tsc --noEmit` or `npm run build` reports errors.*
 
@@ -75,13 +76,13 @@ Every PR must satisfy all three gates before merging:
 - Do not create parallel abstractions for teams or seats outside the `KindBase` hierarchy.
 
 ### Composer & Routing Picker Invariants
-- **Provider Picker Scope**: The composer provider dropdown (`NavbarRoutingPicker` / `composerPicker.ts`) must **only** adjust routing parameters (`params.provider`, `params.model`). It must **never** switch the active agent seat or overwrite `blueprint_id`.
-- **Bootstrap Provider Isolation**: The `bootstrap` provider service is strictly for initial zero-config onboarding (`starter-admin` seat). It must **never** appear in the general composer provider dropdown. It can only be selected in agent settings.
+- **Provider Picker Scope & Location**: The composer provider dropdown (`NavbarRoutingPicker.tsx` / `composerPicker.ts`) is mounted **inside the composer row (`.os-composer-row` in `ChatPage.tsx`)**, NOT in the top navbar header. (PR #954 / `ChatPage.navbarProvider679.test.tsx` guards that the top navbar mounts no provider selector). It must **only** adjust routing parameters (`params.provider`, `params.model`). It must **never** switch the active agent seat or overwrite `blueprint_id`.
+- **Bootstrap Provider Isolation**: The `bootstrap` provider service (`src/swarm/core/bootstrap_provider.py`) is strictly for initial zero-config onboarding (`starter-admin` seat). It must **never** appear in the general composer provider dropdown.
 - **File Attachments**: Uploaded file chips must handle progress, category icons, dismissal, cancellation via `AbortController`, and textless sends.
 
 ### Context & Session Persistence
 - **Conversation Storage**: Django database (`ChatMessage` / `ChatConversation`) and `chat_store` are the canonical source of truth for persisted chat history.
-- **Provider Switches**: When an agent switches provider or kind, existing context must be persisted and transferred rather than lost.
+- **Cross-Kind Context Transfer (Active Requirement #901)**: While CLI-to-CLI session context preservation is implemented (`cli_agent_context.py`), cross-kind context transfer (e.g. switching CLI ↔ API ↔ Remote) is an active requirement being built. Sessions should write to the Django DB before transitioning so context is never lost.
 
 ### UI & Styling Standards
 - **Design Tokens**: Always use CSS theme variables (e.g., `var(--color-base-100)`, `var(--os-rail-gutter)`). Do not hardcode raw hex values (like `#ffffff` or `#000000`) in component CSS where theme tokens exist.
