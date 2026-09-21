@@ -17,7 +17,7 @@ export interface ModelSearchPaletteProps {
   onClose: () => void
   onSelect: (model: ModelSearchOption) => void
   onManageSettings?: () => void
-  /** #504: footer label for the manage deep-link. Defaults to the API wording. */
+  /** #504/#836: footer label for the manage deep-link. Defaults to the unified providers wording. */
   manageLabel?: string
   /** #504: visible scope chip (e.g. `CLI · qwen`). Absent → no chip row. */
   scopeLabel?: string
@@ -458,7 +458,7 @@ export default function ModelSearchPalette({
             onClick={openManage}
           >
             <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
-            {manageLabel || 'Manage API in Settings'}
+            {manageLabel || 'Manage providers in Settings'}
           </button>
         </div>
       </div>

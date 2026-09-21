@@ -166,7 +166,7 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
     expect(cliPicker.length).toBeGreaterThan(0)
   })
 
-  it('#681: API picker opens the two-stage dialog with Manage API action', { timeout: 10000 }, async () => {
+  it('#681: API picker opens the two-stage dialog with the unified manage action (#836)', { timeout: 10000 }, async () => {
     stubChat()
     renderChat('/chat?blueprint=api_agent')
     await act(async () => {
@@ -175,7 +175,8 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     expect(await screen.findByTestId('composer-picker')).toBeInTheDocument()
     const manageBtn = await screen.findByTestId('composer-picker-manage')
-    expect(manageBtn).toHaveTextContent('Manage API in Settings')
+    // #836: all seat kinds share the unified cross-provider footer.
+    expect(manageBtn).toHaveTextContent('Manage providers in Settings')
   })
 
   it('API model pick flows into the WS frame params.model', async () => {
@@ -219,7 +220,7 @@ describe('ChatPage Manage CLI / API footers (#254)', () => {
     }
   }
 
-  it('Manage CLI opens the in-app CLI agents sheet without leaving Chat', { timeout: 10000 }, async () => {
+  it('Manage footer opens the unified Providers hub (#836)', { timeout: 10000 }, async () => {
     stubChat()
     const { opened, stop } = listenSettings()
     try {
@@ -230,14 +231,14 @@ describe('ChatPage Manage CLI / API footers (#254)', () => {
       fireEvent.click(await screen.findByTestId('routing-pill-agent'))
       // #681: the manage action lives in the two-stage dialog footer.
       fireEvent.click(await screen.findByTestId('composer-picker-manage'))
-      expect(opened).toEqual([{ section: 'cli-agents' }])
+      expect(opened).toEqual([{ section: 'providers' }])
       expect(screen.getByTestId('navbar-routing-picker')).toBeInTheDocument()
     } finally {
       stop()
     }
   })
 
-  it('Manage API opens the in-app LLM profiles sheet', { timeout: 10000 }, async () => {
+  it('Manage footer from an API seat opens the unified Providers hub (#836)', { timeout: 10000 }, async () => {
     stubChat()
     const { opened, stop } = listenSettings()
     try {
@@ -247,7 +248,7 @@ describe('ChatPage Manage CLI / API footers (#254)', () => {
       })
       fireEvent.click(await screen.findByTestId('routing-pill-agent'))
       fireEvent.click(await screen.findByTestId('composer-picker-manage'))
-      expect(opened).toEqual([{ section: 'llm-profiles' }])
+      expect(opened).toEqual([{ section: 'providers' }])
     } finally {
       stop()
     }

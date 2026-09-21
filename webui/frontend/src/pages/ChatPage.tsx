@@ -4117,8 +4117,10 @@ const ChatPage = () => {
           }
           footerAction={{
             id: ADD_REMOTE_VALUE,
-            label: 'Manage Remote',
-            onSelect: () => openSettingsSheet({ section: 'remotes' }),
+            // #836: the picker is a cross-provider omnibus — the footer always
+            // names the unified Providers hub, not the active seat's section.
+            label: 'Manage providers',
+            onSelect: () => openSettingsSheet({ section: 'providers' }),
           }}
           onChange={(next) => {
             const nextId = next.agent
@@ -4172,8 +4174,9 @@ const ChatPage = () => {
           }}
           footerAction={{
             id: MANAGE_CLI_VALUE,
-            label: 'Manage CLI',
-            onSelect: () => openSettingsSheet({ section: 'cli-agents' }),
+            // #836: unified cross-provider footer (see remote branch above).
+            label: 'Manage providers',
+            onSelect: () => openSettingsSheet({ section: 'providers' }),
           }}
           onChange={applyCliRoutingChange}
         />
@@ -4206,8 +4209,9 @@ const ChatPage = () => {
           }}
           footerAction={{
             id: '__manage_api__',
-            label: 'Manage API',
-            onSelect: () => openSettingsSheet({ section: 'llm-profiles' }),
+            // #836: unified cross-provider footer (see remote branch above).
+            label: 'Manage providers',
+            onSelect: () => openSettingsSheet({ section: 'providers' }),
           }}
           onChange={applyApiRoutingChange}
         />

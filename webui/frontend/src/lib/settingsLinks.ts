@@ -3,6 +3,8 @@ import { openSettingsSheet, type SettingsSection } from '../components/SettingsS
 /** In-app Settings pane ids that chat markdown may deep-link. */
 const SETTINGS_SECTIONS = new Set<string>([
   'general',
+  'aesthetics',
+  'providers',
   'definition',
   'blueprint',
   'remotes',

@@ -98,7 +98,8 @@ describe('ModelSearchPalette', () => {
     expect(current).toHaveAttribute('data-default', 'true')
     expect(current).toHaveAttribute('aria-current', 'true')
     expect(within(current).getByText('Default')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Manage API in Settings/i })).toBeInTheDocument()
+    // #836: the default footer wording is the unified providers hub.
+    expect(screen.getByRole('button', { name: /Manage providers in Settings/i })).toBeInTheDocument()
   })
 
   it('filters models via the search input', () => {

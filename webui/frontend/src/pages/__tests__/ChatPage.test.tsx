@@ -2026,7 +2026,8 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     expect(options.every((text) => !text?.includes('Rakazo'))).toBe(true)
     expect(options.every((text) => !/\bOMB\b/.test(text || ''))).toBe(true)
     expect(screen.getByTestId('composer-picker').textContent).not.toContain('No remotes')
-    expect(screen.getByTestId('composer-picker-manage')).toHaveTextContent('Manage Remote')
+    // #836: unified cross-provider footer on every seat kind.
+    expect(screen.getByTestId('composer-picker-manage')).toHaveTextContent('Manage providers')
     expect(screen.getByTestId('navbar-routing-picker').textContent).not.toMatch(/\bOMB\b/)
   })
 
@@ -4678,6 +4679,7 @@ describe('ChatPage API model palette (#281)', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('composer-picker')).not.toBeInTheDocument()
     })
-    expect(opened).toEqual([{ section: 'llm-profiles' }])
+    // #836: the manage footer lands on the unified Providers hub.
+    expect(opened).toEqual([{ section: 'providers' }])
   })
 })

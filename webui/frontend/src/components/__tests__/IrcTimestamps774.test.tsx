@@ -59,14 +59,18 @@ describe('#774 IRC — timestamp on every line', () => {
   })
 })
 
-describe('#774 IRC — divider on every row', () => {
-  it('system-preload rows still render the gutter divider', () => {
+describe('#774 IRC — divider ownership (superseded by #721)', () => {
+  // #721 moved the divider to ONE transcript-level rail
+  // (`irc-gutter-rail`, covered by IrcGutterRowDivider675). Rows render
+  // without a per-row divider; system-preload keeps its pill path.
+  it('system-preload rows render without a per-row divider', () => {
     renderRow({ role: 'system', isSystemPreload: true })
-    expect(screen.getByTestId('irc-gutter-divider')).toBeTruthy()
+    expect(screen.getByTestId('chat-system-preload')).toBeTruthy()
+    expect(screen.queryByTestId('irc-gutter-divider')).toBeNull()
   })
 
-  it('regular rows render the gutter divider', () => {
+  it('regular rows render without a per-row divider', () => {
     renderRow()
-    expect(screen.getByTestId('irc-gutter-divider')).toBeTruthy()
+    expect(screen.queryByTestId('irc-gutter-divider')).toBeNull()
   })
 })

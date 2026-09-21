@@ -13,6 +13,7 @@ import CliAgentsSettingsPane from './CliAgentsSettingsPane'
 import ProviderRateLimitFields from './ProviderRateLimitFields'
 import ImageGenPane from './ImageGenSettings'
 import SpeechPane from './SpeechSettings'
+import ProvidersPane from './ProvidersPane'
 import RolesSettingsPane from './RolesSettingsPane'
 import SandboxesSettingsPane from './SandboxesSettingsPane'
 import {
@@ -149,6 +150,7 @@ export const OPEN_SETTINGS_EVENT = 'swarm:open-settings'
 export type SettingsSection =
   | 'general'
   | 'aesthetics'
+  | 'providers'
   | 'definition'
   | 'blueprint'
   | 'remotes'
@@ -224,6 +226,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
     'bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance',
     'Bubble theme', 'Action-row button labels',
   ],
+  providers: ['providers', 'provider', 'overview', 'backend', 'api profiles', 'cli runtimes'],
   definition: ['definition', 'explain', 'instructions', 'prompt'],
   blueprint: ['blueprints', 'recipes', 'python', 'custom'],
   remotes: [
@@ -557,7 +560,8 @@ export default function SettingsSheet({
               ) : null}
 
               {/* Category 2: Models & Runtimes */}
-              {(matchSearch('cli-agents', 'CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ||
+              {(matchSearch('providers', 'Providers', ['provider', 'providers', 'backend', 'overview']) ||
+                matchSearch('cli-agents', 'CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ||
                 matchSearch('llm-profiles', 'Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ||
                 matchSearch('remotes', 'Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ||
                 matchSearch('sandboxes', 'Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal'])) ? (
@@ -565,6 +569,18 @@ export default function SettingsSheet({
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
                     Models & Runtimes
                   </li>
+                  {matchSearch('providers', 'Providers', ['provider', 'providers', 'backend', 'overview']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'providers' ? 'menu-active' : undefined}
+                        aria-current={section === 'providers' ? 'page' : undefined}
+                        onClick={() => setSection('providers')}
+                      >
+                        Providers
+                      </button>
+                    </li>
+                  ) : null}
                   {matchSearch('cli-agents', 'CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ? (
                     <li>
                       <button
@@ -802,7 +818,9 @@ export default function SettingsSheet({
               demoRows={demoRows}
             />
           )}
+          {section === 'providers' && <ProvidersPane />}
           {section === 'aesthetics' && <AestheticsPane />}
+          {section === 'providers' && <ProvidersPane />}
           {section === 'definition' && (
             <DefinitionPane
               kind={resolvedKind}
