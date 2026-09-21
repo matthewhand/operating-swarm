@@ -8,6 +8,9 @@ import {
   canAddRoleSlot,
   childTeamIds,
   COMPOSABLE_TEAM_ROLES,
+  deriveRoleMatrix,
+  deriveToolMatrix,
+  toggleToolMatrixCell,
   cosBriefForMember,
   DEFAULT_COS_STARTER,
   deriveWiresFromTools,
@@ -321,5 +324,64 @@ describe('teamRoster Tools pane (issue #107)', () => {
     const pruned = pruneToolSlots(slots, [jeeves])
     expect(pruned[0].tool).toEqual({ type: 'handoff', to: '', from: 'jeeves' })
     expect(pruned[1].tool).toEqual({ type: 'mcp', server: 'github', agents: [] })
+  })
+})
+
+// #840 — tabulated mapping matrices with single-axis exclusivity.
+describe('#840 matrix derivation', () => {
+  const jeeves = { id: 'jeeves', kind: 'api' as const, role: 'default' as const, source: 'blueprint:jeeves' }
+  const grok = { id: 'grok', kind: 'cli' as const, role: 'default' as const, source: 'cli:grok' }
+  const ada = { id: 'ada', kind: 'api' as const, role: 'default' as const, source: 'blueprint:ada' }
+
+  it('deriveRoleMatrix covers every composable role and flags assignments', () => {
+    const slots = [{ id: 's1', role: 'skeptic' as const, memberKey: memberKey(grok) }]
+    const matrix = deriveRoleMatrix([jeeves, grok, ada], slots)
+    expect(matrix.rows.map((r) => r.role)).toEqual(COMPOSABLE_TEAM_ROLES)
+    const skeptic = matrix.rows.find((r) => r.role === 'skeptic')
+    expect(skeptic?.assignedKey).toBe(memberKey(grok))
+    expect(matrix.rows.find((r) => r.role === 'gate')?.assignedKey).toBeNull()
+  })
+
+  it('single-axis: role holders vanish from the role-matrix columns', () => {
+    const slots = [{ id: 's1', role: 'skeptic' as const, memberKey: memberKey(grok) }]
+    const matrix = deriveRoleMatrix([jeeves, grok, ada], slots)
+    expect(matrix.columns.map(memberKey)).toEqual([memberKey(jeeves), memberKey(ada)])
+    // An unassigned role slot removes nobody.
+    const open = deriveRoleMatrix([jeeves, grok], [{ id: 's2', role: 'gate' as const, memberKey: null }])
+    expect(open.columns).toHaveLength(2)
+  })
+
+  it('single-axis: as_tool specialists vanish from tool-matrix columns', () => {
+    const slots = [
+      { id: 't1', tool: { type: 'as_tool' as const, agent: 'grok' } },
+      { id: 't2', tool: { type: 'mcp' as const, server: 'github', agents: ['jeeves'] } },
+    ]
+    const matrix = deriveToolMatrix([jeeves, grok, ada], slots)
+    expect(matrix.columns.map((m) => m.id)).toEqual(['jeeves', 'ada'])
+    const mcp = matrix.rows.find((r) => r.key === 'mcp:github')
+    expect(mcp?.allSelected).toBe(false)
+  })
+
+  it('empty mcp agents means all-selected (everyone contract)', () => {
+    const slots = [{ id: 't1', tool: { type: 'mcp' as const, server: 'fetch', agents: [] } }]
+    const matrix = deriveToolMatrix([jeeves, grok], slots)
+    expect(matrix.rows[0].allSelected).toBe(true)
+  })
+
+  it('toggleToolMatrixCell materialises and collapses the everyone set', () => {
+    const tool = { type: 'mcp' as const, server: 'fetch', agents: [] }
+    const cols = ['jeeves', 'grok']
+    // Unchecking one member materialises the explicit set minus that member.
+    const after = toggleToolMatrixCell(tool, 'grok', cols)
+    expect(after.agents).toEqual(['jeeves'])
+    // Re-checking the last explicit member collapses back to [] (everyone).
+    const restored = toggleToolMatrixCell(after, 'grok', cols)
+    expect(restored.agents).toEqual([])
+    // Re-checking the last unchecked member restores full coverage → collapses to [] (everyone).
+    const grown = toggleToolMatrixCell(after, 'grok', cols)
+    expect(grown.agents).toEqual([])
+    // Appending within a partial set does not collapse.
+    const partial = toggleToolMatrixCell({ type: 'mcp', server: 'fetch', agents: ['jeeves', 'ada'] }, 'grok', cols)
+    expect(partial.agents.sort()).toEqual(['ada', 'grok', 'jeeves'])
   })
 })

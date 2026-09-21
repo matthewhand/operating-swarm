@@ -697,3 +697,120 @@ export function runtimeBriefForTarget(
   }
   return null
 }
+
+// #840 — tabulated mapping matrices: Roles × Members and Tools × Members.
+//
+// Single-axis exclusivity: an agent holding a role slot sits on the role
+// axis and is filtered out of role-matrix candidate columns; an agent
+// exposed via as_tool sits on the tool axis and is filtered out of
+// tool-matrix member columns. Nobody evaluates or delegates to themselves.
+
+export interface RoleMatrixRow {
+  role: ComposableTeamRole
+  slot: RoleSlot | null
+  /** memberKey currently assigned to this role, or null. */
+  assignedKey: string | null
+  /** Roles already fully covered — column candidates that hold any role. */
+}
+
+export interface RoleMatrix {
+  rows: RoleMatrixRow[]
+  /** Operative members: hold no role slot → safe to assign on this axis. */
+  columns: TeamRosterMember[]
+}
+
+export function deriveRoleMatrix(
+  members: TeamRosterMember[],
+  roleSlots: RoleSlot[],
+): RoleMatrix {
+  const assigned = new Set(
+    roleSlots.map((s) => s.memberKey).filter((k): k is string => Boolean(k)),
+  )
+  const columns = members.filter((m) => !assigned.has(memberKey(m)))
+  const rows: RoleMatrixRow[] = COMPOSABLE_TEAM_ROLES.map((role) => {
+    const slot = roleSlots.find((s) => s.role === role) ?? null
+    return { role, slot, assignedKey: slot?.memberKey ?? null }
+  })
+  return { rows, columns }
+}
+
+export interface ToolMatrixRow {
+  key: string
+  label: string
+  tool: ToolSlot['tool']
+  slotId: string
+  /** True when every column member currently has access. */
+  allSelected: boolean
+  /** Member ids with explicit access (mcp only; as_tool/handoff differ). */
+  agents: string[]
+  toolType: 'mcp' | 'as_tool' | 'handoff'
+}
+
+export interface ToolMatrix {
+  rows: ToolMatrixRow[]
+  /** Operative members: not exposed as as_tool specialists on this axis. */
+  columns: TeamRosterMember[]
+}
+
+export function toolLabel(tool: TeamToolDraft): string {
+  if (tool.type === 'mcp') return `mcp:${tool.server}`
+  return tool.type
+}
+
+export function deriveToolMatrix(
+  members: TeamRosterMember[],
+  toolSlots: ToolSlot[],
+): ToolMatrix {
+  const exposed = new Set(
+    toolSlots.flatMap((s) => (s.tool.type === 'as_tool' ? [s.tool.agent] : [])),
+  )
+  const columns = members.filter((m) => !exposed.has(m.id))
+  const rows: ToolMatrixRow[] = toolSlots.map((slot) => {
+    const tool = slot.tool
+    if (tool.type === 'mcp') {
+      const empty = tool.agents.length === 0
+      return {
+        key: `mcp:${tool.server}`,
+        label: `mcp:${tool.server}`,
+        tool,
+        slotId: slot.id,
+        agents: tool.agents,
+        toolType: 'mcp',
+        // Empty agents = available to all roster agents (existing contract).
+        allSelected: empty || columns.every((m) => tool.agents.includes(m.id)),
+      }
+    }
+    return {
+      key: tool.type === 'as_tool' ? `as_tool:${tool.agent}` : 'handoff',
+      label: toolLabel(tool),
+      tool,
+      slotId: slot.id,
+      agents: [],
+      toolType: tool.type,
+      allSelected: false,
+    }
+  })
+  return { rows, columns }
+}
+
+/** Toggle one mcp matrix cell; [] means everyone, so full re-check collapses. */
+export function toggleToolMatrixCell(
+  tool: Extract<TeamToolDraft, { type: 'mcp' }>,
+  memberId: string,
+  columnIds: string[],
+): Extract<TeamToolDraft, { type: 'mcp' }> {
+  const everyone = tool.agents.length === 0
+  const explicit = everyone ? [...columnIds] : [...tool.agents]
+  const idx = explicit.indexOf(memberId)
+  if (everyone) {
+    // Materialising: remove the just-unchecked member from the full set.
+    const next = explicit.filter((id) => id !== memberId)
+    return next.length === columnIds.length ? { ...tool, agents: [] } : { ...tool, agents: next }
+  }
+  if (idx >= 0) {
+    explicit.splice(idx, 1)
+    return explicit.length === 0 ? { ...tool, agents: [] } : { ...tool, agents: explicit }
+  }
+  explicit.push(memberId)
+  return explicit.length === columnIds.length ? { ...tool, agents: [] } : { ...tool, agents: explicit }
+}

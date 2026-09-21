@@ -905,3 +905,64 @@ describe('#839 — Team Lead naming, lead badge, per-member delegation toggle', 
     expect(within(remoteMember).queryByTestId('delegation-toggle')).toBeNull()
   })
 })
+
+// #840 — tabulated mapping matrices in the Roles/Tools panes.
+describe('#840 matrices', () => {
+  it('renders the Roles × Members matrix and a radio cell assigns the role', async () => {
+    renderComposer()
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
+    gotoTier('Roles')
+    const matrix = await screen.findByTestId('team-roles-matrix')
+    // 6 role rows (one per composable role) × 2 member radio cells each.
+    expect(within(matrix).getAllByRole('radio')).toHaveLength(6 * 2)
+
+    // Add the skeptic role slot, then assign via the matrix radio cell —
+    // target the CLI member column by visible name (ids are positional).
+    fireEvent.click(screen.getByRole('button', { name: /add skeptic role/i }))
+    await screen.findByTestId('team-role-slot')
+    const skepticRow = within(matrix).getByRole('row', { name: /skeptic/ })
+    const radios = within(skepticRow).getAllByRole('radio')
+    expect(radios).toHaveLength(2)
+    fireEvent.click(radios[1])
+    const slot = screen.getAllByTestId('team-role-slot')[0]
+    // Slot value is the memberKey — 'cli:cli:grok' for the CLI member.
+    expect(within(slot).getByTestId('team-role-assign-skeptic')).toHaveValue('cli:cli:grok')
+  })
+
+  it('role holders are excluded from matrix columns (single-axis exclusivity)', async () => {
+    renderComposer()
+    await addAvailableAgent('API')   // roster member 0 (lead candidate)
+    await addAvailableAgent('CLI')   // roster member 1
+    gotoTier('Roles')
+    await screen.findByTestId('team-roles-matrix')
+    fireEvent.click(screen.getByRole('button', { name: /add gate role/i }))
+    const gateRow = await screen.findByRole('row', { name: /gate/ })
+    const gateRadios = within(gateRow).getAllByRole('radio')
+    expect(gateRadios).toHaveLength(2)
+    fireEvent.click(gateRadios[0])
+
+    // Member 0 now holds 'gate' → the skeptic row offers only 1 radio cell.
+    fireEvent.click(screen.getByRole('button', { name: /add skeptic role/i }))
+    const skepticRow = await screen.findByRole('row', { name: /skeptic/ })
+    expect(within(skepticRow).getAllByRole('radio')).toHaveLength(1)
+  })
+
+  it('renders the Tools × Members matrix; unchecking a cell materialises the explicit set in the slot', async () => {
+    renderComposer()
+    await addAvailableAgent('API')
+    await addAvailableAgent('CLI')
+    gotoTier('Tools')
+    // The available-tools list falls back to the catalog templates (DuckDuckGo).
+    fireEvent.click(screen.getByRole('button', { name: /Add DuckDuckGo MCP tool/i }))
+    const matrix = await screen.findByTestId('team-tools-matrix')
+    expect(within(matrix).getByTestId('team-tool-cell-all-mcp:duckduckgo')).toBeChecked()
+
+    // Unchecking member 1 materialises the explicit agents list in the slot card.
+    fireEvent.click(within(matrix).getByTestId('team-tool-cell-mcp:duckduckgo-grok'))
+    const slot = screen.getAllByTestId('team-tool-slot')[0]
+    const locks = within(slot).getAllByRole('checkbox', { name: /Lock duckduckgo to/i })
+    const checkedIds = locks.filter((box) => (box as HTMLInputElement).checked).length
+    expect(checkedIds).toBe(1) // only member 0 remains explicit
+  })
+})

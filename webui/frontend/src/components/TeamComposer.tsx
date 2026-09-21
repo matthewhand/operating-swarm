@@ -77,6 +77,9 @@ import {
   type TeamRosterMember,
   type TeamToolDraft,
   type ToolSlot,
+  deriveRoleMatrix,
+  deriveToolMatrix,
+  toggleToolMatrixCell,
 } from '../lib/teamRoster'
 
 export const OPEN_TEAM_COMPOSER_EVENT = 'swarm:open-team-composer'
@@ -373,6 +376,11 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     },
     [applyChiefOfStaff, chiefOfStaffId, members],
   )
+
+  // #840: matrix views derive from the same slots the card lists edit —
+  // toggling a matrix cell mutates roleSlots/toolSlots directly.
+  const roleMatrix = useMemo(() => deriveRoleMatrix(members, roleSlots), [members, roleSlots])
+  const toolMatrix = useMemo(() => deriveToolMatrix(members, toolSlots), [members, toolSlots])
 
   const clearForeignDrag = (event: React.DragEvent<HTMLElement>) => {
     try {
@@ -1089,6 +1097,52 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           data-testid="team-roles-pane"
           aria-disabled={!rolesUnlocked}
         >
+          {/* #840: Roles × Members matrix — one row per role, one column per
+              operative (role-free) member. Radio cells keep single-assignment
+              honest and the columns already exclude role holders. */}
+          {rolesUnlocked && members.length > 0 && (
+            <section className="lg:col-span-2 overflow-x-auto" aria-label="Roles assignment matrix" data-testid="team-roles-matrix">
+              <table className="table table-xs">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 bg-base-100">Role \ Member</th>
+                    {roleMatrix.columns.map((member) => (
+                      <th key={memberKey(member)} className="whitespace-nowrap">{agentDisplayName(member)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {roleMatrix.rows.map((row) => (
+                    <tr key={row.role}>
+                      <th className="sticky left-0 bg-base-100 whitespace-nowrap">{row.role}</th>
+                      {roleMatrix.columns.map((member) => {
+                        const checked = row.assignedKey === memberKey(member)
+                        return (
+                          <td key={memberKey(member)} className="text-center">
+                            <input
+                              type="radio"
+                              name={`role-matrix-${row.role}`}
+                              className="radio radio-xs"
+                              checked={checked}
+                              disabled={!row.slot}
+                              aria-label={`Assign ${row.role} to ${agentDisplayName(member)}`}
+                              data-testid={`team-role-cell-${row.role}-${member.id}`}
+                              onChange={() => {
+                                if (row.slot) onAssignSlot(row.slot, memberKey(member))
+                              }}
+                            />
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-1 text-[11px] text-base-content/50">
+                Radio per row = one member per role. Members holding a role are excluded from columns.
+              </p>
+            </section>
+          )}
           <section
             aria-label="Team roles drop zone"
             data-testid="team-roles-drop-zone"
@@ -1210,6 +1264,79 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           data-testid="team-tools-pane"
           aria-disabled={!toolsUnlocked}
         >
+          {/* #840: Tools × Members matrix — one row per tool slot, one column
+              per member not exposed as a tool. mcp cells are checkboxes (empty
+              agents = everyone); [All Members] toggles the whole row. */}
+          {toolsUnlocked && toolMatrix.rows.length > 0 && (
+            <section className="lg:col-span-2 overflow-x-auto" aria-label="Tools capability matrix" data-testid="team-tools-matrix">
+              <table className="table table-xs">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 bg-base-100">Tool \ Member</th>
+                    <th className="text-center whitespace-nowrap">All Members</th>
+                    {toolMatrix.columns.map((member) => (
+                      <th key={memberKey(member)} className="text-center whitespace-nowrap">{agentDisplayName(member)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {toolMatrix.rows.map((row) => {
+                    const columnIds = toolMatrix.columns.map((m) => m.id)
+                    if (row.toolType !== 'mcp') {
+                      return (
+                        <tr key={row.key}>
+                          <th className="sticky left-0 bg-base-100 whitespace-nowrap">{row.label}</th>
+                          <td className="text-center text-base-content/40" colSpan={toolMatrix.columns.length + 1}>—</td>
+                        </tr>
+                      )
+                    }
+                    const mcpTool = row.tool as Extract<TeamToolDraft, { type: 'mcp' }>
+                    return (
+                      <tr key={row.key}>
+                        <th className="sticky left-0 bg-base-100 whitespace-nowrap">{row.label}</th>
+                        <td className="text-center">
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-xs"
+                            checked={row.allSelected}
+                            aria-label={`${row.label} available to all members`}
+                            data-testid={`team-tool-cell-all-${row.key}`}
+                            onChange={() => {
+                              // [All Members] = back to the empty (everyone) set.
+                              setToolSlots((prev) =>
+                                updateToolSlot(prev, row.slotId, { ...mcpTool, agents: [] }),
+                              )
+                            }}
+                          />
+                        </td>
+                        {toolMatrix.columns.map((member) => (
+                          <td key={memberKey(member)} className="text-center">
+                            <input
+                              type="checkbox"
+                              className="checkbox checkbox-xs"
+                              checked={row.allSelected || row.agents.includes(member.id)}
+                              aria-label={`${row.label} available to ${agentDisplayName(member)}`}
+                              data-testid={`team-tool-cell-${row.key}-${member.id}`}
+                              onChange={() => {
+                                setToolSlots((prev) =>
+                                  updateToolSlot(prev, row.slotId,
+                                    toggleToolMatrixCell(mcpTool, member.id, columnIds),
+                                  ),
+                                )
+                              }}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <p className="mt-1 text-[11px] text-base-content/50">
+                Empty set = available to everyone. Agents exposed as tools are excluded from columns.
+              </p>
+            </section>
+          )}
           <section
             aria-label="Team tools drop zone"
             data-testid="team-tools-drop-zone"
