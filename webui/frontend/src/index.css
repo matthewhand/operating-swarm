@@ -1156,10 +1156,15 @@ html:not([data-theme="light"]) .os-composer-wrap,
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  /* #829: fixed squares — the role badge keeps a constant offset to the
-     avatar instead of drifting left as the tile stretches with the rail. */
+  /* #829/#902: fixed squares. The tile must NOT derive its height from the
+     fluid `1fr` column width (aspect-ratio + stretch coupling made pinned
+     tiles balloon/shrink as the rail resized). Fixed 4.5rem, centred in the
+     column; `flex: 0 0 auto` keeps the row's height width-independent. */
+  width: 4.5rem;
+  height: 4.5rem;
   aspect-ratio: 1 / 1;
-  height: auto;
+  justify-self: center;
+  flex: 0 0 auto;
   padding: 0.45rem 0.3rem 0.4rem;
   border-radius: 0.65rem;
   background: transparent;

@@ -116,3 +116,22 @@ describe('#829 pinned tiles are squares', () => {
     expect(ruleBlock(text, '.os-fav-grid {')).toMatch(/justify-content:\s*space-evenly/)
   })
 })
+
+describe('#902 pinned tile geometry is width-independent', () => {
+  it('tiles are fixed squares, not fluid 1fr stretch + aspect-ratio coupling', () => {
+    const tile = ruleBlock(css(), '.os-fav-tile {')
+    // fixed square size — the vertical dimension must not derive from the
+    // fluid column width
+    expect(tile).toMatch(/width:\s*4\.5rem/)
+    expect(tile).toMatch(/height:\s*4\.5rem/)
+    expect(tile).not.toMatch(/height:\s*auto/)
+    expect(tile).toMatch(/justify-self:\s*center/)
+    expect(tile).toMatch(/flex:\s*0 0 auto/)
+  })
+
+  it('grid columns may stay fluid but tiles no longer stretch to fill them', () => {
+    expect(ruleBlock(css(), '.os-fav-grid {')).toMatch(/justify-content:\s*space-evenly/)
+    // a fixed tile width makes the container-query column churn cosmetic only
+    expect(css()).toMatch(/@container \(max-width: 200px\)/)
+  })
+})
