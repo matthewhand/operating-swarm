@@ -4534,25 +4534,33 @@ def _letta_agents_payload(body: Any) -> list[Any]:
     return []
 
 
-def _letta_text_from_content(content: Any) -> str:
+def _letta_text_from_content(content: Any, *, strip: bool = False) -> str:
     if isinstance(content, str):
-        return content.strip()
+        return content.strip() if strip else content
     if isinstance(content, list):
         parts: list[str] = []
         for item in content:
-            if isinstance(item, str) and item.strip():
-                parts.append(item.strip())
-            elif isinstance(item, dict):
-                text = str(item.get("text") or item.get("content") or "").strip()
-                if text:
+            if isinstance(item, str):
+                text = item.strip() if strip else item
+                if text is not None:
                     parts.append(text)
-        return "\n".join(parts).strip()
+            elif isinstance(item, dict):
+                raw = item.get("text") or item.get("content")
+                if raw is None:
+                    continue
+                text = str(raw).strip() if strip else str(raw)
+                if text is not None:
+                    parts.append(text)
+        return "\n".join(parts).strip() if strip else "\n".join(parts)
     if isinstance(content, dict):
-        return str(content.get("text") or content.get("content") or "").strip()
+        raw = content.get("text") or content.get("content")
+        if raw is None:
+            return ""
+        return str(raw).strip() if strip else str(raw)
     return ""
 
 
-def _letta_assistant_text(payload: Any) -> str:
+def _letta_assistant_text(payload: Any, *, strip: bool = False) -> str:
     """Pull visible assistant text out of a Letta messages response."""
     messages: list[Any]
     if isinstance(payload, dict):
@@ -4574,8 +4582,8 @@ def _letta_assistant_text(payload: Any) -> str:
         if kind in ("user_message", "user", "system_message", "system"):
             continue
         if kind in ("assistant_message", "assistant", "") or "assistant" in kind:
-            text = _letta_text_from_content(item.get("content") or item.get("text"))
-            if text:
+            text = _letta_text_from_content(item.get("content") or item.get("text"), strip=strip)
+            if text is not None:
                 parts.append(text)
                 continue
         if kind == "reasoning_message":
@@ -4583,7 +4591,7 @@ def _letta_assistant_text(payload: Any) -> str:
             if reasoning:
                 reasoning_parts.append(reasoning)
     if parts:
-        return "\n".join(parts).strip()
+        return "\n".join(parts).strip() if strip else "\n".join(parts)
     return "\n".join(reasoning_parts).strip()
 
 
@@ -4755,9 +4763,9 @@ def _letta_delta(payload: dict[str, Any], assembled: str) -> str:
     kind = str(payload.get("message_type") or payload.get("role") or "").strip().lower()
     if kind in ("reasoning_message", "tool_call_message", "tool_return_message", "ping"):
         return ""
-    text = _letta_assistant_text(payload)
-    if not text:
-        text = _letta_text_from_content(payload.get("content") or payload.get("text"))
+    text = _letta_assistant_text(payload, strip=False)
+    if text is None:
+        text = _letta_text_from_content(payload.get("content") or payload.get("text"), strip=False)
     if not text:
         return ""
     if assembled and text.startswith(assembled):
@@ -4836,7 +4844,7 @@ def iter_letta_chat(
         body=body,
         timeout=chat_timeout,
     )
-    text_response = _letta_assistant_text(result.body)
+    text_response = _letta_assistant_text(result.body, strip=True)
     gateway_error = ""
     if isinstance(result.body, dict):
         gateway_error = str(result.body.get("error") or result.body.get("detail") or "").strip()

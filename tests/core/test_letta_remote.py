@@ -293,7 +293,7 @@ def test_stream_chat_yields_deltas(http_router):
     host, port, router = http_router
     sse = (
         'data: {"message_type": "assistant_message", "content": "Hel"}\n\n'
-        'data: {"message_type": "assistant_message", "content": "Hello"}\n\n'
+        'data: {"message_type": "assistant_message", "content": "lo"}\n\n'
     )
     router.routes[("POST", f"/v1/agents/{AGENT_MEMORY}/messages/stream")] = (200, sse)
     result = remotes_core.operate(
@@ -306,6 +306,26 @@ def test_stream_chat_yields_deltas(http_router):
     )
     assert result.ok is True
     assert result.data["response"] == "Hello"
+
+
+def test_stream_preserves_whitespace_and_token_boundaries():
+    # #881: streaming deltas carry leading spaces to mark word boundaries and
+    # pure-space tokens must not be dropped. The assembled reply must read
+    # exactly like the source text.
+    from swarm.core.remotes import _letta_delta
+
+    assembled = ""
+    chunks = ["I", " am", " ", "a", " Letta", " agent."]
+    output: list[str] = []
+    for chunk in chunks:
+        delta = _letta_delta(
+            {"message_type": "assistant_message", "content": chunk}, assembled
+        )
+        if delta:
+            assembled += delta
+            output.append(delta)
+    assert "".join(output) == "I am a Letta agent."
+    assert assembled == "I am a Letta agent."
 
 
 def test_stream_does_not_repost_after_empty_success(http_router):
