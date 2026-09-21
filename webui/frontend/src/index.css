@@ -151,6 +151,13 @@ html:not([data-theme="light"]) .os-composer,
   background: var(--os-grok-composer, #262626);
 }
 
+/* #751: mirror the dark composer fill on the wrapping footer so the area
+   below the input pill stays opaque and consistent in dark themes. */
+html:not([data-theme="light"]) .os-composer-wrap,
+[data-theme="dark"] .os-composer-wrap {
+  background: var(--os-grok-composer, #262626);
+}
+
 /* #220: theme-gated streaming affordance (caret / block). */
 @keyframes os-stream-affordance-blink {
   50% {
@@ -2492,6 +2499,9 @@ button.os-agent-row {
 
 .os-composer-wrap {
   padding: 0.75rem 1rem 0.25rem;
+  /* #751: solid full-bleed fill from the composer down to the page base so
+     transcript content cannot bleed through the gaps below the input pill. */
+  background: var(--color-base-100);
 }
 /* #632: the primary action (send/stop) sits OUTSIDE the input box. The row
    owns the horizontal layout; .os-composer stays the rounded input pill. */
