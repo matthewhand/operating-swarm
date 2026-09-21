@@ -201,6 +201,67 @@ def default_chat(
     return sanitize_model_text(content)
 
 
+def _resolve_assist_route() -> tuple[str, str]:
+    """#858/#731: (profile_id, model_id) for tiny-class assist calls.
+
+    Resolution order: the ``tiny`` task override, then ``auxiliary``, then the
+    API default — a configured-but-missing 'tiny' slug must never 404 when the
+    auxiliary override or plain default can serve the call.
+    """
+    from swarm.core.llm_task_routing import (
+        TASK_CLASS_AUXILIARY,
+        get_profile_dict,
+        load_swarm_config,
+        model_id_for_profile,
+        resolve_tiny_model,
+        stored_task_map,
+    )
+
+    # Env overrides self-load config inside the resolver; check them first so
+    # a host without a readable swarm config still honours SWARM_TINY_MODEL.
+    try:
+        route = resolve_tiny_model(None)
+    except Exception:
+        route = None
+    if route is not None and route.source == "env":
+        # Env overrides (SWARM_TINY_MODEL etc.) name a model id directly,
+        # not a catalog profile — trust it as-is.
+        return route.profile, route.profile
+
+    config: dict[str, Any] | None = None
+    try:
+        config = load_swarm_config()
+    except Exception:
+        config = None
+
+    def _known(profile_id: str) -> bool:
+        return bool(get_profile_dict(profile_id, config))
+
+    if config:
+        route = resolve_tiny_model(config)
+        if route.source != "env" and route.override_on and _known(route.profile):
+            model = model_id_for_profile(route.profile, config)
+            if model:
+                return route.profile, model
+
+        stored = stored_task_map(config)
+        aux_profile = stored.get(TASK_CLASS_AUXILIARY) or ""
+        if aux_profile and _known(aux_profile):
+            model = model_id_for_profile(aux_profile, config)
+            if model:
+                return aux_profile, model
+
+        default_profile = str(
+            (config.get("settings") or {}).get("default_llm_profile") or ""
+        ).strip()
+        if default_profile and _known(default_profile):
+            model = model_id_for_profile(default_profile, config)
+            if model:
+                return default_profile, model
+
+    return "tiny", "tiny"
+
+
 def tiny_chat(
     messages: list[dict[str, str]],
     *,
@@ -208,26 +269,22 @@ def tiny_chat(
     temperature: float = 0.3,
     timeout: float = 30.0,
 ) -> str:
-    """#858: Sync chat.completions using the resolved 'tiny' task model override."""
+    """#858: Sync chat.completions using the tiny→auxiliary→default chain."""
     from openai import OpenAI
 
-    from swarm.core.llm_task_routing import (
-        get_profile_dict,
-        load_swarm_config,
-        model_id_for_profile,
-        resolve_tiny_model,
-    )
+    from swarm.core.llm_task_routing import get_profile_dict
     from swarm.utils.env_utils import get_llm_base_url
 
-    config = None
+    profile_id, model = _resolve_assist_route()
+
+    config: dict[str, Any] | None = None
     try:
+        from swarm.core.llm_task_routing import load_swarm_config
+
         config = load_swarm_config()
     except Exception:
-        pass
-
-    route = resolve_tiny_model(config)
-    profile = get_profile_dict(route.profile, config) if config else None
-    model = model_id_for_profile(route.profile, config) if config else route.profile
+        config = None
+    profile = get_profile_dict(profile_id, config) if config else None
 
     base_url = ""
     api_key = ""

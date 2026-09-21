@@ -324,7 +324,7 @@ against a local OpenAI-compatible `/v1/models` listing — is:
 | --- | --- |
 | `orchestration` | planning / coordination |
 | `delegation` | mid-tier worker / handoff work |
-| `auxiliary` | fast / cheap polish, tests, simple steps |
+| `auxiliary` | fast / cheap polish, tests, simple steps, code summary, session labelling |
 
 Point named LLM **profiles** at that host with env vars (no secrets in JSON).
 `provider: "openai"` means “OpenAI-compatible client”, not the OpenAI cloud.

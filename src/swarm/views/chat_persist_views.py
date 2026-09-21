@@ -142,6 +142,9 @@ def _sync_django_and_memory(
             touch_session(chat, messages, agent_id=agent_id)
         except Exception:
             logger.exception("Failed to touch Django session %s", cid)
+        # #731: background semantic retitle when the title is still raw.
+        from swarm.core.agent_sessions import schedule_session_retitle
+        schedule_session_retitle(chat, messages=messages)
 
 
 @login_required

@@ -97,3 +97,92 @@ def test_compact_does_not_leak_across_sessions(db, tmp_path, monkeypatch):
     assert ConversationSummary.objects.filter(conversation_id=first.conversation_id).exists()
     assert not ConversationSummary.objects.filter(conversation_id=second.conversation_id).exists()
     assert DEFAULT_TITLE or first.title
+
+
+# ---- #731: session retitling via tiny/auxiliary override chain ----
+
+def test_schedule_session_retitle_skips_non_default_titles(db, monkeypatch):
+    """Sessions already carrying a curated title are never retitled."""
+    from swarm.core import agent_sessions
+    from swarm.models import ChatConversation
+
+    chat = ChatConversation.objects.create(
+        student=_user(db, "retitle-owner-a"),
+        conversation_id="agt-jeeves-731a",
+        title="Quarterly planning",
+        agent_id="jeeves",
+    )
+    scheduled = []
+    monkeypatch.setattr(agent_sessions, "_schedule_background_task", lambda fn: scheduled.append(fn))
+
+    agent_sessions.schedule_session_retitle(chat)
+    assert scheduled == []  # curated title → no work scheduled
+
+
+def test_schedule_session_retitle_schedules_for_default_titles(db, monkeypatch):
+    from swarm.core import agent_sessions
+    from swarm.models import ChatConversation
+
+    owner = _user(db, "retitle-owner-b")
+    for title in ("", "Session 1", "New session"):
+        chat = ChatConversation.objects.create(
+            student=owner,
+            conversation_id=f"agt-jeeves-731-{abs(hash(title)) % 99999}",
+            title=title,
+            agent_id="jeeves",
+        )
+        scheduled = []
+        monkeypatch.setattr(agent_sessions, "_schedule_background_task", lambda fn: scheduled.append(fn))
+        agent_sessions.schedule_session_retitle(chat)
+        assert len(scheduled) == 1, f"title={title!r} should schedule a retitle"
+
+
+def test_perform_session_retitle_uses_tiny_chain_and_persists(db, monkeypatch):
+    """The retitle pass generates via the tiny chain and writes a clipped title."""
+    from swarm.core import agent_sessions
+    from swarm.models import ChatConversation
+
+    chat = ChatConversation.objects.create(
+        student=_user(db, "retitle-owner-c"),
+        conversation_id="agt-jeeves-731c",
+        title="",
+        agent_id="jeeves",
+    )
+
+    captured = {}
+    def fake_generate_session_title(messages):
+        captured["messages"] = messages
+        return "Philosophers Chat Plan"
+
+    monkeypatch.setattr(
+        "swarm.core.llm_assist.generate_session_title", fake_generate_session_title
+    )
+
+    agent_sessions.perform_session_retitle(
+        chat.conversation_id,
+        messages=[{"role": "user", "content": "lets plan the philosophers chat"}],
+    )
+
+    chat.refresh_from_db()
+    assert chat.title == "Philosophers Chat Plan"
+    assert captured["messages"][0]["role"] == "user"
+
+
+def test_schedule_session_retitle_treats_raw_truncation_as_uncurated(db, monkeypatch):
+    """touch_session stamps the first-line truncation — that is still raw."""
+    from swarm.core import agent_sessions
+    from swarm.models import ChatConversation
+
+    messages = [{"role": "user", "content": "hey help me debug the flask app startup"}]
+    raw_title, _ = agent_sessions.title_and_snippet(messages)
+
+    chat = ChatConversation.objects.create(
+        student=_user(db, "retitle-owner-d"),
+        conversation_id="agt-jeeves-731d",
+        title=raw_title,  # what touch_session just stamped
+        agent_id="jeeves",
+    )
+    scheduled = []
+    monkeypatch.setattr(agent_sessions, "_schedule_background_task", lambda fn: scheduled.append(fn))
+    agent_sessions.schedule_session_retitle(chat, messages=messages)
+    assert len(scheduled) == 1, "raw truncation title must still be retitled"

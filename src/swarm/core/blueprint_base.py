@@ -48,6 +48,19 @@ from openai import AsyncOpenAI
 if os.environ.get("SWARM_ENABLE_AGENT_TRACING", "").lower() not in ("1", "true", "yes"):
     set_tracing_disabled(True)
 
+# #737: the SDK defaults bare Agent(...) runs to the /responses API — an
+# endpoint LiteLLM, Ollama, and most OpenAI-compatible gateways do not
+# implement (they serve /v1/chat/completions). Pin the default API to chat
+# completions framework-wide; explicit OpenAIResponsesModel users still opt
+# back in per-model. SWARM_ENABLE_RESPONSES_API=1 restores SDK default.
+try:
+    from agents import set_default_openai_api
+
+    if os.environ.get("SWARM_ENABLE_RESPONSES_API", "").lower() not in ("1", "true", "yes"):
+        set_default_openai_api("chat_completions")
+except Exception:  # pragma: no cover - older SDK without the setter
+    pass
+
 # Keep the function import
 from swarm.core.config_loader import (
     _substitute_env_vars,
@@ -56,6 +69,51 @@ from swarm.core.config_loader import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_framework_chat_model() -> str | None:
+    """#737: best-effort model id for bare openai-agents Agents.
+
+    Order: LITELLM_MODEL / DEFAULT_LLM env, then the settings chat route
+    (default profile, honouring override_per_task) via llm_task_routing.
+    Returns None when nothing is configured — the SDK keeps its own default.
+    """
+    env_model = os.getenv("LITELLM_MODEL") or os.getenv("DEFAULT_LLM")
+    if env_model:
+        return env_model.strip()
+    try:
+        from swarm.core.llm_task_routing import (
+            load_swarm_config,
+            model_id_for_profile,
+            resolve_chat_model,
+        )
+
+        config = load_swarm_config()
+        route = resolve_chat_model(config)
+        model = model_id_for_profile(route.profile, config)
+        return model or None
+    except Exception:
+        return None
+
+
+def apply_agent_model_defaults(agent) -> object:
+    """#737: give a bare ``Agent`` the framework's model when it lacks one.
+
+    Support-generated blueprints and persona_swarm construct ``Agent(...)``
+    without ``model=``; the SDK then silently falls back to its hardcoded
+    ``gpt-4o`` — rejected by non-OpenAI providers. Call this on the agent
+    before ``Runner.run`` to pin the resolved chat model (env override
+    first). Agents with an explicit model are untouched.
+    """
+    try:
+        if getattr(agent, "model", None):
+            return agent
+        model = _resolve_framework_chat_model()
+        if model:
+            agent.model = model
+    except Exception:
+        logger.debug("apply_agent_model_defaults skipped", exc_info=True)
+    return agent
 # --- PATCH: Suppress OpenAI tracing/telemetry errors if using LiteLLM/custom endpoint ---
 import logging
 

@@ -17,7 +17,7 @@ export type { LlmProfile, LlmProfilesSettings, LlmTaskClass }
 
 export const TASK_CLASS_LABELS: Record<LlmTaskClass, string> = {
   orchestration: 'User chat / orchestration',
-  auxiliary: 'Auxiliary (code summary)',
+  auxiliary: 'Auxiliary (code summary & session labelling)',
   delegation: 'Delegation (design / coding)',
   tiny: 'Tiny (titles / commit messages)',
   compaction: 'Compaction (long-context summary)',

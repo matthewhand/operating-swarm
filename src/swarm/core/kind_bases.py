@@ -148,8 +148,13 @@ class ApiKindBase(KindBase):
         if hasattr(self, "create_starting_agent") and callable(self.create_starting_agent):
             from agents import Runner
 
+            from swarm.core.blueprint_base import apply_agent_model_defaults
+
             mcp_servers = kwargs.get("mcp_servers", [])
             agent = self.create_starting_agent(mcp_servers)
+            # #737: support-generated blueprints build bare Agent(...)s — pin
+            # the framework model so non-OpenAI providers don't see gpt-4o.
+            apply_agent_model_defaults(agent)
             try:
                 from swarm.core.sandbox import attach_sandbox_tools_to_agent
 

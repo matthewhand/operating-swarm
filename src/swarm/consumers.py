@@ -2293,6 +2293,9 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
             touch_session(chat, turns, agent_id=str(agent_id or ""))
         except Exception:
             logger.exception("Failed to touch Django session %s", conversation_id)
+        # #731: background semantic retitle when the title is still raw.
+        from swarm.core.agent_sessions import schedule_session_retitle
+        schedule_session_retitle(chat, messages=turns)
 
         IN_MEMORY_CONVERSATIONS[cache_key] = list(turns)
         IN_MEMORY_UI_EVENTS[cache_key] = list(events)

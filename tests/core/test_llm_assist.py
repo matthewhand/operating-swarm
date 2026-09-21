@@ -165,3 +165,73 @@ def test_enhance_user_prompt(monkeypatch):
     )
     res = enhance_user_prompt("write a python script")
     assert "idiomatic Python 3 script" in res
+
+
+def test_tiny_chat_falls_back_to_auxiliary_then_default(monkeypatch):
+    """#731/#858: with no tiny profile in the catalog, the auxiliary override
+    (then the API default) serves the call instead of a nonexistent 'tiny'."""
+    from swarm.core import llm_assist
+
+    captured = {}
+
+    class _Resp:
+        class choices:  # noqa: N801 - minimal stub
+            pass
+
+    class _Msg:
+        content = "chain response"
+
+    class _Choice:
+        message = _Msg()
+
+    class _Resp2:
+        choices = [_Choice()]
+
+    class _Client:
+        def __init__(self, **kwargs):
+            pass
+
+        class chat:
+            class completions:  # noqa: N801
+                @staticmethod
+                def create(**kwargs):
+                    captured["model"] = kwargs.get("model")
+                    return _Resp2()
+
+    monkeypatch.setattr("openai.OpenAI", _Client)
+    monkeypatch.setattr(
+        llm_assist,
+        "_resolve_assist_route",
+        lambda: ("aux-profile", "aux-model-id"),
+    )
+
+    res = llm_assist.tiny_chat([{"role": "user", "content": "hi"}])
+    assert res == "chain response"
+    assert captured["model"] == "aux-model-id"
+
+
+def test_resolve_assist_route_prefers_tiny_then_auxiliary_then_default(monkeypatch):
+    from swarm.core import llm_assist
+
+    config = {
+        "llm": {
+            "default": {"model": "default-model"},
+            "aux-p": {"model": "aux-model"},
+        },
+        "settings": {
+            "default_llm_profile": "default",
+            "override_per_task": True,
+            "task_llm_profiles": {"auxiliary": "aux-p"},
+        },
+    }
+    monkeypatch.setattr("swarm.core.llm_task_routing.load_swarm_config", lambda: config)
+
+    # No tiny in the map → auxiliary override wins.
+    profile, model = llm_assist._resolve_assist_route()
+    assert (profile, model) == ("aux-p", "aux-model")
+
+    # No overrides at all → API default.
+    config["settings"]["task_llm_profiles"] = {}
+    config["settings"]["override_per_task"] = False
+    profile, model = llm_assist._resolve_assist_route()
+    assert (profile, model) == ("default", "default-model")
