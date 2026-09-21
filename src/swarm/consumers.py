@@ -430,6 +430,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                     self.ui_events = []
                 await self._emit_suggestions_if_enabled(self.default_blueprint)
                 self._start_omb_session_watch()
+                self._maybe_start_herdr_session_watch(query_params)
             else:
                 # Close after accept so the client sees 4401 (not 1006).
                 # receive() re-checks auth so anonymous clients cannot hit the LLM.
@@ -518,13 +519,143 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
         _record_turn(self, "assistant", text, ts=_message_ts())
         await self._persist_completed_turn()
 
+    def _maybe_start_herdr_session_watch(self, query_params):
+        """Watch the focused Herdr pane for externally started turns (#794).
+
+        Registers this socket for pane frames and arms a track for the
+        ``?session=<target>`` pane. Only Herdr seats watch — the query
+        blueprint must be ``herdr`` (the remote_harness rewrite in receive()
+        keeps ``self.default_blueprint`` as the original seat).
+        """
+        try:
+            from swarm.core import chat_store, herdr_session_watch
+
+            if str(getattr(self, "default_blueprint", None) or "").strip().lower() != "herdr":
+                return
+            params = query_params or {}
+            target = str(
+                (params.get("session") or params.get("target") or [""])[0]
+            ).strip()
+            if not target:
+                return
+
+            self._herdr_watch_queue = asyncio.Queue(maxsize=200)
+            user_key = chat_store.user_key_for(self.user)
+            herdr_session_watch.register_consumer(
+                user_key,
+                self._herdr_watch_queue,
+                loop=asyncio.get_running_loop(),
+            )
+            herdr_session_watch.watch_session(
+                user_key=user_key,
+                agent_id="herdr",
+                conversation_id=str(getattr(self, "conversation_id", "") or ""),
+                target=target,
+            )
+            self._herdr_watch_drain_task = asyncio.ensure_future(
+                self._drain_herdr_frames()
+            )
+        except Exception:
+            logger.debug("herdr session watch registration failed", exc_info=True)
+
+    async def _drain_herdr_frames(self):
+        queue = getattr(self, "_herdr_watch_queue", None)
+        if queue is None:
+            return
+        # #794: partial deltas coalesce — the harness mirrors the *turn*
+        # (prompt immediately, final assistant text once), not every poll
+        # delta, which would render one bubble per snapshot tick.
+        pending_stream = None
+        while True:
+            payload = await queue.get()
+            try:
+                if isinstance(payload, dict) and payload.get("type") == "herdr_stream":
+                    if payload.get("final"):
+                        payload["text"] = str(payload.get("text") or "")
+                        await self._emit_herdr_frame(payload)
+                        pending_stream = None
+                    else:
+                        pending_stream = payload
+                    continue
+                await self._emit_herdr_frame(payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug("herdr frame emit failed", exc_info=True)
+
+    async def _emit_herdr_frame(self, payload):
+        """Render an external Herdr turn as chat bubbles (#794).
+
+        ``herdr_external_turn`` mirrors the user's typed prompt as a user
+        bubble; ``herdr_stream`` appends assistant output (the final frame
+        replaces intermediate deltas via dedup on identical content).
+        """
+        if not isinstance(payload, dict):
+            return
+        cid = str(payload.get("conversation_id") or "")
+        if cid and cid != str(getattr(self, "conversation_id", "") or ""):
+            return
+        from swarm.core.model_text import sanitize_model_text
+
+        if payload.get("type") == "herdr_external_turn":
+            text = sanitize_model_text(str(payload.get("text") or "")).strip()
+            if not text:
+                return
+            for row in self.messages or []:
+                if row.get("role") == "user" and str(row.get("content") or "").strip() == text:
+                    return
+            user_message_html = render_to_string(
+                "websocket_partials/user_message.html",
+                {"message_text": text},
+            )
+            await self.send(text_data=user_message_html)
+            _record_turn(self, "user", text, ts=_message_ts())
+            await self._persist_completed_turn()
+            return
+        if payload.get("type") != "herdr_stream":
+            return
+        text = sanitize_model_text(str(payload.get("text") or "")).strip()
+        if not text:
+            return
+        if not payload.get("final"):
+            for row in self.messages or []:
+                if row.get("role") == "assistant" and str(row.get("content") or "").strip() == text:
+                    return
+        message_id = uuid.uuid4().hex
+        contents_div_id = f"message-response-{message_id}"
+        start_html = render_to_string(
+            "websocket_partials/system_message.html",
+            {"contents_div_id": contents_div_id},
+        )
+        await self.send(text_data=start_html)
+        await self.send(text_data=_oob_append_html(contents_div_id, text))
+        final_html = render_to_string(
+            "websocket_partials/final_system_message.html",
+            {"contents_div_id": contents_div_id, "message": text},
+        )
+        await self.send(text_data=final_html)
+        _record_turn(self, "assistant", text, ts=_message_ts())
+        await self._persist_completed_turn()
+
     async def disconnect(self, close_code):
         task = getattr(self, "_omb_watch_drain_task", None)
         if task is not None:
             task.cancel()
+        herdr_task = getattr(self, "_herdr_watch_drain_task", None)
+        if herdr_task is not None:
+            herdr_task.cancel()
         try:
             from swarm.core import chat_store, omb_session_watch
 
+            if getattr(self, "_herdr_watch_queue", None) is not None:
+                from swarm.core import herdr_session_watch
+
+                herdr_session_watch.unregister_consumer(self._herdr_watch_queue)
+                if getattr(self.user, "is_authenticated", False):
+                    herdr_session_watch.unwatch_conversation(
+                        chat_store.user_key_for(self.user),
+                        getattr(self, "conversation_id", "") or "",
+                    )
             if getattr(self, "_omb_watch_queue", None) is not None:
                 omb_session_watch.unregister_consumer(self._omb_watch_queue)
                 if getattr(self.user, "is_authenticated", False):
@@ -722,6 +853,21 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 params.setdefault("op", "send")
 
             self.active_agent = blueprint_id or getattr(self, "active_agent", None)
+
+            # #794: a send toward a Herdr pane arms the "this turn is ours"
+            # attribution so the session watch will not mirror our own prompt
+            # back as an external user turn.
+            if str((params or {}).get("remote") or "").strip().lower() == "herdr":
+                try:
+                    from swarm.core import chat_store, herdr_session_watch
+
+                    herdr_session_watch.note_swarm_send(
+                        user_key=chat_store.user_key_for(self.user),
+                        conversation_id=str(getattr(self, "conversation_id", "") or ""),
+                        target=str((params or {}).get("session") or ""),
+                    )
+                except Exception:
+                    logger.debug("herdr swarm-send attribution failed", exc_info=True)
 
             if params and params.get("new_session"):
                 # REQ-65: CoS/user task asked for an empty session on this socket.
