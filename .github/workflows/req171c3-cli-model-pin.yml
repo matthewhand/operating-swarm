@@ -1,4 +1,8 @@
 name: REQ-171C-3 CLI/API model pin
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

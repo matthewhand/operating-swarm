@@ -1,4 +1,8 @@
 name: Issue 163 section internal talk
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

@@ -1,4 +1,8 @@
 name: REQ-171A-3 serialise chat turns
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

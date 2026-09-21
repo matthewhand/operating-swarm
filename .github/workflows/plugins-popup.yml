@@ -1,4 +1,8 @@
 name: Plugins popup (#805)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 # Own-diff CI: only the #805 sort / toggle persist / search tests plus the
 # per-chat allowlist helper. Not the full Python matrix.

@@ -1,4 +1,8 @@
 name: REQ-77 speech STT/TTS
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

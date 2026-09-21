@@ -1,4 +1,8 @@
 name: REQ-88 provider rate limits
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

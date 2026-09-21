@@ -1,4 +1,8 @@
 name: REQ-171C-6 untrusted CLI argv
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

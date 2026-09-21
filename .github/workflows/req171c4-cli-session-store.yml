@@ -1,4 +1,8 @@
 name: REQ-171C-4 one CLI session store
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

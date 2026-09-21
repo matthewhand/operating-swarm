@@ -1,4 +1,8 @@
 name: REQ-157 CLI agents opt-in
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

@@ -1,4 +1,8 @@
 name: Visual Regression
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 # Golden-journey browser suite (tests/e2e_visual). Exists because a green
 # build has shipped an unstyled UI twice (Tailwind v4 emitting a 2kB CSS

@@ -1,4 +1,8 @@
 name: REQ-162 mailbox ACL
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
   workflow_dispatch:

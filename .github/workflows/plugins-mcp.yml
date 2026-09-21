@@ -1,4 +1,8 @@
 name: Plugins MCP manage (#502)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 # Own-diff CI: manage-path unit tests only. Not the full Python matrix.
 
