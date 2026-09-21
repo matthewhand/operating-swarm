@@ -71,7 +71,7 @@ describe('SupportCreatedBlueprintCard (REQ-158 / #440)', () => {
     })
   })
 
-  it('shows a draft team and hides Python until View / edit code', () => {
+  it('shows a draft team and hides Python until View code', () => {
     renderCard()
     expect(screen.getByTestId('support-nl-blueprint-card')).toBeInTheDocument()
     expect(screen.getByTestId('support-nl-draft')).toHaveTextContent('Draft')

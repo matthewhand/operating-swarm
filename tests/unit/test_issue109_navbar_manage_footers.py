@@ -21,14 +21,13 @@ def test_routing_picker_renders_manage_divider_and_skips_footer_flyout():
 
 def test_chat_page_manage_labels_are_title_case():
     src = CHAT_PAGE.read_text(encoding="utf-8")
-    assert "label: 'Manage CLI'" in src
-    assert "label: 'Manage API'" in src
-    assert ">Manage Team<" in src
+    # #836: the picker footers converge on one unified hub label.
+    assert "label: 'Manage providers'" in src
     assert "Manage Cli" not in src
-    assert "openSettingsSheet({ section: 'cli-agents' })" in src
-    assert "openSettingsSheet({ section: 'llm-profiles' })" in src
-    assert "<option disabled" in src
-    assert "──────────" in src
+    assert "openSettingsSheet({ section: 'providers' })" in src
+    # #755: the team seat's picker footer manages teams.
+    assert "label: 'Manage teams'" in src
+    assert "MANAGE_TEAMS_HREF" in src
 
 
 def test_session_switcher_has_divider_and_manage_session():

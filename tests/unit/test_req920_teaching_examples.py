@@ -22,6 +22,7 @@ from swarm.core.kind_bases import (
     ApiKindBase,
     CliKindBase,
     RemoteKindBase,
+    TeamKindBase,
     base_class_for_kind,
 )
 
@@ -34,7 +35,8 @@ EXPECTED: dict[str, tuple[type, str]] = {
     "example_remote_minimal": (RemoteKindBase, "remote"),
     "example_cli_provider_agy": (CliKindBase, "cli"),
     "example_cli_provider_omp": (CliKindBase, "cli"),
-    "example_team_orchestrator": (ApiKindBase, "api"),
+    # #813: the team orchestrator teaches the dedicated team kind now.
+    "example_team_orchestrator": (TeamKindBase, "team"),
     "example_advisor_tool": (ApiKindBase, "api"),
 }
 

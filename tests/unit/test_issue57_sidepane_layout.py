@@ -65,4 +65,5 @@ def test_conceal_buttons_from_issue_251_remain():
     assert 'aria-label="Collapse sidebar"' in conceal
     assert 'aria-label="Conceal sidepane"' in conceal
     assert "SidebarConcealButton" in sidebar
-    assert "BrandMarkMono" in conceal
+    # #767 (PR #876): pane icons replaced the BrandMarkMono toggle.
+    assert "PanelLeftClose" in conceal

@@ -29,6 +29,9 @@ def test_chat_page_navbar_priority_classes():
     assert "os-chat-header__identity" in tsx
     assert "os-navbar-identity-label" in tsx
     assert "os-chat-header__controls" in tsx
-    assert "hidden sm:flex shrink-0" in tsx
+    # #752: the theme toggle is the first control hidden on narrow viewports;
+    # the identity edit buttons keep the hidden-sm:flex priority too.
+    assert 'className="hidden sm:inline-flex"' in tsx
+    assert "shrink-0 hidden sm:flex" in tsx
     assert 'aria-label="Open agent list"' in tsx
     assert "btn btn-ghost btn-sm btn-square shrink-0" in tsx

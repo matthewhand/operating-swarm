@@ -48,14 +48,17 @@ def test_section_state_persists_internal_only():
 
 def test_section_chrome_has_lock_control():
     header = HEADER.read_text(encoding="utf-8")
-    assert "rail-section-talk-lock" in header
-    assert "Talk internal only" in header
-    assert "Talk externally" in header
-    assert "LockOpen" in header or "Lock" in header
+    # #828: awareness-first framing — the control was renamed from a talk
+    # "lock" to an awareness toggle (MessageSquare icons, awareness copy).
+    assert "rail-section-awareness-toggle" in header
+    assert "Inter-agent awareness" in header
+    assert "Awareness off" in header
+    assert "MessageSquareOff" in header
     menu = MENU.read_text(encoding="utf-8")
     assert "section-talk-lock" in menu
-    assert "Talk internal only" in menu
-    assert "Talk externally" in menu
+    # #828: awareness-first menu labels.
+    assert "Enable inter-agent awareness" in menu
+    assert "Isolate members" in menu
     rail = RAIL_MENU.read_text(encoding="utf-8")
     assert "'section-talk-lock'" in rail
     sidebar = SIDEBAR.read_text(encoding="utf-8")

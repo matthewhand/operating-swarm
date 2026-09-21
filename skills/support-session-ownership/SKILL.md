@@ -29,7 +29,7 @@ first messages: **Create a team**, **Create a BA → Engineer → Tester workflo
   Engineer → Tester) may draft immediately via `create_blueprint_from_nl`.
   That tool returns a **draft** — persist is **Add as agent** / **Save as
   blueprint** on the card. They do **not** write Python. Do not dump a
-  ```python fence unless they ask to **View / edit code**. Do not say Open
+  ```python fence unless they ask to **View code**. Do not say Open
   in chat.
 - **Under the hood** a blueprint/team is a Python `ApiKindBase` class
   (ADR-005). Say that in one sentence. Code stays hidden by default.

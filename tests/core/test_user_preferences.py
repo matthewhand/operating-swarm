@@ -82,6 +82,7 @@ def test_public_payload_marks_empty_and_lists_registry():
         "theme",
         "theme_navbar_mode",
         "bubble_theme",
+        "rail_sections",
     ]
     assert payload["context_auto_compress_pct"] == 80
     assert payload["context_strategy"] == "compress"

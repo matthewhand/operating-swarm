@@ -44,10 +44,10 @@ def test_search_palette_bot_rows_spa_navigate_chat():
 
 
 def test_chat_page_support_default_and_manage_teams():
-    """#322 Support default URL; #331 Manage Teams assigns /teams/."""
+    """#322 Support default URL; #331/#755 Manage Teams assigns /teams/#<id>."""
     src = CHAT_PAGE.read_text(encoding="utf-8")
     assert "next.set('blueprint', SUPPORT_AGENT_ID)" in src
-    assert "window.location.assign(MANAGE_TEAMS_HREF)" in src
+    assert "${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}" in src
     assert "Nothing to compact yet" in src
     assert "Compact failed" in src
 

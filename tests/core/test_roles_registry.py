@@ -37,6 +37,9 @@ from swarm.core.roles import ROLE_REGISTRY, all_roles, get_role
 from swarm.core.roles.base import Role, RoleContext, RoleOutcome
 
 LEGACY_ALIASES: dict[str, str] = {
+    "admin": "admin",
+    "administrator": "admin",
+    "sysadmin": "admin",
     "default": ROLE_DEFAULT,
     "none": ROLE_DEFAULT,
     "worker": ROLE_DEFAULT,
@@ -66,6 +69,7 @@ LEGACY_ALIASES: dict[str, str] = {
 }
 
 LEGACY_BADGES = {
+    "admin": "Admin",
     ROLE_DEFAULT: "",
     ROLE_SUPPORT: "Support",
     ROLE_GATE: "Gate",
@@ -77,6 +81,7 @@ LEGACY_BADGES = {
 }
 
 LEGACY_MECHANISMS = {
+    "admin": "implement",
     ROLE_DEFAULT: "none",
     ROLE_SUPPORT: "implement",
     ROLE_GATE: "intercept",
@@ -88,6 +93,7 @@ LEGACY_MECHANISMS = {
 }
 
 LEGACY_MECHANISM_DETAILS = {
+    "admin": "Administrator seat: full agent lifecycle + topology scope. Onboards fresh installs via the Bootstrap provider when no LLM is configured.",
     ROLE_DEFAULT: "Worker agent executing standard conversational turns without role overrides.",
     ROLE_SUPPORT: "Socratic support and agent lifecycle manager (REQ-7, REQ-154).",
     ROLE_GATE: "Tool-call classifier intercepting execution requests before execution.",
@@ -99,6 +105,7 @@ LEGACY_MECHANISM_DETAILS = {
 }
 
 LEGACY_ALLOW_ALL = {
+    "admin": True,
     ROLE_DEFAULT: False,
     ROLE_SUPPORT: False,
     ROLE_GATE: False,
@@ -115,7 +122,7 @@ LEGACY_ALLOW_ALL = {
 
 def test_registry_covers_all_canonical_roles():
     assert set(ROLE_REGISTRY) == set(CANONICAL_ROLES)
-    assert len(ROLE_REGISTRY) == 8
+    assert len(ROLE_REGISTRY) == 9
 
 
 def test_registry_order_matches_canonical_roles():
@@ -267,9 +274,11 @@ def test_advisor_role_resolution_seam(monkeypatch):
     assert get_role(ROLE_ADVISOR).resolve_advisor("t1", "ba") == "wise1"
 
 
-def test_chief_of_staff_is_only_allow_everywhere():
+def test_admin_and_chief_of_staff_allow_everywhere():
+    # #931: the Admin seat joins CoS as an allow-everywhere role.
     assert ROLE_ALLOW_ALL[ROLE_CHIEF_OF_STAFF] is True
-    assert sum(1 for v in ROLE_ALLOW_ALL.values() if v) == 1
+    assert ROLE_ALLOW_ALL["admin"] is True
+    assert sum(1 for v in ROLE_ALLOW_ALL.values() if v) == 2
 
 
 def test_suggestions_role_as_tool_requires_coordinator_and_specialist():

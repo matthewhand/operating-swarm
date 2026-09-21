@@ -763,6 +763,7 @@ html[data-os-theme="light"] .os-agent-sidebar {
   color: var(--os-muted);
 }
 .os-agent-role-badge[data-role="support"] { color: #3d8f8a; }
+.os-agent-role-badge[data-role="admin"] { color: #4a6fa5; }
 .os-agent-role-badge[data-role="gate"] { color: #c9a227; }
 .os-agent-role-badge[data-role="skeptic"] { color: #8a5a9b; }
 .os-agent-role-badge[data-role="advisor"] { color: #8a7a4a; }

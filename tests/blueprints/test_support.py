@@ -154,7 +154,8 @@ def test_skill_is_discoverable_and_carries_fixture():
     assert "ONBOARD_JOURNEY_CLI_API_REMOTE" in skill.instructions
     assert "create a team" in skill.instructions.lower()
     assert "engineer" in skill.instructions.lower()
-    assert "view / edit code" in skill.instructions.lower()
+    # #879 renamed the label to 'View code' (authority: PR #879 / #735).
+    assert "view code" in skill.instructions.lower()
     assert "add a remote" in skill.instructions.lower()
     assert "wire a cli" in skill.instructions.lower()
     assert "SUPPORT_NL_BLUEPRINT_NO_USER_PYTHON" in skill.instructions

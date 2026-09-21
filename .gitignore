@@ -251,3 +251,6 @@ docs/host-notes/
 .secrets/
 
 docs/screenshots/overlays/
+
+# agent-guideline symlink: tracked symlinks break fresh clones (see tests/test_no_tracked_symlinks.py)
+CLAUDE.md

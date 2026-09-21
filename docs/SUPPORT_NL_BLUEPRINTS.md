@@ -14,7 +14,7 @@ second bot.
 
 | Path | Who writes Python? | What you see |
 |------|--------------------|--------------|
-| **Happy path** | Nobody. Ask Support. | A usable team/workflow. Code hidden. Optional **View / edit code**. |
+| **Happy path** | Nobody. Ask Support. | A usable team/workflow. Code hidden. Optional **View code**. |
 | **Power user** | You, or Support when you ask to see it. | An `ApiKindBase` (or CLI/remote kind base) Python class. |
 
 **Under the hood** a blueprint/team is a Python class — usually
@@ -35,7 +35,7 @@ This is the announce / GIF story. GitHub-only. No preview host. No secrets.
 4. The card shows the graph (`BA → Engineer → Tester`) plus **Add as agent**
    (persist, rail, switch seat) and **Save as blueprint** (persist, stay on
    Support).
-5. Python is **hidden**. Click **View / edit code** only if you want the
+5. Python is **hidden**. Click **View code** only if you want the
    generated `ApiKindBase` class (ties to #564 / `sdlc_handoff`).
 
 Recorded checklist (source-locked by `tests/unit/test_req158_nl_blueprints.py`
@@ -47,7 +47,7 @@ and the Vitest card):
 - [x] Card CTAs are **Add as agent** and **Save as blueprint**.
 - [x] Result `userWrotePython` is false.
 - [x] Default UI has no `<textarea>` / `pre` of the generated module.
-- [x] **View / edit code** reveals the generated class.
+- [x] **View code** reveals the generated class.
 - [x] Graph edges are BA → Engineer, Engineer → Tester (REQ-156 example).
 - [x] No live preview host, no secrets, no Neon.
 
@@ -69,7 +69,7 @@ Support (abridged):
 > Graph: BA → Engineer → Tester
 >
 > Under the hood this is a Python `ApiKindBase` blueprint class. Code stays
-> hidden unless you choose **View / edit code**.
+> hidden unless you choose **View code**.
 
 That is the same topology as
 [`docs/examples/openai-agents-handoff-graphs/sdlc-pipeline.json`](./examples/openai-agents-handoff-graphs/sdlc-pipeline.json)

@@ -43,7 +43,7 @@ SUPPORT_JOURNEY_PHRASES = (
     "remote",
     "one pane",
     "list models",
-    "View / edit code",
+    "View code",
 )
 
 

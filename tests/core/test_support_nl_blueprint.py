@@ -67,7 +67,8 @@ def test_user_reply_hides_python_fence_by_default():
     assert "```swarm-nl-blueprint" in reply
     assert created.card_payload()["userWrotePython"] is False
     assert SUPPORT_NL_FIXTURE in reply
-    assert "View / edit code" in reply
+    # #879 renamed the label to 'View code' (authority: PR #879 / #735).
+    assert "View code" in reply
     assert ADD_AS_AGENT_LABEL in reply
     assert SAVE_AS_BLUEPRINT_LABEL in reply
     assert "Open in chat" not in reply

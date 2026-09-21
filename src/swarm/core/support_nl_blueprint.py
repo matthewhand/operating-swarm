@@ -120,7 +120,7 @@ class CreatedNlBlueprint:
             f"Graph: {self.spec.graph_label}",
             "",
             "Under the hood this is a Python `ApiKindBase` blueprint class. "
-            "Code stays hidden unless you choose **View / edit code**.",
+            "Code stays hidden unless you choose **View code**.",
             "",
             f"```{SUPPORT_NL_FENCE}",
             json.dumps(self.card_payload(), indent=2),

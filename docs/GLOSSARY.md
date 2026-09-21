@@ -58,7 +58,7 @@ A discoverable `BlueprintBase` subclass (`swarm.core.blueprint_base`) that defin
 
 A Blueprint **catalog** row is a template. A Blueprint **agent** (ADR-006) is a seat that runs a chosen recipe. The AGENTS rail and Search Bots list only recipes with `metadata.rail: true` (default deny). Catalog stays on `GET /v1/blueprints/`, Settings, and Add-agent ([#595](https://github.com/matthewhand/open-swarm/issues/595) / REQ-170). Add-agent CLI/API creates are merged into that list with `rail: true` so the same filter can show them ([#607](https://github.com/matthewhand/open-swarm/issues/607) / REQ-171B).
 
-**Support NL create (REQ-158 / #567):** the happy path is ask **Support** in natural language. Support persists a custom `ApiKindBase` seat. The user does not write Python; **View / edit code** is optional. See [SUPPORT_NL_BLUEPRINTS.md](./SUPPORT_NL_BLUEPRINTS.md).
+**Support NL create (REQ-158 / #567):** the happy path is ask **Support** in natural language. Support persists a custom `ApiKindBase` seat. The user does not write Python; **View code** is optional. See [SUPPORT_NL_BLUEPRINTS.md](./SUPPORT_NL_BLUEPRINTS.md).
 
 ## Team (handoff members — REQ-11)
 

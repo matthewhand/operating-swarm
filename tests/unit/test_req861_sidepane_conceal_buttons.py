@@ -36,7 +36,9 @@ def test_req861_left_sidebar_mono_conceal():
     assert 'aria-label="Close agents sidebar"' in sidebar
     assert "SidebarConcealButton" in header
     assert ('aria-label="Conceal sidebar"' in conceal) or ('aria-label="Collapse sidebar"' in conceal)
-    assert "BrandMarkMono" in conceal
+    # #767 (PR #876): the brand-mark toggle was replaced by pane icons —
+    # the mark stays a mark, it no longer doubles as a button.
+    assert "PanelLeftClose" in conceal
     assert "currentColor" in mark
     assert "os-brand-mark-geometric" in mark
     assert "currentColor" in mono
@@ -53,7 +55,9 @@ def test_req861_right_sidepane_chevrons():
     assert "SidepaneConcealButton" in generations
     for path in (SETTINGS, TEAMS, EDITOR, BLUEPRINTS):
         src = path.read_text(encoding="utf-8")
-        assert 'placement="end"' in src, path.name
+        # The sheet opens opposite the rail dock (#816): a literal 'end' for
+        # the fixed-left surfaces, a computed placement for Settings.
+        assert ('placement="end"' in src) or ("placement={loadRailSide()" in src), path.name
 
 
 def test_req861_settings_branding_unchanged():

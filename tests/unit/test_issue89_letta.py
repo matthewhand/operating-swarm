@@ -20,9 +20,9 @@ def test_chat_sends_session_id_for_remote_resume():
 
 def test_rail_opens_searchable_letta_sessions():
     src = SIDEBAR.read_text(encoding="utf-8")
-    assert "openRemoteThreadPicker" in src
-    assert "fetchRemoteThreadSessions" in src
-    assert "remoteListsSessions" in src
+    # #748/#580: see test_issue88 — declared capability + menu payload rows.
+    assert "seatHasSessions" in src
+    assert "openGroupPicker" in src
 
 
 def test_operate_api_forwards_session_id():

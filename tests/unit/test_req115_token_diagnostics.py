@@ -24,7 +24,9 @@ def test_req115_chatpage_token_meter_button_and_modal_wired():
     assert chat_page.exists()
     content = chat_page.read_text(encoding="utf-8")
 
-    assert 'aria-label="Session token usage"' in content
-    assert 'data-testid="token-meter-button"' in content
+    # #773: the navbar token meter was removed — the composer's
+    # ContextUsageBadge is the ONE canonical meter, and it opens the modal.
+    assert "ContextUsageBadge" in content
+    assert 'data-testid="context-usage-badge-slot"' in content
     assert "TokenDiagnosticsModal" in content
     assert "setTokenDiagOpen" in content

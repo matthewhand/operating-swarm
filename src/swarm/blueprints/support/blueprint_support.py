@@ -53,7 +53,7 @@ Goals:
 - The card CTAs are **Add as agent** (rail) and **Save as blueprint**
   (library). Do not tell them to Open in chat.
 - Under the hood a team is a Python ApiKindBase class (ADR-005). Say that
-  briefly. Code stays hidden; the UI offers View / edit code.
+  briefly. Code stays hidden; the UI offers View code.
 - Help them create a local team: personas, optional Chief of Staff (CoS).
 - Power-user path only: if they ask to write or see the Python, consult
   blueprint_coder and show a fenced ```python block (ApiKindBase /

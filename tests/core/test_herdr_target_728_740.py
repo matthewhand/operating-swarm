@@ -91,7 +91,8 @@ def test_send_without_target_lists_members_when_ambiguous(monkeypatch):
     sent = remotes_core.operate("herdr", "send", prompt="ping", config=CFG, timeout=1.0)
     assert sent.ok is False
     assert "w3:p1" in sent.detail and "w4:p2" in sent.detail
-    assert "grok" in sent.detail and "aider" in sent.detail
+    # #787: rows carry friendly display labels — 'Grok', not the raw CLI id.
+    assert "Grok" in sent.detail and "Aider" in sent.detail
 
 
 def test_blocked_pane_surfces_the_pending_prompt_and_unblock_hint(monkeypatch):

@@ -249,6 +249,10 @@ async def test_blueprint_run_payload_has_zero_status_strings(monkeypatch):
     instance.run = fake_run
     instance.metadata = {}
     instance.agents = None
+    # A bare MagicMock auto-creates truthy attributes; declare the context
+    # axis explicitly so the server-managed trim does not kick in.
+    instance.server_managed_context = False
+    instance.capabilities = {}
 
     async def fake_context(conversation_id, messages):
         return build_model_context(messages, [])

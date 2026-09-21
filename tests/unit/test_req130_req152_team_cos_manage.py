@@ -54,12 +54,10 @@ def test_req130_sidebar_context_menu_select_agent():
 
 
 def test_req152_chat_page_team_dropdown_separator_and_manage():
-    """REQ-152: chat header team select has visual separator and Manage Team with anchor."""
+    """REQ-152 via #755: the composer picker's footer navigates to /teams/#<id>."""
     src = CHAT_PAGE.read_text(encoding="utf-8")
     assert "MANAGE_TEAMS_VALUE" in src
-    assert "Manage Team" in src
-    assert "<option disabled" in src
-    assert "──────────" in src
+    assert "label: 'Manage teams'" in src
     assert "${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}" in src
 
 

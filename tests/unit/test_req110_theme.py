@@ -41,5 +41,7 @@ def test_settings_sheet_has_general_visuals_and_navbar_toggle():
 def test_theme_toggle_respects_navbar_visibility_and_cycles():
     toggle = THEME_TOGGLE_TSX.read_text(encoding="utf-8")
     assert "THEME_NAVBAR_SET_EVENT" in toggle
-    assert "!visible" in toggle
+    # #847: the visibility helper is named for the navbar-mode axis now —
+    # same contract (the toggle returns null when not visible).
+    assert "!isNavbarThemeToggleVisible(mode, theme)" in toggle
     assert "nextTheme" in toggle

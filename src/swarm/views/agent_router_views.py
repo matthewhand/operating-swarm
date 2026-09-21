@@ -19,12 +19,22 @@ from swarm.blueprints.agent_router import AgentRouterBlueprint
 
 logger = logging.getLogger(__name__)
 
-# Initialize the agent router blueprint
-agent_router = AgentRouterBlueprint()
+# The router blueprint is built lazily: constructing AgentRouterBlueprint
+# registers its specialists and (when openai-agents is importable and the LLM
+# client builds) the ``router`` orchestrator. Doing that at import time raced
+# process startup — if OPENAI_API_KEY was not yet in the environment the client
+# build failed inside _create_router_agent, the failure was swallowed by the
+# init guard, and the ``router`` seat silently vanished from GET /v1/agents/
+# for the whole process lifetime. First-request construction lets config/env
+# loading finish first; the singleton keeps per-request cost at a lookup.
+agent_router: AgentRouterBlueprint | None = None
 
 
 def get_agent_router_blueprint():
-    """Get or create the agent router blueprint instance."""
+    """Get or create the agent router blueprint instance (lazy singleton)."""
+    global agent_router
+    if agent_router is None:
+        agent_router = AgentRouterBlueprint()
     return agent_router
 
 
