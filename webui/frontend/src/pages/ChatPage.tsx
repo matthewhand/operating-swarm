@@ -268,6 +268,8 @@ import SubagentFanOutBlock from '../components/SubagentFanOutBlock'
 import { parseSubagentFanOut, type SubagentFanOutData } from '../lib/subagentFanOut'
 import { registerDynamicSubagent } from '../lib/dynamicSubagents'
 import { TokenDiagnosticsModal } from '../components/TokenDiagnosticsModal'
+import { RawResponseModal } from '../components/RawResponseModal'
+import { isHerdrAgent } from '../lib/railHotkeys'
 import {
   isToolAlwaysAllowed,
   rememberAlwaysAllow,
@@ -503,6 +505,8 @@ interface ChatMessage {
   rateLimit?: RateLimitWait
   /** Terminal CLI/config failure — recovery banner (#274). */
   fatalConfigError?: boolean
+  /** #850: Raw unstripped terminal response captured from Herdr. */
+  rawResponse?: string
 }
 
 /** #534: persisted compression rows never render on restored transcripts. */
@@ -522,6 +526,7 @@ function chatMessageFromThreadRow(
     rate_limit?: RateLimitWait
     fatal_config_error?: boolean
     persona?: string
+    raw_response?: string
   },
   index: number,
 ): ChatMessage {
@@ -533,6 +538,7 @@ function chatMessageFromThreadRow(
     key: `hist-${index}-${message.role}`,
     role: prior ? 'system' : asTranscriptRole(message.role),
     text: prOpened || teammateTask || subagentFanOut ? '' : message.content,
+    rawResponse: typeof message.raw_response === 'string' ? message.raw_response : undefined,
     streaming: false,
     edited: message.edited === true,
     prOpened,
@@ -842,6 +848,7 @@ const ChatPage = () => {
   const hasRateLimitWait = messages.some((row) => row.rateLimit)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [expandedThinkingKeys, setExpandedThinkingKeys] = useState<Set<string>>(new Set())
+  const [rawResponseModalText, setRawResponseModalText] = useState<string | null>(null)
   const toggleThinking = useCallback((key: string) => {
     setExpandedThinkingKeys((prev) => {
       const next = new Set(prev)
@@ -1233,6 +1240,13 @@ const ChatPage = () => {
     remote: (selectedAgent as { remote?: string })?.remote,
     tags: (selectedAgent as { tags?: string[] })?.tags,
   }) || Boolean(selectedRemote)
+
+  const isHerdrSeat =
+    isHerdrKind(remoteFromUrl) ||
+    isHerdrKind(selectedRemote?.kind) ||
+    isHerdrKind(selectedRemoteId) ||
+    isHerdrAgent(selectedAgent as { id?: string; kind?: string }) ||
+    Boolean(selectedBlueprint && isHerdrAgent({ id: selectedBlueprint }))
 
   /* #594: same loading-state contract as the rail — `cliQuery` has no
      `initialData`, so reading it before it settles must not be read as "this
@@ -2542,9 +2556,14 @@ const ChatPage = () => {
             next = current.map((m) => {
               if (m.key !== event.id) return m
               const fence = parseDecisionQuestion(event.text)
+              const rawResp =
+                typeof (event as { raw_response?: string }).raw_response === 'string'
+                  ? (event as { raw_response?: string }).raw_response
+                  : m.rawResponse
               return {
                 ...m,
                 text: fence ? stripDecisionQuestion(event.text) : event.text,
+                rawResponse: rawResp,
                 streaming: false,
                 question: m.question ?? fence ?? undefined,
                 questionBlocking: m.questionBlocking ?? false,
@@ -5104,6 +5123,7 @@ const ChatPage = () => {
             const parsedArtifacts = extractThinkingBlock(message.text)
             const hasThinking = Boolean(parsedArtifacts.thinking)
             const thinkingOpen = expandedThinkingKeys.has(message.key)
+            const isHerdrMessage = isHerdrSeat || Boolean(message.rawResponse)
             return (
               <div
                 key={message.key}
@@ -5156,6 +5176,7 @@ const ChatPage = () => {
                   onOpenSkill={setOpenSkillName}
                   thinkingOpen={thinkingOpen}
                   onToggleThinking={() => toggleThinking(message.key)}
+                  isHerdr={isHerdrMessage}
                   onRemoveCard={() =>
                     setHiddenMessageKeys((prev) =>
                       prev.includes(message.key) ? prev : [...prev, message.key],
@@ -5232,6 +5253,9 @@ const ChatPage = () => {
                     hasThinking={hasThinking}
                     thinkingOpen={thinkingOpen}
                     onToggleThinking={() => toggleThinking(message.key)}
+                    isHerdr={isHerdrMessage}
+                    rawResponse={message.rawResponse || (isHerdrMessage ? message.text : undefined)}
+                    onShowRawResponse={() => setRawResponseModalText(message.rawResponse || message.text)}
                     onCompressToHere={() => {
                       handleContextToHere(message)
                     }}
@@ -5838,6 +5862,12 @@ const ChatPage = () => {
         open={openSkillName != null}
         onClose={() => setOpenSkillName(null)}
         catalog={skillCatalog}
+      />
+
+      <RawResponseModal
+        isOpen={rawResponseModalText !== null}
+        onClose={() => setRawResponseModalText(null)}
+        text={rawResponseModalText ?? ''}
       />
 
       <ConfirmModal

@@ -23,32 +23,99 @@ const HERDR_SUMMARY_HEADER_RE =
 
 const TABLE_SEPARATOR_RE = /^\s*\|[-:\s|]+\|\s*$/
 
+const TUI_GAUGE_RE = /[▀▄▌▐░▒▓█╹▁▂▃▅▆▇]+/
+const BOX_DRAWING_CHARS = '─━│┃┄┅┆┇┈┉├┝┞┟┠┯┰┱┲┴┵┶┷┸┼╀╁╂╃╄╅╆╇╈╉╊╋'
+const BOX_ONLY_RE = new RegExp(`^[${BOX_DRAWING_CHARS}\\s]+$`)
+const STATUS_MARKERS_RE =
+  /(ctrl\+[a-z]|commands\s*$|tokens?\s|\(\d+(?:\.\d+)?%\)|\d+(?:\.\d+)?%\s*$|^\s*⎇\s|\bv\d+(?:\.\d+)+\b|ctrl\+c\s+to\s+exit)/i
+
+function isMarkdownTableRow(line: string): boolean {
+  const stripped = line.trim()
+  if (!(stripped.startsWith('|') && stripped.endsWith('|') && (stripped.match(/\|/g) || []).length >= 2)) {
+    return false
+  }
+  if (/^\s*\|\s*\|\s*(?:summary|conversation)/i.test(stripped)) {
+    return false
+  }
+  if ([...BOX_DRAWING_CHARS].some((c) => stripped.includes(c)) || TUI_GAUGE_RE.test(stripped)) {
+    return false
+  }
+  return true
+}
+
+function isTuiChrome(line: string): boolean {
+  const stripped = line.trim()
+  if (!stripped) return false
+  if (isMarkdownTableRow(line)) return false
+  if (BOX_ONLY_RE.test(stripped)) return true
+
+  const hasBox = [...BOX_DRAWING_CHARS].some((c) => stripped.includes(c))
+  const hasGauge = TUI_GAUGE_RE.test(stripped)
+  const hasStatus = STATUS_MARKERS_RE.test(stripped)
+
+  if ((hasBox || hasGauge) && hasStatus) return true
+  const withoutGauge = stripped.replace(new RegExp(TUI_GAUGE_RE, 'g'), '')
+  if (hasGauge && withoutGauge.trim().length <= 40) return true
+  if (hasStatus && (hasBox || hasGauge || stripped.toLowerCase().includes('ctrl+'))) return true
+  if (
+    /^[┃│\|\s]{2,}\s*(?:Build|Session|Task|Model|Run|\w+)/.test(stripped) &&
+    (hasBox || hasGauge || hasStatus || stripped.toLowerCase().includes('build'))
+  ) {
+    return true
+  }
+  return false
+}
+
 /**
- * Strip provider-specific banners and header artifacts from message text.
+ * Strip provider-specific banners, header artifacts, and terminal TUI chrome from message text.
  */
 export function stripProviderArtifacts(text: string): string {
   if (!text) return ''
 
   const lines = text.split(/\r?\n/)
   const cleaned: string[] = []
+  let inCodeBlock = false
   let inHeader = true
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+    const stripped = line.trim()
+
+    if (stripped.startsWith('```') || stripped.startsWith('~~~')) {
+      inCodeBlock = !inCodeBlock
+      cleaned.push(line)
+      inHeader = false
+      continue
+    }
+    if (inCodeBlock) {
+      cleaned.push(line)
+      continue
+    }
+
     if (inHeader) {
       if (HERDR_SUMMARY_HEADER_RE.test(line)) {
-        // Skip header line and any immediately following table separator like |---|---|
         if (i + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[i + 1])) {
           i++
         }
         continue
       }
-      if (!line.trim() && cleaned.length === 0) {
+      if (TABLE_SEPARATOR_RE.test(line)) {
+        continue
+      }
+      if (!stripped && cleaned.length === 0) {
         continue
       }
       inHeader = false
     }
+
+    if (isTuiChrome(line)) {
+      continue
+    }
     cleaned.push(line)
+  }
+
+  while (cleaned.length > 0 && isTuiChrome(cleaned[cleaned.length - 1])) {
+    cleaned.pop()
   }
 
   return cleaned.join('\n').trim()

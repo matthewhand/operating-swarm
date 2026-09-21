@@ -58,6 +58,8 @@ export interface ChatMessageBubbleProps {
   thinkingOpen?: boolean
   /** Toggle thinking block callback (REQ-thinking-reaction). */
   onToggleThinking?: (open?: boolean) => void
+  /** #850: Whether this message is from a Herdr agent. */
+  isHerdr?: boolean
 }
 
 /**
@@ -74,6 +76,7 @@ export const ChatBubbleBody = memo(
     seatId,
     thinkingOpen,
     onToggleThinking,
+    isHerdr,
   }: {
     text: string
     streaming: boolean
@@ -83,6 +86,7 @@ export const ChatBubbleBody = memo(
     seatId?: string
     thinkingOpen?: boolean
     onToggleThinking?: (open?: boolean) => void
+    isHerdr?: boolean
   }) {
     const mdRef = useRef<HTMLDivElement | null>(null)
     const expandedIndicesRef = useRef<Set<number>>(new Set())
@@ -173,7 +177,7 @@ export const ChatBubbleBody = memo(
         </div>
       )
 
-    const thinkingEl = thinking ? (
+    const thinkingEl = !isHerdr && thinking ? (
       <details
         className="group/thinking my-1.5 rounded border border-base-content/15 bg-base-300/30 text-xs transition-colors open:bg-base-300/50"
         open={thinkingOpen}
@@ -228,7 +232,8 @@ export const ChatBubbleBody = memo(
     prev.theme === next.theme &&
     prev.seatId === next.seatId &&
     prev.thinkingOpen === next.thinkingOpen &&
-    prev.onToggleThinking === next.onToggleThinking,
+    prev.onToggleThinking === next.onToggleThinking &&
+    prev.isHerdr === next.isHerdr,
 )
 
 export function ChatMessageBubble({
@@ -251,6 +256,7 @@ export function ChatMessageBubble({
   seatId,
   thinkingOpen,
   onToggleThinking,
+  isHerdr,
 }: ChatMessageBubbleProps) {
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -420,6 +426,7 @@ export function ChatMessageBubble({
               seatId={seatId}
               thinkingOpen={thinkingOpen}
               onToggleThinking={onToggleThinking}
+              isHerdr={isHerdr}
             />
           )}
           {children}

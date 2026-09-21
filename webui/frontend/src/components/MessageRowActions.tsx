@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Brain, Check, Copy, FoldVertical, Pencil, Reply } from 'lucide-react'
+import { Brain, Check, Copy, FoldVertical, Pencil, Reply, Terminal } from 'lucide-react'
 import { ActionRowLabelsContext } from '../lib/actionRowLabelsContext'
 import { useToast } from './DaisyUI'
 import {
@@ -17,10 +17,10 @@ import {
 } from '../lib/actionRowLabels'
 
 /**
- * Message action/reaction row (#70 / REQ-103 / REQ-869 / #578).
+ * Message action/reaction row (#70 / REQ-103 / REQ-869 / #578 / #850).
  *
  * ChatPage mounts this beside ChatMessageBubble inside `group/osrow`.
- * Combines Edit, Reply, Copy, Read Aloud, Retry, and context actions on one line.
+ * Combines Edit, Reply, Copy, Read Aloud, Retry, Raw Response, and context actions on one line.
  *
  * #505 / REQ-907: when the bubble theme declares `actionRowPlacement: 'overlay'`
  * (IRC) the caller passes `overlay` and the row renders out of flow — absolutely
@@ -33,21 +33,7 @@ import {
  * its `aria-label`, so the accessible name survives; `title` tooltips are
  * always present so icon-only mode stays discoverable.
  */
-export default function MessageRowActions({
-  text,
-  children,
-  className,
-  canEdit,
-  onStartEdit,
-  canCompress,
-  onCompressToHere,
-  contextStrategy = 'compress',
-  onReply,
-  overlay = false,
-  hasThinking = false,
-  onToggleThinking,
-  thinkingOpen = false,
-}: {
+export interface MessageRowActionsProps {
   text: string
   children?: ReactNode
   className?: string
@@ -65,7 +51,32 @@ export default function MessageRowActions({
   onToggleThinking?: () => void
   /** Whether thinking is currently revealed. */
   thinkingOpen?: boolean
-}) {
+  /** #850: Whether this message is from a Herdr agent. */
+  isHerdr?: boolean
+  /** #850: Raw unstripped terminal output. */
+  rawResponse?: string | null
+  /** #850: Callback to view the unfiltered terminal response. */
+  onShowRawResponse?: () => void
+}
+
+export default function MessageRowActions({
+  text,
+  children,
+  className,
+  canEdit,
+  onStartEdit,
+  canCompress,
+  onCompressToHere,
+  contextStrategy = 'compress',
+  onReply,
+  overlay = false,
+  hasThinking = false,
+  onToggleThinking,
+  thinkingOpen = false,
+  isHerdr = false,
+  rawResponse,
+  onShowRawResponse,
+}: MessageRowActionsProps) {
   const [copied, setCopied] = useState(false)
   const [labels, setLabels] = useState(() => loadActionRowLabels())
   const { error } = useToast()
@@ -126,7 +137,21 @@ export default function MessageRowActions({
     </button>
   ) : null
 
-  const thinkingButton = hasThinking && onToggleThinking ? (
+  const rawResponseButton = isHerdr && onShowRawResponse ? (
+    <button
+      type="button"
+      className={btnClass}
+      aria-label="Raw Response"
+      title="View raw terminal response"
+      data-testid="message-raw-response-action"
+      onClick={onShowRawResponse}
+    >
+      <Terminal className="h-3 w-3 text-base-content/70" aria-hidden="true" />
+      {labels ? 'Raw Response' : null}
+    </button>
+  ) : null
+
+  const thinkingButton = !isHerdr && hasThinking && onToggleThinking ? (
     <button
       type="button"
       className={btnClass}
@@ -182,10 +207,11 @@ export default function MessageRowActions({
     >
       {editButton}
       {replyButton}
+      {rawResponseButton}
       {thinkingButton}
       {copyButton}
-      {children}
       {compressButton}
+      {children}
     </div>
   )
 

@@ -365,8 +365,8 @@ def test_operate_list_uses_from_remote_config_exact_argv(monkeypatch):
     assert listed.ok is True
     assert from_remote_calls == [cfg]
     assert calls == [
-        ["herdr", "agent", "list"],
         ["herdr", "workspace", "list"],
+        ["herdr", "agent", "list"],
     ]
 
 
@@ -406,3 +406,92 @@ def test_herdr_not_configured_constant_mentions_settings():
     assert "SSH" in HERDR_NOT_CONFIGURED
     assert "10.0.0." not in HERDR_NOT_CONFIGURED
     assert "OpenMousBot" in HERDR_NOT_CONFIGURED
+
+
+def test_sanitize_herdr_response_strips_box_drawing_and_status_footers():
+    """#850: Strip box-drawing status lines and trailing shortcut footers while preserving code and tables."""
+    raw = (
+        "| | summary of conversation |\n"
+        "|---|---|\n"
+        "Here is the deployment overview:\n\n"
+        "| Service | Status | Version |\n"
+        "|---|---|---|\n"
+        "| auth | active | v1.0.0 |\n"
+        "| api | active | v2.1.0 |\n\n"
+        "```python\n"
+        "# Inside code block, box and ctrl+p must be preserved\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀ 35.3K (4%) ctrl+p commands\n"
+        "```\n\n"
+        "Deployment finished successfully.\n\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 35.3K (4%) ctrl+p commands\n"
+        "ctrl+c to exit"
+    )
+    cleaned = remotes_core.sanitize_herdr_response(raw)
+    assert "| | summary of conversation |" not in cleaned
+    assert "| Service | Status | Version |" in cleaned
+    assert "| auth | active | v1.0.0 |" in cleaned
+    assert "```python" in cleaned
+    assert "Inside code block, box and ctrl+p must be preserved" in cleaned
+    assert "Deployment finished successfully." in cleaned
+    assert not cleaned.endswith("ctrl+p commands")
+    assert not cleaned.endswith("ctrl+c to exit")
+    assert "35.3K (4%)" not in cleaned.splitlines()[-1]
+
+
+def test_herdr_send_includes_raw_response_in_data():
+    """#850: Herdr send captures raw unstripped pane text in data['raw_response']."""
+    from unittest.mock import patch
+
+    raw_output = (
+        "Hello from Herdr Grok!\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀ 35.3K (4%) ctrl+p commands"
+    )
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "get" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, '{"result":{"agent":{"agent_status":"idle","last_seq":10}}}', ""
+            )
+        if "read" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps({"text": raw_output}), ""
+            )
+        return subprocess.CompletedProcess(
+            argv, 0, '{"type":"agent_prompted"}', ""
+        )
+
+    res = _run_herdr_send_with_runner(runner)
+    assert res.ok is True
+    assert res.data["text"] == "Hello from Herdr Grok!"
+    assert "ctrl+p commands" not in res.data["text"]
+    assert res.data["raw_response"] == raw_output
+
+
+def test_read_herdr_recent_raw_and_sanitized():
+    """#850: read_herdr_recent_raw returns unstripped pane text, read_herdr_recent sanitizes."""
+    from unittest.mock import patch
+
+    raw_pane = (
+        "| | summary of conversation |\n"
+        "Recent terminal status\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀ 35.3K (4%) ctrl+p commands"
+    )
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "read" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps({"text": raw_pane}), ""
+            )
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    client = HerdrClient(runner=runner)
+    with patch("swarm.core.remote_teams.herdr_client_from_settings", return_value=client):
+        raw = remotes_core.read_herdr_recent_raw("grok")
+        assert raw == raw_pane
+
+        sanitized = remotes_core.read_herdr_recent("grok")
+        assert sanitized == "Recent terminal status"
+        assert "| | summary of conversation |" not in sanitized
+        assert "ctrl+p" not in sanitized

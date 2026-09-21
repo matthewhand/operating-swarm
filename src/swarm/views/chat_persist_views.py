@@ -214,7 +214,11 @@ def chat_thread(request):
         or (requested_cid and requested_cid.startswith("remote-herdr"))
     )
     if is_herdr:
-        from swarm.core.remotes import read_herdr_recent, sanitize_herdr_response
+        from swarm.core.remotes import (
+            read_herdr_recent,
+            read_herdr_recent_raw,
+            sanitize_herdr_response,
+        )
 
         target = ""
         if requested_cid and requested_cid.startswith("remote-herdr-"):
@@ -224,12 +228,14 @@ def chat_thread(request):
 
         if target:
             recent = read_herdr_recent(target)
+            raw_recent = read_herdr_recent_raw(target) or recent
             if recent:
                 if not turns:
                     turns = [
                         {
                             "role": "assistant",
                             "content": recent,
+                            "raw_response": raw_recent,
                             "ts": datetime.now(timezone.utc).isoformat(),
                         }
                     ]
@@ -238,11 +244,14 @@ def chat_thread(request):
                         {
                             "role": "assistant",
                             "content": recent,
+                            "raw_response": raw_recent,
                             "ts": datetime.now(timezone.utc).isoformat(),
                         }
                     )
         for item in turns:
             if isinstance(item, dict) and "content" in item and isinstance(item["content"], str):
+                if not item.get("raw_response"):
+                    item["raw_response"] = item["content"]
                 item["content"] = sanitize_herdr_response(item["content"])
     if (
         minted is None

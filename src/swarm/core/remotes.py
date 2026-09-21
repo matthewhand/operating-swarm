@@ -3697,46 +3697,78 @@ def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None 
 
 
 def sanitize_herdr_response(text: str) -> str:
-    """Strip Herdr banner artifacts and terminal TUI chrome (#790).
+    """Strip Herdr banner artifacts and terminal TUI chrome (#790, #850).
 
     Pane captures regularly include the CLI's persistent bottom status bar,
     progress gauges, and full-width box-drawing separators. None of that is
-    conversation — it never reaches chat output.
+    conversation — it never reaches chat output. Standard markdown pipe
+    tables and user code blocks are strictly preserved.
     """
     if not text or not isinstance(text, str):
         return ""
 
     # Characters that only appear in TUI chrome, never in prose.
     _tui_gauge_chars = re.compile(r"[▀▄▌▐░▒▓█╹▁▂▃▅▆▇]+")
-    _box_drawing = "─━│┃┄┅┆┇┈┉├┝┞┟┠┯┰┱┲┴┵┶┷┸┼╀╁╂╃╄╅╆╇╈╉╊╋"
-    _box_only = re.compile(f"^[{re.escape(_box_drawing)}\\s]+$")
+    _box_drawing_chars = "─━│┃┄┅┆┇┈┉├┝┞┟┠┯┰┱┲┴┵┶┷┸┼╀╁╂╃╄╅╆╇╈╉╊╋"
+    _box_only = re.compile(f"^[{re.escape(_box_drawing_chars)}\\s]+$")
     # Status-bar keywords the known CLIs render on their persistent bottom line.
     _status_markers = re.compile(
-        r"(ctrl\+[a-z]|commands\s*$|tokens?\s|\(\d+(?:\.\d+)?%\)|\d+(?:\.\d+)?%\s*$|^\s*⎇\s|\bv\d+(?:\.\d+)+\b)",
+        r"(ctrl\+[a-z]|commands\s*$|tokens?\s|\(\d+(?:\.\d+)?%\)|\d+(?:\.\d+)?%\s*$|^\s*⎇\s|\bv\d+(?:\.\d+)+\b|ctrl\+c\s+to\s+exit)",
         re.I,
     )
+
+    def _is_table_row(line: str) -> bool:
+        stripped = line.strip()
+        if not (stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2):
+            return False
+        if re.match(r"^\s*\|\s*\|\s*(?:summary|conversation)", stripped, re.I):
+            return False
+        if any(c in stripped for c in _box_drawing_chars) or _tui_gauge_chars.search(stripped):
+            return False
+        return True
 
     def _is_tui_chrome(line: str) -> bool:
         stripped = line.strip()
         if not stripped:
             return False
-        # A gauge run (▀▄█…) with nothing else of substance is chrome.
-        without_gauge = _tui_gauge_chars.sub("", stripped)
-        if _tui_gauge_chars.search(stripped) and len(without_gauge.strip()) <= 30:
-            return True
+        if _is_table_row(line):
+            return False
         # Box-drawing-only rule/separator lines.
         if _box_only.match(stripped):
             return True
-        # Known status-bar keyword shapes (ctrl+p commands, token tallies,
-        # %, branch chips).
-        if _status_markers.search(stripped) and len(stripped) > 12:
+        has_box = any(c in stripped for c in _box_drawing_chars)
+        has_gauge = bool(_tui_gauge_chars.search(stripped))
+        has_status = bool(_status_markers.search(stripped))
+
+        if (has_box or has_gauge) and has_status:
+            return True
+        without_gauge = _tui_gauge_chars.sub("", stripped)
+        if has_gauge and len(without_gauge.strip()) <= 40:
+            return True
+        if has_status and (has_box or has_gauge or "ctrl+" in stripped.lower()):
+            return True
+        if re.match(r"^[┃│\|\s]{2,}\s*(?:Build|Session|Task|Model|Run|\w+)", stripped) and (
+            has_box or has_gauge or has_status or "build" in stripped.lower()
+        ):
             return True
         return False
 
     lines = text.splitlines()
     cleaned = []
+    in_code_block = False
     in_header = True
     for line in lines:
+        stripped = line.strip()
+        # Preserve user code blocks entirely
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_code_block = not in_code_block
+            cleaned.append(line)
+            in_header = False
+            continue
+        if in_code_block:
+            cleaned.append(line)
+            continue
+
         if in_header:
             if re.match(
                 r"^\s*\|\s*\|\s*(?:summary\s+of\s+(?:the\s+)?conversation|conversation\s+summary|summary)\s*\|\s*$",
@@ -3746,17 +3778,53 @@ def sanitize_herdr_response(text: str) -> str:
                 continue
             if re.match(r"^\s*\|[-:\s|]+\|\s*$", line):
                 continue
-            if not line.strip() and not cleaned:
+            if not stripped and not cleaned:
                 continue
             in_header = False
+
         if _is_tui_chrome(line):
             continue
         cleaned.append(line)
+
+    while cleaned and _is_tui_chrome(cleaned[-1]):
+        cleaned.pop()
+
     return "\n".join(cleaned).strip()
 
 
-def read_herdr_recent(target: str, config: dict[str, Any] | None = None) -> str:
-    """Read recent pane text from Herdr for a given target pane/session."""
+def _herdr_raw_pane_text(payload: Any) -> str:
+    """Raw pane text from ``agent_read`` / prompt result without sanitization."""
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        text = payload.strip()
+        if text.lower() in {"agent_prompted", '{"type":"agent_prompted"}'}:
+            return ""
+        return text
+    if isinstance(payload, dict):
+        ptype = str(payload.get("type") or "").strip().lower()
+        if ptype == "agent_prompted":
+            nested = payload.get("text") or payload.get("output") or payload.get("content")
+            if nested is not None and nested is not payload:
+                return _herdr_raw_pane_text(nested)
+            return ""
+        for key in ("text", "output", "content", "message", "result"):
+            val = payload.get(key)
+            if val is payload:
+                continue
+            found = _herdr_raw_pane_text(val)
+            if found:
+                return found
+    return ""
+
+
+def _herdr_pane_text(payload: Any) -> str:
+    """Pane text from ``agent_read`` / prompt result — sanitized."""
+    return sanitize_herdr_response(_herdr_raw_pane_text(payload))
+
+
+def read_herdr_recent_raw(target: str, config: dict[str, Any] | None = None) -> str:
+    """Read raw unsanitized recent pane text from Herdr for a given target pane/session."""
     if not target or not target.strip():
         return ""
     try:
@@ -3764,36 +3832,15 @@ def read_herdr_recent(target: str, config: dict[str, Any] | None = None) -> str:
 
         client = herdr_client_from_settings(config=config)
         read = client.agent_read(target.strip(), source="recent", fmt="text")
-        return sanitize_herdr_response(_herdr_pane_text(read))
+        return _herdr_raw_pane_text(read)
     except Exception:
-        logger.debug("Failed to read recent Herdr pane text for target %s", target, exc_info=True)
+        logger.debug("Failed to read raw recent Herdr pane text for target %s", target, exc_info=True)
         return ""
 
 
-def _herdr_pane_text(payload: Any) -> str:
-    """Pane text from ``agent_read`` / prompt result — never the agent_prompted ACK."""
-    if payload is None:
-        return ""
-    if isinstance(payload, str):
-        text = payload.strip()
-        if text.lower() in {"agent_prompted", '{"type":"agent_prompted"}'}:
-            return ""
-        return sanitize_herdr_response(text)
-    if isinstance(payload, dict):
-        ptype = str(payload.get("type") or "").strip().lower()
-        if ptype == "agent_prompted":
-            nested = payload.get("text") or payload.get("output") or payload.get("content")
-            if nested is not None and nested is not payload:
-                return _herdr_pane_text(nested)
-            return ""
-        for key in ("text", "output", "content", "message", "result"):
-            val = payload.get(key)
-            if val is payload:
-                continue
-            found = _herdr_pane_text(val)
-            if found:
-                return sanitize_herdr_response(found)
-    return ""
+def read_herdr_recent(target: str, config: dict[str, Any] | None = None) -> str:
+    """Read recent pane text from Herdr for a given target pane/session."""
+    return sanitize_herdr_response(read_herdr_recent_raw(target, config=config))
 
 
 def _herdr_reply_after_timeout(
@@ -3958,7 +4005,13 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
                     op="send",
                     ok=True,
                     detail=f"Herdr reply from {target} via {hop} (recovered after the wait timeout)",
-                    data={"target": target, "text": rescued, "response": rescued, "transport": mode},
+                    data={
+                        "target": target,
+                        "text": rescued,
+                        "response": rescued,
+                        "raw_response": rescued,
+                        "transport": mode,
+                    },
                 )
             return OperateResult(
                 remote="herdr",
@@ -3971,14 +4024,20 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
         return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
     except Exception as exc:
         return OperateResult(remote="herdr", op="send", ok=False, detail=f"Herdr send failed: {exc}")
-    text = _herdr_pane_text(read) or _herdr_pane_text(payload)
+    raw_text = _herdr_raw_pane_text(read) or _herdr_raw_pane_text(payload)
+    text = sanitize_herdr_response(raw_text)
     if not text:
         return OperateResult(
             remote="herdr",
             op="send",
             ok=False,
             detail=f"Herdr wait finished for {target} via {hop} but returned no pane text",
-            data={"target": target, "response": payload, "transport": mode},
+            data={
+                "target": target,
+                "response": payload,
+                "raw_response": raw_text,
+                "transport": mode,
+            },
             gap="herdr_reply_empty",
         )
     return OperateResult(
@@ -3986,7 +4045,13 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
         op="send",
         ok=True,
         detail=f"Herdr reply from {target} via {hop}",
-        data={"target": target, "text": text, "response": text, "transport": mode},
+        data={
+            "target": target,
+            "text": text,
+            "response": text,
+            "raw_response": raw_text,
+            "transport": mode,
+        },
     )
 
 

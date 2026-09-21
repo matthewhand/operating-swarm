@@ -28,6 +28,34 @@ The conversation focused on the backend refactor.`
 | Value 1 | Value 2 |`
       expect(stripProviderArtifacts(input)).toBe(input)
     })
+
+    it('strips trailing box-drawing chrome and ctrl+p footers (#850)', () => {
+      const input = `Here is the deployment overview:
+
+| Service | Status | Version |
+|---|---|---|
+| auth | active | v1.0.0 |
+
+\`\`\`python
+# Inside code block, box and ctrl+p must be preserved
+┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀ 35.3K (4%) ctrl+p commands
+\`\`\`
+
+All finished!
+
+┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 35.3K (4%) ctrl+p commands
+ctrl+c to exit`
+
+      const result = stripProviderArtifacts(input)
+      expect(result).toContain('Here is the deployment overview:')
+      expect(result).toContain('| Service | Status | Version |')
+      expect(result).toContain('| auth | active | v1.0.0 |')
+      expect(result).toContain('```python')
+      expect(result).toContain('Inside code block, box and ctrl+p must be preserved')
+      expect(result).toContain('All finished!')
+      expect(result).not.toContain('ctrl+c to exit')
+      expect(result.endsWith('All finished!')).toBe(true)
+    })
   })
 
   describe('extractThinkingBlock', () => {
