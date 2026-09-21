@@ -12,7 +12,7 @@ import {
   type Theme,
 } from '../lib/theme'
 
-export default function ThemeToggle() {
+export default function ThemeToggle({ className = '' }: { className?: string }) {
   const [visible, setVisible] = useState<boolean>(initialNavbarThemeVisible)
   const [theme, setTheme] = useState<Theme>(initialTheme)
   // Only the setter is read (state value is tracked but never rendered).
@@ -58,7 +58,7 @@ export default function ThemeToggle() {
   return (
     <button
       type="button"
-      className="btn btn-ghost btn-sm btn-square"
+      className={`btn btn-ghost btn-sm btn-square shrink-0 ${className}`}
       aria-label={ariaLabel}
       title={`Theme: ${theme}. Click to switch to ${next}`}
       data-testid="theme-toggle-btn"

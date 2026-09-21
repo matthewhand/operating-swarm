@@ -4546,8 +4546,9 @@ const ChatPage = () => {
               agentId={activeChatAgentId}
               agentName={selectedAgentName}
             />
-            {/* #182: Compose team moved to the rail footer, above Plugins. */}
-            <ThemeToggle />
+            {/* #752: hide the dark/light toggle first on narrow viewports so the
+                agent identity and search stay prominent. */}
+            <ThemeToggle className="hidden sm:inline-flex" />
             <button
               type="button"
               className="btn btn-ghost btn-sm btn-square shrink-0"
