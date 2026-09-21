@@ -14,6 +14,11 @@ from swarm.models import UserPreference
 User = get_user_model()
 
 
+@pytest.fixture(autouse=True)
+def disable_api_auth(settings):
+    settings.ENABLE_API_AUTH = False
+
+
 @pytest.fixture
 def api_client():
     return APIClient()
@@ -44,11 +49,17 @@ def test_get_empty_when_no_row(api_client):
         "context_cull_trigger_pct",
         "context_cull_fraction_pct",
         "context_compress_api_only",
+        "theme",
+        "theme_navbar_mode",
+        "bubble_theme",
     ]
     assert body["context_auto_compress_pct"] == 80
     assert body["context_strategy"] == "compress"
     assert body["context_cull_trigger_pct"] == 90
     assert body["context_cull_fraction_pct"] == 50
+    assert body["theme"] == "system"
+    assert body["theme_navbar_mode"] == "if_not_system"
+    assert body["bubble_theme"] == ""
     blob = json.dumps(body)
     assert "api_key" not in blob
     assert "sk-" not in blob
@@ -153,19 +164,43 @@ def test_rejects_secret_shaped_extra_keys(api_client):
         "/v1/preferences/",
         {
             "favourites": [{"id": "support", "name": "Support"}],
-            "values": {"theme": "dark", "api_key": "sk-secret", "openai_token": "x"},
+            "values": {"custom_note": "hello", "api_key": "sk-secret", "openai_token": "x"},
         },
         format="json",
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["values"] == {"theme": "dark"}
+    assert body["values"] == {"custom_note": "hello"}
     blob = json.dumps(body)
     assert "sk-secret" not in blob
     assert "openai_token" not in blob
     row = UserPreference.objects.get()
     assert "api_key" not in row.values
-    assert row.values.get("theme") == "dark"
+    assert row.values.get("custom_note") == "hello"
+
+
+@pytest.mark.django_db
+def test_theme_and_display_preferences_roundtrip(api_client):
+    response = api_client.patch(
+        "/v1/preferences/",
+        {
+            "theme": "dark",
+            "theme_navbar_mode": "always",
+            "bubble_theme": "modern",
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["theme"] == "dark"
+    assert body["theme_navbar_mode"] == "always"
+    assert body["bubble_theme"] == "modern"
+
+    again = api_client.get("/v1/preferences/")
+    assert again.status_code == 200
+    assert again.json()["theme"] == "dark"
+    assert again.json()["theme_navbar_mode"] == "always"
+    assert again.json()["bubble_theme"] == "modern"
 
 
 @pytest.mark.django_db

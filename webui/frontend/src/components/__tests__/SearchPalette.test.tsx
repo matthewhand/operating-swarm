@@ -704,7 +704,7 @@ describe('SearchPalette Tech Support and Settings (#906, #908)', () => {
     u3()
 
     const { unmount: u4 } = renderPalette()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'python' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'zebra' } })
     const allOptions = screen.queryAllByRole('option')
     const settingsOptions = allOptions.filter((opt) => opt.id.startsWith('os-search-row-settings-'))
     expect(settingsOptions).toHaveLength(0)

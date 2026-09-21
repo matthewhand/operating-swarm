@@ -74,7 +74,6 @@ export default function MessageRowActions({
   onToggleThinking,
   thinkingOpen = false,
   isHerdr = false,
-  rawResponse,
   onShowRawResponse,
 }: MessageRowActionsProps) {
   const [copied, setCopied] = useState(false)

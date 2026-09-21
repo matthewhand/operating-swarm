@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import MessageRowActions from '../MessageRowActions'
 import { ChatMessageBubble } from '../ChatMessageBubble'
@@ -76,6 +76,9 @@ describe('Herdr Raw Response and Thinking Suppression (#850)', () => {
           text={thinkingText}
           streaming={false}
           isHerdr={true}
+          editing={false}
+          onCancelEdit={() => {}}
+          onSaveEdit={() => {}}
         />,
       )
 
@@ -89,6 +92,9 @@ describe('Herdr Raw Response and Thinking Suppression (#850)', () => {
           text={thinkingText}
           streaming={false}
           isHerdr={false}
+          editing={false}
+          onCancelEdit={() => {}}
+          onSaveEdit={() => {}}
         />,
       )
 

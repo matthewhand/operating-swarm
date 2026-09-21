@@ -253,7 +253,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
     'Add LLM profile', 'Advanced', 'Rate limits', 'What can be overridden per task',
   ],
   mcp: [
-    'mcp', 'tools', 'modelcontextprotocol',
+    'mcp', 'mcpServers', 'tools', 'modelcontextprotocol',
     'Configured MCP servers', 'Command', 'Args (comma-separated)',
     'Secret env name (optional)',
   ],
@@ -272,7 +272,7 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   ],
   rail: ['avatar', 'order', 'bump', 'surfaces', 'Bump completed agents to top', 'Bump scope', 'Manage surfaces'],
   'image-gen': ['image', 'images', 'generation', 'diffusion'],
-  speech: ['speech', 'tts', 'stt', 'audio', 'voice'],
+  speech: ['speech', 'tts', 'stt', 'audio', 'voice', 'read-aloud', 'read aloud'],
   system: ['system', 'sqlite', 'database', 'facts', 'config', 'Config coverage', 'env-only', 'secrets'],
   plugins: ['plugins', 'openapi', 'marketplace', 'tools', 'connectors'],
 }
@@ -2025,8 +2025,10 @@ function AestheticsPane() {
   }, [])
 
   const handleBubbleTheme = (next: string) => {
-    setBubbleThemePref(saveBubbleTheme(next))
-    setOverrideCount(overriddenBubbleThemeCount(saveBubbleTheme(next)))
+    const saved = saveBubbleTheme(next)
+    setBubbleThemePref(saved)
+    setOverrideCount(overriddenBubbleThemeCount(saved))
+    void saveUserPrefs({ bubble_theme: saved })
   }
 
   // #676: bring every overridden agent onto the selected default.
@@ -2233,11 +2235,13 @@ function GeneralPane({
   const handleThemeChange = (value: Theme) => {
     setThemePref(value)
     dispatchSetTheme(value)
+    void saveUserPrefs({ theme: value })
   }
 
   const handleNavbarModeChange = (mode: NavbarThemeToggleMode) => {
     setNavbarMode(mode)
     dispatchSetNavbarThemeMode(mode)
+    void saveUserPrefs({ theme_navbar_mode: mode })
   }
 
   return (

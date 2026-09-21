@@ -30,6 +30,8 @@ export interface ChatBubble {
   subagentFanOut?: import('./subagentFanOut').SubagentFanOutData
   /** #527 — openai-agents persona that produced the row, when the server says. */
   persona?: string
+  /** #850 — original Herdr pane payload, kept for the Raw Response modal. */
+  rawResponse?: string
   /** Blocking ``ask_user`` card or a non-blocking ```question fence (ChatMessage parity). */
   question?: import('./decisionQuestion').DecisionQuestion
   questionBlocking?: boolean

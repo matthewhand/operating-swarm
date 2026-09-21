@@ -62,6 +62,18 @@ PREF_REGISTRY: dict[str, dict[str, str]] = {
         "type": "boolean",
         "description": "Enable API-only mode — skip compression/culling for CLI agents.",
     },
+    "theme": {
+        "type": "enum_theme",
+        "description": "UI theme preference (system, light, dark).",
+    },
+    "theme_navbar_mode": {
+        "type": "enum_navbar_mode",
+        "description": "Top navbar theme toggle visibility mode (if_not_system, always, never).",
+    },
+    "bubble_theme": {
+        "type": "bubble_theme_string",
+        "description": "Chat message bubble styling theme.",
+    },
 }
 
 SECRET_KEY_FRAGMENTS = (
@@ -82,6 +94,17 @@ AUTO_COMPRESS_KEY = AUTO_COMPRESS_PCT_KEY
 CONTEXT_STRATEGY = CONTEXT_STRATEGY_KEY
 CULL_TRIGGER_KEY = CULL_TRIGGER_PCT_KEY
 CULL_FRACTION_KEY = CULL_FRACTION_PCT_KEY
+THEME_KEY = "theme"
+THEME_NAVBAR_MODE_KEY = "theme_navbar_mode"
+BUBBLE_THEME_KEY = "bubble_theme"
+
+DEFAULT_THEME = "system"
+VALID_THEMES = ("system", "light", "dark")
+
+DEFAULT_NAVBAR_THEME_MODE = "if_not_system"
+VALID_NAVBAR_THEME_MODES = ("if_not_system", "always", "never")
+
+BUBBLE_THEME_MAX_LEN = 64
 AGENT_DROPDOWNS_KEY = "agent_dropdowns"
 HOSTNAME_MAX_LEN = 255
 AGENT_DROPDOWN_FIELDS = ("cli", "model", "remote", "blueprint", "api")
@@ -213,6 +236,27 @@ def normalize_hostname_override(raw: Any) -> str:
     return cleaned
 
 
+def normalize_theme(raw: Any) -> str:
+    if isinstance(raw, str) and raw.strip().lower() in VALID_THEMES:
+        return raw.strip().lower()
+    return DEFAULT_THEME
+
+
+def normalize_theme_navbar_mode(raw: Any) -> str:
+    if isinstance(raw, str) and raw.strip().lower() in VALID_NAVBAR_THEME_MODES:
+        return raw.strip().lower()
+    return DEFAULT_NAVBAR_THEME_MODE
+
+
+def normalize_bubble_theme(raw: Any) -> str:
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raw = str(raw)
+    cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_").strip().lower()
+    return cleaned[:BUBBLE_THEME_MAX_LEN]
+
+
 def empty_values() -> dict[str, Any]:
     return {
         FAVOURITES_KEY: [],
@@ -222,6 +266,9 @@ def empty_values() -> dict[str, Any]:
         CONTEXT_STRATEGY: DEFAULT_CONTEXT_STRATEGY,
         CULL_TRIGGER_KEY: DEFAULT_CULL_TRIGGER_PCT,
         CULL_FRACTION_KEY: DEFAULT_CULL_FRACTION_PCT,
+        THEME_KEY: DEFAULT_THEME,
+        THEME_NAVBAR_MODE_KEY: DEFAULT_NAVBAR_THEME_MODE,
+        BUBBLE_THEME_KEY: "",
     }
 
 
@@ -246,6 +293,12 @@ def coerce_values(raw: Any) -> dict[str, Any]:
             out[key] = normalize_cull_trigger_pct(value)
         elif key == CULL_FRACTION_KEY:
             out[key] = normalize_cull_fraction_pct(value)
+        elif key == THEME_KEY:
+            out[key] = normalize_theme(value)
+        elif key == THEME_NAVBAR_MODE_KEY:
+            out[key] = normalize_theme_navbar_mode(value)
+        elif key == BUBBLE_THEME_KEY:
+            out[key] = normalize_bubble_theme(value)
         elif key == AGENT_DROPDOWNS_KEY:
             out[key] = normalize_agent_dropdowns(value)
         else:
@@ -257,6 +310,9 @@ def coerce_values(raw: Any) -> dict[str, Any]:
     out.setdefault(CONTEXT_STRATEGY, DEFAULT_CONTEXT_STRATEGY)
     out.setdefault(CULL_TRIGGER_KEY, DEFAULT_CULL_TRIGGER_PCT)
     out.setdefault(CULL_FRACTION_KEY, DEFAULT_CULL_FRACTION_PCT)
+    out.setdefault(THEME_KEY, DEFAULT_THEME)
+    out.setdefault(THEME_NAVBAR_MODE_KEY, DEFAULT_NAVBAR_THEME_MODE)
+    out.setdefault(BUBBLE_THEME_KEY, "")
     return out
 
 
@@ -280,6 +336,12 @@ def merge_values(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, An
             merged[key] = normalize_cull_trigger_pct(value)
         elif key == CULL_FRACTION_KEY:
             merged[key] = normalize_cull_fraction_pct(value)
+        elif key == THEME_KEY:
+            merged[key] = normalize_theme(value)
+        elif key == THEME_NAVBAR_MODE_KEY:
+            merged[key] = normalize_theme_navbar_mode(value)
+        elif key == BUBBLE_THEME_KEY:
+            merged[key] = normalize_bubble_theme(value)
         elif key == AGENT_DROPDOWNS_KEY:
             merged[key] = normalize_agent_dropdowns(value)
         else:
@@ -315,6 +377,9 @@ def public_payload(
         CONTEXT_STRATEGY: normalize_context_strategy(bag.get(CONTEXT_STRATEGY)),
         CULL_TRIGGER_KEY: normalize_cull_trigger_pct(bag.get(CULL_TRIGGER_KEY)),
         CULL_FRACTION_KEY: normalize_cull_fraction_pct(bag.get(CULL_FRACTION_KEY)),
+        THEME_KEY: normalize_theme(bag.get(THEME_KEY)),
+        THEME_NAVBAR_MODE_KEY: normalize_theme_navbar_mode(bag.get(THEME_NAVBAR_MODE_KEY)),
+        BUBBLE_THEME_KEY: normalize_bubble_theme(bag.get(BUBBLE_THEME_KEY)),
         "values": extras_bag(bag),
         "registry": [
             {"key": key, **meta} for key, meta in PREF_REGISTRY.items()
@@ -326,22 +391,30 @@ def public_payload(
 __all__ = [
     "AGENT_DROPDOWNS_KEY",
     "AUTO_COMPRESS_KEY",
+    "BUBBLE_THEME_KEY",
     "CONTEXT_STRATEGY",
     "CULL_FRACTION_KEY",
     "CULL_TRIGGER_KEY",
+    "DEFAULT_NAVBAR_THEME_MODE",
+    "DEFAULT_THEME",
     "FAVOURITES_KEY",
     "HIDDEN_KEY",
     "HOSTNAME_KEY",
     "PREF_REGISTRY",
+    "THEME_KEY",
+    "THEME_NAVBAR_MODE_KEY",
     "coerce_values",
     "empty_values",
     "extras_bag",
     "is_secret_key",
     "merge_values",
     "normalize_agent_dropdowns",
+    "normalize_bubble_theme",
     "normalize_favourites",
     "normalize_hostname_override",
     "normalize_id_list",
+    "normalize_theme",
+    "normalize_theme_navbar_mode",
     "preference_identity",
     "public_payload",
     "token_principal",

@@ -47,6 +47,21 @@ import {
   parseCullTriggerPct,
   type ContextStrategy,
 } from './contextCull'
+import {
+  initialNavbarThemeMode,
+  initialTheme,
+  persistNavbarThemeMode,
+  persistTheme,
+  dispatchSetNavbarThemeMode,
+  dispatchSetTheme,
+  type NavbarThemeToggleMode,
+  type Theme,
+} from './theme'
+import {
+  loadBubbleTheme,
+  saveBubbleTheme,
+  type BubbleTheme,
+} from './bubbleTheme'
 
 export type { ContextStrategy } from './contextCull'
 
@@ -82,6 +97,9 @@ export interface UserPrefs {
   context_strategy: ContextStrategy
   context_cull_trigger_pct: number
   context_cull_fraction_pct: number
+  theme?: Theme
+  theme_navbar_mode?: NavbarThemeToggleMode
+  bubble_theme?: string
   values?: Record<string, unknown>
   agent_dropdowns: AgentDropdowns
 }
@@ -151,6 +169,18 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
     rec.context_cull_fraction_pct !== undefined
       ? rec.context_cull_fraction_pct
       : values.context_cull_fraction_pct
+  const themeRaw = rec.theme ?? values.theme
+  const theme: Theme | undefined =
+    themeRaw === 'light' || themeRaw === 'dark' || themeRaw === 'system'
+      ? themeRaw
+      : undefined
+  const navbarModeRaw = rec.theme_navbar_mode ?? values.theme_navbar_mode
+  const themeNavbarMode: NavbarThemeToggleMode | undefined =
+    navbarModeRaw === 'if_not_system' || navbarModeRaw === 'always' || navbarModeRaw === 'never'
+      ? navbarModeRaw
+      : undefined
+  const bubbleThemeRaw = rec.bubble_theme ?? values.bubble_theme
+  const bubbleTheme = typeof bubbleThemeRaw === 'string' ? bubbleThemeRaw.trim() : undefined
   return {
     object: 'user_preferences',
     principal: typeof rec.principal === 'string' ? rec.principal : '',
@@ -163,6 +193,9 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
     context_strategy: parseContextStrategy(strategyRaw ?? DEFAULT_CONTEXT_STRATEGY),
     context_cull_trigger_pct: parseCullTriggerPct(cullTriggerRaw),
     context_cull_fraction_pct: parseCullFractionPct(cullFractionRaw),
+    theme,
+    theme_navbar_mode: themeNavbarMode,
+    bubble_theme: bubbleTheme,
     values,
     agent_dropdowns:
       Object.keys(fromTop).length > 0 ? fromTop : fromValues,
@@ -199,11 +232,25 @@ export function applyPrefsToLocal(prefs: {
   favourites: PinnedAgent[]
   hidden_agents: string[]
   hostname_override?: string
+  theme?: Theme
+  theme_navbar_mode?: NavbarThemeToggleMode
+  bubble_theme?: string
 }): void {
   savePinnedAgents(prefs.favourites)
   saveHiddenAgentIds(prefs.hidden_agents)
   if (typeof prefs.hostname_override === 'string') {
     applyHostnameOverride(prefs.hostname_override)
+  }
+  if (prefs.theme) {
+    persistTheme(prefs.theme)
+    dispatchSetTheme(prefs.theme)
+  }
+  if (prefs.theme_navbar_mode) {
+    persistNavbarThemeMode(prefs.theme_navbar_mode)
+    dispatchSetNavbarThemeMode(prefs.theme_navbar_mode)
+  }
+  if (typeof prefs.bubble_theme === 'string' && prefs.bubble_theme.length > 0) {
+    saveBubbleTheme(prefs.bubble_theme as BubbleTheme)
   }
 }
 
@@ -261,6 +308,9 @@ export async function saveUserPrefs(patch: {
   context_strategy?: ContextStrategy
   context_cull_trigger_pct?: number
   context_cull_fraction_pct?: number
+  theme?: Theme
+  theme_navbar_mode?: NavbarThemeToggleMode
+  bubble_theme?: string
   values?: Record<string, unknown>
   agent_dropdowns?: AgentDropdowns
 }): Promise<UserPrefs | null> {
@@ -272,6 +322,9 @@ export async function saveUserPrefs(patch: {
     patch.context_strategy === undefined &&
     patch.context_cull_trigger_pct === undefined &&
     patch.context_cull_fraction_pct === undefined &&
+    patch.theme === undefined &&
+    patch.theme_navbar_mode === undefined &&
+    patch.bubble_theme === undefined &&
     patch.values === undefined &&
     patch.agent_dropdowns === undefined
   ) {
@@ -293,6 +346,9 @@ export async function saveUserPrefs(patch: {
   if (patch.context_cull_fraction_pct !== undefined) {
     body.context_cull_fraction_pct = parseCullFractionPct(patch.context_cull_fraction_pct)
   }
+  if (patch.theme !== undefined) body.theme = patch.theme
+  if (patch.theme_navbar_mode !== undefined) body.theme_navbar_mode = patch.theme_navbar_mode
+  if (patch.bubble_theme !== undefined) body.bubble_theme = patch.bubble_theme
   const values = { ...(patch.values || {}) }
   if (patch.agent_dropdowns !== undefined) values.agent_dropdowns = patch.agent_dropdowns
   if (Object.keys(values).length > 0) body.values = values
@@ -379,6 +435,9 @@ export async function hydrateRailPrefs(
       hidden_agents: local.hidden,
       hostname_override: local.hostnameOverride,
       agent_dropdowns: localDropdowns,
+      theme: initialTheme(),
+      theme_navbar_mode: initialNavbarThemeMode(),
+      bubble_theme: loadBubbleTheme(),
     })
     return { ...local, source: 'import' }
   }

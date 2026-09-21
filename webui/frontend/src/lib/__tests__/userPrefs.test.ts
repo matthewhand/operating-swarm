@@ -3,6 +3,7 @@ import { HIDDEN_AGENTS_STORAGE_KEY } from '../hiddenAgents'
 import { DEFAULT_PINNED_SUPPORT, PINNED_AGENTS_STORAGE_KEY } from '../pinnedAgents'
 import { HOSTNAME_OVERRIDE_KEY } from '../settingsPrefs'
 import { AGENT_DROPDOWNS_STORAGE_KEY } from '../agentSettings'
+import { BUBBLE_THEME_STORAGE_KEY } from '../bubbleTheme'
 import {
   USER_PREFS_CHANGED_EVENT,
   USER_PREFS_PATH,
@@ -76,6 +77,9 @@ describe('userPrefs', () => {
       context_strategy: 'compress',
       context_cull_trigger_pct: 90,
       context_cull_fraction_pct: 50,
+      theme: undefined,
+      theme_navbar_mode: undefined,
+      bubble_theme: undefined,
       values: {},
       agent_dropdowns: {},
     })
@@ -336,5 +340,104 @@ describe('userPrefs', () => {
     window.removeEventListener(USER_PREFS_CHANGED_EVENT, onChange)
     expect(saved).toBeNull()
     expect(seen).toHaveLength(0)
+  })
+
+  it('parses theme, theme_navbar_mode, and bubble_theme from payload or values', () => {
+    const top = parseUserPrefs({
+      object: 'user_preferences',
+      empty: false,
+      favourites: [],
+      hidden_agents: [],
+      hostname_override: '',
+      theme: 'dark',
+      theme_navbar_mode: 'always',
+      bubble_theme: 'cyberpunk',
+    })
+    expect(top?.theme).toBe('dark')
+    expect(top?.theme_navbar_mode).toBe('always')
+    expect(top?.bubble_theme).toBe('cyberpunk')
+
+    const nested = parseUserPrefs({
+      object: 'user_preferences',
+      empty: false,
+      favourites: [],
+      hidden_agents: [],
+      hostname_override: '',
+      values: {
+        theme: 'light',
+        theme_navbar_mode: 'never',
+        bubble_theme: 'whatsapp',
+      },
+    })
+    expect(nested?.theme).toBe('light')
+    expect(nested?.theme_navbar_mode).toBe('never')
+    expect(nested?.bubble_theme).toBe('whatsapp')
+  })
+
+  it('saveUserPrefs writes theme, theme_navbar_mode, and bubble_theme to PATCH body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        object: 'user_preferences',
+        empty: false,
+        favourites: [],
+        hidden_agents: [],
+        hostname_override: '',
+        theme: 'dark',
+        theme_navbar_mode: 'always',
+        bubble_theme: 'cyberpunk',
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const saved = await saveUserPrefs({
+      theme: 'dark',
+      theme_navbar_mode: 'always',
+      bubble_theme: 'cyberpunk',
+    })
+    expect(saved?.theme).toBe('dark')
+    expect(saved?.theme_navbar_mode).toBe('always')
+    expect(saved?.bubble_theme).toBe('cyberpunk')
+    const call = fetchMock.mock.calls.find((entry) => entry[1]?.method === 'PATCH')
+    const body = JSON.parse(String(call?.[1]?.body || '{}'))
+    expect(body.theme).toBe('dark')
+    expect(body.theme_navbar_mode).toBe('always')
+    expect(body.bubble_theme).toBe('cyberpunk')
+  })
+
+  it('hydrateRailPrefs imports local theme, navbar mode, and bubble theme when server is empty', async () => {
+    localStorage.setItem('swarm_theme', 'light')
+    localStorage.setItem('swarm_theme_navbar_mode', 'always')
+    localStorage.setItem(BUBBLE_THEME_STORAGE_KEY, 'irc')
+
+    const fetchMock = vi.fn().mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method || 'GET'
+      if (method === 'GET') {
+        return Promise.resolve(
+          jsonResponse({
+            object: 'user_preferences',
+            empty: true,
+            favourites: [],
+            hidden_agents: [],
+            hostname_override: '',
+          }),
+        )
+      }
+      return Promise.resolve(
+        jsonResponse({
+          object: 'user_preferences',
+          empty: false,
+          ...JSON.parse(String(init?.body || '{}')),
+        }),
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const next = await hydrateRailPrefs()
+    expect(next.source).toBe('import')
+    const patchCall = fetchMock.mock.calls.find((entry) => entry[1]?.method === 'PATCH')
+    expect(patchCall).toBeTruthy()
+    const patchBody = JSON.parse(String(patchCall?.[1]?.body || '{}'))
+    expect(patchBody.theme).toBe('light')
+    expect(patchBody.theme_navbar_mode).toBe('always')
+    expect(patchBody.bubble_theme).toBe('irc')
   })
 })

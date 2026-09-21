@@ -120,6 +120,9 @@ function renderChat(entry: string, narrow = false) {
 describe('REQ-865: responsive navbar element prioritization (#255)', () => {
   beforeEach(() => {
     localStorage.clear()
+    // #847: the toggle defaults to 'if_not_system' and the suite runs on the
+    // system theme — these tests assert the toggle is present, so force it on.
+    localStorage.setItem('swarm_theme_navbar_mode', 'always')
     stubGlobals()
   })
 
