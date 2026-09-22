@@ -7,6 +7,7 @@ import AgentRouterPage from '../AgentRouterPage'
 import { useAgentStore } from '../../lib/agent-store'
 import { OPEN_TEAMS_EVENT } from '../../lib/chromeOverlay'
 import * as agentApi from '../../lib/agent-api'
+import { createTeam } from '../../lib/api'
 import type { Agent, DelegationEvent } from '../../types/agent'
 
 vi.mock('../../lib/agent-api', () => ({
@@ -609,20 +610,19 @@ describe('AgentRouterPage integration', () => {
     expect(within(header).queryByRole('button', { name: 'Router' })).toBeNull()
     expect(within(header).queryByRole('button', { name: /Consensus/i })).toBeNull()
 
-    // #930: Teams opens via the chrome overlay event (the deleted sidebar
-    // used to host the button; the overlay is the canonical trigger).
-    fireEvent(window, new Event(OPEN_TEAMS_EVENT))
-    const dialog = await screen.findByRole('dialog')
+    // #984: the strategy selector is page-owned in the composer dock — the
+    // deleted sidebar used to host the pills, and the redesigned TeamsSheet
+    // (#763) is a registry that no longer carries them.
+    const strategy = screen.getByRole('combobox', { name: 'Routing strategy' })
+    expect(strategy).toHaveValue('auto_route')
 
     // 1. Switch to Direct
-    const directBtn = within(dialog).getByRole('button', { name: 'Direct' })
-    fireEvent.click(directBtn)
+    fireEvent.change(strategy, { target: { value: 'direct' } })
     expect(useAgentStore.getState().routingStrategy).toBe('direct')
-    expect(screen.getByPlaceholderText(/Message Agent Router directly…/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Message .* directly…/i)).toBeInTheDocument()
 
-    // 2. Switch to Consensus (in dialog)
-    const consensusBtn = within(dialog).getByRole('button', { name: /Consensus/i })
-    fireEvent.click(consensusBtn)
+    // 2. Switch to Consensus
+    fireEvent.change(strategy, { target: { value: 'consensus' } })
     expect(useAgentStore.getState().routingStrategy).toBe('consensus')
     expect(screen.getByPlaceholderText(/Query the multi-agent consensus panel…/i)).toBeInTheDocument()
 
@@ -642,13 +642,11 @@ describe('AgentRouterPage integration', () => {
     })
 
     // 4. Switch to Router
-    const routerBtn = within(dialog).getByRole('button', { name: 'Router' })
-    fireEvent.click(routerBtn)
+    fireEvent.change(strategy, { target: { value: 'router' } })
     expect(useAgentStore.getState().routingStrategy).toBe('router')
 
     // 5. Switch back to Auto Route
-    const autoRouteBtn = within(dialog).getByRole('button', { name: 'Auto Route' })
-    fireEvent.click(autoRouteBtn)
+    fireEvent.change(strategy, { target: { value: 'auto_route' } })
     expect(useAgentStore.getState().routingStrategy).toBe('auto_route')
   })
 
@@ -807,31 +805,26 @@ describe('AgentRouterPage integration', () => {
     const header = screen.getByRole('banner')
     expect(within(header).queryByRole('combobox', { name: 'Team' })).toBeNull()
 
-    // #930: Teams opens via the chrome overlay event (the deleted sidebar
-    // used to host the button; the overlay is the canonical trigger).
+    // #984: the Teams overlay is a registry (redesigned by #763) — browsing
+    // registered teams and creating new ones. The save-current-selection
+    // flow lives in TeamComposer (#780), not here.
     fireEvent(window, new Event(OPEN_TEAMS_EVENT))
     const dialog = await screen.findByRole('dialog')
 
-    const select = within(dialog).getByRole('combobox', { name: 'Team' })
-    expect(select).toHaveDisplayValue('Unsaved')
+    expect(within(dialog).getByRole('button', { name: '+ New Team' })).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ New Team' }))
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save as team' }))
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'New team name' }), {
+    const form = await within(dialog).findByRole('form', { name: 'Create team' })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Team name' }), {
       target: { value: 'Night shift' },
     })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    fireEvent.submit(within(form).getByRole('button', { name: 'Create team' }))
 
     await waitFor(() => {
-      expect(within(dialog).getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Night shift')
-    })
-    expect(useAgentStore.getState().activeTeamId).toBe('night-shift')
-    expect(useAgentStore.getState().teams.some((t) => t.id === 'unsaved')).toBe(true)
-
-    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Team' }), {
-      target: { value: 'unsaved' },
-    })
-    await waitFor(() => {
-      expect(within(dialog).getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Unsaved')
+      expect(createTeam).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Night shift' }),
+        expect.anything(),
+      )
     })
   })
 

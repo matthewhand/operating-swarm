@@ -20,7 +20,7 @@ import {
   Users,
   Plus,
 } from 'lucide-react'
-import type { Agent, ChatMessage } from '../types/agent'
+import type { Agent, ChatMessage, RoutingStrategy } from '../types/agent'
 import { agentTypeLabel, defaultRemoteMemberId, remoteMembersOf } from '../lib/agent-types'
 import { isSupportAgent } from '../lib/starter-agents'
 import { buildSupportBriefing, inferenceConfigured, supportQuickstarts } from '../lib/support-briefing'
@@ -131,6 +131,7 @@ export default function AgentRouterPage() {
     delegations,
     selectedCommDelegation,
     setAgents,
+    setRoutingStrategy,
     toggleSidebar,
     roleAssignments,
     setAgentRole,
@@ -954,6 +955,23 @@ export default function AgentRouterPage() {
               >
                 {sessionModeLabel(sessionMode)}
               </button>
+              {/* Routing strategy selector — re-homed here by #984. The
+                  deleted /agents sidebar used to host these pills; the
+                  redesigned TeamsSheet (#763) is a registry and no longer
+                  carries them, so the control is page-owned (#930 doctrine).
+                  A select (combobox) keeps the dock one control wide. */}
+              <select
+                value={routingStrategy}
+                onChange={(e) => setRoutingStrategy(e.target.value as RoutingStrategy)}
+                aria-label="Routing strategy"
+                title="Auto Route delegates per agent; Direct talks to the selection; Router decides; Consensus asks the panel"
+                className="btn btn-ghost btn-sm rounded-full border border-base-300/80 px-3 font-medium shrink-0"
+              >
+                <option value="auto_route">Auto Route</option>
+                <option value="direct">Direct</option>
+                <option value="router">Router</option>
+                <option value="consensus">Consensus</option>
+              </select>
               <div className="relative flex-1 min-w-0">
               <input
                 ref={inputRef}
