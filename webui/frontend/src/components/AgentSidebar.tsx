@@ -23,7 +23,6 @@ import {
   X,
 } from 'lucide-react'
 import AgentCalendarView from './AgentCalendarView'
-import AddAgentWizard, { type AgentKind } from './AddAgentWizard'
 import {
   UNREAD_CHANGED_EVENT,
   loadUnreadAgentIds,
@@ -113,7 +112,6 @@ import {
 import {
   FOCUS_AGENT_EVENT,
   NOTIFY_CHANGED_EVENT,
-  NOTIFY_HINT_COPY,
   chatHrefForRowId,
   disableAgentNotify,
   enableAgentNotifications,
@@ -274,7 +272,6 @@ import { OPEN_TEAM_COMPOSER_EVENT, TEAM_CREATED_EVENT } from './TeamComposer'
 import { openSettingsSheet } from './SettingsSheet'
 import { OPEN_PLUGINS_EVENT } from '../lib/chromeOverlay'
 import { useCurrentAgent, isSwarmOwnedSeat } from '../lib/currentAgent'
-import { ConfirmModal } from './DaisyUI'
 import RailContextMenu from './RailContextMenu'
 import RailSectionHeader, { RailSectionEmpty } from './RailSectionHeader'
 import StackedAvatars from './StackedAvatars'
@@ -311,6 +308,8 @@ import {
   toSidebarHerdr,
 } from '../features/sidebar/rows'
 import { useRailResize } from './sidebar/useRailResize'
+import type { AgentKind } from './AddAgentWizard'
+import { RailOverlays } from './sidebar/RailOverlays'
 export const OPEN_CALENDAR_EVENT = 'open-calendar-view'
 export default function AgentSidebar({
   open = false,
@@ -3945,74 +3944,21 @@ export default function AgentSidebar({
           onSelect={handleSectionMenuSelect}
         />
       )}
-      {paneMenu && (
-        <RailContextMenu
-          agentName="Side pane"
-          x={paneMenu.x}
-          y={paneMenu.y}
-          items={paneMenuItems()}
-          menuRef={menuRef}
-          onSelect={handlePaneMenuSelect}
-        />
-      )}
-      {deleteConfirm && (
-        <ConfirmModal
-          isOpen
-          onClose={() => setDeleteConfirm(null)}
-          onConfirm={confirmDeleteRow}
-          title={`Delete ${deleteConfirm.agentName}?`}
-          confirmText="Delete"
-          cancelText="Cancel"
-          confirmVariant="error"
-        >
-          <p>
-            {deleteConfirm.kind === 'cli'
-              ? 'This removes the CLI agent from the rail. It does not uninstall the CLI on this machine.'
-              : deleteConfirm.kind === 'remote'
-                ? 'This removes the configured remote from swarm. It does not change the far-side host.'
-                : 'This deletes the local entity and removes it from the rail. This cannot be undone from Hidden Agents.'}
-          </p>
-        </ConfirmModal>
-      )}
-      {notifyHint ? (
-        <div
-          role="status"
-          data-testid="notify-permission-hint"
-          data-outcome={notifyHint.outcome}
-          className="fixed bottom-4 right-4 z-50 max-w-xs rounded-lg border border-base-300 bg-neutral px-3 py-2 text-sm shadow-xl"
-        >
-          <span className="block">
-            {notifyHint.requestFailed
-              ? 'The browser blocked the permission request before it could show a prompt. Try again.'
-              : NOTIFY_HINT_COPY[notifyHint.outcome]}
-          </span>
-          <span className="mt-1 flex items-center gap-2">
-            {notifyHint.outcome === 'never-asked' ? (
-              <button
-                type="button"
-                className="link link-primary text-xs"
-                data-testid="notify-permission-retry"
-                onClick={() => void retryNotifyPermission()}
-              >
-                Try again
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="link text-xs opacity-70"
-              data-testid="notify-permission-dismiss"
-              onClick={() => setNotifyHint(null)}
-            >
-              Dismiss
-            </button>
-          </span>
-        </div>
-      ) : null}
-      <AddAgentWizard
-        isOpen={addWizardOpen}
-        onClose={() => setAddWizardOpen(false)}
-        onCreated={handleAgentCreated}
-        onSelectAgent={handleAgentSelected}
+      <RailOverlays
+        paneMenu={paneMenu}
+        paneMenuItems={paneMenuItems}
+        onPaneMenuSelect={handlePaneMenuSelect}
+        deleteConfirm={deleteConfirm}
+        onDeleteCancel={() => setDeleteConfirm(null)}
+        onDeleteConfirm={confirmDeleteRow}
+        notifyHint={notifyHint}
+        onNotifyRetry={() => void retryNotifyPermission()}
+        onNotifyDismiss={() => setNotifyHint(null)}
+        addWizardOpen={addWizardOpen}
+        onAddWizardClose={() => setAddWizardOpen(false)}
+        onAddWizardCreated={handleAgentCreated}
+        onAddWizardSelect={handleAgentSelected}
+        menuRef={menuRef}
       />
     </>
   )
