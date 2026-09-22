@@ -18,6 +18,8 @@ import { join } from 'node:path'
 const src = (p: string) => readFileSync(join(__dirname, '..', '..', p), 'utf8')
 const css = () => src('index.css')
 const sidebar = () => src('components/AgentSidebar.tsx')
+// #856 slice C: the drag handlers moved to the sidebar's resize hook.
+const sidebarResizeHook = () => src('components/sidebar/useRailResize.ts')
 
 function ruleBlock(text: string, selector: string): string {
   const at = text.indexOf(selector)
@@ -47,7 +49,10 @@ describe('#806 divider snap at the avatar-only threshold', () => {
   })
 
   it('the sidebar drag handlers use the snapping clamp', () => {
-    expect(sidebar()).toMatch(/snapRailWidth\(/)
+    // #856 slice C: the drag handlers live in sidebar/useRailResize.ts; the
+    // sidebar consumes them via useRailResize.
+    expect(sidebarResizeHook()).toMatch(/snapRailWidth\(/)
+    expect(sidebar()).toMatch(/useRailResize\(/)
   })
 })
 
