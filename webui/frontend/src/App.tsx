@@ -20,6 +20,7 @@ import CommandPalette from './experimental/CommandPalette'
 import { isExperimentalEnabled } from './experimental/flags'
 import { useLeftEdgeSwipe } from './lib/leftEdgeSwipe'
 import { isNarrowViewport, subscribeNarrowViewport } from './lib/narrowViewport'
+import { useViewportTier } from './lib/responsivePrefs'
 import { dismissSwipeHint, isSwipeHintDismissed } from './lib/swipeHint'
 import {
   initialTheme,
@@ -128,6 +129,14 @@ function App() {
     dismissSwipeHint()
     setSwipeHint(false)
   }, [])
+
+  // #833: shell tier attribute — CSS adapts to the active viewport tier
+  // (mobile / tablet / desktop) without re-render latency.
+  const viewportTier = useViewportTier()
+  useEffect(() => {
+    document.documentElement.setAttribute('data-viewport', viewportTier)
+    return () => document.documentElement.removeAttribute('data-viewport')
+  }, [viewportTier])
 
   useEffect(() => {
     return subscribeNarrowViewport((next) => {

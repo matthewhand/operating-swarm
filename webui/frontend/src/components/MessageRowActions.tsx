@@ -15,6 +15,12 @@ import {
   ACTION_ROW_LABELS_CHANGED_EVENT,
   loadActionRowLabels,
 } from '../lib/actionRowLabels'
+import {
+  ACTIONS_PREFS_CHANGED_EVENT,
+  loadActionsAlwaysVisible,
+  useResponsivePref,
+  useViewportTier,
+} from '../lib/responsivePrefs'
 
 /**
  * Message action/reaction row (#70 / REQ-103 / REQ-869 / #578 / #850).
@@ -78,6 +84,21 @@ export default function MessageRowActions({
 }: MessageRowActionsProps) {
   const [copied, setCopied] = useState(false)
   const [labels, setLabels] = useState(() => loadActionRowLabels())
+  // #833: per-tier visibility. Touch tiers default to always-visible; the
+  // user's per-tier override (Settings → Aesthetics) replaces the default.
+  const tier = useViewportTier()
+  const tierAlwaysVisible = useResponsivePref(loadActionsAlwaysVisible())
+  const [override, setOverride] = useState(() => loadActionsAlwaysVisible())
+  useEffect(() => {
+    const sync = () => setOverride(loadActionsAlwaysVisible())
+    window.addEventListener(ACTIONS_PREFS_CHANGED_EVENT, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(ACTIONS_PREFS_CHANGED_EVENT, sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
+  const alwaysVisible = override?.[tier] ?? tierAlwaysVisible
   const { error } = useToast()
   const canCopy = messageHasCopyableText(text)
   const startFromHere = contextStrategy === 'cull'
@@ -200,7 +221,12 @@ export default function MessageRowActions({
   const row = (
     <div
       data-testid="os-message-row-actions"
-      className={`flex flex-row items-center gap-1 opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none group-hover/osrow:md:opacity-100 group-hover/osrow:md:pointer-events-auto group-focus-within/osrow:md:opacity-100 group-focus-within/osrow:md:pointer-events-auto transition-opacity${overlay ? ' os-row-actions-overlay' : ''}${
+      data-always-visible={alwaysVisible ? 'true' : undefined}
+      className={`flex flex-row items-center gap-1 transition-opacity${
+        alwaysVisible
+          ? ' opacity-100 pointer-events-auto'
+          : ' opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none group-hover/osrow:md:opacity-100 group-hover/osrow:md:pointer-events-auto group-focus-within/osrow:md:opacity-100 group-focus-within/osrow:md:pointer-events-auto'
+      }${overlay ? ' os-row-actions-overlay' : ''}${
         className ? ` ${className}` : ''
       }`}
     >
