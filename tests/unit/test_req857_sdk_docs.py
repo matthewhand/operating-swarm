@@ -22,6 +22,7 @@ REPO = SRC.parent
 # (migrations/management) is excluded; deprecated stub packages are covered
 # by the blueprint discovery doc rules instead.
 BOUNDARY_PACKAGES = [
+    "swarm/chat",
     "swarm/remotes",
     "swarm/core/remote_impls",
     "swarm/core/sandbox",
