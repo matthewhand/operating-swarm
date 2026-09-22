@@ -455,3 +455,151 @@ class TestChainRemoval:
             "_trueforge_send",
         ):
             assert legacy not in source, f"operate() still calls {legacy} directly"
+
+
+# ---------------------------------------------------------------------------
+# Slice 3: the blueprint consumes adapters polymorphically. The four streaming
+# kinds expose iter_chat() + empty_reply_hint() on the adapter; the blueprint's
+# per-kind if/elif branch and the per-kind empty-reply strings are gone.
+# ---------------------------------------------------------------------------
+
+
+def create_adapter_for_test(kind: str, spec):
+    """Resolve the real adapter for *kind* (the blueprint test path)."""
+    from swarm.remotes import registry
+
+    return registry.REMOTE_ADAPTER_REGISTRY[kind](spec)
+
+
+async def _collect(gen):
+    return [c async for c in gen]
+
+
+class TestSlice3AdapterStream:
+    @pytest.mark.parametrize(
+        "module,cls,impl",
+        [
+            ("swarm.remotes.letta", "LettaAdapter", "iter_letta_chat"),
+            ("swarm.remotes.anythingllm", "AnythingLLMAdapter", "iter_anythingllm_chat"),
+            ("swarm.remotes.flowise", "FlowiseAdapter", "iter_flowise_chat"),
+        ],
+    )
+    def test_iter_chat_forwards(self, module, cls, impl):
+        import importlib
+
+        from swarm.core import remotes
+
+        mod = importlib.import_module(module)
+        adapter_cls = getattr(mod, cls)
+        spec = _spec("letta")
+        with patch.object(remotes, impl, return_value=iter([])) as m:
+            list(adapter_cls(spec).iter_chat("hi", session_id="s1", target="t1"))
+        m.assert_called_once_with(spec, "hi", session_id="s1", target="t1")
+
+    def test_openwebui_iter_chat_forwards_to_openwebui_remote(self):
+        from swarm.remotes.openwebui import OpenWebUIAdapter
+
+        spec = _spec("openwebui")
+        with patch(
+            "swarm.core.openwebui_remote.iter_openwebui_chat", return_value=iter([])
+        ) as m:
+            list(OpenWebUIAdapter(spec).iter_chat("hi", session_id="s1", target="t1"))
+        m.assert_called_once_with(spec, "hi", session_id="s1", target="t1")
+
+    @pytest.mark.parametrize(
+        "module,cls,who,thing",
+        [
+            ("swarm.remotes.letta", "LettaAdapter", "Letta", "agent session"),
+            ("swarm.remotes.anythingllm", "AnythingLLMAdapter", "AnythingLLM", "workspace or thread session"),
+            ("swarm.remotes.flowise", "FlowiseAdapter", "Flowise", "chatflow session"),
+            ("swarm.remotes.openwebui", "OpenWebUIAdapter", "Open WebUI", "chat session"),
+        ],
+    )
+    def test_empty_reply_hint_names_the_session_kind(self, module, cls, who, thing):
+        import importlib
+
+        mod = importlib.import_module(module)
+        hint = getattr(mod, cls)(_spec("letta")).empty_reply_hint()
+        assert who in hint
+        assert thing in hint
+
+    def test_base_declares_iter_chat(self):
+        from swarm.remotes.base import RemoteAdapter
+
+        adapter = RemoteAdapter(_spec("omb"))
+        with pytest.raises(NotImplementedError):
+            next(adapter.iter_chat("hi"))
+
+    def test_registry_resolves_streaming_kinds(self):
+        from swarm.remotes.registry import create_remote_adapter
+
+        for kind in ("letta", "anythingllm", "flowise", "openwebui"):
+            adapter = create_remote_adapter(_spec(kind))
+            assert adapter is not None and hasattr(adapter, "iter_chat")
+
+
+class TestSlice3BlueprintPolymorphic:
+    @pytest.fixture
+    def bp(self):
+        from swarm.blueprints.remote_harness.blueprint_remote_harness import (
+            RemoteHarnessBlueprint,
+        )
+
+        return RemoteHarnessBlueprint(config={"llm": {}})
+
+    async def _stream(self, bp, kind):
+        from swarm.remotes import registry
+        from swarm.remotes.base import RemoteAdapter
+
+        real_cls = registry.REMOTE_ADAPTER_REGISTRY[kind]
+        stub_kind = kind
+
+        class _StubStream(real_cls if real_cls else RemoteAdapter):
+            kind = stub_kind
+
+            def iter_chat(self, prompt, *, session_id=None, target=""):
+                yield ("Hel", False, None)
+                yield ("lo", True, None)
+
+        bp.set_params(
+            {"op": "send", "name": kind, "prompt": "hi", "session_id": "docs:t1"}
+        )
+        with patch(
+            "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.kind_of_instance",
+            return_value=kind,
+        ), patch(
+            "swarm.blueprints.remote_harness.blueprint_remote_harness.remotes_core.load_remote",
+            return_value=_spec(kind),
+        ), patch.object(
+            registry, "REMOTE_ADAPTER_REGISTRY", {kind: _StubStream}
+        ):
+            chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
+        texts = []
+        for chunk in chunks:
+            msgs = chunk.get("messages") if isinstance(chunk, dict) else None
+            if msgs and msgs[0].get("content"):
+                texts.append(msgs[0]["content"])
+        return texts, chunks
+
+    @pytest.mark.parametrize("kind", ["letta", "anythingllm", "flowise", "openwebui"])
+    async def test_blueprint_streams_via_adapter(self, bp, kind):
+        texts, chunks = await self._stream(bp, kind)
+        assert "Hel" in texts
+        assert texts[-1] == "Hello"
+        assert chunks[-1].get("final") is True
+
+    def test_blueprint_source_has_no_per_kind_stream_branch(self):
+        import inspect
+
+        from swarm.blueprints.remote_harness import blueprint_remote_harness as brh
+
+        source = inspect.getsource(brh)
+        for legacy in (
+            "iter_letta_chat",
+            "iter_openwebui_chat",
+            "iter_flowise_chat",
+            "iter_anythingllm_chat",
+            'if stream_kind == "letta"',
+            'elif stream_kind == "openwebui"',
+        ):
+            assert legacy not in source, f"blueprint still branches on {legacy}"

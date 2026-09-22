@@ -12,7 +12,7 @@ fallthrough.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterator
 
 from swarm.core.remotes import OperateResult, RemoteSpec
 
@@ -89,3 +89,21 @@ class RemoteAdapter:
 
     async def list_routines(self, timeout: float = 8.0):
         raise NotImplementedError(f"{type(self).__name__}.list_routines")
+
+    # ------------------------------------------------------------------
+    # Streaming chat surface (#812 slice 3) — consumed polymorphically by
+    # blueprint_remote_harness. Yields ``(delta, done, error)`` tuples,
+    # matching the legacy ``iter_*_chat`` generators exactly.
+    # ------------------------------------------------------------------
+    def iter_chat(
+        self,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        target: str = "",
+    ) -> Iterator[tuple[str | None, bool, str | None]]:
+        raise NotImplementedError(f"{type(self).__name__}.iter_chat")
+
+    def empty_reply_hint(self) -> str:
+        """Honest sentence when a stream finished without any delta."""
+        raise NotImplementedError(f"{type(self).__name__}.empty_reply_hint")

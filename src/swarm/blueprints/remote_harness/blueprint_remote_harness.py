@@ -532,24 +532,15 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                     except remotes_core.RemoteError as exc:
                         yield support.message_chunk(str(exc), final=True)
                         return
-                    if stream_kind == "letta":
-                        iterator = remotes_core.iter_letta_chat(
-                            spec, prompt, session_id=session_id, target=target
-                        )
-                    elif stream_kind == "openwebui":
-                        from swarm.core.openwebui_remote import iter_openwebui_chat
+                    # #812 slice 3: the adapter owns the stream — no per-kind
+                    # branch here. Adding a streaming harness means one
+                    # adapter method, not another elif in the blueprint.
+                    from swarm.remotes.registry import REMOTE_ADAPTER_REGISTRY
 
-                        iterator = iter_openwebui_chat(
-                            spec, prompt, session_id=session_id, target=target
-                        )
-                    elif stream_kind == "flowise":
-                        iterator = remotes_core.iter_flowise_chat(
-                            spec, prompt, session_id=session_id, target=target
-                        )
-                    else:
-                        iterator = remotes_core.iter_anythingllm_chat(
-                            spec, prompt, session_id=session_id, target=target
-                        )
+                    adapter = REMOTE_ADAPTER_REGISTRY[stream_kind](spec)
+                    iterator = adapter.iter_chat(
+                        prompt, session_id=session_id, target=target
+                    )
                     sentinel = object()
                     while True:
                         item = await asyncio.to_thread(next, iterator, sentinel)
@@ -565,18 +556,9 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                         if done:
                             break
                     if not assembled:
-                        empty = (
-                            "Letta returned an empty reply. Pick an agent "
-                            "session and try again."
-                            if stream_kind == "letta"
-                            else "Open WebUI returned an empty reply. Pick a chat session and try again."
-                            if stream_kind == "openwebui"
-                            else "Flowise returned an empty reply. Pick a chatflow session and try again."
-                            if stream_kind == "flowise"
-                            else "AnythingLLM returned an empty reply. Pick a "
-                            "workspace or thread session and try again."
+                        yield support.message_chunk(
+                            adapter.empty_reply_hint(), final=True
                         )
-                        yield support.message_chunk(empty, final=True)
                         return
                     yield support.message_chunk(
                         assembled,

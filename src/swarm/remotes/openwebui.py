@@ -25,7 +25,11 @@ class OpenWebUIAdapter(RemoteAdapter):
         target: str = "",
         session_id: str | None = None,
     ) -> OperateResult:
-        from swarm.core.openwebui_remote import openwebui_send, send_timeout
+        from swarm.core.openwebui_remote import (
+            iter_openwebui_chat,
+            openwebui_send,
+            send_timeout,
+        )
 
         return openwebui_send(
             self.spec,
@@ -34,3 +38,13 @@ class OpenWebUIAdapter(RemoteAdapter):
             session_id=session_id,
             target=target,
         )
+
+    def iter_chat(self, prompt, *, session_id=None, target=""):
+        from swarm.core.openwebui_remote import iter_openwebui_chat
+
+        return iter_openwebui_chat(
+            self.spec, prompt, session_id=session_id, target=target
+        )
+
+    def empty_reply_hint(self) -> str:
+        return "Open WebUI returned an empty reply. Pick a chat session and try again."

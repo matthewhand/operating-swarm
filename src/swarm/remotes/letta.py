@@ -35,3 +35,13 @@ class LettaAdapter(RemoteAdapter):
         return remotes._letta_send(
             self.spec, prompt, send_timeout, session_id=session_id, target=target
         )
+
+    def iter_chat(self, prompt, *, session_id=None, target=""):
+        from swarm.core import remotes
+
+        return remotes.iter_letta_chat(
+            self.spec, prompt, session_id=session_id, target=target
+        )
+
+    def empty_reply_hint(self) -> str:
+        return "Letta returned an empty reply. Pick an agent session and try again."
