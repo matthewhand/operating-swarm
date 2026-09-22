@@ -11,7 +11,7 @@
  * blueprint list mock as "empty server").
  */
 
-import { apiGet, apiPatch, ensureCsrfCookie, isThrottleError } from './api'
+import { apiGet, apiPatch, ensureCsrfCookie, isThrottleError , withClientSource } from './api'
 import {
   hasHiddenAgentsStorage,
   loadHiddenAgentIds,
@@ -388,7 +388,10 @@ export async function saveUserPrefs(patch: {
 
   try {
     await ensureCsrfCookie()
-    const data = await apiPatch<unknown>(USER_PREFS_PATH, body)
+    // #800: provenance — this PATCH was the #738 flood; name it in 429 forensics.
+    const data = await withClientSource('saveUserPrefs', () =>
+      apiPatch<unknown>(USER_PREFS_PATH, body),
+    )
     invalidateUserPrefsCache()
     const parsed = parseUserPrefs(data)
     if (parsed && !parsed.empty) {

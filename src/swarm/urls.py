@@ -126,6 +126,10 @@ from swarm.views.mcp_plugins_api import (
     McpPluginsView,
 )
 from swarm.views.preferences_api import UserPreferencesView
+from swarm.views.telemetry_api import (
+    RequestTelemetryView,
+    ThrottleIncidentsView,
+)
 from swarm.views.rate_limits_api import RateLimitsView
 from swarm.views.remotes_api import (
     AgentTeamView,
@@ -370,6 +374,9 @@ urlpatterns = [
     ),
     path("v1/preferences", UserPreferencesView.as_view(), name="user-preferences-api-no-slash"),
     path("v1/preferences/", UserPreferencesView.as_view(), name="user-preferences-api"),
+    # #800: 429 burst diagnostics
+    path("v1/telemetry/requests/", RequestTelemetryView.as_view(), name="telemetry-requests"),
+    path("v1/telemetry/throttles/", ThrottleIncidentsView.as_view(), name="telemetry-throttles"),
     path("v1/mcp-plugins", McpPluginsView.as_view(), name="mcp-plugins-api-no-slash"),
     path("v1/mcp-plugins/", McpPluginsView.as_view(), name="mcp-plugins-api"),
     path(

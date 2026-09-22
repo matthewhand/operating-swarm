@@ -137,8 +137,41 @@ function getCookie(name: string): string | null {
   }
 }
 
+// #800: caller provenance for 429 burst forensics. When unset, the source
+// is inferred from the stack (query key / component frame); callers can set
+// it explicitly with withClientSource().
+let CLIENT_SOURCE = ''
+const SOURCE_HEADER = 'X-Swarm-Client-Source'
+
+export function withClientSource<T>(source: string, fn: () => Promise<T>): Promise<T> {
+  const previous = CLIENT_SOURCE
+  CLIENT_SOURCE = source
+  return fn().finally(() => {
+    CLIENT_SOURCE = previous
+  })
+}
+
+function inferClientSource(): string {
+  if (CLIENT_SOURCE) return CLIENT_SOURCE
+  try {
+    const frames = new Error().stack?.split('\n').slice(2, 6) ?? []
+    for (const frame of frames) {
+      const fn = frame.trim().match(/^at (\S+)/)?.[1] ?? ''
+      const clean = fn.replace(/^.+\$\d+$/, '').replace(/^\w+\$/, '')
+      if (clean && clean !== 'apiGet' && clean !== 'apiPost' && clean !== 'apiPatch' && clean !== 'apiPut') {
+        return clean.slice(0, 64)
+      }
+    }
+  } catch {
+    /* stack unavailable */
+  }
+  return ''
+}
+
 function buildHeaders(hasBody: boolean): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json' }
+  const source = inferClientSource()
+  if (source) headers[SOURCE_HEADER] = source
   const token = getAuthToken()
   if (token) {
     headers.Authorization = `Bearer ${token}`

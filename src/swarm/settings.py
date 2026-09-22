@@ -166,6 +166,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     # Add custom middleware to handle async user loading after standard auth
     'swarm.middleware.AsyncAuthMiddleware',
+    # #800: observe request cadence into the 429 burst-forensics window.
+    'swarm.middleware.RequestTelemetryMiddleware',
     'swarm.middleware.AllowAnonymousPreviewMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -262,6 +264,8 @@ REST_FRAMEWORK = {
         }
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # #800: log forensic burst telemetry when a client trips a 429.
+    'EXCEPTION_HANDLER': 'swarm.views.exception_handlers.swarm_exception_handler',
 }
 
 # Max concurrent in-flight blueprint executions for /v1/responses background work.
