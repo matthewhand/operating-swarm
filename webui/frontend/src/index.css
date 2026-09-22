@@ -738,6 +738,35 @@ html:not([data-theme="light"]) .os-composer-wrap,
   transform-box: fill-box;
   transform-origin: center;
 }
+/* #791: bouncing three-dot waiting indicator — replaces the eyes while a
+   response streams, reverts to eyes on turn completion. */
+.os-blob-waiting-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: os-blob-dot-bounce 1.05s ease-in-out infinite;
+}
+.os-blob-waiting-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.os-blob-waiting-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes os-blob-dot-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  35% {
+    transform: translateY(-3.4px);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-blob-waiting-dot {
+    animation: none;
+  }
+}
 .os-blob-avatar[data-eye-state="active"] .os-blob-body {
   animation: os-blob-jiggle var(--wt, 1.35s) ease-in-out var(--wd, 0s) infinite;
 }

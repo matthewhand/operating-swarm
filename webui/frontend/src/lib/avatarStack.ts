@@ -111,7 +111,9 @@ export function teamChatFaceStack<T extends StackFace>(
   const target = (chatTargetId ?? '').trim()
   const face =
     (target ? faces.find((item) => item.id === target || item.agentId === target) : undefined) ??
-    faces[0] ??
+    // #791: with no explicit target the MOST RECENTLY ACTIVE member leads —
+    // the stack face reflects who is working now, not just roster position.
+    orderedFacesByRecency(faces)[0] ??
     null
   return { face, remainder: Math.max(0, faces.length - 1) }
 }

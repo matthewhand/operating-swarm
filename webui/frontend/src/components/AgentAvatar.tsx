@@ -310,6 +310,7 @@ export default function AgentAvatar({
       <BlobAvatar
         agentId={agentId || 'agent'}
         active={eyeState === 'active'}
+        waiting={effectiveStatus === 'waiting' || effectiveStatus === 'working'}
         size={size}
         className=""
       />,

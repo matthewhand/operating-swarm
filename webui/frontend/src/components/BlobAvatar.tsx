@@ -7,6 +7,8 @@ export interface BlobAvatarProps {
   agentId: string
   /** Selected conversation and/or streaming — eyes wander slowly. */
   active?: boolean
+  /** #791: waiting/working swaps the eyes for the bouncing-dots indicator. */
+  waiting?: boolean
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
   className?: string
   style?: React.CSSProperties
@@ -70,6 +72,7 @@ function BlobShapePath({ shape, color }: { shape: BlobShape; color: string }) {
 export default function BlobAvatar({
   agentId,
   active = false,
+  waiting = false,
   size = 'sm',
   className = '',
   style,
@@ -93,6 +96,15 @@ export default function BlobAvatar({
       <g className="os-blob-body">
         <BlobShapePath shape={spec.shape} color={spec.color} />
       </g>
+      {waiting ? (
+        /* #791: the three-dot typing indicator replaces the eyes while a
+           response is in flight; the CSS bounce keeps them lively. */
+        <g className="os-blob-waiting" data-testid="avatar-waiting-dots" aria-hidden="true">
+          <circle className="os-blob-waiting-dot" cx="14.5" cy="20" r="2.1" fill="#111111" />
+          <circle className="os-blob-waiting-dot" cx="20" cy="20" r="2.1" fill="#111111" />
+          <circle className="os-blob-waiting-dot" cx="25.5" cy="20" r="2.1" fill="#111111" />
+        </g>
+      ) : (
       <g
         className="os-blob-eyes"
         style={{
@@ -106,6 +118,7 @@ export default function BlobAvatar({
         <rect x="-5.1" y="-4.1" width="2.7" height="7.4" rx="1.35" fill="#111111" />
         <rect x="2.4" y="-4.1" width="2.7" height="7.4" rx="1.35" fill="#111111" />
       </g>
+      )}
     </svg>
   )
 }

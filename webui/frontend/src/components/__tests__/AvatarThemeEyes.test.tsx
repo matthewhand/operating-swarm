@@ -61,7 +61,12 @@ describe('REQ-806 / #111: every avatar theme style has animated eyes', () => {
     for (const node of nodes) {
       expect(node).toHaveAttribute('data-eye-state', 'active')
     }
-    expect(eyeNode(container, theme)).toBeTruthy()
+    // #791: an active/waiting blob swaps eyes for the bouncing dots.
+    if (theme === 'blobs') {
+      expect(container.querySelector('[data-testid="avatar-waiting-dots"]')).toBeTruthy()
+    } else {
+      expect(eyeNode(container, theme)).toBeTruthy()
+    }
     unmount()
   })
 

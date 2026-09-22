@@ -42,14 +42,15 @@ describe('avatarStack', () => {
     // length, which would report +2 for a 5-member team.
     expect(teamChatFaceStack(five, 'm3').remainder).toBe(4)
     expect(teamChatFaceStack(five, 'm3').face?.id).toBe('m3')
-    expect(teamChatFaceStack(five).face?.id).toBe('m1')
+    // #791: with no target, the MOST RECENTLY ACTIVE member leads.
+    expect(teamChatFaceStack(five).face?.id).toBe('m5')
   })
 
   it('#438: teamChatFaceStack never invents a member', () => {
     const faces = [face('m1', 100), face('m2', 200)]
-    // A stale chat-target id falls back to the first real face…
-    expect(teamChatFaceStack(faces, 'ghost').face?.id).toBe('m1')
-    expect(teamChatFaceStack(faces, '  ').face?.id).toBe('m1')
+    // A stale chat-target id falls back to the most recent real face (#791)…
+    expect(teamChatFaceStack(faces, 'ghost').face?.id).toBe('m2')
+    expect(teamChatFaceStack(faces, '  ').face?.id).toBe('m2')
     // …and an empty roster yields no face at all rather than a placeholder.
     expect(teamChatFaceStack([], 'm1').face).toBeNull()
     expect(teamChatFaceStack([], 'm1').remainder).toBe(0)
