@@ -223,6 +223,57 @@ def create_blueprint_from_nl(request: str) -> str:
     return created.user_reply(include_code_fence=False)
 
 
+@_function_tool
+def list_config_targets() -> str:
+    """Survey every configurable domain: providers, settings, MCP servers,
+    teams, blueprints. Read-only; secret values redacted to env-var names.
+    Call this before update_config to discover target ids.
+    """
+    from swarm.core.support_config import list_config_targets as _list
+
+    return _list()
+
+
+@_function_tool
+def update_config_tool(domain: str, target_id: str, patch_json: str) -> str:
+    """Apply a configuration write in one of the listed domains.
+
+    Args:
+        domain: "provider" | "settings" | "mcp_servers" | "teams" | "blueprints".
+        target_id: Profile name, setting key, server id, team or blueprint id.
+        patch_json: JSON object of fields to merge, e.g.
+            {"base_url": "https://api.example.com/v1", "model": "gpt-5-mini"}.
+            For settings, {"value": <any>}.
+
+    Writes that touch the ACTIVE provider powering this session are
+    intercepted: they return a denial explaining the approval requirement
+    instead of executing. Never claim a write succeeded when the result
+    reports denied or an error.
+    """
+    import json as _json
+
+    try:
+        patch = _json.loads(patch_json)
+    except Exception:
+        return "Error: patch_json must be valid JSON."
+    if not isinstance(patch, dict):
+        return "Error: patch_json must be a JSON object."
+    from swarm.core.support_config import (
+        active_provider_descriptor,
+    )
+    from swarm.core.support_config import (
+        update_config as _update,
+    )
+
+    result = _update(
+        domain=domain,
+        target_id=target_id,
+        patch=patch,
+        active=active_provider_descriptor(),
+    )
+    return _json.dumps(result, indent=2, default=str)
+
+
 class SupportBlueprint(BlueprintBase):
     """Onboarding Support agent. Discoverable; metadata.role = support."""
 
@@ -243,11 +294,29 @@ class SupportBlueprint(BlueprintBase):
         self._params = dict(params or {})
 
     def system_prompt(self, messages: list[dict[str, Any]] | None = None) -> str:
-        """Skill-injected system/prompt for this turn (includes the fixture)."""
+        """Skill-injected system/prompt for this turn (includes the fixture).
+
+        #854: appends the self-preservation directives and the active
+        inference identifier so Support always knows which provider this
+        session runs on — and what modifying it would do.
+        """
         params = getattr(self, "_params", {}) or {}
         session_kind = resolve_session_kind(params, messages)
         live = model_context_block(live_context())
-        return support_turn_context(session_kind, live)
+        base = support_turn_context(session_kind, live)
+        try:
+            from swarm.core.support_config import (
+                SELF_PRESERVATION_DIRECTIVES,
+                active_inference_identifier,
+            )
+
+            return (
+                f"{base}\n\n{SELF_PRESERVATION_DIRECTIVES}"
+                f"\n\n{active_inference_identifier(self)}"
+            )
+        except Exception:  # pragma: no cover - guardrail block is additive
+            logger.debug("support_config block unavailable", exc_info=True)
+            return base
 
     def create_starting_agent(self, mcp_servers=None):  # noqa: ARG002
         """Coordinator + as_tool specialists (no Grok/OMB/Rakazo seats)."""
@@ -269,6 +338,8 @@ class SupportBlueprint(BlueprintBase):
             get_quickstart,
             list_create_paths,
             create_blueprint_from_nl,
+            list_config_targets,
+            update_config_tool,
         ]
         coordinator = Agent(
             name="Support",
