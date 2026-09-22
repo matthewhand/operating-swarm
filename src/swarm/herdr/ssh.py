@@ -17,11 +17,13 @@ private key in config or the repo.
 
 from __future__ import annotations
 
+import getpass
 import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 from swarm.services.secure_subprocess import execute_command_safe
 
@@ -237,3 +239,60 @@ def stub_ssh_transport(
 
     dest = target or SSHTarget(host="herdr.example.test", user="herdr")
     return SSHTransport(dest, runner=runner)
+
+
+def parse_ssh_target(raw: str, default_user: str = "") -> SSHTarget:
+    """Parse a flexible remote-target string into an :class:`SSHTarget` (#849).
+
+    Accepted shapes:
+
+    * plain host — ``192.0.2.10``, ``host.example.lan`` (port 22; user falls back
+      to *default_user*, then the current user)
+    * ``user@host`` and ``user@host:port`` — ``operator@192.0.2.10:2222``
+    * ``ssh://`` URIs — ``ssh://host:22``, ``ssh://user@host:2222``
+
+    The identity/agent fields stay at their defaults; callers override them
+    via the advanced SSH options in the settings card. Raises
+    :class:`SSHNotConfiguredError` on empty input or a non-integer port so
+    the UI can surface a clear message.
+    """
+    text = (raw or "").strip()
+    if not text:
+        raise SSHNotConfiguredError(SSH_NOT_CONFIGURED)
+
+    user = ""
+    host = text
+    port: int | str | None = 22
+
+    if "://" in text:
+        try:
+            parts = urlsplit(text)
+        except ValueError as exc:
+            raise SSHNotConfiguredError(f"Invalid SSH URI '{text}'.") from exc
+        if parts.scheme.lower() != "ssh":
+            raise SSHNotConfiguredError(
+                f"Unsupported scheme '{parts.scheme}:' — use ssh://host[:port][/path]."
+            )
+        user = parts.username or ""
+        host = parts.hostname or ""
+        port = parts.port if parts.port else 22
+    elif "@" in text:
+        user, _, hostpart = text.partition("@")
+        # user@host:port — one colon after the user is a port, not IPv6.
+        if ":" in hostpart and hostpart.count(":") == 1:
+            host, _, raw_port = hostpart.partition(":")
+            port = raw_port
+        else:
+            host = hostpart
+    elif ":" in text and text.count(":") == 1:
+        host, _, raw_port = text.partition(":")
+        port = raw_port
+
+    host = (host or "").strip().strip("/")
+    user = (user or "").strip() or (default_user or "").strip()
+    if not user:
+        try:
+            user = getpass.getuser()
+        except Exception:  # pragma: no cover - exotic platforms
+            user = ""
+    return require_ssh_target(host=host, user=user, port=port)

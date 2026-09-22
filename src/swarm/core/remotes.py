@@ -1913,12 +1913,14 @@ def _extract_version(payload: Any) -> Any:
 def _herdr_cli_health(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None = None) -> HealthResult:  # noqa: ARG001
     """Health via local herdr or SSH hop (never a guessed host)."""
     from swarm.herdr.client import HerdrClient
-    from swarm.herdr.remote import resolve_herdr_mode
+    from swarm.herdr.remote import herdr_client_from_spec, resolve_herdr_mode
     from swarm.herdr.ssh import SSHNotConfiguredError
 
     mode = resolve_herdr_mode(spec)
     try:
-        client = HerdrClient.from_remote_config(config)
+        # #849: per-spec dispatch — named Herdr instances each get their own
+        # client; from_remote_config() would hardcode the default "herdr" key.
+        client = herdr_client_from_spec(spec)
         payload = client.workspace_list()
     except SSHNotConfiguredError as exc:
         return HealthResult(remote="herdr", ok=False, state="UNKNOWN", detail=str(exc))
@@ -3706,8 +3708,11 @@ def _herdr_list(spec: RemoteSpec, timeout: float, config: dict[str, Any] | None 
         )
 
     mode = resolve_herdr_mode(spec)
+    from swarm.herdr.remote import herdr_client_from_spec
+
     try:
-        client = HerdrClient.from_remote_config(config)
+        # #849: per-spec dispatch (named instances, not the default key).
+        client = herdr_client_from_spec(spec)
         members = client.discover_members()
     except SSHNotConfiguredError as exc:
         return OperateResult(remote="herdr", op="list", ok=False, detail=str(exc))
@@ -3918,7 +3923,10 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
     client: Any = None
     before_seq: int | None = None
     try:
-        client = HerdrClient.from_remote_config(config)
+        from swarm.herdr.remote import herdr_client_from_spec
+
+        # #849: per-spec dispatch (named instances, not the default key).
+        client = herdr_client_from_spec(spec)
         # #728: an omitted target is no longer a dead end. One member in the
         # workspace → auto-target it; several → honest error naming every
         # choice (target + name) so the user can pick; discovery failure →
@@ -4095,9 +4103,12 @@ def _herdr_interrogate(spec: RemoteSpec, target: str, timeout: float, config: di
             ok=False,
             detail="target is required to interrogate a CLI Herdr manages (agy / pi / grok / pane id)",
         )
+    from swarm.herdr.remote import herdr_client_from_spec
+
     mode = resolve_herdr_mode(spec)
     try:
-        client = HerdrClient.from_remote_config(config)
+        # #849: per-spec dispatch (named instances, not the default key).
+        client = herdr_client_from_spec(spec)
         payload = client.agent_get(target.strip())
     except SSHNotConfiguredError as exc:
         return OperateResult(remote="herdr", op="interrogate", ok=False, detail=str(exc))

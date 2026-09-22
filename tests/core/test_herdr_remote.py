@@ -165,7 +165,7 @@ def test_herdr_health_and_list_stub_http(http_router, monkeypatch):
     assert listed.data["members"][0]["kind"] == "herdr"
 
 
-def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
+def test_operate_send_uses_per_spec_client_exact_argv(monkeypatch):
     """C-H4: operate send is HerdrClient.from_remote_config, not a stub / 'prompt' in argv."""
     import subprocess
     from unittest.mock import patch
@@ -182,17 +182,16 @@ def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
             return subprocess.CompletedProcess(argv, 0, "HERDR_PONG", "")
         return subprocess.CompletedProcess(argv, 0, '{"type":"agent_prompted"}', "")
 
-    real = HerdrClient.from_remote_config
+    from swarm.herdr.remote import herdr_client_from_spec as real_factory
 
-    def spy(config=None, **kwargs):
-        from_remote_calls.append(config)
+    def spy(spec=None, **kwargs):
         kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
+        return real_factory(spec, **kwargs)
 
     cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
     monkeypatch.delenv("HERDR_BASE_URL", raising=False)
     monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
-    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+    with patch("swarm.herdr.remote.herdr_client_from_spec", side_effect=spy):
         sent = remotes_core.operate(
             "herdr",
             "send",
@@ -203,7 +202,8 @@ def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
         )
     assert sent.ok is True
     assert sent.data["text"] == "HERDR_PONG"
-    assert from_remote_calls == [cfg]
+    # #849: construction is per-spec; argv flows through the injected runner.
+    assert calls
     assert calls == [
         ["herdr", "agent", "get", "w3:p1"],
         [
@@ -268,14 +268,14 @@ def _timed_out_prompt_runner(state: dict, *, moved_by: int, text: str):
 def _run_herdr_send_with_runner(runner):
     from unittest.mock import patch
 
-    real = HerdrClient.from_remote_config
+    from swarm.herdr.remote import herdr_client_from_spec as real_factory
 
-    def spy(config=None, **kwargs):
+    def spy(spec=None, **kwargs):
         kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
+        return real_factory(spec, **kwargs)
 
     cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
-    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+    with patch("swarm.herdr.remote.herdr_client_from_spec", side_effect=spy):
         return remotes_core.operate(
             "herdr",
             "send",
@@ -333,12 +333,11 @@ def test_herdr_send_still_refuses_a_blocked_pane(monkeypatch):
     assert "blocked" in sent.detail
 
 
-def test_operate_list_uses_from_remote_config_exact_argv(monkeypatch):
+def test_operate_list_uses_per_spec_client_exact_argv(monkeypatch):
     import subprocess
     from unittest.mock import patch
 
     calls: list[list[str]] = []
-    from_remote_calls: list[object] = []
 
     def runner(argv, timeout=None):
         del timeout
@@ -351,19 +350,18 @@ def test_operate_list_uses_from_remote_config_exact_argv(monkeypatch):
             return subprocess.CompletedProcess(argv, 0, '{"workspaces":[]}', "")
         return subprocess.CompletedProcess(argv, 0, "{}", "")
 
-    real = HerdrClient.from_remote_config
+    from swarm.herdr.remote import herdr_client_from_spec as real_factory
 
-    def spy(config=None, **kwargs):
-        from_remote_calls.append(config)
+    def spy(spec=None, **kwargs):
         kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
+        return real_factory(spec, **kwargs)
 
     cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
     monkeypatch.delenv("HERDR_BASE_URL", raising=False)
-    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+    with patch("swarm.herdr.remote.herdr_client_from_spec", side_effect=spy):
         listed = remotes_core.operate("herdr", "list", config=cfg)
     assert listed.ok is True
-    assert from_remote_calls == [cfg]
+    # #849: construction is per-spec; argv flows through the injected runner.
     assert calls == [
         ["herdr", "workspace", "list"],
         ["herdr", "agent", "list"],

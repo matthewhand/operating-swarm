@@ -20,16 +20,17 @@ def test_operate_send_waits_and_returns_pane_text(monkeypatch):
             return subprocess.CompletedProcess(argv, 0, "pane says hello", "")
         return subprocess.CompletedProcess(argv, 0, '{"type":"agent_prompted"}', "")
 
-    real = HerdrClient.from_remote_config
-
-    def spy(config=None, **kwargs):
-        kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
-
+    # #849: the send path builds its client per-spec via
+    # herdr_client_from_spec (named instances, not the default key). The
+    # fake runner is injected through the same kwargs the factory forwards
+    # to ``HerdrClient(**kwargs)``.
     cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
     monkeypatch.delenv("HERDR_BASE_URL", raising=False)
     monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
-    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+    with patch(
+        "swarm.herdr.remote.herdr_client_from_spec",
+        side_effect=lambda spec, **kwargs: HerdrClient(runner=runner),
+    ):
         sent = remotes_core.operate(
             "herdr",
             "send",
@@ -73,16 +74,17 @@ def test_operate_send_timeout_is_named_error(monkeypatch):
             return subprocess.CompletedProcess(argv, 0, '{"result":{"state":"idle"}}', "")
         raise subprocess.TimeoutExpired(argv, 1)
 
-    real = HerdrClient.from_remote_config
-
-    def spy(config=None, **kwargs):
-        kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
-
+    # #849: the send path builds its client per-spec via
+    # herdr_client_from_spec (named instances, not the default key). The
+    # fake runner is injected through the same kwargs the factory forwards
+    # to ``HerdrClient(**kwargs)``.
     cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
     monkeypatch.delenv("HERDR_BASE_URL", raising=False)
     monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
-    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+    with patch(
+        "swarm.herdr.remote.herdr_client_from_spec",
+        side_effect=lambda spec, **kwargs: HerdrClient(runner=runner),
+    ):
         sent = remotes_core.operate(
             "herdr",
             "send",

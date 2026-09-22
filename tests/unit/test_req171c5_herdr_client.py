@@ -19,11 +19,15 @@ def _no_secrets(text: str) -> None:
         assert needle not in lowered
 
 
-def test_operate_send_calls_from_remote_config():
+def test_operate_send_builds_client_per_spec():
     text = REMOTES.read_text(encoding="utf-8")
     send_start = text.index("def _herdr_send")
     send = text[send_start : send_start + 1800]
-    assert "HerdrClient.from_remote_config" in send
+    # #849: per-instance dispatch — named Herdr instances get their own
+    # client via herdr_client_from_spec; from_remote_config hardcodes the
+    # default "herdr" config key and silently drops a second instance.
+    assert "herdr_client_from_spec" in send
+    assert "HerdrClient.from_remote_config" not in send
     assert "herdr_send_via_cli" not in text
     assert ":8001" not in send
     assert "WAVE" not in send

@@ -44,16 +44,14 @@ CFG = {"remotes": {"herdr": {"herdr_mode": "local"}}}
 
 
 def _setup(monkeypatch, runner):
-    from swarm.herdr.client import HerdrClient
+    from swarm.herdr.remote import herdr_client_from_spec as real_factory
 
-    real = HerdrClient.from_remote_config
-
-    def spy(config=None, **kwargs):
+    def spy(spec=None, **kwargs):
         kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
+        return real_factory(spec, **kwargs)
 
     monkeypatch.setattr(
-        "swarm.herdr.client.HerdrClient.from_remote_config", staticmethod(spy)
+        "swarm.herdr.remote.herdr_client_from_spec", staticmethod(spy)
     )
     monkeypatch.delenv("HERDR_BASE_URL", raising=False)
     monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
