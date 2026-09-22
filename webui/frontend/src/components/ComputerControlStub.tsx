@@ -36,6 +36,19 @@ export interface ComputerControlStubProps {
 
 type PaneTab = 'agent' | 'routines' | 'schedules'
 
+/** #720 — honest display payload from the sandbox-display endpoint. */
+interface SandboxDisplayPayload {
+  provider?: string
+  display?: { kind: string; url: string } | null
+  reason?: string
+}
+
+async function fetchSandboxDisplay(agentId: string): Promise<SandboxDisplayPayload> {
+  const res = await fetch(`/v1/agents/${encodeURIComponent(agentId)}/sandbox-display/`)
+  if (!res.ok) throw new Error(`sandbox-display ${res.status}`)
+  return (await res.json()) as SandboxDisplayPayload
+}
+
 /** Draft a system instruction via the default LLM (degrades server-side). */
 async function draftInstruction(name: string, brief: string, current: string): Promise<string> {
   const body = { name, brief, current }
@@ -127,6 +140,8 @@ export function ComputerControlStub({
           </span>
         </div>
 
+        {seatId ? <SandboxDisplayPane agentId={seatId} agentName={agentName} /> : null}
+
         <div role="tablist" className="tabs tabs-boxed mb-3" aria-label="Computer control panes">
           <button
             type="button"
@@ -178,6 +193,72 @@ export function ComputerControlStub({
         )}
       </Modal>
     </>
+  )
+}
+
+/**
+ * #720 — live sandbox display for the computer pane. Renders the honest
+ * payload from GET /v1/agents/<id>/sandbox-display/: an empty state with the
+ * reason when nothing is live, or the sandboxed preview iframe with a
+ * manual refresh. Fetches only while the pane is mounted (it renders inside
+ * the open modal), so closing the pane drops the poll.
+ */
+export function SandboxDisplayPane({ agentId, agentName }: { agentId: string; agentName: string }) {
+  const [refreshKey, setRefreshKey] = useState(0)
+  const displayQuery = useQuery({
+    queryKey: ['sandbox-display', agentId, refreshKey],
+    queryFn: () => fetchSandboxDisplay(agentId),
+    staleTime: 15_000,
+  })
+  const payload = displayQuery.data ?? null
+  const display = payload?.display ?? null
+
+  if (displayQuery.isLoading) {
+    return (
+      <div className="mb-2 rounded-box border border-base-300 px-3 py-2 text-sm text-base-content/60" data-testid="sandbox-display">
+        Checking sandbox…
+      </div>
+    )
+  }
+  if (!display) {
+    const reason = String(payload?.reason ?? displayQuery.error ?? 'unavailable')
+    const headline = reason === 'no_active_sandbox' ? 'Sandbox not active' : 'No sandbox configured'
+    return (
+      <div
+        className="mb-2 flex items-center justify-between gap-2 rounded-box border border-base-300 px-3 py-2 text-sm"
+        data-testid="sandbox-display"
+      >
+        <span className="text-base-content/70">{headline}</span>
+        <span className="badge badge-sm badge-ghost" title={reason}>
+          {reason}
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="mb-2" data-testid="sandbox-display">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-sm text-base-content/70">{`${agentName}'s sandbox`}</span>
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          data-testid="sandbox-display-refresh"
+          aria-label="Refresh sandbox preview"
+          onClick={() => setRefreshKey((key) => key + 1)}
+        >
+          <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+          Refresh
+        </button>
+      </div>
+      <iframe
+        data-testid="sandbox-display-frame"
+        title={`${agentName}'s sandbox`}
+        src={display.url}
+        className="h-48 w-full rounded-box border border-base-300"
+        sandbox="allow-scripts allow-same-origin"
+        referrerPolicy="no-referrer"
+      />
+    </div>
   )
 }
 

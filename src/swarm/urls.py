@@ -157,6 +157,7 @@ from swarm.views.routines_api import (
     MailboxRoutineMessageAPIView,
 )
 from swarm.views.runtime_views import BrowserControlView, RuntimeModeView
+from swarm.views.agent_sandbox_display_api import AgentSandboxDisplayView
 from swarm.views.sandbox_settings_api import (
     SandboxSettingsTestView,
     SandboxSettingsView,
@@ -493,6 +494,12 @@ urlpatterns = [
     path("v1/agents/quickstarts/", generate_agent_quickstarts, name="generate_agent_quickstarts"),
     # #932: AI-drafted system instructions for the agent popup's overlay writer.
     path("v1/agents/assist-draft/", assist_draft_view, name="assist-draft"),
+    # #720: honest sandbox display payload for the computer pane.
+    path(
+        "v1/agents/<str:agent_id>/sandbox-display/",
+        AgentSandboxDisplayView.as_view(),
+        name="agent-sandbox-display",
+    ),
     path("v1/agents/design/", create_designed_agent, name="create_designed_agent"),
     path("v1/agents/designs/", list_designed_agents, name="list_designed_agents"),
     path("v1/agents/design/<str:agent_id>/", delete_designed_agent, name="delete_designed_agent"),
