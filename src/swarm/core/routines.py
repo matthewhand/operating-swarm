@@ -47,6 +47,7 @@ Layout::
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -54,14 +55,19 @@ import logging
 import os
 import re
 import tempfile
+import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from swarm.core.chat_store import normalize_agent_id
-from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
+from swarm.core.paths import (
+    ensure_swarm_directories_exist,
+    get_user_config_dir_for_swarm,
+)
 from swarm.core.schedule_triggers import (
     ROUTINE_TRIGGER_KINDS,
     TIME_TRIGGER_KINDS,
@@ -126,10 +132,12 @@ def routines_path() -> Path:
 
 
 def reset_routines_cache() -> None:
-    """Drop the in-process cache and fired-prompt log (tests)."""
+    """Drop the in-process cache, fired-prompt log, and live-job state (tests)."""
     global _cache
     _cache = None
     _fired_prompts.clear()
+    _live_job_log.clear()
+    _live_job_threads.clear()
 
 
 def set_instruction_runner(runner: InstructionRunner | None) -> None:
@@ -197,7 +205,7 @@ def _new_id() -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def normalize_owner_repo(value: Any) -> str:
@@ -250,6 +258,16 @@ def public_github_event_filters(raw: Any) -> dict[str, Any]:
     branch = incoming.get("branch")
     if branch is not None and str(branch).strip():
         out["branch"] = str(branch).strip()
+    excluded = incoming.get("exclude_authors")
+    if excluded is not None:  # #862 loop prevention
+        if isinstance(excluded, str):
+            excluded = [excluded]
+        if not isinstance(excluded, list):
+            raise ValueError("filters.exclude_authors must be a list of logins.")
+        cleaned_excluded = [str(item or "").strip() for item in excluded]
+        cleaned_excluded = [item for item in cleaned_excluded if item]
+        if cleaned_excluded:
+            out["exclude_authors"] = cleaned_excluded
     return out
 
 
@@ -513,6 +531,121 @@ def run_instruction(agent_id: str, instruction: str, source: str) -> None:
     """Run the stored Instruction once as that agent's prompt."""
     runner = _instruction_runner or _default_instruction_runner
     runner(normalize_agent_id(agent_id), instruction, source)
+
+
+# --- #862: live background runner -------------------------------------------------
+
+_live_instruction_runner: Callable[[str, str, str], None] | None = None
+_live_job_log: dict[str, list[dict[str, Any]]] = {}
+_live_job_threads: list[threading.Thread] = []
+
+from swarm.core.routine_jobs import run_routine_agent_job  # noqa: E402  (re-export)
+
+
+def set_live_instruction_runner(runner: Callable[[str, str, str], None] | None) -> None:
+    """Install/replace the live (LLM-executing) instruction runner.
+
+    ``None`` restores the recording-only default so tests and offline
+    operation stay hermetic.
+    """
+    global _live_instruction_runner
+    _live_instruction_runner = runner
+
+
+def record_live_job_status(
+    agent_id: str,
+    status: str,
+    *,
+    duration_ms: int | None = None,
+    detail: str = "",
+) -> None:
+    """Append a live-job outcome for the agent (bounded in-memory log)."""
+    log = _live_job_log.setdefault(normalize_agent_id(agent_id), [])
+    log.append(
+        {
+            "status": status,
+            "duration_ms": duration_ms,
+            "detail": detail,
+        }
+    )
+    del log[:-50]
+
+
+def live_job_status(agent_id: str) -> list[dict[str, Any]]:
+    """Recent live-job outcomes for the agent, oldest first."""
+    return list(_live_job_log.get(normalize_agent_id(agent_id)) or [])
+
+
+def reset_live_jobs() -> None:
+    """Clear the live-job log and thread handles (test isolation)."""
+    _live_job_log.clear()
+    _live_job_threads.clear()
+
+
+def wait_for_live_jobs(timeout: float | None = None) -> None:
+    """Join any outstanding background live jobs (tests; keeps teardown safe)."""
+    for thread in list(_live_job_threads):
+        thread.join(timeout=timeout)
+    _live_job_threads.clear()
+
+
+def load_github_event_thread(agent_id: str, conversation_id: str) -> dict[str, Any] | None:
+    """Load the webhook conversation record for an agent (review surface)."""
+    from swarm.core.chat_store import load as load_chat
+
+    return load_chat(
+        GITHUB_WEBHOOK_USER_KEY,
+        normalize_agent_id(agent_id),
+        conversation_id=conversation_id,
+    )
+
+
+def live_dispatch_enabled() -> bool:
+    """Whether webhook runs dispatch live agent turns.
+
+    An injected runner (``set_live_instruction_runner``) always dispatches;
+    otherwise the environment must opt in via ``SWARM_ROUTINES_LIVE`` so
+    tests and offline installs stay hermetic.
+    """
+    if _live_instruction_runner is not None:
+        return True
+    return os.environ.get("SWARM_ROUTINES_LIVE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _routine_max_turns(routine: dict[str, Any]) -> int:
+    try:
+        value = int(routine.get("max_turns") or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if value >= 1 else 3
+
+
+def _dispatch_live_job(agent_id: str, conversation_id: str, prompt: str, routine: dict[str, Any]) -> None:
+    """Fire-and-forget the live agent turn for this webhook run. Never raises."""
+    agent_id = normalize_agent_id(agent_id)
+    if _live_instruction_runner is not None:
+        try:
+            _live_instruction_runner(agent_id, prompt, SOURCE_GITHUB_WEBHOOK)
+        except Exception:
+            logger.exception("Injected live instruction runner failed for %s", agent_id)
+        return
+    thread = threading.Thread(
+        target=_run_live_job_in_thread,
+        args=(agent_id, prompt, conversation_id, _routine_max_turns(routine)),
+        daemon=True,
+        name=f"routine-live-{agent_id}",
+    )
+    _live_job_threads.append(thread)
+    thread.start()
+
+
+def _run_live_job_in_thread(agent_id: str, prompt: str, conversation_id: str, max_turns: int) -> None:
+    try:
+        asyncio.run(
+            run_routine_agent_job(agent_id, prompt, conversation_id=conversation_id, max_turns=max_turns)
+        )
+    except Exception:
+        logger.exception("Live routine job failed for %s (%s)", agent_id, conversation_id)
 
 
 def append_history(
@@ -979,6 +1112,12 @@ def github_event_filters_match(trigger: dict[str, Any], event: dict[str, Any]) -
     wanted_branch = str(filters.get("branch") or "").strip()
     if wanted_branch and str(event.get("branch") or "").strip().lower() != wanted_branch.lower():
         return False
+    excluded = filters.get("exclude_authors") if isinstance(filters.get("exclude_authors"), list) else []
+    if excluded:
+        author = str(event.get("author") or "").strip().lower()
+        blocked = {str(item).strip().lower() for item in excluded if str(item).strip()}
+        if author and author in blocked:
+            return False
     return True
 
 
@@ -1033,6 +1172,8 @@ def deliver_github_event(
             prompt = format_github_event_briefing(event, str(routine.get("instruction") or ""))
             conversation_id = github_event_conversation_id(event)
             spawn_github_event_session(agent_id, conversation_id, prompt)
+            if live_dispatch_enabled():
+                _dispatch_live_job(agent_id, conversation_id, prompt, routine)
             updated = fire_routine(
                 agent_id,
                 routine["id"],
@@ -1045,3 +1186,68 @@ def deliver_github_event(
             fired.append({"agent_id": normalize_agent_id(agent_id), "routine": updated})
     return fired
 
+
+
+# --- #862: presets + live dispatch --------------------------------------------------
+
+ROUTINE_PRESETS: list[dict[str, Any]] = [
+    {
+        "key": "github_issue_solver",
+        "name": "GitHub Issue Solver (Issue → PR)",
+        "role": "developer",
+        "description": (
+            "Fires on issues.opened: investigates the issue in the repo, "
+            "develops a fix with tests on fix/issue-<num>, and opens a PR "
+            "whose body closes the issue."
+        ),
+        "instruction": (
+            "You are the developer agent for this repository. Investigate the "
+            "issue above: read the referenced code, reproduce the defect, and "
+            "implement a minimal fix with tests. Work on a branch named "
+            "fix/issue-<number>. Verify the relevant test suites pass, push "
+            "the branch, and open a pull request titled after the issue with "
+            "a body containing 'Closes #<number>'. Report the PR URL."
+        ),
+        "max_turns": 3,
+        "trigger": {
+            "kind": "github_event",
+            "event_type": "issues.opened",
+            "owner_repo": "",
+            "filters": {
+                "exclude_authors": ["open-swarm[bot]", "github-actions[bot]", "app/open-swarm"],
+            },
+        },
+    },
+    {
+        "key": "github_pr_reviewer",
+        "name": "GitHub PR Reviewer (PR → Review & Test)",
+        "role": "reviewer",
+        "description": (
+            "Fires on pull_request.opened: checks out the PR branch, runs the "
+            "test suites and linters, reviews the diff for correctness and "
+            "security, and posts the review verdict as a PR comment."
+        ),
+        "instruction": (
+            "You are the QA/reviewer agent for this repository — you never "
+            "author the change under review. Check out the PR branch, run the "
+            "relevant test suites and linters in isolation, and review the "
+            "diff for correctness, regressions, and security. Post your "
+            "findings as a PR comment: a verdict (approve / request changes) "
+            "with the failing commands and reasons if any."
+        ),
+        "max_turns": 2,
+        "trigger": {
+            "kind": "github_event",
+            "event_type": "pull_request.opened",
+            "owner_repo": "",
+            "filters": {
+                "exclude_authors": ["open-swarm[bot]", "github-actions[bot]", "app/open-swarm"],
+            },
+        },
+    },
+]
+
+
+def routine_presets() -> list[dict[str, Any]]:
+    """Public preset templates for the routines UI (deep-copied)."""
+    return json.loads(json.dumps(ROUTINE_PRESETS))

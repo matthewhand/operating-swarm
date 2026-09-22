@@ -3,7 +3,6 @@ from pathlib import Path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.http import HttpResponse
 from django.urls import path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import RedirectView
@@ -49,8 +48,8 @@ from swarm.views.agent_router_views import (
     route_message,
     send_to_agent,
 )
+from swarm.views.agent_sandbox_display_api import AgentSandboxDisplayView
 from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
-from swarm.views.assist_api import ChatAutocompleteAPIView, EnhancePromptAPIView
 from swarm.views.api_views import (
     BlueprintPersonasView,
     BlueprintsListView,
@@ -73,17 +72,18 @@ from swarm.views.api_views import (
     SupportContextView,
 )
 from swarm.views.api_views import ModelsListView as OpenAIModelsView
+from swarm.views.assist_api import ChatAutocompleteAPIView, EnhancePromptAPIView
 from swarm.views.blueprint_library_views import (
     add_blueprint_to_library,
     blueprint_creator,
     blueprint_library,
-    sdk_docs,
     blueprint_requirements_status,
     blueprint_source_page,
     check_comfyui_status,
     generate_avatar,
     my_blueprints,
     remove_blueprint_from_library,
+    sdk_docs,
 )
 from swarm.views.chat_persist_views import (
     chat_attachment_upload,
@@ -101,6 +101,7 @@ from swarm.views.cli_session_hop_api import CliSessionHopAPIView
 from swarm.views.cli_sessions_api import CliSessionListAPIView, CliSessionSelectAPIView
 from swarm.views.config_ownership_api import ConfigOwnershipView, ConfigSectionView
 from swarm.views.definition_views import DefinitionDetailView, DefinitionSummarizeView
+from swarm.views.diagnostics_views import DiagnosticsView
 from swarm.views.herdr_api import (
     HerdrAgentDetailAPIView,
     HerdrAgentsAPIView,
@@ -126,10 +127,6 @@ from swarm.views.mcp_plugins_api import (
     McpPluginsView,
 )
 from swarm.views.preferences_api import UserPreferencesView
-from swarm.views.telemetry_api import (
-    RequestTelemetryView,
-    ThrottleIncidentsView,
-)
 from swarm.views.rate_limits_api import RateLimitsView
 from swarm.views.remotes_api import (
     AgentTeamView,
@@ -155,9 +152,9 @@ from swarm.views.routines_api import (
     GithubRoutineEventsAPIView,
     GithubRoutineMergeAPIView,
     MailboxRoutineMessageAPIView,
+    RoutinePresetsAPIView,
 )
 from swarm.views.runtime_views import BrowserControlView, RuntimeModeView
-from swarm.views.agent_sandbox_display_api import AgentSandboxDisplayView
 from swarm.views.sandbox_settings_api import (
     SandboxSettingsTestView,
     SandboxSettingsView,
@@ -178,7 +175,6 @@ from swarm.views.speech_api import (
     SpeechTranscribeView,
 )
 from swarm.views.suggestions_api import AgentSuggestionsAPIView
-from swarm.views.diagnostics_views import DiagnosticsView
 from swarm.views.system_views import LocalStoreView
 from swarm.views.team_rosters_api import (
     TeamAgentsAPIView,
@@ -186,6 +182,10 @@ from swarm.views.team_rosters_api import (
     TeamRostersAPIView,
 )
 from swarm.views.teams_api import TeamDetailAPIView, TeamsAPIView
+from swarm.views.telemetry_api import (
+    RequestTelemetryView,
+    ThrottleIncidentsView,
+)
 from swarm.views.test_schedules_api import (
     TestScheduleDetailAPIView,
     TestScheduleRunNowAPIView,
@@ -604,6 +604,8 @@ urlpatterns = [
     ),
     path("v1/routines", AllRoutinesAPIView.as_view(), name="routines-list-all-no-slash"),
     path("v1/routines/", AllRoutinesAPIView.as_view(), name="routines-list-all"),
+    path("v1/routines/presets", RoutinePresetsAPIView.as_view(), name="routines-presets-no-slash"),
+    path("v1/routines/presets/", RoutinePresetsAPIView.as_view(), name="routines-presets"),
     path("v1/routines/github-merge", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api-no-slash"),
     path("v1/routines/github-merge/", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api"),
     path(

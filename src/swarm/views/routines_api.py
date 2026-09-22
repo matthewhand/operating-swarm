@@ -31,6 +31,7 @@ from swarm.core.routines import (
     github_webhook_secret,
     list_all_routines,
     list_routines,
+    routine_presets,
     run_now,
     test_run,
     trigger_summary,
@@ -272,6 +273,20 @@ class GithubRoutineEventsAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class RoutinePresetsAPIView(APIView):
+    """GET /v1/routines/presets/ — pre-built routine templates (#862)."""
+
+    permission_classes = ROUTINES_API_PERMISSIONS
+
+    @extend_schema(
+        operation_id="v1_routines_presets",
+        summary="List pre-built routine templates (GitHub Issue Solver, PR Reviewer)",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, *_args, **_kwargs):
+        return Response({"presets": routine_presets()}, status=status.HTTP_200_OK)
 
 
 class AllRoutinesAPIView(APIView):
