@@ -437,7 +437,12 @@ import {
   fetchCliSessions,
   selectCliSession,
 } from '../lib/cliSessions'
-import { CLI_SESSION_HOPPED_EVENT, dispatchCliSessionHopped, hopCliSession } from '../lib/cliSessionHop'
+import {
+  CLI_SESSION_HOPPED_EVENT,
+  crossKindHopForReconfigure,
+  dispatchCliSessionHopped,
+  hopCliSession,
+} from '../lib/cliSessionHop'
 // #636: CLI-seat compact orchestration (summary + fresh session carrying it).
 import { compactCliThread } from '../lib/cliCompact'
 import {
@@ -1600,27 +1605,57 @@ const ChatPage = () => {
     [threadKey, teamFromUrl, remoteFromUrl, selectedBlueprint],
   )
 
-  // #899: a cross-kind API-profile pick is a PROVIDER reconfiguration for the
-  // current seat, never a seat jump — navigating to api_agent here dropped the
-  // user's CLI/remote context. Until per-seat backend override exists, the
-  // honest behavior is to keep the seat and say exactly what happened.
+  // #899/#900: a cross-kind provider pick reconfigures the CURRENT seat's
+  // backend and carries the conversation context with it — a real hop, not a
+  // seat jump and not a mere notice. The pending seed is stored under the
+  // destination backend record on the same conversation id; the first turn on
+  // the new backend injects it (CLI: prompt seed; api: system turn; remote:
+  // merged into the user prompt).
   const reconfigureProviderForSeat = useCallback(
     (profile: string) => {
       const kind: 'api' | 'cli' | 'remote' | 'team' =
         isRemoteAgent || isRemoteBackedTeam ? 'remote' : isCliAgent ? 'cli' : 'api'
-      const statusMsg: ChatMessage = {
-        key: `provider-reconfigure-${Date.now()}`,
-        role: 'status',
-        text: providerReconfigureNotice(profile, kind),
-        streaming: false,
-        ts: new Date().toISOString(),
+      const spec = crossKindHopForReconfigure({
+        seatId: activeChatAgentId,
+        conversationId: conversationIdRef.current || '',
+        fromCli: kind === 'cli' ? (currentCli || 'prior') : kind === 'remote' ? (activeRemoteId || 'prior') : 'api',
+        toCli: profile,
+        toKind: 'api',
+        toBackendId: profile,
+      })
+      const appendStatus = (text: string) => {
+        const statusMsg: ChatMessage = {
+          key: `provider-reconfigure-${Date.now()}`,
+          role: 'status',
+          text,
+          streaming: false,
+          ts: new Date().toISOString(),
+        }
+        setThreads((prev) => ({
+          ...prev,
+          [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
+        }))
       }
-      setThreads((prev) => ({
-        ...prev,
-        [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
-      }))
+      void hopCliSession({
+        agentId: spec.agentId,
+        fromCli: spec.fromCli,
+        toCli: spec.toCli,
+        conversationId: spec.conversationId,
+        toKind: spec.toKind,
+        toAgent: spec.toAgent,
+        toLabel: spec.toLabel,
+        fromLabel: spec.fromLabel,
+      })
+        .then((hop) => {
+          appendStatus(hop?.status?.trim() || providerReconfigureNotice(profile, kind))
+        })
+        .catch(() => {
+          // Hop failed — keep the honest notice rather than silently dropping
+          // the pick or blocking the seat.
+          appendStatus(providerReconfigureNotice(profile, kind))
+        })
     },
-    [isRemoteAgent, isRemoteBackedTeam, isCliAgent, threadKey],
+    [isRemoteAgent, isRemoteBackedTeam, isCliAgent, threadKey, activeChatAgentId, currentCli, activeRemoteId],
   )
   const applyCliRoutingChange = useCallback(
     (next: RoutingPathChange) => {

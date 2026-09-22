@@ -279,16 +279,54 @@ async def _auto_compress_before_send(consumer, params=None, model_id=None):
         return None
 
 
-def _apply_pending_api_hop(conversation_id, messages):
-    """#531: seed an API backend hop with the carried blob (same conversation)."""
-    try:
-        from swarm.core.cli_session_hop import apply_api_hop_messages
+def _apply_pending_api_hop(consumer, conversation_id, messages):
+    """Seed a pending hop at turn assembly (#531 CLI, #900 api/remote).
 
-        cid = str(conversation_id or "")
-        return apply_api_hop_messages("u0", cid or "api_agent", messages, conversation_id=cid)
+    The hop API stores pending hops under the **agent id** record; the
+    previous lookup keyed by conversation id (and a hardcoded "u0"), so the
+    seed never matched and cross-backend hops silently carried nothing.
+    """
+    try:
+        from swarm.core.agent_kind import classify_agent_kind
+        from swarm.core.cli_session_hop import apply_cross_kind_hop_messages
+
+        agent_id = str(
+            getattr(consumer, "active_agent", None)
+            or getattr(consumer, "default_blueprint", "")
+            or ""
+        )
+        if not agent_id:
+            return list(messages or [])
+        kind = classify_agent_kind(agent_id)
+        if kind not in ("cli", "api", "remote"):
+            return list(messages or [])
+        if kind == "cli":
+            # CLI turn injection happens in prepare_cli_turn (blueprint).
+            return list(messages or [])
+        user_key = _user_key_for_hop(getattr(consumer, "user", None))
+        return apply_cross_kind_hop_messages(
+            user_key,
+            agent_id,
+            messages,
+            to_kind=kind,
+            to_id=agent_id,
+            conversation_id=str(conversation_id or ""),
+        )
     except Exception:
-        logger.debug("API hop inject skipped", exc_info=True)
+        logger.debug("cross-kind hop inject skipped", exc_info=True)
         return list(messages or [])
+
+
+def _user_key_for_hop(user):
+    """Same user_key convention the hop API persists under."""
+    try:
+        from swarm.core.chat_store import user_key_for
+
+        if user is not None and getattr(user, "is_authenticated", False):
+            return user_key_for(user)
+    except Exception:
+        pass
+    return "u0"
 
 
 async def _compacted_context(conversation_id, messages):
@@ -303,14 +341,13 @@ async def _compacted_context(conversation_id, messages):
         compacted = await database_sync_to_async(context_for_conversation)(
             conversation_id, messages
         )
-        return _apply_pending_api_hop(conversation_id, compacted)
+        return _apply_pending_api_hop(consumer, conversation_id, compacted)
     except Exception:
         logger.debug("compact context unavailable; using filtered transcript", exc_info=True)
-        from swarm.core.speaker_identity import apply_speaker_identity
         from swarm.core.transcript_roles import messages_for_model
 
         filtered = apply_speaker_identity(messages_for_model(messages), adapter_id="openai_compat")
-        return _apply_pending_api_hop(conversation_id, filtered)
+        return _apply_pending_api_hop(consumer, conversation_id, filtered)
 
 
 def _status_line_html(text: str) -> str:

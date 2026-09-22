@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  crossKindHopForReconfigure,
   formatContextCarriedStatus,
   hopContinueTargets,
   hopCliSession,
@@ -77,5 +78,51 @@ describe('sessionHopPrefs', () => {
     expect(loadHopPrefs()).toEqual({ mode: 'summary', tokenBudget: 4000 })
     saveHopPrefs({ mode: 'full', tokenBudget: 8000 })
     expect(loadHopPrefs()).toEqual({ mode: 'full', tokenBudget: 8000 })
+  })
+})
+
+describe('#900 crossKindHopForReconfigure', () => {
+  it('keys api destinations by the seat record id (consumer match)', () => {
+    const spec = crossKindHopForReconfigure({
+      seatId: 'support',
+      conversationId: 'thread-1',
+      fromCli: 'grok',
+      toCli: 'auxiliary',
+      toKind: 'api',
+      toBackendId: 'auxiliary',
+    })
+    expect(spec.agentId).toBe('support')
+    expect(spec.toCli).toBe('support')
+    expect(spec.toAgent).toBe('support')
+    expect(spec.toKind).toBe('api')
+    expect(spec.toLabel).toBe('auxiliary')
+    expect(spec.fromLabel).toBe('grok')
+    expect(spec.conversationId).toBe('thread-1')
+  })
+
+  it('keys cli destinations by the adapter name (prepare_cli_turn match)', () => {
+    const spec = crossKindHopForReconfigure({
+      seatId: 'support',
+      conversationId: '',
+      fromCli: 'api',
+      toCli: 'agy',
+      toKind: 'cli',
+      toBackendId: 'agy',
+    })
+    expect(spec.toCli).toBe('agy')
+    expect(spec.toAgent).toBe('agy')
+  })
+
+  it('falls back to the cli_agent seat id when the seat is empty', () => {
+    const spec = crossKindHopForReconfigure({
+      seatId: '',
+      conversationId: '',
+      fromCli: '',
+      toCli: 'auxiliary',
+      toKind: 'api',
+      toBackendId: 'auxiliary',
+    })
+    expect(spec.agentId).toBe('cli_agent')
+    expect(spec.fromCli).toBe('prior')
   })
 })
