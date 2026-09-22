@@ -27,7 +27,18 @@ def test_req861_docs_exist():
 
 
 def test_req861_left_sidebar_mono_conceal():
-    sidebar = SIDEBAR.read_text(encoding="utf-8")
+    sidebar = (
+        SIDEBAR.read_text(encoding="utf-8")
+        + (
+            REPO
+            / "webui"
+            / "frontend"
+            / "src"
+            / "components"
+            / "sidebar"
+            / "useRailResize.ts"
+        ).read_text(encoding="utf-8")
+    )
     conceal = CONCEAL.read_text(encoding="utf-8")
     mark = BRAND_MARK.read_text(encoding="utf-8")
     mono = MONO.read_text(encoding="utf-8")

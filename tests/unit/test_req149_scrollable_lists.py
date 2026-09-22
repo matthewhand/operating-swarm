@@ -5,6 +5,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 SETTINGS_SHEET_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
+LLM_PROFILES_PANE = (
+    REPO_ROOT / "webui" / "frontend" / "src" / "components" / "settings" / "panes" / "LlmProfilesPane.tsx"
+)
+BLUEPRINTS_LIST_PANE = (
+    REPO_ROOT / "webui" / "frontend" / "src" / "components" / "settings" / "panes" / "BlueprintsListPane.tsx"
+)
 TEAM_COMPOSER_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "TeamComposer.tsx"
 REMOTES_SETTINGS_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "RemotesSettings.tsx"
 AGENT_EDITOR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentEditor.tsx"
@@ -19,7 +25,21 @@ def test_index_css_scrollable_picker_utility():
 
 
 def test_settings_sheet_lists_are_capped():
-    tsx = SETTINGS_SHEET_TSX.read_text(encoding="utf-8")
+    tsx = (
+    SETTINGS_SHEET_TSX.read_text(encoding="utf-8")
+    + BLUEPRINTS_LIST_PANE.read_text(encoding="utf-8")
+    + LLM_PROFILES_PANE.read_text(encoding="utf-8")
+    + (
+        REPO_ROOT
+        / "webui"
+        / "frontend"
+        / "src"
+        / "components"
+        / "settings"
+        / "panes"
+        / "RemotesCatalogPane.tsx"
+    ).read_text(encoding="utf-8")
+)
     # Blueprints list
     assert 'aria-label="Blueprints"' in tsx
     assert 'os-scrollable-picker-list' in tsx

@@ -6,6 +6,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 THEME_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "theme.ts"
 THEME_TOGGLE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "ThemeToggle.tsx"
 SETTINGS_SHEET_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
+GENERAL_PANE_TSX = (
+    REPO_ROOT / "webui" / "frontend" / "src" / "components" / "settings" / "panes" / "GeneralPane.tsx"
+)
 APP_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "App.tsx"
 
 
@@ -30,7 +33,19 @@ def test_app_theme_never_sets_data_theme_to_system():
 
 
 def test_settings_sheet_has_general_visuals_and_navbar_toggle():
-    settings = SETTINGS_SHEET_TSX.read_text(encoding="utf-8")
+    settings = (
+    SETTINGS_SHEET_TSX.read_text(encoding="utf-8")
+    + GENERAL_PANE_TSX.read_text(encoding="utf-8")
+    + (
+        REPO_ROOT
+        / "webui"
+        / "frontend"
+        / "src"
+        / "components"
+        / "settings"
+        / "kernel.ts"
+    ).read_text(encoding="utf-8")
+)
     assert "'general'" in settings
     assert "Visuals" in settings
     assert 'value="system"' in settings

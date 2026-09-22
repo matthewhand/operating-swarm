@@ -70,8 +70,18 @@ def test_manual_list_control_is_still_available():
 
 def test_pane_is_keyed_by_remote_id_so_a_switch_remounts_it():
     """R6: reusing the instance leaked `listed`/`botId` across the Remote picker."""
-    sheet = (REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx").read_text(
-        encoding="utf-8"
+    sheet = (
+        (REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx").read_text(encoding="utf-8")
+        + (
+            REPO_ROOT
+            / "webui"
+            / "frontend"
+            / "src"
+            / "components"
+            / "settings"
+            / "panes"
+            / "RemotesCatalogPane.tsx"
+        ).read_text(encoding="utf-8")
     )
     assert "<RemoteOperatePane key={selected.id} remote={selected} />" in sheet
 
@@ -98,7 +108,17 @@ def test_the_mount_list_still_runs_once_per_pane():
     """
     content = _settings_source()
     assert "const autoListedRef = useRef(false)" in content
-    sheet = (REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx").read_text(
-        encoding="utf-8"
+    sheet = (
+        (REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx").read_text(encoding="utf-8")
+        + (
+            REPO_ROOT
+            / "webui"
+            / "frontend"
+            / "src"
+            / "components"
+            / "settings"
+            / "panes"
+            / "RemotesCatalogPane.tsx"
+        ).read_text(encoding="utf-8")
     )
     assert "key={selected.id}" in sheet

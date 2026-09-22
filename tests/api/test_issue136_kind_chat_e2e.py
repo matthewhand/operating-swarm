@@ -224,8 +224,9 @@ def test_invalid_bearer_does_not_open_the_api(kind_env):
 def test_spa_chat_fetch_sends_credentials_and_csrf_header():
     """Login→session prove at the SPA contract (credentials:include + csrftoken)."""
     root = Path(__file__).resolve().parents[2]
-    api = (root / "webui" / "frontend" / "src" / "lib" / "api.ts").read_text(
-        encoding="utf-8"
+    api = "".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((root / "webui" / "frontend" / "src" / "lib" / "api").glob("*.ts"))
     )
     assert "credentials: 'include'" in api
     assert "X-CSRFToken" in api

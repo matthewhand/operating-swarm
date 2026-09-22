@@ -9,6 +9,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SETTINGS_SHEET = REPO / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
+REMOTES_CATALOG_PANE = (
+    REPO / "webui" / "frontend" / "src" / "components" / "settings" / "panes" / "RemotesCatalogPane.tsx"
+)
 REMOTES_LIB = REPO / "webui" / "frontend" / "src" / "lib" / "remotes.ts"
 SEARCH_PALETTE = REPO / "webui" / "frontend" / "src" / "components" / "SearchPalette.tsx"
 CHAT_PAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
@@ -22,7 +25,7 @@ TEAM_ROSTERS = REPO / "webui" / "frontend" / "src" / "lib" / "teamRosters.ts"
 
 def test_settings_remotes_are_opt_in_not_default_kind_cards():
     """REQ-59/62: empty remotes catalog + Add remote; OpenMousBot operate; never OMB."""
-    src = SETTINGS_SHEET.read_text(encoding="utf-8")
+    src = SETTINGS_SHEET.read_text(encoding="utf-8") + REMOTES_CATALOG_PANE.read_text(encoding="utf-8")
     labels = REMOTES_LIB.read_text(encoding="utf-8")
     assert "Add remote" in src
     assert "fetchRemotes" in src
