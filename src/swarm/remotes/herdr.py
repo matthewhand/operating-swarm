@@ -42,3 +42,14 @@ class HerdrAdapter(RemoteAdapter):
         return remotes._herdr_interrogate(
             self.spec, target, timeout, self.config if config is None else config
         )
+
+    def health(self, timeout: float, config: dict[str, Any] | None = None):
+        """CLI/SSH probe first (never a guessed HTTP host); generic fallback."""
+        from swarm.core import remotes
+
+        probed = remotes._herdr_health(
+            self.spec, timeout, self.config if config is None else config
+        )
+        if probed is not None:
+            return probed
+        return super().health(timeout, config)

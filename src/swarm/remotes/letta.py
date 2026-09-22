@@ -45,3 +45,7 @@ class LettaAdapter(RemoteAdapter):
 
     def empty_reply_hint(self) -> str:
         return "Letta returned an empty reply. Pick an agent session and try again."
+
+    def extra_health_paths(self) -> list[str]:
+        """#489: Letta's health lives under /v1 — probe the alternates."""
+        return ["/v1/health", "/v1/health/", "/health"]

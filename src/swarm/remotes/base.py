@@ -107,3 +107,21 @@ class RemoteAdapter:
     def empty_reply_hint(self) -> str:
         """Honest sentence when a stream finished without any delta."""
         raise NotImplementedError(f"{type(self).__name__}.empty_reply_hint")
+
+    # ------------------------------------------------------------------
+    # Health surface (#812 slice 4) — check_health dispatches through the
+    # registry. The base forwards to the shared generic prober (HTTP kinds
+    # unchanged); adapters with non-HTTP transports (Herdr) or alternate
+    # probe paths (Letta) override the hooks instead of the prober growing
+    # kind branches.
+    # ------------------------------------------------------------------
+    def health(self, timeout: float, config: dict[str, Any] | None = None):
+        from swarm.core import remotes
+
+        return remotes._check_health_spec(
+            self.spec, timeout, config, extra_health_paths=self.extra_health_paths()
+        )
+
+    def extra_health_paths(self) -> list[str]:
+        """Alternate health paths probed after the spec's own (Letta #489)."""
+        return []

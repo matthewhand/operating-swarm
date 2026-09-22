@@ -603,3 +603,107 @@ class TestSlice3BlueprintPolymorphic:
             'elif stream_kind == "openwebui"',
         ):
             assert legacy not in source, f"blueprint still branches on {legacy}"
+
+
+# ---------------------------------------------------------------------------
+# Slice 4: health dispatch joins the registry. Adapters own their health —
+# Herdr's CLI/SSH probe and Letta's alternate health paths move out of the
+# generic prober, which becomes kind-blind. Default adapter health forwards
+# to the shared prober, so HTTP kinds are unchanged.
+# ---------------------------------------------------------------------------
+
+
+class TestSlice4Health:
+    def test_check_health_routes_through_registry(self):
+        from swarm.core import remotes
+        from swarm.core.remotes import HealthResult
+        from swarm.remotes import registry
+        from swarm.remotes.base import RemoteAdapter
+
+        sentinel = HealthResult(remote="omb", ok=True, state="UP", detail="stubbed")
+
+        class _Stub(RemoteAdapter):
+            kind = "omb"
+
+            def health(self, timeout, config=None):
+                return sentinel
+
+        original = registry.REMOTE_ADAPTER_REGISTRY["omb"]
+        registry.REMOTE_ADAPTER_REGISTRY["omb"] = _Stub
+        try:
+            with patch.object(remotes, "is_configured", return_value=True):
+                out = remotes.check_health(
+                    "omb", config={"llm": {}, "remotes": {}}, timeout=1.0
+                )
+        finally:
+            registry.REMOTE_ADAPTER_REGISTRY["omb"] = original
+        assert out is sentinel
+
+    def test_herdr_adapter_health_forwards_to_cli_probe(self):
+        from swarm.core import remotes
+        from swarm.core.remotes import HealthResult
+        from swarm.remotes.herdr import HerdrAdapter
+
+        spec = _spec("herdr")
+        sentinel = HealthResult(remote="herdr", ok=True, state="UP", detail="cli")
+        with patch.object(remotes, "_herdr_health", return_value=sentinel) as m:
+            out = HerdrAdapter(spec, config={"c": 1}).health(3.0, {"c": 1})
+        m.assert_called_once_with(spec, 3.0, {"c": 1})
+        assert out is sentinel
+
+    def test_herdr_adapter_falls_back_to_generic_prober(self):
+        from swarm.core import remotes
+        from swarm.remotes.herdr import HerdrAdapter
+
+        spec = _spec("herdr")
+        with patch.object(remotes, "_herdr_health", return_value=None), \
+                patch.object(remotes, "_check_health_spec", return_value="PROBED") as m:
+            out = HerdrAdapter(spec, config=None).health(3.0, None)
+        m.assert_called_once_with(spec, 3.0, None, extra_health_paths=[])
+        assert out == "PROBED"
+
+    def test_base_health_forwards_to_generic_prober(self):
+        from swarm.core import remotes
+        from swarm.remotes.base import RemoteAdapter
+
+        spec = _spec("omb")
+        with patch.object(remotes, "_check_health_spec", return_value="PROBED") as m:
+            out = RemoteAdapter(spec, config={"c": 1}).health(2.5, {"c": 1})
+        m.assert_called_once_with(spec, 2.5, {"c": 1}, extra_health_paths=[])
+        assert out == "PROBED"
+
+    def test_letta_extra_health_paths(self):
+        from swarm.remotes.letta import LettaAdapter
+
+        assert LettaAdapter(_spec("letta")).extra_health_paths() == [
+            "/v1/health",
+            "/v1/health/",
+            "/health",
+        ]
+
+    def test_base_extra_health_paths_empty(self):
+        from swarm.remotes.base import RemoteAdapter
+
+        assert RemoteAdapter(_spec("omb")).extra_health_paths() == []
+
+    def test_generic_prober_is_kind_blind(self):
+        import inspect
+
+        from swarm.core import remotes
+
+        source = inspect.getsource(remotes._check_health_spec)
+        assert '"herdr"' not in source and "'herdr'" not in source
+        assert '"letta"' not in source and "'letta'" not in source
+
+    def test_check_health_herdr_still_probes_cli_first(self):
+        from swarm.core import remotes
+        from swarm.core.remotes import HealthResult
+
+        spec = _spec("herdr")
+        sentinel = HealthResult(remote="herdr", ok=True, state="UP", detail="cli")
+        with patch.object(remotes, "load_remote", return_value=spec), \
+                patch.object(remotes, "is_configured", return_value=True), \
+                patch.object(remotes, "_herdr_health", return_value=sentinel) as m:
+            out = remotes.check_health("herdr", timeout=3.0)
+        m.assert_called_once()
+        assert out is sentinel

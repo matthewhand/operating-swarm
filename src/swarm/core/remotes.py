@@ -1956,7 +1956,13 @@ def _herdr_health(spec: RemoteSpec, timeout: float, config: dict[str, Any] | Non
 
 
 def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> HealthResult:
-    """Honest health/version. One attempt. Never raises."""
+    """Honest health/version. One attempt. Never raises.
+
+    #812 slice 4: dispatch goes through the adapter registry — adapters own
+    their health (Herdr's CLI/SSH probe, alternate paths via
+    ``extra_health_paths``); the shared prober stays kind-blind. Unregistered
+    kinds (none today) fall straight to the generic prober.
+    """
     try:
         spec = load_remote(remote_id, config)
     except RemoteError as exc:
@@ -1965,6 +1971,14 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
     if not is_configured(spec.id, config):
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail=_not_added_message(spec.id))
 
+    from swarm.remotes.registry import create_remote_adapter
+
+    adapter = create_remote_adapter(spec, config)
+    if adapter is not None:
+        try:
+            return adapter.health(timeout, config)
+        except NotImplementedError:
+            pass  # adapter explicitly has no health — generic prober
     return _check_health_spec(spec, timeout, config)
 
 
@@ -1972,12 +1986,12 @@ def _check_health_spec(
     spec: RemoteSpec,
     timeout: float = _DEFAULT_TIMEOUT_S,
     config: dict[str, Any] | None = None,
+    *,
+    extra_health_paths: list[str] | None = None,
 ) -> HealthResult:
-    if spec.kind == "herdr" or kind_of_instance(spec.id, config) == "herdr":
-        herdr_health = _herdr_health(spec, timeout, config)
-        if herdr_health is not None:
-            return herdr_health
-
+    """Generic TCP+HTTP prober. Kind-blind by #812 slice 4: non-HTTP
+    transports and alternate probe paths arrive via adapter overrides
+    (``health`` / ``extra_health_paths``), not kind branches here."""
     if not spec.base_url:
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="base_url is empty")
     if _looks_like_forbidden_llm_proxy(spec.base_url):
@@ -2004,15 +2018,9 @@ def _check_health_spec(
         )
 
     health_paths = [spec.health_path]
-    is_letta = (
-        spec.kind == "letta"
-        or kind_of_instance(spec.id, config) == "letta"
-        or kind_of_instance(spec.id) == "letta"
-    )
-    if is_letta:
-        for alt in ("/v1/health", "/v1/health/", "/health"):
-            if alt not in health_paths:
-                health_paths.append(alt)
+    for alt in extra_health_paths or []:
+        if alt not in health_paths:
+            health_paths.append(alt)
 
     chosen_path = spec.health_path
     health_url = f"{spec.base_url}{chosen_path}"
