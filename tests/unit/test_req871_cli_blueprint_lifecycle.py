@@ -15,17 +15,21 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 CLI = REPO / "src" / "swarm" / "core" / "swarm_cli.py"
+# #855 slice 2: launcher/session helpers moved verbatim to swarm.cli.launcher;
+# the source locks below read the *combined* surface so the spec shape cannot
+# drift in either module.
+LAUNCHER = REPO / "src" / "swarm" / "cli" / "launcher.py"
 PLAN = REPO / "docs" / "qa" / "REQ-871-cli-blueprint-lifecycle.md"
 
 
 def _cli() -> str:
-    return CLI.read_text(encoding="utf-8")
+    return CLI.read_text(encoding="utf-8") + LAUNCHER.read_text(encoding="utf-8")
 
 
 def _compile_helper_body() -> str:
-    """``_compile_blueprint_executable`` body, up to the next command."""
+    """``_compile_blueprint_executable`` body, up to the next top-level def."""
     body = _cli().split("def _compile_blueprint_executable", 1)[1]
-    return body.split('@app.command(name="compile")', 1)[0]
+    return body.split("\ndef ", 1)[0]
 
 
 def test_req871_compile_is_primary_with_both_aliases():
