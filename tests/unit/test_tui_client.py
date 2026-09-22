@@ -247,7 +247,12 @@ def test_optional_catalog_rejected_token_is_fatal():
         list_rail_agents(getter=getter, token="wrong-key")
 
 
-def test_optional_catalog_auth_required_without_token_is_fatal():
+def test_optional_catalog_auth_required_without_token_is_fatal(monkeypatch):
+    # Test hygiene: a token must not leak in from another test's env (the
+    # sibling below already pins this; this path needs the same isolation).
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("SWARM_API_KEY", raising=False)
+
     def getter(url: str, _headers: dict[str, str]) -> httpx.Response:
         if url.endswith("/v1/blueprints/"):
             return _response(200, {"object": "list", "data": []})
