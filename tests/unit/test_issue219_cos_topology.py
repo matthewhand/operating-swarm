@@ -10,6 +10,9 @@ ADAPTERS = REPO / "src" / "swarm" / "core" / "roles" / "adapters.py"
 MAILBOX = REPO / "src" / "swarm" / "core" / "agent_mailbox.py"
 ACL = REPO / "src" / "swarm" / "core" / "agent_mailbox_acl.py"
 CONSUMER = REPO / "src" / "swarm" / "consumers.py"
+# #855 slice 2: the WS call site moved with respond_with_blueprint into the
+# stubs mixin; the doctrine spans both homes.
+CONSUMER_STUBS_MIXIN = REPO / "src" / "swarm" / "chat" / "stubs_mixin.py"
 CHAT = REPO / "src" / "swarm" / "views" / "chat_views.py"
 BASE = REPO / "src" / "swarm" / "core" / "blueprint_base.py"
 DOCS = REPO / "docs" / "COS_TOPOLOGY.md"
@@ -73,9 +76,10 @@ def test_core_exposes_tools_and_cos_only_gate():
 
 def test_wired_on_chat_ws_and_completions_via_role():
     consumer = CONSUMER.read_text(encoding="utf-8")
+    stubs = CONSUMER_STUBS_MIXIN.read_text(encoding="utf-8")
     chat = CHAT.read_text(encoding="utf-8")
     adapters = ADAPTERS.read_text(encoding="utf-8")
-    assert "install_topology_for_runtime" in consumer
+    assert "install_topology_for_runtime" in (consumer + stubs)
     assert "install_topology_for_runtime" in chat
     assert "_topology_context" in BASE.read_text(encoding="utf-8")
     assert "install_topology_on_blueprint" in adapters

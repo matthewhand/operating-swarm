@@ -1,7 +1,10 @@
 """#855 — swarm.chat package (consumers.py modularisation).
 
-Houses the WebSocket consumer's moved helpers; the consumer class itself
-stays in :mod:`swarm.consumers` for now (later #855 slices split it).
+Slice 1 moved the module-level helpers (``helpers``); slice 2 moved cohesive
+method clusters of ``DjangoChatConsumer`` into mixin classes that the kernel
+class MRO-merges (advice pipeline, conversation persistence, stub responders).
+The consumer class itself stays in :mod:`swarm.consumers` — the hot turn path
+never leaves the kernel.
 """
 
-__all__ = ["helpers"]
+__all__ = ["advice_mixin", "conversations_mixin", "helpers", "stubs_mixin"]

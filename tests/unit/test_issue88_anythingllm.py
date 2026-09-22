@@ -6,6 +6,8 @@ REPO = Path(__file__).resolve().parents[2]
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 CONSUMERS = REPO / "src" / "swarm" / "consumers.py"
+# #855 slice 2: per-harness dispatch moved verbatim into the stubs mixin.
+STUBS = REPO / "src" / "swarm" / "chat" / "stubs_mixin.py"
 API = REPO / "src" / "swarm" / "views" / "remotes_api.py"
 
 
@@ -33,6 +35,6 @@ def test_operate_api_forwards_session_id():
 
 
 def test_consumers_route_anythingllm_remote():
-    src = CONSUMERS.read_text(encoding="utf-8")
+    src = CONSUMERS.read_text(encoding="utf-8") + STUBS.read_text(encoding="utf-8")  # #855 slice 2: dispatch moved to the stubs mixin
     assert "anythingllm" in src
     assert "streamed_any" in src

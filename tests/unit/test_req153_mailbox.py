@@ -56,7 +56,12 @@ def test_core_is_api_first_no_8001():
 
 
 def test_wired_on_chat_ws_and_completions():
-    assert "install_mailbox_for_runtime" in CONSUMER.read_text(encoding="utf-8")
+    # #855 slice 2: the WS install site moved with respond_with_blueprint
+    # into the stubs mixin; the doctrine spans both homes.
+    assert "install_mailbox_for_runtime" in (
+        CONSUMER.read_text(encoding="utf-8")
+        + (REPO / "src" / "swarm" / "chat" / "stubs_mixin.py").read_text(encoding="utf-8")
+    )
     assert "install_mailbox_for_runtime" in CHAT.read_text(encoding="utf-8")
     assert "_mailbox_context" in BASE.read_text(encoding="utf-8")
 

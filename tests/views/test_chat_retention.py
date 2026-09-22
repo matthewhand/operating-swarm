@@ -321,7 +321,7 @@ def test_consumer_save_writes_json(user):
     consumer = DjangoChatConsumer()
     consumer.user = user
     consumer.active_agent = "jeeves"
-    save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+    save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
     save_sync(
         consumer,
         chat_store.conversation_id_for(user, "jeeves"),

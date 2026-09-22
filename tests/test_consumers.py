@@ -1737,7 +1737,7 @@ class TestFetchConversation:
 
         attacker_consumer = DjangoChatConsumer()
         attacker_consumer.user = attacker
-        fetch_sync = DjangoChatConsumer.__dict__["fetch_conversation"].func
+        fetch_sync = next(c for c in DjangoChatConsumer.__mro__ if "fetch_conversation" in c.__dict__).__dict__["fetch_conversation"].func
 
         with patch(
             "swarm.core.thread_load.ChatConversation.objects.get",
@@ -1770,7 +1770,7 @@ class TestFetchConversation:
         consumer.user = test_user
         consumer.default_blueprint = None
         consumer.active_agent = None
-        fetch_sync = DjangoChatConsumer.__dict__["fetch_conversation"].func
+        fetch_sync = next(c for c in DjangoChatConsumer.__mro__ if "fetch_conversation" in c.__dict__).__dict__["fetch_conversation"].func
         result = fetch_sync(consumer, "db-conv-123")
 
         assert len(result) == 1
@@ -1862,7 +1862,7 @@ class TestSaveConversation:
         ]
 
         # Call the unwrapped sync function behind database_sync_to_async.
-        save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+        save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
         with CaptureQueriesContext(connection) as ctx:
             save_sync(consumer, "bulk-conv-123", new_messages)
 
@@ -1892,7 +1892,7 @@ class TestSaveConversation:
             {"role": "user", "content": "How are you?"},
         ]
 
-        save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+        save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
         save_sync(consumer, conv_id, messages)
         assert (
             ChatMessage.objects.filter(
@@ -1943,7 +1943,7 @@ class TestSaveConversation:
 
         attacker_consumer = DjangoChatConsumer()
         attacker_consumer.user = attacker
-        save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+        save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
         save_sync(
             attacker_consumer,
             conv_id,
@@ -2008,7 +2008,7 @@ class TestDeleteConversation:
 
         consumer = DjangoChatConsumer()
         consumer.user = test_user
-        delete_sync = DjangoChatConsumer.__dict__["delete_conversation"].func
+        delete_sync = next(c for c in DjangoChatConsumer.__mro__ if "delete_conversation" in c.__dict__).__dict__["delete_conversation"].func
         delete_sync(consumer, "cache-delete")
 
         assert cache_key not in IN_MEMORY_CONVERSATIONS

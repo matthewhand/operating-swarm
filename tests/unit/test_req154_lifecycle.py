@@ -65,7 +65,12 @@ def test_core_exposes_tools_and_role_gate():
 
 
 def test_wired_on_chat_ws_and_completions():
-    assert "install_lifecycle_for_runtime" in CONSUMER.read_text(encoding="utf-8")
+    # #855 slice 2: the WS install site moved with respond_with_blueprint
+    # into the stubs mixin; the doctrine spans both homes.
+    assert "install_lifecycle_for_runtime" in (
+        CONSUMER.read_text(encoding="utf-8")
+        + (REPO / "src" / "swarm" / "chat" / "stubs_mixin.py").read_text(encoding="utf-8")
+    )
     assert "install_lifecycle_for_runtime" in CHAT.read_text(encoding="utf-8")
     assert "_lifecycle_context" in BASE.read_text(encoding="utf-8")
     assert "purge_archived_agents" in CMD.read_text(encoding="utf-8")
