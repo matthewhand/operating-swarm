@@ -283,7 +283,7 @@ export default function AgentRouterPage() {
   const clis = cliCatalogQuery.data?.clis || []
 
   const llmQuery = useQuery({
-    queryKey: ['agent-llm-profiles'],
+    queryKey: ['llm-profiles'],
     queryFn: fetchLlmProfiles,
   })
   const llmProfiles = llmQuery.data?.profiles || []

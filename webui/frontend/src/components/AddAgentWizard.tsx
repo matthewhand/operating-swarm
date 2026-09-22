@@ -617,7 +617,7 @@ ${folderComment}`
             kind: created.kind || created.id,
           })
           await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-          await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+          await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           const implLabel =
             remoteImpls.find((row) => row.id === implId)?.label || created.id
@@ -651,7 +651,7 @@ ${folderComment}`
             kind: created.kind || created.id,
           })
           await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-          await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+          await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           onCreated?.({
             id: created.id,

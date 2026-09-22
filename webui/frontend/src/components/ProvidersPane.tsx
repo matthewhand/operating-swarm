@@ -21,7 +21,7 @@ interface ProviderCardSpec {
 export function ProvidersPane() {
   const llm = useQuery({ queryKey: ['llm-profiles'], queryFn: fetchLlmProfiles })
   const clis = useQuery({ queryKey: ['cli-agents'], queryFn: fetchCliAgents })
-  const remotes = useQuery({ queryKey: ['configured-remotes'], queryFn: fetchRemotes })
+  const remotes = useQuery({ queryKey: ['remotes-list'], queryFn: fetchRemotes })
   const blueprints = useQuery({ queryKey: ['custom-blueprints'], queryFn: fetchCustomBlueprints })
 
   const apiCount = llm.data?.profiles?.length ?? 0

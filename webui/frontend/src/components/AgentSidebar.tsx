@@ -2365,7 +2365,7 @@ export default function AgentSidebar({
         })
         await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
         await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-        await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+        await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
         const createdHide = remoteHideId(created.id)
         if (!isUnassignedSection(sourceSectionId)) {
           setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
@@ -2489,7 +2489,7 @@ export default function AgentSidebar({
       }
       await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
       await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-      await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+      await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
     } else if (row.kind === 'team') {
       try {
         await deleteTeamRoster(row.entityId)

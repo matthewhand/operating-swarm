@@ -210,7 +210,7 @@ export function AgentCustomisationPane({
   const [error, setError] = useState<string | null>(null)
 
   const profilesQuery = useQuery({
-    queryKey: ['llm-profiles-for-agent-pane'],
+    queryKey: ['llm-profiles'],
     queryFn: fetchLlmProfiles,
     enabled: isApi,
     staleTime: 60_000,

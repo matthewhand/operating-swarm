@@ -1259,7 +1259,7 @@ function RemotesCatalogPane({
   const addingHerdr = isHerdrKind(kind)
 
   const remotesQuery = useQuery({
-    queryKey: ['settings-remotes'],
+    queryKey: ['remotes-list'],
     queryFn: fetchRemotes,
     retry: 1,
   })
@@ -1311,13 +1311,13 @@ function RemotesCatalogPane({
             }),
       }),
     onSuccess: (created) => {
-      queryClient.setQueryData(['settings-remotes'], (prev: Awaited<ReturnType<typeof fetchRemotes>> | undefined) => ({
+      queryClient.setQueryData(['remotes-list'], (prev: Awaited<ReturnType<typeof fetchRemotes>> | undefined) => ({
         object: 'list' as const,
         kinds: remoteKinds(prev),
         configured: [...configuredRemotes(prev).filter((row) => row.id !== created.id), created],
         data: prev?.data ?? [],
       }))
-      void queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+      void queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
       void queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
       setAdding(false)
       setRemoteId('')
@@ -1341,13 +1341,13 @@ function RemotesCatalogPane({
   const removeMutation = useMutation({
     mutationFn: (remoteId: string) => deleteRemote(remoteId),
     onSuccess: (_void, remoteId) => {
-      queryClient.setQueryData(['settings-remotes'], (prev: Awaited<ReturnType<typeof fetchRemotes>> | undefined) => ({
+      queryClient.setQueryData(['remotes-list'], (prev: Awaited<ReturnType<typeof fetchRemotes>> | undefined) => ({
         object: 'list' as const,
         kinds: remoteKinds(prev),
         configured: configuredRemotes(prev).filter((row) => row.id !== remoteId),
         data: prev?.data ?? [],
       }))
-      void queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+      void queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
       void queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
       if (selectedId === remoteId) setSelectedId('')
       success('Remote removed', 'Dropped from Settings and remote dropdowns.')
@@ -2767,7 +2767,7 @@ function LlmProfilesPane({
 }) {
   const { success, error: toastError } = useToast()
   const profilesQuery = useQuery({
-    queryKey: ['settings-llm-profiles'],
+    queryKey: ['llm-profiles'],
     queryFn: fetchLlmProfiles,
     retry: 1,
   })

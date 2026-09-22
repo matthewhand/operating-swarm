@@ -22,7 +22,7 @@ import {
 import { isOpenMousBotKind, OPENMOUSBOT_LABEL, remoteKindLabel } from '../lib/remoteKinds'
 import { herdrLocationLabel, isHerdrKind } from '../lib/remotes'
 
-export const REMOTES_QUERY_KEY = ['settings-remotes'] as const
+export const REMOTES_QUERY_KEY = ['remotes-list'] as const
 
 /**
  * #494 scope 3 — the "i" affordance next to the API-key story: names the env
