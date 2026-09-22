@@ -5854,97 +5854,42 @@ def operate(
             return OperateResult(remote=rid, op=action, ok=False, detail=f"Unknown op '{op}'. Use list, send, or routines.")
         if not is_configured(rid, config):
             return OperateResult(remote=rid, op=action, ok=False, detail=_not_added_message(rid))
-        # #812: migrated kinds dispatch through the adapter registry — the
-        # if/elif chain below stops growing and shrinks as slices land. An
-        # adapter that does not own an op yet (NotImplementedError) falls
-        # through to the legacy chain, so behavior is unchanged per kind.
-        # Late import: registry ↔ remotes is a deliberate cycle broken at
-        # call time (registry imports this module's types + impls).
-        from swarm.remotes.registry import create_remote_adapter
-
-        adapter = create_remote_adapter(spec, config)
-        if adapter is not None:
-            if action in ("routines", "schedules"):
-                try:
-                    return adapter.routines(timeout)
-                except NotImplementedError:
-                    pass  # adapter doesn't own routines yet — legacy fallback
-            elif action == "list":
-                return adapter.list(timeout, query=query or prompt)
-            elif action == "send":
-                return adapter.send(prompt, timeout, target=target, session_id=resume_id)
-            elif action == "interrogate":
-                return adapter.interrogate(target, timeout, config)
+        # HTTP guards ahead of dispatch (unchanged order from the legacy
+        # chain): routines/schedules are TrueForge-only, and the HTTP kinds
+        # refuse a missing or forbidden base URL. Herdr (CLI/SSH) is exempt —
+        # it has never carried a base_url.
+        is_herdr = rkind == "herdr"
         if action in ("routines", "schedules"):
             if rkind == "trueforge" or spec.kind == "trueforge" or is_trueforge_remote(rid, config):
                 return _trueforge_routines(spec, timeout)
             from swarm.core.remote_harness import unsupported_routines
 
             return unsupported_routines(rid)
-        if rkind == "herdr":
+        if not is_herdr:
+            if not spec.base_url:
+                return OperateResult(remote=rid, op=action, ok=False, detail="base_url is empty")
+            if _looks_like_forbidden_llm_proxy(spec.base_url):
+                return OperateResult(
+                    remote=rid,
+                    op=action,
+                    ok=False,
+                    detail="Refusing to operate against a Fly open-litellm URL",
+                )
+        # #812: every declared kind dispatches through the adapter registry —
+        # the per-kind if/elif chain is gone. Adding a harness is now one
+        # module + one registration; operate() never grows again.
+        # Late import: registry ↔ remotes is a deliberate cycle broken at
+        # call time (registry imports this module's types + impls).
+        from swarm.remotes.registry import create_remote_adapter
+
+        adapter = create_remote_adapter(spec, config)
+        if adapter is not None:
             if action == "list":
-                return _herdr_list(spec, timeout, config)
+                return adapter.list(timeout, query=query or prompt)
+            if action == "send":
+                return adapter.send(prompt, timeout, target=target, session_id=resume_id)
             if action == "interrogate":
-                return _herdr_interrogate(spec, target, timeout, config)
-            return _herdr_send(spec, prompt, target, timeout, config)
-        if not spec.base_url:
-            return OperateResult(remote=rid, op=action, ok=False, detail="base_url is empty")
-        if _looks_like_forbidden_llm_proxy(spec.base_url):
-            return OperateResult(
-                remote=rid,
-                op=action,
-                ok=False,
-                detail="Refusing to operate against a Fly open-litellm URL",
-            )
-        if rkind == "hermes":
-            return _hermes_list(spec, timeout) if action == "list" else _hermes_send(
-                spec, prompt, timeout, session_id=resume_id
-            )
-        if rkind == "anythingllm":
-            if action == "list":
-                return _anythingllm_list(spec, timeout, query=query or prompt)
-            send_timeout = timeout if timeout >= 30 else _ANYTHINGLLM_SEND_TIMEOUT_S
-            return _anythingllm_send(
-                spec, prompt, send_timeout, session_id=resume_id, target=target
-            )
-        if rkind == "letta":
-            if action == "list":
-                return _letta_list(spec, timeout, query=query or prompt)
-            send_timeout = timeout if timeout >= 30 else _LETTA_SEND_TIMEOUT_S
-            return _letta_send(
-                spec, prompt, send_timeout, session_id=resume_id, target=target
-            )
-        if rkind == "openwebui":
-            from swarm.core.openwebui_remote import openwebui_list, openwebui_send, send_timeout as owui_send_timeout
-            if action == "list":
-                return openwebui_list(spec, timeout, query=query or prompt)
-            return openwebui_send(
-                spec, prompt, owui_send_timeout(timeout), session_id=resume_id, target=target
-            )
-        if rkind == "flowise":
-            if action == "list":
-                return _flowise_list(spec, timeout, query=query or prompt)
-            send_timeout = timeout if timeout >= 30 else _FLOWISE_SEND_TIMEOUT_S
-            return _flowise_send(
-                spec, prompt, send_timeout, session_id=resume_id, target=target
-            )
-        if rkind == "n8n":
-            if action == "list":
-                return _n8n_list(spec, timeout, query=query or prompt)
-            send_timeout = timeout if timeout >= 30 else _N8N_SEND_TIMEOUT_S
-            return _n8n_send(
-                spec, prompt, send_timeout, session_id=resume_id, target=target
-            )
-        if rkind == "omb":
-            return _omb_list(spec, timeout) if action == "list" else _omb_send(spec, prompt, target, timeout)
-        if rkind == "rakazo":
-            return _rakazo_list(spec, timeout) if action == "list" else _rakazo_send(spec, prompt, target, timeout)
-        if rkind == "swarm":
-            return _swarm_list(spec, timeout) if action == "list" else _swarm_send(spec, prompt, target, timeout)
-        if rkind == "trueforge" or spec.kind == "trueforge" or is_trueforge_remote(rid, config):
-            return _trueforge_list(spec, timeout) if action == "list" else _trueforge_send(
-                spec, prompt, target, timeout, session_id=resume_id
-            )
+                return adapter.interrogate(target, timeout, config)
         return OperateResult(
             remote=rid,
             op=action,

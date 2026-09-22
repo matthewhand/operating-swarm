@@ -36,6 +36,18 @@ def create_remote_adapter(
     return cls(spec, config)
 
 
-# Slice 1 migrations — importing registers them. Later slices append their
-# module here (and nowhere else has to change).
-from swarm.remotes import letta, trueforge  # noqa: E402,F401  (registration)
+# Slice 1+2 migrations — importing registers them. Later slices append
+# their module here (and nowhere else has to change).
+from swarm.remotes import (  # noqa: E402,F401  (registration)
+    anythingllm,
+    flowise,
+    herdr,
+    hermes,
+    letta,
+    n8n,
+    omb,
+    openwebui,
+    rakazo,
+    swarm,
+    trueforge,
+)
