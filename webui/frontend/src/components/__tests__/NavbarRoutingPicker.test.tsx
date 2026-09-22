@@ -194,3 +194,39 @@ describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
     expect(screen.getByTestId('os-model-row-agy')).toBeInTheDocument()
   })
 })
+
+describe('#770 — pill resize grip', () => {
+  it('reveals a double-slit grip handle on hover with col-resize cursor', () => {
+    renderPicker()
+    const grip = screen.getByTestId('routing-pill-grip')
+    expect(grip).toBeInTheDocument()
+    // Hover-reveal + col-resize cursor live in the #770 CSS block keyed
+    // on this class; jsdom does not apply stylesheets, so assert the hook.
+    expect(grip.className).toContain('os-routing-pill__grip')
+  })
+
+  it('dragging the grip resizes the pill and persists the width', () => {
+    localStorage.removeItem('swarm_composer_pill_width')
+    renderPicker()
+    const grip = screen.getByTestId('routing-pill-grip')
+    const pill = screen.getByTestId('routing-pill-agent')
+    expect(pill).not.toHaveAttribute('data-pill-resized')
+
+    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1, button: 0 })
+    fireEvent.pointerMove(grip, { clientX: 180, pointerId: 1 })
+    fireEvent.pointerUp(grip, { clientX: 180, pointerId: 1 })
+
+    // jsdom scrollWidth is 0 → the fallback cap applies; the drag widened
+    // from the auto default toward the cap, so a resize is marked.
+    expect(pill).toHaveAttribute('data-pill-resized', 'true')
+    expect(Number(localStorage.getItem('swarm_composer_pill_width'))).toBeGreaterThan(0)
+    localStorage.removeItem('swarm_composer_pill_width')
+  })
+
+  it('grip clicks never open the selection dialog', () => {
+    renderPicker()
+    const grip = screen.getByTestId('routing-pill-grip')
+    fireEvent.click(grip)
+    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+  })
+})

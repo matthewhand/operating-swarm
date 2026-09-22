@@ -2423,6 +2423,41 @@ button.os-agent-row {
   white-space: nowrap;
   min-width: 0;
 }
+/* #770: double-slit grab handle — hover-revealed resize affordance. */
+.os-routing-pill__grip {
+  display: none;
+  width: 0.4rem;
+  align-self: stretch;
+  flex-shrink: 0;
+  margin-inline-start: 0.1rem;
+  cursor: col-resize;
+  touch-action: none;
+  background:
+    linear-gradient(
+      to right,
+      transparent 0 calc(50% - 1px),
+      color-mix(in srgb, var(--color-base-content) 30%, transparent) calc(50% - 1px) calc(50% - 0.5px),
+      transparent calc(50% - 0.5px) calc(50% + 0.5px),
+      color-mix(in srgb, var(--color-base-content) 30%, transparent) calc(50% + 0.5px) calc(50% + 1px),
+      transparent calc(50% + 1px) 100%
+    );
+  border-radius: 1px;
+}
+.os-routing-pill:hover .os-routing-pill__grip,
+.os-routing-pill__grip:focus-visible {
+  display: inline-block;
+}
+.os-routing-pill__grip:hover {
+  background:
+    linear-gradient(
+      to right,
+      transparent 0 calc(50% - 1px),
+      color-mix(in srgb, var(--color-base-content) 60%, transparent) calc(50% - 1px) calc(50% - 0.5px),
+      transparent calc(50% - 0.5px) calc(50% + 0.5px),
+      color-mix(in srgb, var(--color-base-content) 60%, transparent) calc(50% + 0.5px) calc(50% + 1px),
+      transparent calc(50% + 1px) 100%
+    );
+}
 .os-routing-pill__chevron {
   width: 0.85rem;
   height: 0.85rem;

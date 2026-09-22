@@ -10,6 +10,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
+import {
+  clampPillWidth,
+  COMPOSER_PILL_AUTO_MAX,
+  loadPillWidth,
+  pillWidthFromDrag,
+  savePillWidth,
+} from '../lib/composerPillResize'
+
+const COMPOSER_PILL_FULL_TEXT_FALLBACK = COMPOSER_PILL_AUTO_MAX
 import ModelSearchPalette, { type ModelSearchOption } from './ModelSearchPalette'
 import ComposerPickerDialog from './ComposerPickerDialog'
 import type { ComposerProviderOption } from '../lib/composerPicker'
@@ -141,6 +150,57 @@ export function NavbarRoutingPicker({
 }: NavbarRoutingPickerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // #770: hover-revealed double-slit drag handle resizes the pill's visible
+  // width. `pillWidth === null` means auto (pre-#770 sizing, capped by CSS).
+  const [pillWidth, setPillWidth] = useState<number | null>(() => loadPillWidth())
+  const dragStateRef = useRef<{ startX: number; startWidth: number; fullText: number } | null>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
+
+  const measureFullTextWidth = useCallback((): number => {
+    const label = labelRef.current
+    if (!label) return COMPOSER_PILL_FULL_TEXT_FALLBACK
+    // scrollWidth of an ellipsed nowrap span IS the unclipped text width.
+    const text = label.scrollWidth
+    return text > 0 ? text + 24 : COMPOSER_PILL_FULL_TEXT_FALLBACK // + paddings/chevron
+  }, [])
+
+  const onHandlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => {
+      event.stopPropagation()
+      event.preventDefault()
+      const full = measureFullTextWidth()
+      dragStateRef.current = {
+        startX: event.clientX,
+        startWidth: pillWidth ?? COMPOSER_PILL_AUTO_MAX,
+        fullText: full,
+      }
+      const handle = event.currentTarget
+      handle.setPointerCapture?.(event.pointerId)
+      document.body.style.cursor = 'col-resize'
+    },
+    [measureFullTextWidth, pillWidth],
+  )
+
+  const onHandlePointerMove = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const state = dragStateRef.current
+    if (!state) return
+    const next = pillWidthFromDrag(state.startWidth, event.clientX - state.startX, state.fullText)
+    setPillWidth(next)
+  }, [])
+
+  const onHandlePointerUp = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const state = dragStateRef.current
+    dragStateRef.current = null
+    document.body.style.cursor = ''
+    const handle = event.currentTarget
+    if (handle.hasPointerCapture?.(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+    if (state) {
+      setPillWidth((current) => {
+        savePillWidth(current)
+        return current
+      })
+    }
+  }, [])
 
   const resolvedModels = useMemo(() => {
     if (models.length > 0) return models
@@ -489,8 +549,14 @@ export function NavbarRoutingPicker({
     <button
       type="button"
       className={`os-routing-pill join-item ${paletteOpen ? 'os-routing-pill--hot' : ''}`}
+      style={
+        pillWidth !== null
+          ? { width: `${clampPillWidth(pillWidth, measureFullTextWidth())}px` }
+          : undefined
+      }
       data-routing-pill="agent"
       data-testid="routing-pill-agent"
+      data-pill-resized={pillWidth !== null ? 'true' : undefined}
       data-value={joined}
       aria-label={groupLabel}
       aria-haspopup="dialog"
@@ -510,8 +576,21 @@ export function NavbarRoutingPicker({
           modelId: selectedModel,
         })}
       </span>
-      <span className="os-routing-pill__label">{label}</span>
+      <span ref={labelRef} className="os-routing-pill__label">{label}</span>
       <ChevronDown className="os-routing-pill__chevron" aria-hidden="true" />
+      {/* #770: double-slit grab handle — hover-reveal, col-resize cursor,
+          pointer-captured drag, click-through suppressed so the dialog
+          never opens mid-resize. */}
+      <span
+        className="os-routing-pill__grip"
+        aria-hidden="true"
+        data-testid="routing-pill-grip"
+        onPointerDown={onHandlePointerDown}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerUp}
+        onPointerCancel={onHandlePointerUp}
+        onClick={(event) => event.stopPropagation()}
+      />
     </button>
   )
 
