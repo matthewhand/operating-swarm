@@ -83,7 +83,7 @@ def test_session_show_unknown_agent_exits_1(chat_dir):
     result = runner.invoke(swarm_cli.app, ["session", "show", "ghost"])
 
     assert result.exit_code == 1
-    assert "No Swarm-side session record" in result.stdout
+    assert "No Swarm-side session record" in result.output  # click>=8.2: stderr merged into output
 
 
 def test_session_show_names_a_provider_it_has_no_id_for(chat_dir):

@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 from swarm.core.swarm_cli import app
 
 REPO = Path(__file__).resolve().parents[2]
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 
 def test_pyproject_ships_os_as_os_cli_alias():

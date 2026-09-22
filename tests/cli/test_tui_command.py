@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from swarm.core.swarm_cli import app
 from swarm.tui.client import RailSeat, SwarmApiError
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 # Rich/Click help can color each hyphen, so "--once" is not contiguous in raw stdout.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mK]")

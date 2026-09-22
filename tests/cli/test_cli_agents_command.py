@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 from swarm.core.swarm_cli import app
 
 PY = sys.executable
-runner = CliRunner(mix_stderr=False)  # keep logging (stderr) out of the JSON on stdout
+runner = CliRunner()  # click>=8.2: stderr is always separate from stdout
 
 
 @pytest.fixture(autouse=True)

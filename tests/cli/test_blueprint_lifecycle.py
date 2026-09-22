@@ -239,7 +239,9 @@ def test_delete_nothing_present_exits_1(xdg):
     result = runner.invoke(swarm_cli.app, ["delete", "absent_bp"])
 
     assert result.exit_code == 1
-    assert "Nothing to remove" in result.stdout
+    # click >=8.2 splits stderr from stdout in CliRunner results; the
+    # "Nothing to remove" summary is written to stderr.
+    assert "Nothing to remove" in result.output
 
 
 def test_uninstall_removes_binary_only(xdg):
