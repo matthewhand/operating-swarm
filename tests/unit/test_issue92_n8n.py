@@ -36,7 +36,13 @@ def test_consumers_route_n8n_remote():
 
 
 def test_n8n_adapter_does_not_mint_workflows():
-    src = REMOTES.read_text(encoding="utf-8")
+    # #812 slice 5: the n8n impl body moved verbatim to remote_impls/n8n.py.
+    src = "\n".join(
+        (
+            REMOTES.read_text(encoding="utf-8"),
+            (REPO / "src" / "swarm" / "core" / "remote_impls" / "n8n.py").read_text(encoding="utf-8"),
+        )
+    )
     assert "n8n_workflow_required" in src
     assert "does not mint new" in src
     assert "N8N_BASE_URL" in src

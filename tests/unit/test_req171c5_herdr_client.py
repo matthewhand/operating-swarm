@@ -8,6 +8,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 REMOTES = REPO / "src" / "swarm" / "core" / "remotes.py"
+# #812 slice 5: the Herdr impl body moved verbatim to remote_impls/herdr.py.
+HERDR_IMPL = REPO / "src" / "swarm" / "core" / "remote_impls" / "herdr.py"
 TEAMS = REPO / "src" / "swarm" / "core" / "remote_teams.py"
 CI = REPO / ".github" / "workflows" / "req171c5-one-herdr-client.yml"
 CHANGELOG = REPO / "CHANGELOG.md"
@@ -21,14 +23,16 @@ def _no_secrets(text: str) -> None:
 
 def test_operate_send_builds_client_per_spec():
     text = REMOTES.read_text(encoding="utf-8")
-    send_start = text.index("def _herdr_send")
-    send = text[send_start : send_start + 1800]
+    impl_text = HERDR_IMPL.read_text(encoding="utf-8")
+    send_start = impl_text.index("def _herdr_send")
+    send = impl_text[send_start : send_start + 1800]
     # #849: per-instance dispatch — named Herdr instances get their own
     # client via herdr_client_from_spec; from_remote_config hardcodes the
     # default "herdr" config key and silently drops a second instance.
     assert "herdr_client_from_spec" in send
     assert "HerdrClient.from_remote_config" not in send
     assert "herdr_send_via_cli" not in text
+    assert "herdr_send_via_cli" not in impl_text
     assert ":8001" not in send
     assert "WAVE" not in send
     _no_secrets(send)

@@ -180,6 +180,13 @@ def test_issue471_the_single_omb_poll_loop_consults_the_helper():
     now demand the duplication the dedupe exists to remove. Pin the single call
     site instead, so re-introducing a second copy fails here too.
     """
-    text = REMOTES_SRC.read_text(encoding="utf-8")
+    # #812 slice 5: the poll loop moved verbatim into remote_impls/omb.py;
+    # counting across both files keeps the exactly-one-call-site doctrine.
+    text = "\n".join(
+        (
+            REMOTES_SRC.read_text(encoding="utf-8"),
+            (REMOTES_SRC.parent / "remote_impls" / "omb.py").read_text(encoding="utf-8"),
+        )
+    )
     assert text.count("_omb_turn_error(messages, after_id=after_id, prompt=prompt)") == 1
     assert text.count("if turn_error:") == 1

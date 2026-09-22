@@ -26,6 +26,7 @@ from swarm.core import remotes
 
 REPO = Path(__file__).resolve().parents[2]
 REMOTES = REPO / "src" / "swarm" / "core" / "remotes.py"
+OMB_IMPL = REPO / "src" / "swarm" / "core" / "remote_impls" / "omb.py"
 
 # The helper block that was duplicated (both copies lived in this one file).
 OMB_HELPERS = (
@@ -50,10 +51,19 @@ BOTS = {
 
 
 def _module_definitions() -> Counter:
-    """Names defined directly in the module body (functions and classes)."""
-    tree = ast.parse(REMOTES.read_text(encoding="utf-8"))
+    """Names defined directly in the module body (functions and classes).
+
+    #812 slice 5: the OMB helpers now live verbatim in remote_impls/omb.py,
+    so the dup-guard covers that file too (a duplicate there shadows just
+    the same as a duplicate in the old monolith did).
+    """
+    trees = [
+        ast.parse(REMOTES.read_text(encoding="utf-8")),
+        ast.parse(OMB_IMPL.read_text(encoding="utf-8")),
+    ]
     return Counter(
         node.name
+        for tree in trees
         for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     )
@@ -66,11 +76,20 @@ def test_req893_no_duplicate_module_level_definitions():
 
 
 def test_req893_omb_helpers_are_defined_exactly_once():
-    """The specific block that was duplicated (copy A 2082-2248 vs copy B 2298-2455)."""
+    """The specific block that was duplicated (copy A 2082-2248 vs copy B 2298-2455).
+
+    Since #812 slice 5 the block lives in remote_impls/omb.py; the count is
+    taken across remotes.py + omb.py so a re-duplicated block fails here.
+    """
     counts = _module_definitions()
     for name in OMB_HELPERS:
         assert counts[name] == 1, f"{name} is defined {counts[name]}x — one copy is dead code"
-    text = REMOTES.read_text(encoding="utf-8")
+    text = "\n".join(
+        (
+            REMOTES.read_text(encoding="utf-8"),
+            OMB_IMPL.read_text(encoding="utf-8"),
+        )
+    )
     assert text.count("def _omb_find_bot(") == 1
     assert text.count("def _omb_poll_assistant(") == 1
 

@@ -12,6 +12,8 @@ REMOTES_SETTINGS_TSX = (
     REPO_ROOT / "webui" / "frontend" / "src" / "components" / "RemotesSettings.tsx"
 )
 REMOTES_PY = REPO_ROOT / "src" / "swarm" / "core" / "remotes.py"
+# #812 slice 5: the Herdr impl body moved verbatim to remote_impls/herdr.py.
+HERDR_IMPL = REPO_ROOT / "src" / "swarm" / "core" / "remote_impls" / "herdr.py"
 
 
 def _settings_source() -> str:
@@ -20,7 +22,12 @@ def _settings_source() -> str:
 
 def test_backend_still_rejects_an_empty_herdr_target():
     """R5: the guard is a UI affordance, not a replacement for the contract."""
-    source = REMOTES_PY.read_text(encoding="utf-8")
+    source = "\n".join(
+        (
+            REMOTES_PY.read_text(encoding="utf-8"),
+            HERDR_IMPL.read_text(encoding="utf-8"),
+        )
+    )
     assert 'detail="target is required (Herdr pane / CLI id, e.g. w3:p1 or grok)"' in source
 
 
