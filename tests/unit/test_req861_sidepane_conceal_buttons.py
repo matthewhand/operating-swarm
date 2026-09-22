@@ -5,7 +5,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 QA = REPO / "docs" / "qa" / "REQ-861-sidepane-conceal-buttons.md"
 SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
-HEADER = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar" / "SidebarHeader.tsx"
+# #974 deleted the sub-dir SidebarHeader.tsx — the conceal button renders
+# from SidepaneConceal, mounted by the main AgentSidebar directly.
 MODAL = REPO / "webui" / "frontend" / "src" / "components" / "DaisyUI" / "Modal.tsx"
 SETTINGS = REPO / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
 GENERATIONS = REPO / "webui" / "frontend" / "src" / "components" / "GenerationsPanel.tsx"
@@ -27,14 +28,12 @@ def test_req861_docs_exist():
 
 def test_req861_left_sidebar_mono_conceal():
     sidebar = SIDEBAR.read_text(encoding="utf-8")
-    header = HEADER.read_text(encoding="utf-8")
     conceal = CONCEAL.read_text(encoding="utf-8")
     mark = BRAND_MARK.read_text(encoding="utf-8")
     mono = MONO.read_text(encoding="utf-8")
     assert "SidebarConcealButton" in sidebar
     assert "concealSidebar" in sidebar
     assert 'aria-label="Close agents sidebar"' in sidebar
-    assert "SidebarConcealButton" in header
     assert ('aria-label="Conceal sidebar"' in conceal) or ('aria-label="Collapse sidebar"' in conceal)
     # #767 (PR #876): the brand-mark toggle was replaced by pane icons —
     # the mark stays a mark, it no longer doubles as a button.

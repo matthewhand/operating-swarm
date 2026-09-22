@@ -221,11 +221,14 @@ async def test_compacted_context_exception_still_strips_chrome():
     from swarm.consumers import _compacted_context
 
     thread = _thread()
+    # The #900 hop seed reads the active agent off the consumer; a stub with
+    # no agent identity exercises the seed as a no-op pass-through.
+    stub_consumer = type("C", (), {"active_agent": None, "default_blueprint": ""})()
     with patch(
         "swarm.core.chat_compact.context_for_conversation",
         side_effect=RuntimeError("db down"),
     ):
-        payload = await _compacted_context("conv-x", thread)
+        payload = await _compacted_context(stub_consumer, "conv-x", thread)
     _assert_no_chrome(payload)
     assert any(m["role"] == "user" and m["content"] == "hello there" for m in payload)
 
@@ -254,7 +257,7 @@ async def test_blueprint_run_payload_has_zero_status_strings(monkeypatch):
     instance.server_managed_context = False
     instance.capabilities = {}
 
-    async def fake_context(conversation_id, messages):
+    async def fake_context(consumer, conversation_id, messages):
         return build_model_context(messages, [])
 
     with patch("swarm.consumers._compacted_context", side_effect=fake_context):

@@ -329,11 +329,14 @@ def _user_key_for_hop(user):
     return "u0"
 
 
-async def _compacted_context(conversation_id, messages):
+async def _compacted_context(consumer, conversation_id, messages):
     """Model context: summary tree replaces covered raw turns (REQ-37).
 
     Raw ``messages`` stay on the consumer and on disk. Failures fall back
     to the filtered list (status/info never reach the model — REQ-70).
+    ``consumer`` is required: the #900 cross-kind hop seed reads the
+    active agent off it, and this function used to NameError on exactly
+    that call (regression pin: tests/unit/test_consumers_hop_seed.py).
     """
     try:
         from swarm.core.chat_compact import context_for_conversation
@@ -344,6 +347,7 @@ async def _compacted_context(conversation_id, messages):
         return _apply_pending_api_hop(consumer, conversation_id, compacted)
     except Exception:
         logger.debug("compact context unavailable; using filtered transcript", exc_info=True)
+        from swarm.core.speaker_identity import apply_speaker_identity
         from swarm.core.transcript_roles import messages_for_model
 
         filtered = apply_speaker_identity(messages_for_model(messages), adapter_id="openai_compat")
@@ -1434,6 +1438,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 model_messages = compact_result.context
             else:
                 model_messages = await _compacted_context(
+                    self,
                     getattr(self, "conversation_id", ""),
                     self.messages,
                 )
@@ -2288,6 +2293,7 @@ class DjangoChatConsumer(AsyncWebsocketConsumer):
                 model_messages = compact_result.context
             else:
                 model_messages = await _compacted_context(
+                    self,
                     getattr(self, "conversation_id", ""),
                     self.messages,
                 )

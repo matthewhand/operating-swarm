@@ -514,8 +514,8 @@ def hop_backend(
         token_budget=token_budget,
     )
     notice = hop_notice_text(
-        str(from_label).strip() or source,
-        str(to_label).strip() or target,
+        (from_label or "").strip() or source,
+        (to_label or "").strip() or target,
         mode=payload["mode"],
         tokens=int(payload["tokens"]),
         empty=bool(payload["empty"]),

@@ -1508,7 +1508,7 @@ class TestBlueprintSelection:
         instance = MagicMock()
         instance.run = fake_run
 
-        async def fake_context(conversation_id, messages):
+        async def fake_context(consumer, conversation_id, messages):
             assert conversation_id == "ws-compact-conv"
             assert messages[0]["content"] == "secret raw turn"
             return [{"role": "system", "content": "[Conversation summary]\ndigest only"}]
