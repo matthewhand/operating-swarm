@@ -214,13 +214,11 @@ import {
   buildCancelTurnFrame,
   buildChatWsEditFrame,
   buildChatWsFrame,
-  buildChatWsUrl,
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
   newConversationId,
   cliAgentChatParams,
   mergeChatSendParams,
-  parseChatWsMessage,
   summarizeUnknownWsFrame,
   type ChatWsEvent,
 } from '../lib/chatWs'
@@ -346,15 +344,11 @@ import {
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
 import {
-  reconnectBackoffMs,
-  shouldAutoReconnect,
-  WS_AUTH_REQUIRED_CODE,
-} from '../lib/chatReconnect'
-import {
   estimateTokensInContext,
   resolveContextMaxFromProfiles,
 } from '../lib/chatMeter'
 export { chatLoginHref, chatLoginNext } from '../features/chat/chatMessages'
+import { useChatWebSocket } from '../features/chat/useChatWebSocket'
 import { formatGapLabel, parseCreatedAtMs } from '../lib/chatTime'
 import { workingLabel } from '../lib/chatBubble'
 import { isExperimentalEnabled } from '../experimental/flags'
@@ -888,9 +882,6 @@ const ChatPage = () => {
   const userKeyCounterRef = useRef(0)
   const prevStatusRef = useRef<ConnectionStatus>('connecting')
   /** Consecutive auto-reconnect attempts since last successful open. */
-  const backoffAttemptRef = useRef(0)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const intentionalCloseRef = useRef(false)
   const lastUserTextRef = useRef('')
   /** Last hydrated agent or team thread; used to detect switch vs remount. */
   const lastHydratedAgentRef = useRef<string | null>(null)
@@ -2584,133 +2575,31 @@ const ChatPage = () => {
   // The socket only rebuilds when connection coords change (conversationId,
   // runtimeBlueprint, teamFromUrl) — not on every inner state change.
   const handleWsEventRef = useRef(handleWsEvent)
+
+  // #856 slice 4: chat WebSocket lifecycle (connect/reconnect/interrupt
+  // handling) moved verbatim to features/chat/useChatWebSocket.ts.
+  const wsControls = useChatWebSocket({
+    connectAttempt,
+    conversationId,
+    runtimeBlueprint,
+    teamFromUrl,
+    remoteFromUrl,
+    threadKey,
+    wsRef,
+    handleWsEventRef,
+    notifyCtxRef,
+    setStatus,
+    setAuthRejected,
+    setAwaitingAssistant,
+    setThreads,
+    setConnectAttempt,
+  })
+  const { reconnect } = wsControls
+
   useEffect(() => {
     handleWsEventRef.current = handleWsEvent
   })
 
-  useEffect(() => {
-    let opened = false
-    intentionalCloseRef.current = false
-    setStatus('connecting')
-    setAuthRejected(false)
-
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
-
-    let ws: WebSocket
-    try {
-      ws = new WebSocket(
-        buildChatWsUrl(
-          conversationId,
-          teamFromUrl ? undefined : remoteFromUrl ? 'remote_harness' : runtimeBlueprint || undefined,
-        ),
-      )
-    } catch {
-      setStatus('failed')
-      const attempt = backoffAttemptRef.current
-      if (shouldAutoReconnect(1006, false, attempt)) {
-        const delay = reconnectBackoffMs(attempt)
-        backoffAttemptRef.current = attempt + 1
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null
-          setConnectAttempt((n) => n + 1)
-        }, delay)
-      }
-      return () => {
-        if (reconnectTimerRef.current) {
-          clearTimeout(reconnectTimerRef.current)
-          reconnectTimerRef.current = null
-        }
-      }
-    }
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      opened = true
-      backoffAttemptRef.current = 0
-      setStatus('open')
-    }
-    ws.onmessage = (event: MessageEvent) => {
-      if (typeof event.data === 'string') {
-        handleWsEventRef.current(parseChatWsMessage(event.data))
-      }
-    }
-    ws.onclose = (event: CloseEvent) => {
-      if (wsRef.current === ws) wsRef.current = null
-      setAwaitingAssistant(false)
-      const rejected = event.code === WS_AUTH_REQUIRED_CODE
-      setAuthRejected(rejected)
-      setStatus(opened ? 'closed' : 'failed')
-      let interrupted = false
-      setThreads((prev) => {
-        const current = prev[threadKey]
-        if (!current || !current.some((m) => m.streaming)) return prev
-        interrupted = true
-        return {
-          ...prev,
-          [threadKey]: current.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
-        }
-      })
-      if (interrupted) {
-        const { agentId, agentName } = notifyCtxRef.current
-        if (agentId) {
-          notifyGenerationComplete(agentId, {
-            failed: true,
-            agentName,
-          })
-          maybeNotifyAgentTurn({
-            agentId,
-            agentName,
-            failed: true,
-            selectedAgentId: agentId,
-          })
-        }
-      }
-
-      const attempt = backoffAttemptRef.current
-      if (shouldAutoReconnect(event.code, intentionalCloseRef.current, attempt)) {
-        const delay = reconnectBackoffMs(attempt)
-        backoffAttemptRef.current = attempt + 1
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null
-          setConnectAttempt((n) => n + 1)
-        }, delay)
-      }
-    }
-
-    return () => {
-      intentionalCloseRef.current = true
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-      ws.onopen = null
-      ws.onmessage = null
-      if (ws.readyState === 0) {
-        // #738: closing during CONNECTING is what Chrome logs as "WebSocket
-        // is closed before the connection established". Defer to the next
-        // macrotask: if the handshake completes first, close() is legal from
-        // OPEN (silent); if it fails first, onclose already ran and the
-        // guard below makes close() a no-op. Either way no mid-handshake
-        // teardown, and handlers are already detached so no events leak.
-        setTimeout(() => {
-          try {
-            ws.close()
-          } catch {
-            /* already closed */
-          }
-          if (wsRef.current === ws) wsRef.current = null
-        }, 0)
-      } else {
-        ws.onclose = null
-        ws.close()
-        if (wsRef.current === ws) wsRef.current = null
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectAttempt, conversationId, runtimeBlueprint, teamFromUrl])
 
   useEffect(() => {
     publishChatConnection(status)
@@ -2833,14 +2722,6 @@ const ChatPage = () => {
     }
   }, [status, connectAttempt])
 
-  const reconnect = useCallback(() => {
-    backoffAttemptRef.current = 0
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
-    setConnectAttempt((n) => n + 1)
-  }, [])
 
   useEffect(() => {
     if (status === 'open') {
