@@ -89,8 +89,12 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
     expect(screen.queryByLabelText(/^API key$/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/Herdr location/i), { target: { value: 'ssh' } })
-    fireEvent.change(screen.getByLabelText(/SSH host/i), { target: { value: 'herdr.example.test' } })
-    fireEvent.change(screen.getByLabelText(/SSH user/i), { target: { value: 'herdr' } })
+    // #849 close-out: one flexible target input — host, user@host:port, or
+    // ssh:// URI all land split on the server. Advanced fields are collapsed.
+    fireEvent.change(screen.getByLabelText(/Remote target/i), {
+      target: { value: 'herdr@herdr.example.test' },
+    })
+    fireEvent.click(screen.getByText(/Advanced SSH options/i))
     fireEvent.change(screen.getByLabelText(/SSH identity env/i), {
       target: { value: 'HERDR_SSH_IDENTITY' },
     })
@@ -103,8 +107,7 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
     const payload = postPayload as unknown as Record<string, unknown>
     expect(payload.kind).toBe('herdr')
     expect(payload.herdr_mode).toBe('ssh')
-    expect(payload.ssh_host).toBe('herdr.example.test')
-    expect(payload.ssh_user).toBe('herdr')
+    expect(payload.ssh_target).toBe('herdr@herdr.example.test')
     expect(payload.ssh_identity_env).toBe('HERDR_SSH_IDENTITY')
     expect(postPayload).not.toHaveProperty('api_key')
     expect(JSON.stringify(postPayload)).not.toMatch(/BEGIN .*PRIVATE KEY/)

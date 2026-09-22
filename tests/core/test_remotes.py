@@ -718,3 +718,65 @@ def test_swarm_missing_child_is_clean_error():
     health = remotes_core.check_health("swarm", config=spec_cfg, timeout=0.4)
     assert health.ok is False
     assert health.state == "DOWN"
+
+
+# --- #849 close-out: single flexible ssh_target passthrough -----------------
+
+
+def test_persist_remote_ssh_target_parses_flexible_forms(tmp_path: Path):
+    """ssh_target feeds parse_ssh_target — host/user/port land split."""
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    spec, _path = remotes_core.persist_remote(
+        "herdr-box",
+        kind="herdr",
+        herdr_mode="ssh",
+        ssh_target="operator@docs-host:2222",
+        config_path=cfg,
+    )
+    assert spec.ssh_user == "operator"
+    assert spec.ssh_host == "docs-host"
+    assert spec.ssh_port == 2222
+
+
+def test_persist_remote_ssh_target_ssh_uri(tmp_path: Path):
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    spec, _path = remotes_core.persist_remote(
+        "herdr-uri",
+        kind="herdr",
+        herdr_mode="ssh",
+        ssh_target="ssh://deploy@192.0.2.55",
+        config_path=cfg,
+    )
+    assert spec.ssh_user == "deploy"
+    assert spec.ssh_host == "192.0.2.55"
+    assert spec.ssh_port == 22
+
+
+def test_persist_remote_ssh_target_plain_host_uses_default_user(tmp_path: Path):
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    spec, _path = remotes_core.persist_remote(
+        "herdr-plain",
+        kind="herdr",
+        herdr_mode="ssh",
+        ssh_target="192.0.2.77",
+        config_path=cfg,
+    )
+    assert spec.ssh_host == "192.0.2.77"
+    assert spec.ssh_user  # default-user fallback filled it in
+    assert spec.ssh_port == 22
+
+
+def test_persist_remote_ssh_target_bad_port_raises(tmp_path: Path):
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    with pytest.raises(remotes_core.RemoteError):
+        remotes_core.persist_remote(
+            "herdr-bad",
+            kind="herdr",
+            herdr_mode="ssh",
+            ssh_target="docs-host:notaport",
+            config_path=cfg,
+        )

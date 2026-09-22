@@ -1612,6 +1612,7 @@ def persist_remote(
     cookie: str | None = None,
     session_cookie_env: str | None = None,
     herdr_mode: str | None = None,
+    ssh_target: str | None = None,
     ssh_host: str | None = None,
     ssh_user: str | None = None,
     ssh_port: int | str | None = None,
@@ -1717,6 +1718,22 @@ def persist_remote(
             raise RemoteError(
                 "Refusing to persist a plaintext cookie. Use session_cookie_env or ${ENV}."
             )
+    # #849: a single flexible target input — parse_ssh_target splits host /
+    # user / port before field-level handling. Explicit ssh_host/user fields
+    # still win when both arrive.
+    if ssh_target is not None and resolved_kind == "herdr":
+        from swarm.herdr.ssh import SSHNotConfiguredError, parse_ssh_target
+
+        try:
+            target = parse_ssh_target(ssh_target)
+        except SSHNotConfiguredError as exc:
+            raise RemoteError(str(exc)) from exc
+        if ssh_host is None and target.host:
+            ssh_host = target.host
+        if ssh_user is None and target.user:
+            ssh_user = target.user
+        if ssh_port is None and target.port and target.port != 22:
+            ssh_port = target.port
     herdr_kwargs = {
         "herdr_mode": herdr_mode,
         "ssh_host": ssh_host,
@@ -2101,6 +2118,7 @@ def probe_candidate_remote(
     api_key: str | None = None,
     api_key_env: str | None = None,
     herdr_mode: str | None = None,
+    ssh_target: str | None = None,
     ssh_host: str | None = None,
     ssh_user: str | None = None,
     ssh_port: int | str | None = None,
@@ -2126,6 +2144,21 @@ def probe_candidate_remote(
         spec.api_key_env = str(api_key_env).strip()
     if herdr_mode is not None:
         spec.herdr_mode = str(herdr_mode).strip()
+    # #849: single flexible target input — same parse as persist.
+    if ssh_target is not None and str(ssh_target).strip():
+        from swarm.herdr.ssh import SSHNotConfiguredError, parse_ssh_target
+
+        try:
+            target = parse_ssh_target(str(ssh_target))
+        except SSHNotConfiguredError:
+            target = None
+        if target is not None:
+            if not ssh_host and target.host:
+                ssh_host = target.host
+            if not ssh_user and target.user:
+                ssh_user = target.user
+            if not ssh_port and target.port and target.port != 22:
+                ssh_port = target.port
     if ssh_host is not None:
         spec.ssh_host = str(ssh_host).strip()
     if ssh_user is not None:

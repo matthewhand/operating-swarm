@@ -126,9 +126,7 @@ export function AddRemoteForm({
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [herdrMode, setHerdrMode] = useState<'local' | 'ssh'>('local')
-  const [sshHost, setSshHost] = useState('')
-  const [sshUser, setSshUser] = useState('')
-  const [sshPort, setSshPort] = useState('')
+  const [sshTarget, setSshTarget] = useState('')
   const [sshIdentityEnv, setSshIdentityEnv] = useState('')
   const [sshAgent, setSshAgent] = useState(true)
   const herdr = isHerdrKind(kind)
@@ -147,9 +145,7 @@ export function AddRemoteForm({
               ...(herdrMode === 'local' && baseUrl.trim() ? { base_url: baseUrl.trim() } : {}),
               ...(herdrMode === 'ssh'
                 ? {
-                    ssh_host: sshHost.trim(),
-                    ssh_user: sshUser.trim(),
-                    ...(sshPort.trim() ? { ssh_port: sshPort.trim() } : {}),
+                    ssh_target: sshTarget.trim(),
                     ...(sshIdentityEnv.trim() ? { ssh_identity_env: sshIdentityEnv.trim() } : {}),
                     ssh_agent: sshAgent,
                   }
@@ -188,9 +184,7 @@ export function AddRemoteForm({
         base_url: baseUrl.trim() || undefined,
         api_key_env: apiKeyEnv.trim() || undefined,
         herdr_mode: herdr ? herdrMode : undefined,
-        ssh_host: herdr && herdrMode === 'ssh' ? sshHost.trim() : undefined,
-        ssh_user: herdr && herdrMode === 'ssh' ? sshUser.trim() : undefined,
-        ssh_port: herdr && herdrMode === 'ssh' && sshPort.trim() ? sshPort.trim() : undefined,
+        ssh_target: herdr && herdrMode === 'ssh' ? sshTarget.trim() : undefined,
         ssh_identity_env: herdr && herdrMode === 'ssh' && sshIdentityEnv.trim() ? sshIdentityEnv.trim() : undefined,
         ssh_agent: herdr && herdrMode === 'ssh' ? sshAgent : undefined,
       })
@@ -275,53 +269,41 @@ export function AddRemoteForm({
           ) : (
             <>
               <Input
-                label="SSH host"
-                name="herdr-ssh-host"
-                value={sshHost}
-                onChange={(event) => setSshHost(event.target.value)}
-                placeholder="herdr.example.test"
+                label="Remote target"
+                name="herdr-ssh-target"
+                value={sshTarget}
+                onChange={(event) => setSshTarget(event.target.value)}
+                placeholder="user@host:port, ssh://user@host:port, or plain host"
                 autoComplete="off"
                 spellCheck={false}
                 required
               />
-              <Input
-                label="SSH user"
-                name="herdr-ssh-user"
-                value={sshUser}
-                onChange={(event) => setSshUser(event.target.value)}
-                placeholder="herdr"
-                autoComplete="off"
-                spellCheck={false}
-                required
-              />
-              <Input
-                label="SSH port (optional)"
-                name="herdr-ssh-port"
-                value={sshPort}
-                onChange={(event) => setSshPort(event.target.value)}
-                placeholder="22"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Input
-                label="SSH identity env (optional)"
-                name="herdr-ssh-identity-env"
-                value={sshIdentityEnv}
-                onChange={(event) => setSshIdentityEnv(event.target.value)}
-                placeholder="HERDR_SSH_IDENTITY"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="checkbox checkbox-sm"
-                  name="herdr-ssh-agent"
-                  checked={sshAgent}
-                  onChange={(event) => setSshAgent(event.target.checked)}
-                />
-                Use SSH agent
-              </label>
+              <details className="rounded-box border border-base-300 px-3 py-2">
+                <summary className="cursor-pointer select-none text-sm text-base-content/70">
+                  Advanced SSH options
+                </summary>
+                <div className="mt-2 flex flex-col gap-2">
+                  <Input
+                    label="SSH identity env (optional)"
+                    name="herdr-ssh-identity-env"
+                    value={sshIdentityEnv}
+                    onChange={(event) => setSshIdentityEnv(event.target.value)}
+                    placeholder="HERDR_SSH_IDENTITY"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-sm"
+                      name="herdr-ssh-agent"
+                      checked={sshAgent}
+                      onChange={(event) => setSshAgent(event.target.checked)}
+                    />
+                    Use SSH agent
+                  </label>
+                </div>
+              </details>
             </>
           )}
         </>

@@ -1015,6 +1015,7 @@ export interface TestRemoteCandidateParams {
   api_key?: string
   api_key_env?: string
   herdr_mode?: string
+  ssh_target?: string
   ssh_host?: string
   ssh_user?: string
   ssh_port?: string
