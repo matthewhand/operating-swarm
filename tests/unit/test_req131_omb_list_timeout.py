@@ -11,7 +11,12 @@ from swarm.core.remote_teams import _DISCOVERY_PATHS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REMOTES_SETTINGS_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "RemotesSettings.tsx"
-API_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "api.ts"
+# #856 slice A: api.ts is a package; source pins read the package surface.
+API_PKG = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "api"
+
+
+def _api_pkg_text() -> str:
+    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(API_PKG.glob("*.ts")))
 
 
 def test_discovery_paths_includes_openmousbot_and_omb():
@@ -79,7 +84,7 @@ def test_omb_list_handles_http_error_gracefully():
 
 
 def test_frontend_operate_remote_bounded_timeout():
-    content = API_TS.read_text(encoding="utf-8")
+    content = _api_pkg_text()
     assert "timeoutMs" in content
     assert "AbortController" in content
     assert "signal: controller.signal" in content
