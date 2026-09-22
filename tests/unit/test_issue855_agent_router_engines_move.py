@@ -21,7 +21,6 @@ pins enforce the move's invariants:
 
 from pathlib import Path
 
-import swarm.blueprints.agent_router.blueprint_agent_router as bp_mod
 from swarm.blueprints.agent_router.blueprint_agent_router import AgentRouterBlueprint
 from swarm.blueprints.agent_router.engines import RouterEnginesMixin
 
@@ -79,19 +78,20 @@ def test_moved_bodies_route_module_globals_through_r():
 
 def test_patch_target_on_blueprint_module_reaches_moved_caller():
     """The #855 patch contract: patch on the blueprint module, call via mixin."""
+    import importlib
     from unittest.mock import patch
 
-    # _skip_host_cli reads os.getenv + is_swarm_test_mode; the canned
-    # specialist path is pure. Use HAS_AGENTS: engines' _run_swarm_agent
-    # branches on R.HAS_AGENTS at call time, so patching the blueprint
-    # module attribute must be observed from engines.
-    original = bp_mod.HAS_AGENTS
-    try:
-        with patch.object(bp_mod, "HAS_AGENTS", not original):
-            seen_via_r = RouterEnginesMixin.__dict__.get("_run_router_agent") is None
-            assert seen_via_r  # mixin holds only the moved engines
-            import swarm.blueprints.agent_router.engines as eng
+    # Resolve fresh: sys.modules is the single source of truth, and a module
+    # object captured at this test module's import time may be stale (e.g.
+    # after a reload elsewhere). String-form patchers resolve through
+    # sys.modules at patch time — mirror that here.
+    mod = importlib.import_module(
+        "swarm.blueprints.agent_router.blueprint_agent_router"
+    )
+    flipped = not mod.HAS_AGENTS
+    with patch.object(mod, "HAS_AGENTS", flipped):
+        import swarm.blueprints.agent_router.engines as eng
 
-            assert eng.R.HAS_AGENTS is not original
-    finally:
-        bp_mod.HAS_AGENTS = original
+        # engines' _run_swarm_agent branches on R.HAS_AGENTS at call time, so
+        # the patch on the blueprint module must be observed through R.
+        assert eng.R.HAS_AGENTS == flipped
