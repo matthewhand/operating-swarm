@@ -41,3 +41,13 @@ def get_memory_backend(config: dict | str | None = None, options: dict | None = 
         _mem_log.warning("Failed to instantiate memory backend '%s': %s", name, e)
         return None
     return None
+
+
+__all__ = [
+    "BaseMemory",
+    "LangmemMemory",
+    "Mem0Memory",
+    "MemoryBackend",
+    "PaprMemory",
+    "get_memory_backend",
+]

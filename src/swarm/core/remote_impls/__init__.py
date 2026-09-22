@@ -31,3 +31,8 @@ NAME_TO_MODULE: dict[str, str] = {
     **{n: "n8n" for n in ("_n8n_workflows_payload", "_n8n_trigger_node", "_n8n_webhook_path", "_n8n_matches_query", "_n8n_list", "_n8n_split_session", "_n8n_reply_text", "_n8n_send")},
     **{n: "_wiring" for n in ("_bind_health", "_bind_http_list", "_hermes_send_bound", "_anythingllm_send_bound", "_n8n_send_bound", "_flowise_send_bound", "_openwebui_list_bound", "_openwebui_send_bound", "_letta_send_bound", "_omb_send_bound", "_rakazo_send_bound", "_swarm_send_bound", "_trueforge_send_bound", "_trueforge_routines_bound", "_herdr_list_bound", "_herdr_send_bound", "_herdr_operate_bound", "_install_remote_harnesses")},
 }
+
+
+# #857: the package's contract is the NAME_TO_MODULE map; everything else is
+# reached through the lazy re-export shim on swarm.core.remotes.
+__all__ = ["NAME_TO_MODULE"]

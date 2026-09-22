@@ -26,7 +26,17 @@ def register_remote_adapter(kind: str):
 def create_remote_adapter(
     spec: RemoteSpec, config: dict[str, Any] | None = None
 ) -> RemoteAdapter | None:
-    """Build the adapter for ``spec.kind``; None for not-yet-migrated kinds."""
+    """Build the adapter for ``spec.kind``; None for not-yet-migrated kinds.
+
+    Args:
+        spec: The remote specification (id + kind) to wrap.
+        config: Optional raw swarm config used to resolve the kind when the
+            spec does not carry one.
+
+    Returns:
+        RemoteAdapter: An instance registered for the kind, or ``None`` when
+        the kind has no adapter (the caller keeps its legacy path).
+    """
     from swarm.core.remotes import kind_of_instance
 
     kind = (spec.kind or kind_of_instance(spec.id, config) or "").strip().lower()

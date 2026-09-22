@@ -125,7 +125,22 @@ def require_ssh_target(
     identity_env: str = "",
     use_agent: bool = True,
 ) -> SSHTarget:
-    """Build an ``SSHTarget`` or raise a clear missing-config error."""
+    """Build an ``SSHTarget`` or raise a clear missing-config error.
+
+    Args:
+        host: Remote host (IP or FQDN). Required.
+        user: SSH user. Required.
+        port: SSH port; defaults to 22. Must be an integer 1–65535.
+        identity_env: Env-var *name* holding a key path (never key material).
+        use_agent: Whether ssh-agent forwarding is permitted.
+
+    Returns:
+        SSHTarget: A validated target ready for :class:`SSHTransport`.
+
+    Raises:
+        SSHNotConfiguredError: On missing host/user, a non-integer or
+            out-of-range port, or key material passed as ``identity_env``.
+    """
     h = (host or "").strip()
     u = (user or "").strip()
     if not h or not u:
@@ -231,7 +246,15 @@ def stub_ssh_transport(
     handler: Callable[[list[str]], subprocess.CompletedProcess],
     target: SSHTarget | None = None,
 ) -> SSHTransport:
-    """Test helper: ``handler`` receives the full ssh argv."""
+    """Build an in-process SSHTransport for tests — no subprocess, no SSH.
+
+    Args:
+        handler: Receives the full ssh argv and returns a CompletedProcess.
+        target: Optional SSHTarget; defaults to an RFC 5737 example host.
+
+    Returns:
+        SSHTransport: A transport whose ``runner`` delegates to ``handler``.
+    """
 
     def runner(argv: list[str], *, timeout: int | None = None, **_kwargs: Any) -> subprocess.CompletedProcess:  # noqa: ARG001
         del timeout, _kwargs

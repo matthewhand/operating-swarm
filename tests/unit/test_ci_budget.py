@@ -21,6 +21,10 @@ PR_OK = {
     # tests/unit/test_issue238_ci_honesty.py.
     "issue136-kind-chat-e2e.yml",
     "req79-survival.yml",
+    # #857: SDK doc gate — same quarantine pattern: only job is
+    # `if: false` citing #250, path-filtered to the SDK docs surface,
+    # so a run costs no minutes while #250 persists.
+    "sdk-docs.yml",
 }
 
 
