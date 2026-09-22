@@ -45,9 +45,6 @@ import {
   fetchHerdrAgents,
   fetchRemotes,
   terminateCliRun,
-  type Blueprint,
-  type CliRailAgent,
-  type HerdrAgent,
   type RemoteConnection,
   type RouterDesign,
 } from '../lib/api'
@@ -125,7 +122,6 @@ import {
   loadNotifyAgentIds,
   maybeNotifyAgentTurn,
 } from '../lib/agentNotifications'
-import type { NotifyEnableOutcome } from '../lib/agentNotifications'
 import {
   BUMP_COMPLETED_EVENT,
   BUMP_SCOPE_EVENT,
@@ -134,7 +130,7 @@ import {
   type BumpScope,
   saveHostnameOverride,
 } from '../lib/settingsPrefs'
-import { computeRailHotkeyTargets, herdrChatHref } from '../lib/railHotkeys'
+import { computeRailHotkeyTargets } from '../lib/railHotkeys'
 import {
   endAgentDrag,
   excludePinnedFromList,
@@ -152,7 +148,6 @@ import {
   SCALE_OUT_SESSIONS_EVENT,
   sessionHref,
   shouldOpenSessionPicker,
-  type AgentSession,
 } from '../lib/scaleOutSessions'
 import { agentLabel, defaultBlueprintId, isSupportAgent } from '../lib/supportAgent'
 import { seatHasSessions } from '../lib/seatCapabilities'
@@ -300,170 +295,30 @@ import { loadRailSide, RAIL_SIDE_EVENT, type RailSide } from '../lib/railSide'
 import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
 import RailRowSlot from './RailRowSlot'
 
-const EMPTY_BLUEPRINTS: Blueprint[] = []
-
-/** REQ-912 (#511): verbatim copy requested for the disabled hover/reason. */
-const API_ONLY_REASON = 'Currently only supported for OS API agents'
-
-export interface AgentSidebarProps {
-  /** Mobile drawer open. Desktop (lg+) is always visible. */
-  open?: boolean
-  /** Below Tailwind `lg` — drawer + inert when closed. */
-  narrow?: boolean
-  onClose?: () => void
-  /** Agent / conversation / team pick — parent may tuck the rail (REQ-54). */
-  onPick?: () => void
-  onOpenSearch?: () => void
-  blueprints?: Blueprint[]
-}
-
-interface ContextMenuState {
-  agentId: string
-  agentName: string
-  hidden: boolean
-  pinned: boolean
-  x: number
-  y: number
-  kind: RailMenuKind
-  entityId: string
-  sessions?: MemberSession[]
-  isCli?: boolean
-  cli?: string
-}
-
-interface SectionMenuState {
-  sectionId: string
-  sectionName: string
-  x: number
-  y: number
-}
-
-interface CliPickerState {
-  agentId: string
-  agentName: string
-  cli: string
-  sessions: CliProviderSession[]
-  canList: boolean
-  emptyReason: string | null
-  loading: boolean
-}
-
-interface SessionPickerState {
-  agentId: string
-  agentName: string
-  sessions: AgentSession[]
-}
-
-/**
- * Rail seat view of a Blueprint. `kind` widens to `string | null` to match the
- * wire type (GET /v1/blueprints/ rows may send kind: null).
- */
-type SidebarAgent = Blueprint & {
-  kind?: string | null
-  remote?: string
-  cli?: string | null
-}
-
-type RailRow =
-  | { kind: 'agent'; id: string; agent: SidebarAgent }
-  | { kind: 'team'; id: string; team: TeamRoster }
-  | { kind: 'remote'; id: string; remote: RemoteEntry }
-
-function isHerdrAgent(agent: { id: string; kind?: string | null }): boolean {
-  return agent.kind === 'herdr' || String(agent.id).startsWith('herdr:')
-}
-
-/** #546: which permission outcome to explain, and for which seat. */
-interface NotifyOutcomeHint {
-  agentId: string
-  outcome: Exclude<NotifyEnableOutcome, 'granted'>
-  requestFailed: boolean
-}
-
-function sidebarHref(agent: { id: string; kind?: string | null }): string {
-  // #543: a herdr seat chats like every other kind — the agent name rides the
-  // remote-harness session param. Settings' member roster stays reachable from
-  // the row menu, not from stealing the row's primary click.
-  if (isHerdrAgent(agent)) return herdrChatHref(agent.id)
-  return agentChatHref(agent.id)
-}
-
-function toSidebarCli(row: CliRailAgent): SidebarAgent {
-  const kind = row.kind === 'api' ? 'api' : 'cli'
-  return {
-    id: row.id,
-    object: 'blueprint',
-    name: row.name,
-    description:
-      kind === 'cli' && !row.installed ? `${row.description} (not on PATH)` : row.description,
-    abbreviation: null,
-    required_mcp_servers: [],
-    tags: [kind],
-    installed: row.installed,
-    compiled: true,
-    kind,
-    cli: row.cli,
-    rail: true,
-  }
-}
-
-/** Named kind rows (cli_agent, api_agent) stay on the rail. */
-function isCliRailAgent(agent: { id?: string; kind?: string | null }): boolean {
-  return agent.kind === 'cli'
-}
-
-function isApiRailAgent(agent: { id?: string; kind?: string | null }): boolean {
-  return agent.kind === 'api' || agent.id === 'api_agent'
-}
-
-function isBlueprintRailAgent(agent: { id?: string; kind?: string | null }): boolean {
-  return agent.kind === 'blueprint'
-}
-
-function toSidebarHerdr(row: HerdrAgent): SidebarAgent {
-  return {
-    id: `herdr:${row.name}`,
-    object: 'blueprint',
-    name: row.name,
-    description: row.remote ? `Herdr · ${row.remote}` : 'Herdr · localhost',
-    abbreviation: null,
-    required_mcp_servers: [],
-    tags: [],
-    installed: true,
-    compiled: true,
-    kind: 'herdr',
-    remote: row.remote || '',
-    rail: true,
-  }
-}
-
-function toSidebarDynamic(subagent: DynamicSubagent): SidebarAgent {
-  return {
-    id: subagent.id,
-    object: 'blueprint',
-    name: subagent.name || subagent.id,
-    description:
-      subagent.summary || subagent.task || `Dynamic subagent (${subagent.role || 'subagent'})`,
-    abbreviation: null,
-    required_mcp_servers: [],
-    tags: ['subagent', 'dynamic'],
-    installed: true,
-    compiled: true,
-    role: subagent.role || 'subagent',
-    kind: 'subagent',
-    rail: true,
-    avatar_path: subagent.avatar_path,
-    // #843: spawn/execution time feeds the rail's time slot — previously
-    // dropped here, which is why subagent rows never showed a timestamp.
-    last_message_at: subagent.timestamp ?? null,
-  }
-}
-
-interface PickerState {
-  title: string
-  sessions: MemberSession[]
-}
-
+// #856 slice 3: module-scope rail-row surface moved verbatim to
+// features/sidebar/rows.ts; re-imported here so the component body and the
+// './AgentSidebar' import surface are unchanged.
+import {
+  API_ONLY_REASON,
+  EMPTY_BLUEPRINTS,
+  type AgentSidebarProps,
+  type CliPickerState,
+  type ContextMenuState,
+  type NotifyOutcomeHint,
+  type PickerState,
+  type RailRow,
+  type SectionMenuState,
+  type SessionPickerState,
+  type SidebarAgent,
+  isApiRailAgent,
+  isBlueprintRailAgent,
+  isCliRailAgent,
+  isHerdrAgent,
+  sidebarHref,
+  toSidebarCli,
+  toSidebarDynamic,
+  toSidebarHerdr,
+} from '../features/sidebar/rows'
 export default function AgentSidebar({
   open = false,
   narrow = false,
