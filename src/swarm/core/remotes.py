@@ -44,6 +44,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# #812: adapter registry lookup is late-bound inside operate() to avoid an
+# import cycle (the registry imports this module's types and impls).
+
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
 REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "omb", "rakazo", "herdr", "swarm", "trueforge")
@@ -5851,6 +5854,27 @@ def operate(
             return OperateResult(remote=rid, op=action, ok=False, detail=f"Unknown op '{op}'. Use list, send, or routines.")
         if not is_configured(rid, config):
             return OperateResult(remote=rid, op=action, ok=False, detail=_not_added_message(rid))
+        # #812: migrated kinds dispatch through the adapter registry — the
+        # if/elif chain below stops growing and shrinks as slices land. An
+        # adapter that does not own an op yet (NotImplementedError) falls
+        # through to the legacy chain, so behavior is unchanged per kind.
+        # Late import: registry ↔ remotes is a deliberate cycle broken at
+        # call time (registry imports this module's types + impls).
+        from swarm.remotes.registry import create_remote_adapter
+
+        adapter = create_remote_adapter(spec, config)
+        if adapter is not None:
+            if action in ("routines", "schedules"):
+                try:
+                    return adapter.routines(timeout)
+                except NotImplementedError:
+                    pass  # adapter doesn't own routines yet — legacy fallback
+            elif action == "list":
+                return adapter.list(timeout, query=query or prompt)
+            elif action == "send":
+                return adapter.send(prompt, timeout, target=target, session_id=resume_id)
+            elif action == "interrogate":
+                return adapter.interrogate(target, timeout, config)
         if action in ("routines", "schedules"):
             if rkind == "trueforge" or spec.kind == "trueforge" or is_trueforge_remote(rid, config):
                 return _trueforge_routines(spec, timeout)
