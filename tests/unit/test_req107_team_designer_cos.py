@@ -18,7 +18,10 @@ def test_designer_has_optional_cos_control_and_instructions():
     src = COMPOSER.read_text(encoding="utf-8")
     starter = TEAM_ROSTER_LIB.read_text(encoding="utf-8")
     assert 'aria-label="Chief of Staff"' in src
-    assert "No Chief of Staff" in src
+    # #979 renamed the optional-lead surface to "First agent (roster #1)"
+    # with an empty-value sentinel — the literal "No Chief of Staff" option
+    # is retired.
+    assert "NO_COS_VALUE" in src
     assert "COS_EMPTY_ROSTER_HINT" in src
     assert "team-cos-instructions" in src
     assert "How to use this team" in src

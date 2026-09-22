@@ -19,7 +19,9 @@ def test_team_lead_picker_uses_first_agent_and_numbered_roster():
     assert "ROSTER_DRAG_MIME" in src
     assert "roster-index" in src
     assert "reorderMembers" in src
-    assert 'No Chief of Staff' in src
+    # #979: the CoS picker keeps its accessible name; the "No Chief of
+    # Staff" literal became the NO_COS_VALUE sentinel option.
+    assert "NO_COS_VALUE" in src
     assert src.count("Chief of Staff") >= 2
     assert "team-roles-pane" in src
     assert "handoff" in src and "as_tool" in src

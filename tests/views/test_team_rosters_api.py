@@ -41,8 +41,11 @@ def test_create_and_list_nested_roster_with_cos(api_client):
     body = response.json()
     assert body["object"] == "team_roster"
     assert body["id"] == "office"
+    # #739/#979: the legacy ``role: cos`` stamp resolves to the roster-level
+    # chief_of_staff_id; the member stamp is demoted on write.
+    assert body["chief_of_staff_id"] == "cos"
     roles = {m["id"]: m for m in body["members"]}
-    assert roles["cos"]["role"] == "chief_of_staff"
+    assert roles["cos"]["role"] == "default"
     assert roles["research"]["kind"] == "team"
     assert roles["research"]["team_id"] == "research"
     assert roles["w3p1"]["kind"] == "herdr"
@@ -112,7 +115,8 @@ def test_create_roster_with_cos_instructions_and_reload(api_client):
     body = created.json()
     assert body["chief_of_staff_id"] == "jeeves"
     assert body["chief_of_staff_instructions"] == "prefer grok_agent for revision control"
-    assert {m["id"]: m["role"] for m in body["members"]}["jeeves"] == "chief_of_staff"
+    # #739/#979: explicit chief_of_staff_id — members keep their own roles.
+    assert {m["id"]: m["role"] for m in body["members"]}["jeeves"] == "default"
 
     loaded = api_client.get("/v1/team-rosters/research-squad/")
     assert loaded.status_code == 200

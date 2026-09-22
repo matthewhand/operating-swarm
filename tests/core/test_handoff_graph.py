@@ -155,7 +155,9 @@ def test_demo_rosters_normalize_and_span_kinds():
         "grok-cli": "cli",
         "hermes-remote": "remote",
     }
-    assert any(m["role"] == "chief_of_staff" for m in bridge["members"])
+    # #739/#979: the legacy member stamp is recovered to chief_of_staff_id
+    # and demoted; authority lives at roster level.
+    assert not any(m["role"] == "chief_of_staff" for m in bridge["members"])
     assert bridge["chief_of_staff_id"] == "cos"
     bridge_names = {m["id"]: m["name"] for m in bridge["members"]}
     assert bridge_names["cos"] == MODE_B_MEMBER_NAMES["cos"]

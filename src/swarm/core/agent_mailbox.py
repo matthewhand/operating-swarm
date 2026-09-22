@@ -197,6 +197,11 @@ def catalog_from_rosters(
             peer = _peer_from_member(member, rid)
             if peer is None:
                 continue
+            # #739/#979: CoS authority is roster-level (``chief_of_staff_id``);
+            # the member stamp is demoted on write. Resolve the canonical role
+            # so the catalog carries the same authority ``role_of_member``
+            # promises (roster-level designation + legacy-tag recovery).
+            peer.role = role_of_member(peer.id, rosters)
             existing = catalog.get(peer.id)
             if existing is None:
                 catalog[peer.id] = peer

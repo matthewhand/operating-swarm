@@ -44,6 +44,8 @@ def test_normalize_kind_team_requires_team_id():
 
 def test_role_cos_persists_on_member():
     member = normalize_member({"id": "pat", "kind": "api", "role": "cos"})
+    # normalize_member still resolves the legacy alias; #739/#979 demote the
+    # stamp at the roster write boundary (apply_cos_fields), not here.
     assert member["role"] == "chief_of_staff"
     assert member["kind"] == "api"
     assert member["name"] == "pat"
@@ -94,7 +96,10 @@ def test_persist_nested_and_herdr_members(tmp_path, monkeypatch):
     assert kinds["research"]["kind"] == "team"
     assert kinds["research"]["team_id"] == "research"
     assert kinds["w3p1"]["kind"] == "herdr"
-    assert kinds["cos"]["role"] == "chief_of_staff"
+    # #739/#979: the legacy ``role: cos`` stamp is recovered to the roster
+    # level (chief_of_staff_id) and the member stamp is demoted on write.
+    assert stored["chief_of_staff_id"] == "cos"
+    assert kinds["cos"]["role"] == "default"
     for member in stored["members"]:
         assert set(member) >= {"id", "kind", "role", "source"}
 
