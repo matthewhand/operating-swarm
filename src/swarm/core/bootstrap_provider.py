@@ -236,6 +236,20 @@ def bootstrap_reply(user_text: str) -> dict[str, Any]:
     """
     intent = _detect_intent(user_text)
     text = _REPLIES.get(intent, _REPLIES["unknown"])
+    # #894: the configure intent attaches the interactive in-chat setup card
+    # (fenced JSON the bubble parses into ProviderSetupCard). The prose still
+    # carries the provider table; the card replaces the manual .env steps.
+    if intent == "configure_provider":
+        text = (
+            "🔧 **Let's configure your inference provider.** Pick a preset, "
+            "paste your key, test the connection, and save — no .env editing "
+            "or restart required.\n\n"
+            "```swarm-provider-setup\n"
+            '{"type": "provider_setup", "default_provider": "openai"}\n'
+            "```\n\n"
+            "Local options (Ollama, LM Studio, vLLM, OpenWebUI, LocalAI) need "
+            "no API key at all."
+        )
     return {
         "text": text,
         "chips": list(BOOTSTRAP_KICKSTART_CHIPS),

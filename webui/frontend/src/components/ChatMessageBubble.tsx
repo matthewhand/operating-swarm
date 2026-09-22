@@ -13,9 +13,11 @@ import { renderMarkdownSafe } from '../lib/markdownSafe'
 import { setupCodeFenceControls } from '../lib/codeFences'
 import { handleSettingsLinkClick } from '../lib/settingsLinks'
 import { parseSupportNlBlueprintFence } from '../lib/supportNlBlueprint'
+import { parseProviderSetupFence } from '../lib/providerSetupCard'
 import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
 import SupportCreatedBlueprintCard from './SupportCreatedBlueprintCard'
+import ProviderSetupCard from './ProviderSetupCard'
 import { splitSkillRefs, type SkillInfo } from '../lib/skills'
 import { isFlagrantErrorText } from '../lib/flagrantErrors'
 import {
@@ -111,7 +113,9 @@ export const ChatBubbleBody = memo(
     const contentText = quoted ? quoted.body : displayText
     const { body: cleanedText, thinking } = extractThinkingBlock(contentText)
     const { prose, card } = parseSupportNlBlueprintFence(cleanedText)
-    const segments = splitSkillRefs(prose)
+    // #894: the bootstrap seat may attach an in-chat provider setup card.
+    const { prose: proseAfterSetup, card: setupCard } = parseProviderSetupFence(prose)
+    const segments = splitSkillRefs(proseAfterSetup)
 
     useEffect(() => {
       const root = mdRef.current
@@ -213,14 +217,15 @@ export const ChatBubbleBody = memo(
       </>
     )
 
-    if (!card) {
+    if (!card && !setupCard) {
       return body
     }
 
     return (
       <div data-testid="chat-md-with-nl-card">
         {body}
-        <SupportCreatedBlueprintCard card={card} />
+        {card ? <SupportCreatedBlueprintCard card={card} /> : null}
+        {setupCard ? <ProviderSetupCard spec={setupCard} /> : null}
       </div>
     )
   },

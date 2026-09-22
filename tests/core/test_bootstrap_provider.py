@@ -157,3 +157,27 @@ class TestAdminRoleIntegration:
         assert spec["role"] == "admin"
         assert spec["provider"] == "bootstrap"
         assert spec["name"] == "Admin"
+
+
+class TestSetupCardEmission:
+    """#894 — the configure intent attaches the in-chat provider setup card."""
+
+    def test_configure_intent_text_contains_setup_fence(self):
+        reply = bootstrap_reply("how do I configure an API provider?")
+        assert '```swarm-provider-setup' in reply["text"]
+        assert '"type": "provider_setup"' in reply["text"]
+
+    def test_other_intents_do_not_attach_the_card(self):
+        greeting = bootstrap_reply("hello")
+        assert 'swarm-provider-setup' not in greeting["text"]
+        unknown = bootstrap_reply("tell me about the weather in kyoto")
+        assert 'swarm-provider-setup' not in unknown["text"]
+
+    def test_fence_payload_is_valid_json_with_default_provider(self):
+        import json
+
+        reply = bootstrap_reply("configure an api provider")
+        fence = reply["text"].split("```swarm-provider-setup\n", 1)[1].split("```", 1)[0]
+        data = json.loads(fence)
+        assert data["type"] == "provider_setup"
+        assert data["default_provider"] == "openai"
