@@ -19,25 +19,39 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
-from swarm.core.roles.base import Role, RoleContext, RoleOutcome
+from swarm.core.roles.base import (
+    AdvisoryRole,
+    Role,
+    RoleContext,
+    RoleOutcome,
+    SupervisorRole,
+    VerifierRole,
+    Verdict,
+    WorkerRole,
+)
 from swarm.core.roles.registry import register_role
 
 __all__ = [
+    "AdvisoryRole",
+    "AdvisorRole",
     "AdminRole",
+    "ChiefOfStaffRole",
     "DefaultRole",
-    "SupportRole",
+    "EngineerRole",
     "GateRole",
     "SkepticRole",
-    "AdvisorRole",
-    "ChiefOfStaffRole",
-    "EngineerRole",
     "SuggestionsRole",
+    "SupportRole",
+    "SupervisorRole",
+    "VerifierRole",
+    "Verdict",
+    "WorkerRole",
 ]
 
 
 
 @register_role
-class AdminRole(Role):
+class AdminRole(SupervisorRole):
     """Administrator / onboarding seat (#893).
 
     Has full lifecycle (create/archive agents) and topology (section ACL) authority.
@@ -59,7 +73,7 @@ class AdminRole(Role):
 
 
 @register_role
-class DefaultRole(Role):
+class DefaultRole(WorkerRole):
     """Ordinary worker (no badge). Metadata only — hooks are no-ops."""
 
     id: ClassVar[str] = "default"
@@ -74,7 +88,7 @@ class DefaultRole(Role):
 
 
 @register_role
-class SupportRole(Role):
+class SupportRole(WorkerRole):
     """Support seat (REQ-7). Lifecycle-capable metadata; hooks are no-ops."""
 
     id: ClassVar[str] = "support"
@@ -88,7 +102,7 @@ class SupportRole(Role):
 
 
 @register_role
-class GateRole(Role):
+class GateRole(VerifierRole):
     """Tool-call classifier intercepting execution requests before execution.
 
     Delegates to ``tool_gate.wrap_tools_with_gate`` (fail-open when unwired)
@@ -104,6 +118,32 @@ class GateRole(Role):
     mechanism_detail: ClassVar[str] = (
         "Tool-call classifier intercepting execution requests before execution."
     )
+
+    def execute_verification(
+        self, ctx: RoleContext, result: Any = None, payload: dict[str, Any] | None = None
+    ) -> Verdict:
+        """Fail-closed by default: unwired gate cannot approve calls.
+
+        With a wired classifier (``params['classify_fn']`` / ``params['gate']``)
+        a *dry* verdict can be derived from the pending calls; execution-time
+        interception stays in :meth:`wrap_tool_calls`.
+        """
+        gate = ctx.params.get("gate")
+        classify_fn = ctx.params.get("classify_fn")
+        if gate is None and classify_fn is None:
+            return Verdict(
+                approved=False,
+                failed=True,
+                reason="gate verifier unwired — tool calls require manual approval",
+            )
+        calls = (payload or {}).get("calls") or []
+        if not calls:
+            return Verdict(approved=True, reason="no pending tool calls to classify")
+        return Verdict(
+            approved=False,
+            failed=True,
+            reason=f"{len(calls)} tool call(s) held for gate interception",
+        )
 
     def wrap_tool_calls(
         self, ctx: RoleContext, calls: Sequence[Any]
@@ -131,7 +171,7 @@ class GateRole(Role):
 
 
 @register_role
-class SkepticRole(Role):
+class SkepticRole(VerifierRole):
     """Post-run reviewer issuing bounded retry directives.
 
     ``run_bounded`` delegates to ``skeptic.run_with_skeptic`` (bounded
@@ -149,6 +189,25 @@ class SkepticRole(Role):
         "Post-run output validator performing bounded retries on failures."
     )
 
+    def execute_verification(
+        self, ctx: RoleContext, result: Any = None, payload: dict[str, Any] | None = None
+    ) -> Verdict:
+        """Map a ``SkepticRunResult``-shaped object onto the shared Verdict."""
+        if result is None:
+            return Verdict(approved=False, failed=True, reason="no result to verify (fail closed)")
+        accomplished = getattr(result, "accomplished", None)
+        findings = getattr(result, "findings", None) or []
+        if accomplished is False:
+            reason = str(findings[-1]) if findings else "skeptic rejected the turn"
+            return Verdict(approved=False, failed=True, reason=reason)
+        if accomplished is None:
+            return Verdict(
+                approved=False,
+                failed=True,
+                reason="verifier result undetermined (fail closed)",
+            )
+        return Verdict(approved=True, reason="skeptic accepted the turn")
+
     async def run_bounded(self, **kwargs: Any) -> Any:
         from swarm.core.skeptic import run_with_skeptic
 
@@ -163,7 +222,7 @@ class SkepticRole(Role):
 
 
 @register_role
-class AdvisorRole(Role):
+class AdvisorRole(AdvisoryRole):
     """One concise follow-up advice note after a completed turn (#181).
 
     Phase 1 carries the resolution seam (``resolve_advisor`` →
@@ -188,7 +247,7 @@ class AdvisorRole(Role):
 
 
 @register_role
-class ChiefOfStaffRole(Role):
+class ChiefOfStaffRole(SupervisorRole):
     """Orchestrator seat with cross-team scope (REQ-28).
 
     The only ``allowed_everywhere`` role. Lifecycle permission helpers stay
@@ -233,7 +292,7 @@ class ChiefOfStaffRole(Role):
 
 
 @register_role
-class EngineerRole(Role):
+class EngineerRole(WorkerRole):
     """Implementer seat (software dev / Chatty). Metadata only."""
 
     id: ClassVar[str] = "engineer"
@@ -247,7 +306,7 @@ class EngineerRole(Role):
 
 
 @register_role
-class SuggestionsRole(Role):
+class SuggestionsRole(AdvisoryRole):
     """Quick-select follow-up prompt chips after a turn (REQ-85).
 
     ``as_tool`` resolves the wired suggestions specialist and delegates to
@@ -280,3 +339,4 @@ class SuggestionsRole(Role):
             return None
         attach_suggestions_as_tool(ctx.coordinator, specialist)
         return specialist
+

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   addMember,
-  addRoleSlot,
   addToolSlot,
   applySlotMemberChange,
   assignableMembersForSlot,
@@ -45,6 +44,7 @@ import {
   TOOL_DRAG_MIME,
   unassignedMembers,
 } from '../teamRoster'
+import type { RoleSlot } from '../teamRoster'
 
 describe('teamRoster (REQ-28)', () => {
   it('parses kind=remote Hermes/OMB/Rakazo members (PR #318 / REQ-28)', () => {
@@ -133,7 +133,8 @@ describe('teamRoster CoS + composer helpers (REQ-107)', () => {
     expect(isCosEligibleMember(remote)).toBe(false)
     expect(isCosEligibleMember(jeeves)).toBe(true)
     const stamped = stampCosRole([jeeves, remote], 'jeeves')
-    expect(stamped[0].role).toBe('chief_of_staff')
+    // #739: stamps are demoted, never written — leadership lives on chief_of_staff_id.
+    expect(stamped[0].role).toBe('default')
     const teamA = {
       chief_of_staff_id: 'jeeves',
       chief_of_staff_instructions: 'prefer grok_agent for revision control',
@@ -177,17 +178,12 @@ describe('teamRoster role slots (issue #104)', () => {
   const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok', role: 'default' }
   const acp = { id: 'acp', name: 'ACP', kind: 'remote' as const, source: 'placeholder:remote:acp', role: 'default' }
 
-  it('lists canonical composer roles without default', () => {
-    expect(COMPOSABLE_TEAM_ROLES).toEqual([
-      'support',
-      'gate',
-      'skeptic',
-      'chief_of_staff',
-      'suggestions',
-      'engineer',
-    ])
+  it('lists canonical composer roles without default (#739: CoS/engineer retired)', () => {
+    expect(COMPOSABLE_TEAM_ROLES).toEqual(['support', 'gate', 'skeptic', 'suggestions'])
     expect(COMPOSABLE_TEAM_ROLES).not.toContain('default')
     expect(COMPOSABLE_TEAM_ROLES).not.toContain('advisor')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('chief_of_staff')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('engineer')
   })
 
   it('uses a distinct MIME from agent drags', () => {
@@ -220,28 +216,35 @@ describe('teamRoster role slots (issue #104)', () => {
     expect(assignableMembersForSlot(members, empty).map((m) => m.id)).toEqual(['grok', 'acp'])
   })
 
-  it('CoS slot options omit remotes and at most one CoS slot is allowed', () => {
+  it('CoS is not a composable slot (#739); remotes stay ineligible', () => {
     const members = [jeeves, grok, acp]
-    const slot = { id: 'cos', role: 'chief_of_staff' as const, memberKey: null }
-    expect(assignableMembersForSlot(members, slot).map((m) => m.id)).toEqual(['jeeves', 'grok'])
-    const withCos = addRoleSlot([], 'chief_of_staff')
-    expect(canAddRoleSlot(withCos, 'chief_of_staff')).toBe(false)
-    expect(addRoleSlot(withCos, 'chief_of_staff')).toHaveLength(1)
-    expect(canAddRoleSlot(withCos, 'skeptic')).toBe(true)
+    const legacy = {
+      id: 'cos',
+      role: 'chief_of_staff' as unknown as RoleSlot['role'],
+      memberKey: null,
+    }
+    // Legacy slot objects only guard: CoS can never be re-added.
+    expect(canAddRoleSlot([], legacy.role)).toBe(false)
+    expect(assignableMembersForSlot(members, legacy).map((m) => m.id)).toEqual([
+      'jeeves',
+      'grok',
+    ])
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('chief_of_staff')
+    expect(canAddRoleSlot([], 'skeptic')).toBe(true)
   })
 
   it('assigning or clearing a slot returns the previous agent to unassigned', () => {
     const members = [jeeves, grok]
-    const slot = { id: 's1', role: 'engineer' as const, memberKey: null }
+    const slot = { id: 's1', role: 'skeptic' as const, memberKey: null }
     const assigned = applySlotMemberChange(members, slot, grok)
-    expect(assigned.find((m) => m.id === 'grok')?.role).toBe('engineer')
+    expect(assigned.find((m) => m.id === 'grok')?.role).toBe('skeptic')
     const moved = applySlotMemberChange(
       assigned,
       { ...slot, memberKey: memberKey(grok) },
       jeeves,
     )
     expect(moved.find((m) => m.id === 'grok')?.role).toBe('default')
-    expect(moved.find((m) => m.id === 'jeeves')?.role).toBe('engineer')
+    expect(moved.find((m) => m.id === 'jeeves')?.role).toBe('skeptic')
     const cleared = applySlotMemberChange(moved, { ...slot, memberKey: memberKey(jeeves) }, null)
     expect(cleared.every((m) => m.role === 'default')).toBe(true)
     expect(setMemberRole(cleared, jeeves, 'support')[0].role).toBe('support')
@@ -383,5 +386,32 @@ describe('#840 matrix derivation', () => {
     // Appending within a partial set does not collapse.
     const partial = toggleToolMatrixCell({ type: 'mcp', server: 'fetch', agents: ['jeeves', 'ada'] }, 'grok', cols)
     expect(partial.agents.sort()).toEqual(['ada', 'grok', 'jeeves'])
+  })
+})
+
+describe('#739 — CoS designation is roster-level', () => {
+  const jeeves = { id: 'jeeves', kind: 'api' as const, role: 'default' as const, source: 'blueprint:jeeves' }
+  const grok = { id: 'grok', kind: 'cli' as const, role: 'default' as const, source: 'cli:grok' }
+
+  it('stampCosRole demotes legacy tags and never writes them', () => {
+    const legacyTagged = { ...jeeves, role: 'chief_of_staff' as const }
+    const scrubbed = stampCosRole([legacyTagged, grok], 'jeeves')
+    expect(scrubbed.map((m) => m.role)).toEqual(['default', 'default'])
+    // Selecting a CoS must NOT stamp the member role.
+    const selected = stampCosRole([jeeves, grok], 'jeeves')
+    expect(selected.map((m) => m.role)).toEqual(['default', 'default'])
+  })
+
+  it('restoreCosId prefers chief_of_staff_id and falls back to a single legacy tag', () => {
+    expect(restoreCosId({ members: [jeeves, grok], chief_of_staff_id: 'grok' })).toBe('grok')
+    expect(restoreCosId({ members: [jeeves], chief_of_staff_id: null })).toBeNull()
+    const legacy = { ...jeeves, role: 'chief_of_staff' as const }
+    expect(restoreCosId({ members: [legacy, grok], chief_of_staff_id: null })).toBe('jeeves')
+  })
+
+  it('composer roles exclude chief_of_staff and engineer', () => {
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('chief_of_staff')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('engineer')
+    expect(COMPOSABLE_TEAM_ROLES).toEqual(['support', 'gate', 'skeptic', 'suggestions'])
   })
 })

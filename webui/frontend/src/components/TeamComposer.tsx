@@ -40,7 +40,6 @@ import {
   encodeDragTool,
   FIRST_AGENT_VALUE,
   firstAgentLeadId,
-  isCosEligibleMember,
   memberByKey,
   memberKey,
   newRoleSlot,
@@ -245,19 +244,9 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   const applyChiefOfStaff = useCallback((nextId: string | null, followsFirst = false) => {
     setLeadFollowsFirst(followsFirst)
     setChiefOfStaffId(nextId)
-    setMembers((prev) => {
-      const stamped = stampCosRole(prev, nextId)
-      const holder = nextId ? stamped.find((row) => row.id === nextId) : undefined
-      const nextKey = holder ? memberKey(holder) : null
-      setRoleSlots((slots) =>
-        slots.map((slot) => {
-          if (slot.role === 'chief_of_staff') return { ...slot, memberKey: nextKey }
-          if (nextKey && slot.memberKey === nextKey) return { ...slot, memberKey: null }
-          return slot
-        }),
-      )
-      return stamped
-    })
+    // #739: leadership is the roster-level chief_of_staff_id only. Members are
+    // merely scrubbed of legacy CoS stamps; no slot gymnastics remain.
+    setMembers((prev) => stampCosRole(prev, nextId))
     setCosInstructions((prev) => (prev.trim() ? prev : DEFAULT_COS_STARTER))
     setStatus(null)
   }, [])
@@ -268,17 +257,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       if (!leadFollowsFirst) return next
       const lead = firstAgentLeadId(next)
       setChiefOfStaffId(lead)
-      const stamped = stampCosRole(next, lead)
-      const holder = lead ? stamped.find((row) => row.id === lead) : undefined
-      const nextKey = holder ? memberKey(holder) : null
-      setRoleSlots((slots) =>
-        slots.map((slot) => {
-          if (slot.role === 'chief_of_staff') return { ...slot, memberKey: nextKey }
-          if (nextKey && slot.memberKey === nextKey) return { ...slot, memberKey: null }
-          return slot
-        }),
-      )
-      return stamped
+      return stampCosRole(next, lead)
     })
     setStatus(null)
     closeMenu()
@@ -289,16 +268,11 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
       if (members.length === 0) return
       setRoleSlots((prev) => {
         if (!canAddRoleSlot(prev, role)) return prev
-        let assigned: string | null = null
-        if (role === 'chief_of_staff' && chiefOfStaffId) {
-          const holder = members.find((row) => row.id === chiefOfStaffId)
-          if (holder) assigned = memberKey(holder)
-        }
-        return [...prev, newRoleSlot(role, assigned)]
+        return [...prev, newRoleSlot(role)]
       })
       closeMenu()
     },
-    [members, chiefOfStaffId, closeMenu],
+    [members.length, closeMenu],
   )
 
   const addFromTool = useCallback(
@@ -326,15 +300,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
         const lead = firstAgentLeadId(next)
         setChiefOfStaffId(lead)
         const stamped = stampCosRole(next, lead)
-        const holder = lead ? stamped.find((row) => row.id === lead) : undefined
-        const nextKey = holder ? memberKey(holder) : null
-        setRoleSlots((slots) =>
-          unassignSlotsForMember(slots, agent).map((slot) => {
-            if (slot.role === 'chief_of_staff') return { ...slot, memberKey: nextKey }
-            if (nextKey && slot.memberKey === nextKey) return { ...slot, memberKey: null }
-            return slot
-          }),
-        )
+        setRoleSlots((slots) => unassignSlotsForMember(slots, agent))
         setToolSlots((slots) => pruneToolSlots(slots, stamped))
         return stamped
       }
@@ -347,25 +313,18 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
 
   const removeSlot = useCallback(
     (slot: RoleSlot) => {
-      if (slot.role === 'chief_of_staff') {
-        if (slot.memberKey) applyChiefOfStaff(null, false)
-      } else if (slot.memberKey) {
+      if (slot.memberKey) {
         const prev = memberByKey(members, slot.memberKey)
         if (prev) setMembers((current) => setMemberRole(current, prev, 'default'))
       }
       setRoleSlots((slots) => removeRoleSlot(slots, slot.id))
     },
-    [applyChiefOfStaff, members],
+    [members],
   )
 
   const onAssignSlot = useCallback(
     (slot: RoleSlot, nextKey: string) => {
       const nextMember = memberByKey(members, nextKey) ?? null
-      if (slot.role === 'chief_of_staff') {
-        if (nextMember && !isCosEligibleMember(nextMember)) return
-        applyChiefOfStaff(nextMember?.id ?? null, false)
-        return
-      }
       setMembers((prev) => applySlotMemberChange(prev, slot, nextMember))
       if (nextMember && chiefOfStaffId === nextMember.id) {
         applyChiefOfStaff(null, false)
@@ -1194,9 +1153,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                           data-testid={`team-role-assign-${slot.role}`}
                           onChange={(event) => onAssignSlot(slot, event.target.value)}
                         >
-                          <option value="">
-                            {slot.role === 'chief_of_staff' ? 'No Chief of Staff' : 'Unassigned'}
-                          </option>
+                          <option value="">Unassigned</option>
                           {choices.map((member) => (
                             <option key={memberKey(member)} value={memberKey(member)}>
                               {agentDisplayName(member)}

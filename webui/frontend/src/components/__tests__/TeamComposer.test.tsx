@@ -312,9 +312,10 @@ describe('TeamComposer first-launch overlay', () => {
         expect(body.members[0]).toMatchObject({
           id: 'grok',
           kind: 'cli',
-          role: 'chief_of_staff',
+          role: 'default',
           source: 'cli:grok',
         })
+        // #739: leadership is roster-level only — no member role stamp.
         expect(body.chief_of_staff_id).toBe('grok')
         expect(body.tools).toEqual([])
         expect(body.wires).toEqual({ handoff: false, as_tool: false })
@@ -392,9 +393,8 @@ describe('TeamComposer first-launch overlay', () => {
         expect(body.chief_of_staff_id).toBe('jeeves')
         expect(body.chief_of_staff_instructions).toBe('prefer grok_agent for revision control')
         expect(body.members).toHaveLength(3)
-        expect(body.members.find((m: { id: string }) => m.id === 'jeeves')?.role).toBe(
-          'chief_of_staff',
-        )
+        // #739: no member stamp — chief_of_staff_id is the single source.
+        expect(body.members.find((m: { id: string }) => m.id === 'jeeves')?.role).toBe('default')
         return {
           ok: true,
           status: 201,
@@ -484,7 +484,7 @@ describe('TeamComposer first-launch overlay', () => {
         const body = JSON.parse(String(init?.body))
         expect(body.members.map((m: { id: string }) => m.id)).toEqual(['grok', 'jeeves'])
         expect(body.chief_of_staff_id).toBe('grok')
-        expect(body.members[0].role).toBe('chief_of_staff')
+        expect(body.members[0].role).toBe('default')
         return {
           ok: true,
           status: 201,
@@ -630,9 +630,10 @@ describe('TeamComposer first-launch overlay', () => {
     const slots = await screen.findByRole('list', { name: /role slots/i })
     expect(within(slots).getByText('skeptic')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /add engineer role/i }))
+    // #739: engineer is retired from the composer — support is the second pick.
+    fireEvent.click(screen.getByRole('button', { name: /add support role/i }))
     expect(screen.getAllByTestId('team-role-slot')).toHaveLength(2)
-    expect(within(slots).getByText('engineer')).toBeInTheDocument()
+    expect(within(slots).getByText('support')).toBeInTheDocument()
   })
 
   it('assigns unroled agents from a slot dropdown and frees them when cleared or removed', async () => {
@@ -645,7 +646,8 @@ describe('TeamComposer first-launch overlay', () => {
 
     const skeptic = screen.getByTestId('team-role-assign-skeptic')
     const gate = screen.getByTestId('team-role-assign-gate')
-    expect(within(skeptic).queryByRole('option', { name: 'Jeeves' })).not.toBeInTheDocument()
+    // The lead member (Jeeves) holds no slot yet — but is a role candidate.
+    expect(within(skeptic).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
     expect(within(skeptic).getByRole('option', { name: 'grok' })).toBeInTheDocument()
 
     fireEvent.change(skeptic, { target: { value: memberKey({ id: 'grok', kind: 'cli', source: 'cli:grok' }) } })
@@ -659,70 +661,26 @@ describe('TeamComposer first-launch overlay', () => {
     fireEvent.click(screen.getByRole('button', { name: /remove skeptic role/i }))
     expect(screen.queryByTestId('team-role-assign-skeptic')).not.toBeInTheDocument()
     expect(within(screen.getByTestId('team-role-assign-gate')).getByRole('option', { name: 'grok' })).toBeInTheDocument()
+    // #739: there is no CoS role slot to assign from.
+    expect(screen.queryByTestId('team-role-assign-chief_of_staff')).not.toBeInTheDocument()
   })
 
-  it('assigns CoS from a role-slot dropdown with eligibility, and keeps No CoS valid', async () => {
-    const fetchMock = vi.mocked(fetch)
+  it('has no CoS role slot — leadership is the roster-level picker (#739)', async () => {
     renderComposer()
     await addAvailableAgent('API')
     await addAvailableAgent('CLI')
     await addAvailableAgent('Remote')
     gotoTier('Roles')
-    fireEvent.click(screen.getByRole('button', { name: /add chief_of_staff role/i }))
+    // No CoS entry in the composable roles list at all.
+    expect(screen.queryByRole('button', { name: /add chief_of_staff role/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('available-role-chief_of_staff')).not.toBeInTheDocument()
 
-    const slot = screen.getByTestId('team-role-assign-chief_of_staff')
-    expect(within(slot).getByRole('option', { name: /no chief of staff/i })).toBeInTheDocument()
-    expect(within(slot).queryByRole('option', { name: /acp/i })).not.toBeInTheDocument()
-    expect(within(slot).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
-    fireEvent.change(slot, {
-      target: { value: memberKey({ id: 'jeeves', kind: 'api', source: 'blueprint:jeeves' }) },
-    })
-    expect(screen.getByTestId('team-cos-select')).toHaveValue('jeeves')
-    expect(screen.getByRole('button', { name: /add chief_of_staff role/i })).toBeDisabled()
-
-    fireEvent.change(screen.getByLabelText(/team name/i), { target: { value: 'Research Squad' } })
-    fetchMock.mockImplementation(async (input, init) => {
-      const url = String(input)
-      if (init?.method === 'POST') {
-        const body = JSON.parse(String(init?.body))
-        expect(body.chief_of_staff_id).toBe('jeeves')
-        expect(body.members.find((m: { id: string }) => m.id === 'jeeves')?.role).toBe(
-          'chief_of_staff',
-        )
-        return {
-          ok: true,
-          status: 201,
-          json: async () => ({
-            id: 'research-squad',
-            object: 'team_roster',
-            name: 'Research Squad',
-            members: body.members,
-            wires: body.wires,
-            chief_of_staff_id: 'jeeves',
-            chief_of_staff_instructions: body.chief_of_staff_instructions,
-          }),
-        } as Response
-      }
-      if (url.includes('/v1/team-agents')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ object: 'list', data: AGENTS }),
-        } as Response
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ object: 'list', data: [] }),
-      } as Response
-    })
-    fireEvent.click(screen.getByRole('button', { name: /save roster/i }))
-    expect(await screen.findByRole('status')).toHaveTextContent(/Saved roster/i)
-
-    fireEvent.change(screen.getByTestId('team-role-assign-chief_of_staff'), { target: { value: '' } })
-    expandInstructions()
-    expect(screen.getByTestId('team-cos-select')).toHaveValue('')
-    expect(screen.getByTestId('team-cos-instructions')).toBeDisabled()
+    // The roster-level picker remains the single CoS surface, with eligibility.
+    const cosSelect = screen.getByTestId('team-cos-select')
+    expect(within(cosSelect).queryByRole('option', { name: /acp/i })).not.toBeInTheDocument()
+    expect(within(cosSelect).getByRole('option', { name: 'Jeeves' })).toBeInTheDocument()
+    fireEvent.change(cosSelect, { target: { value: 'jeeves' } })
+    expect(cosSelect).toHaveValue('jeeves')
   })
 
   it('adds a handoff tool whose target dropdown lists roster members', async () => {
@@ -914,8 +872,8 @@ describe('#840 matrices', () => {
     await addAvailableAgent('CLI')
     gotoTier('Roles')
     const matrix = await screen.findByTestId('team-roles-matrix')
-    // 6 role rows (one per composable role) × 2 member radio cells each.
-    expect(within(matrix).getAllByRole('radio')).toHaveLength(6 * 2)
+    // 4 role rows (#739: support/gate/skeptic/suggestions) × 2 member cells.
+    expect(within(matrix).getAllByRole('radio')).toHaveLength(4 * 2)
 
     // Add the skeptic role slot, then assign via the matrix radio cell —
     // target the CLI member column by visible name (ids are positional).

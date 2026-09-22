@@ -47,8 +47,12 @@ export type TeamMemberRole =
   | 'suggestions'
   | 'engineer'
 
-/** Canonical composer roles (issue #104). `default` is unassigned; `advisor` stays on TEAM_MEMBER_ROLES. */
-export type ComposableTeamRole = Exclude<TeamMemberRole, 'default' | 'advisor'>
+/** Canonical composer roles (issue #104; tightened by #739 — CoS/engineer retired).
+ * `default` is unassigned; `advisor` stays on TEAM_MEMBER_ROLES. */
+export type ComposableTeamRole = Exclude<
+  TeamMemberRole,
+  'default' | 'advisor' | 'chief_of_staff' | 'engineer'
+>
 
 export const TEAM_MEMBER_ROLES: readonly TeamMemberRole[] = [
   'default',
@@ -61,13 +65,17 @@ export const TEAM_MEMBER_ROLES: readonly TeamMemberRole[] = [
   'engineer',
 ]
 
+/** Canonical composer roles (#739): only roles backed by live runtime behavior.
+ *
+ * `chief_of_staff` is NOT composable — leadership is the roster-level
+ * `chief_of_staff_id` selector. `engineer` is a seat label, not a behavior,
+ * and stays out of the generic picker (blueprints may still use the name).
+ */
 export const COMPOSABLE_TEAM_ROLES: readonly ComposableTeamRole[] = [
   'support',
   'gate',
   'skeptic',
-  'chief_of_staff',
   'suggestions',
-  'engineer',
 ]
 
 export const DEFAULT_TEAM_WIRES = { handoff: true, as_tool: true } as const
@@ -362,13 +370,16 @@ export function newRoleSlot(
 
 export function slotsFromMembers(members: TeamRosterMember[]): RoleSlot[] {
   return members
+    // #739: legacy chief_of_staff stamps never re-materialize as slots.
     .filter((row) => isComposableTeamRole(row.role))
     .map((row) => newRoleSlot(row.role as ComposableTeamRole, memberKey(row)))
 }
 
-export function canAddRoleSlot(slots: RoleSlot[], role: ComposableTeamRole): boolean {
-  if (role === 'chief_of_staff') {
-    return !slots.some((slot) => slot.role === 'chief_of_staff')
+export function canAddRoleSlot(_slots: RoleSlot[], role: ComposableTeamRole): boolean {
+  // #739: CoS is not a composable slot. Kept as a guard for callers that
+  // still hold stale slot objects from persisted rosters.
+  if (role === ('chief_of_staff' as ComposableTeamRole)) {
+    return false
   }
   return true
 }
@@ -633,7 +644,7 @@ export function assignableMembersForSlot(
       .map((row) => memberKey(row)),
   )
   const candidates = members.filter((row) => !used.has(memberKey(row)))
-  if (slot.role === 'chief_of_staff') {
+  if (slot.role === ('chief_of_staff' as RoleSlot['role'])) {
     return candidates.filter(isCosEligibleMember)
   }
   return candidates
@@ -655,6 +666,7 @@ export function restoreCosId(roster: Pick<TeamRoster, 'members' | 'chief_of_staf
   if (saved && roster.members.some((m) => m.id === saved && isCosEligibleMember(m))) {
     return saved
   }
+  // Legacy-tag fallback (#739): recover the leader from a pre-#739 stamp.
   const tagged = roster.members.filter(
     (m) => m.role === 'chief_of_staff' && isCosEligibleMember(m),
   )
@@ -662,16 +674,12 @@ export function restoreCosId(roster: Pick<TeamRoster, 'members' | 'chief_of_staf
   return null
 }
 
+/** #739: demote legacy CoS role tags — leadership lives on chief_of_staff_id. */
 export function stampCosRole(
   members: TeamRosterMember[],
-  cosId: string | null,
+  _cosId: string | null,
 ): TeamRosterMember[] {
-  const want = cosId?.trim() || ''
-  return members.map((row) => {
-    if (want && row.id === want) return { ...row, role: 'chief_of_staff' }
-    if (row.role === 'chief_of_staff') return { ...row, role: 'default' }
-    return row
-  })
+  return members.map((row) => (row.role === 'chief_of_staff' ? { ...row, role: 'default' } : row))
 }
 
 export function cosBriefForMember(
