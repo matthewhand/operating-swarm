@@ -15,6 +15,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 CONSUMERS = REPO / "src" / "swarm" / "consumers.py"
+# #855: the module-level helpers (incl. _credential_hint) moved verbatim to
+# swarm/chat/helpers.py; their defs pin against the new home.
+CHAT_HELPERS = REPO / "src" / "swarm" / "chat" / "helpers.py"
 CONFIG_LOADER = REPO / "src" / "swarm" / "core" / "config_loader.py"
 SPEC = REPO / "docs" / "qa" / "REQ-884-chat-turn-failures-name-their-cause.md"
 
@@ -51,7 +54,7 @@ def test_req884_error_frame_names_a_missing_credential():
     assert "_credential_hint()" in dispatch
     assert "hint = _credential_hint()" in dispatch
     assert "if hint:" in dispatch
-    text = _text(CONSUMERS)
+    text = _text(CONSUMERS) + _text(CHAT_HELPERS)
     assert "def _credential_hint() -> str:" in text
     assert "llm_credential_hint" in text
 
