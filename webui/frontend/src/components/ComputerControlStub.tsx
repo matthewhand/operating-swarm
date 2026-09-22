@@ -289,6 +289,8 @@ export function AgentCustomisationPane({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // #719: per-agent sandbox opt-in — 'settings' clears the override.
+  const [sandboxChoice, setSandboxChoice] = useState<string>('settings')
 
   const profilesQuery = useQuery({
     queryKey: ['llm-profiles'],
@@ -341,6 +343,7 @@ export function AgentCustomisationPane({
           body.provider = provider
           body.model = rest.join('/')
         }
+        body.sandbox = sandboxChoice === 'settings' ? { provider: 'none', _clear: true } : { provider: sandboxChoice }
       }
       await apiPatch(`/v1/blueprints/custom/${encodeURIComponent(seatId)}/`, body)
       setSaved(true)
@@ -474,6 +477,26 @@ export function AgentCustomisationPane({
               Two-stage picking lives in the composer; this is the agent's default.
             </span>
           </label>
+
+          <label className="form-control block">
+            <span className="mb-1 block text-sm font-medium">Sandbox tools (#719)</span>
+            <select
+              className="select select-sm select-bordered w-full"
+              aria-label="Sandbox tools"
+              data-testid="sandbox-opt-in"
+              value={sandboxChoice}
+              onChange={(event) => setSandboxChoice(event.target.value)}
+            >
+              <option value="settings">Follow global Settings</option>
+              <option value="daytona">Daytona (opt in)</option>
+              <option value="none">None (opt out)</option>
+            </select>
+            <span className="mt-1 block text-[11px] text-base-content/50">
+              Opt in attaches code/file tools to this agent alone; the global
+              provider stays untouched. Requires DAYTONA_API_KEY when global
+              settings have none configured.
+            </span>
+          </label>
         </>
       ) : null}
 
@@ -482,7 +505,6 @@ export function AgentCustomisationPane({
           {error}
         </p>
       ) : null}
-
       <div className="mt-auto flex items-center justify-end gap-2 border-t border-base-300 pt-2">
         {saved ? (
           <span className="text-xs text-success" role="status" data-testid="agent-save-ok">

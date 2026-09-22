@@ -186,6 +186,29 @@ class DaytonaSandbox(SandboxBackend):
             return False
         return bool(self._api_key())
 
+    # -- #719 file transfer surface (manager-facing, honest degrade) --------
+
+    def upload_bytes(self, remote_path: str, data: bytes) -> bool:
+        """Upload bytes into the sandbox; False (never raise) when unusable."""
+        if not self.is_available():
+            return False
+        try:
+            sandbox = self._get_sandbox()
+            return bool(self._upload_bytes(sandbox, remote_path, data))
+        except Exception as exc:
+            logger.debug("Daytona upload_bytes failed: %s", exc)
+            return False
+
+    def download_bytes(self, remote_path: str) -> bytes | str:
+        """Download bytes from the sandbox; an error string when unusable."""
+        if not self.is_available():
+            return "sandbox not configured — DAYTONA_API_KEY missing or SDK absent"
+        try:
+            sandbox = self._get_sandbox()
+            return self._download_bytes(sandbox, remote_path)
+        except Exception as exc:
+            return f"download failed: {exc}"
+
     def cleanup(self) -> None:
         """Stop and delete the remote microVM so it cannot leak cloud billing.
 

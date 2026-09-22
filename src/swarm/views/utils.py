@@ -282,6 +282,21 @@ def get_available_blueprints():
 # --- Blueprint Instance Loading ---
 # Removed _load_blueprint_class_sync
 
+
+def _persisted_sandbox_param(blueprint_id: str) -> dict | None:
+    """#719: the custom seat's persisted sandbox opt-in, when it has one."""
+    try:
+        from swarm.views.blueprint_library_views import get_user_blueprint_library
+
+        for item in get_user_blueprint_library().get("custom", []) or []:
+            if isinstance(item, dict) and item.get("id") == blueprint_id:
+                sandbox = item.get("sandbox")
+                return dict(sandbox) if isinstance(sandbox, dict) and sandbox else None
+    except Exception:
+        pass
+    return None
+
+
 async def get_blueprint_instance(blueprint_id: str, params: dict = None):
     """Asynchronously gets a fresh instance of a specific blueprint.
 
@@ -330,6 +345,14 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
                  effective_params.setdefault("name", remote_name)
                  effective_params.setdefault("remote", remote_name)
                  effective_params.setdefault("op", "send")
+             # #719: the seat's persisted sandbox opt-in rides set_params so
+             # make_agent can honour it for this agent alone.
+             try:
+                 seat_sandbox = _persisted_sandbox_param(original_id)
+                 if seat_sandbox:
+                     effective_params.setdefault("sandbox", seat_sandbox)
+             except Exception:
+                 pass
              instance.set_params(effective_params)
 
         return instance

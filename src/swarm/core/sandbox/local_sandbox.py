@@ -230,6 +230,29 @@ class LocalSubprocessSandbox(SandboxBackend):
     def is_available(self) -> bool:
         return True
 
+    # -- #719 byte-level transfer (path-jailed like read/write_file) --------
+
+    def upload_bytes(self, remote_path: str, data: bytes) -> bool:
+        """Write raw bytes inside the jail; parents created as needed."""
+        resolved = self._validate_path(
+            self.work_dir / remote_path if not Path(remote_path).is_absolute() else remote_path
+        )
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_bytes(data)
+        return True
+
+    def download_bytes(self, remote_path: str) -> bytes | str:
+        """Read raw bytes inside the jail; an error string when missing."""
+        try:
+            resolved = self._validate_path(
+                self.work_dir / remote_path if not Path(remote_path).is_absolute() else remote_path
+            )
+        except PermissionError as exc:
+            return f"download refused: {exc}"
+        if not resolved.exists():
+            return f"file not found: {remote_path}"
+        return resolved.read_bytes()
+
     def cleanup(self) -> None:
         if self._temp_dir is not None:
             try:

@@ -168,4 +168,29 @@ describe('#932 computer popup rework', () => {
     expect(within(dialog).queryByLabelText('System instruction')).toBeNull()
     expect(within(dialog).queryByLabelText('Provider / model')).toBeNull()
   })
+
+  it('#719: sandbox opt-in select persists through PATCH and can clear', async () => {
+    const dialog = await openPane({ ...AGENT })
+    fireEvent.click(within(dialog).getByRole('tab', { name: /Agent/i }))
+    const select = await within(dialog).findByTestId('sandbox-opt-in')
+    expect(select).toHaveValue('settings')
+    // Opt in to Daytona → PATCH carries the provider choice.
+    fireEvent.change(select, { target: { value: 'daytona' } })
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /^Save agent$/ }))
+    })
+    await waitFor(() => expect(patchBody).not.toBeNull())
+    expect((patchBody as Record<string, unknown>).sandbox).toEqual({ provider: 'daytona' })
+    // Back to 'Follow global Settings' → the clear sentinel is sent.
+    fireEvent.change(select, { target: { value: 'settings' } })
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /^Save agent$/ }))
+    })
+    await waitFor(() =>
+      expect((patchBody as Record<string, unknown>).sandbox).toEqual({
+        provider: 'none',
+        _clear: true,
+      }),
+    )
+  })
 })

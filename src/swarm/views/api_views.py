@@ -530,6 +530,20 @@ class CustomBlueprintDetailView(APIView):
             ]:
                 if key in body:
                     item[key] = body[key]
+            # #719: the per-agent sandbox opt-in is validated, not stored raw.
+            # A ``_clear`` sentinel removes the override entirely (follow settings).
+            if "sandbox" in body:
+                from swarm.core.sandbox.opt_in import normalize_sandbox_param
+
+                sandbox_body = dict(body["sandbox"]) if isinstance(body["sandbox"], dict) else body["sandbox"]
+                clear = isinstance(sandbox_body, dict) and sandbox_body.pop("_clear", False)
+                if clear:
+                    item.pop("sandbox", None)
+                else:
+                    try:
+                        item["sandbox"] = normalize_sandbox_param(sandbox_body)
+                    except ValueError as exc:
+                        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             try:
                 stamped = build_custom_rail_item(item, existing=item)
             except CustomSeatError as exc:

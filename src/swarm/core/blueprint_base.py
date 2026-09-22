@@ -903,20 +903,17 @@ class BlueprintBase(ABC):
             tools = tools + extra
 
         # Optional sandbox harness integration: attach sandbox execution tools
-        # if requested (REQ-860 / REQ-863: Settings provider drives the backend.
-        # Selecting bare_metal or daytona attaches tools; the legacy toggle is
-        # not a second gate).
+        # if requested (REQ-860 / REQ-863: Settings provider drives the backend;
+        # #719: the per-agent ``sandbox`` param overrides settings for this
+        # agent alone — opt-in when settings are none, opt-out when enabled).
         sandbox_opt = kwargs.pop("sandbox", None)
+        params_for_sandbox = dict(getattr(self, "_params", None) or {})
         if sandbox_opt is None:
-            settings_cfg = self.config.get("settings", {}) or {}
-            sandbox_block = settings_cfg.get("sandbox") if isinstance(settings_cfg.get("sandbox"), dict) else None
-            if isinstance(sandbox_block, dict):
-                # REQ-860: an explicit sandbox block wins — provider "none"
-                # (the default) means disabled, regardless of the legacy flag.
-                if sandbox_block.get("provider") not in (None, "", "none"):
-                    sandbox_opt = dict(sandbox_block)
-            else:
-                sandbox_opt = settings_cfg.get("enable_sandbox_tools", False)
+            from swarm.core.sandbox.opt_in import effective_sandbox_config
+
+            effective = effective_sandbox_config(self._config, params_for_sandbox)
+            if effective is not None:
+                sandbox_opt = dict(effective)
         if sandbox_opt:
             try:
                 from swarm.core.sandbox import SandboxManager

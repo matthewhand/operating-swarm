@@ -162,10 +162,62 @@ class SandboxManager:
         return self._backend
 
     def execute_python(self, code: str, timeout: int | None = None) -> SandboxExecutionResult:
-        return self._backend.execute_python(code, timeout=timeout)
+        try:
+            return self._backend.execute_python(code, timeout=timeout)
+        except Exception as exc:
+            result = self._not_configured_result()
+            result.error = str(exc) if self._backend.is_available() else result.error
+            return result
 
     def execute_bash(self, command: str, timeout: int | None = None) -> SandboxExecutionResult:
-        return self._backend.execute_bash(command, timeout=timeout)
+        try:
+            return self._backend.execute_bash(command, timeout=timeout)
+        except Exception as exc:
+            result = self._not_configured_result()
+            result.error = str(exc) if self._backend.is_available() else result.error
+            return result
+
+    def _not_configured_result(self) -> SandboxExecutionResult:
+        """#719: the honest degrade — an explicit message, never a raise."""
+        return SandboxExecutionResult(
+            stdout="",
+            stderr="",
+            exit_code=1,
+            success=False,
+            error=(
+                "Sandbox not configured — select a sandbox provider in Settings "
+                "(or set this agent's sandbox opt-in) and supply DAYTONA_API_KEY."
+            ),
+        )
+
+    def _backend_available(self) -> bool:
+        available = getattr(self._backend, "is_available", None)
+        return bool(available()) if callable(available) else True
+
+    def _backend_upload(self, path: str, data: bytes) -> bool:
+        """Upload bytes via the backend when supported; honest False otherwise."""
+        available = getattr(self._backend, "is_available", None)
+        if callable(available) and not available():
+            return False
+        uploader = getattr(self._backend, "upload_bytes", None)
+        if not callable(uploader):
+            return False
+        try:
+            return bool(uploader(path, data))
+        except Exception as exc:
+            logger.debug("sandbox upload failed: %s", exc)
+            return False
+
+    def _backend_download(self, path: str) -> bytes | str:
+        """Download bytes via the backend; an explicit error string on failure."""
+        downloader = getattr(self._backend, "download_bytes", None)
+        if not callable(downloader):
+            return "[Download Error: sandbox backend does not support file download]"
+        try:
+            out = downloader(path)
+            return out if isinstance(out, bytes) else f"[Download Error: {out}]"
+        except Exception as exc:
+            return f"[Download Error: {exc}]"
 
     def read_file(self, path: str) -> str:
         return self._backend.read_file(path)
@@ -200,11 +252,35 @@ class SandboxManager:
             except Exception as e:
                 return f"[Write Error: {e}]"
 
+        def sandbox_upload_file(path: str, content_b64: str) -> str:
+            """Upload base64-encoded bytes to a path in the sandbox (#719)."""
+            try:
+                import base64
+
+                data = base64.b64decode(content_b64, validate=True)
+            except Exception as e:
+                return f"[Upload Error: invalid base64: {e}]"
+            if not self._backend_available():
+                return "[Upload Error: sandbox not configured — DAYTONA_API_KEY missing or SDK absent]"
+            ok = self._backend_upload(path, data)
+            return f"Uploaded {len(data)} bytes to {path}" if ok else "[Upload Failed]"
+
+        def sandbox_download_file(path: str) -> str:
+            """Download a file from the sandbox as base64 text (#719)."""
+            result = self._backend_download(path)
+            if isinstance(result, bytes):
+                import base64
+
+                return base64.b64encode(result).decode("ascii")
+            return result
+
         return {
             "sandbox_run_python": sandbox_run_python,
             "sandbox_run_bash": sandbox_run_bash,
             "sandbox_read_file": sandbox_read_file,
             "sandbox_write_file": sandbox_write_file,
+            "sandbox_upload_file": sandbox_upload_file,
+            "sandbox_download_file": sandbox_download_file,
         }
 
     def as_function_tools(self) -> list[Any]:
