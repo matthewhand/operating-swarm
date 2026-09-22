@@ -94,4 +94,4 @@ def test_patch_target_on_blueprint_module_reaches_moved_caller():
 
         # engines' _run_swarm_agent branches on R.HAS_AGENTS at call time, so
         # the patch on the blueprint module must be observed through R.
-        assert eng.R.HAS_AGENTS == flipped
+        assert flipped == eng.R.HAS_AGENTS
