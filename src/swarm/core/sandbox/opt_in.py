@@ -39,9 +39,7 @@ def _looks_like_key_material(value: str) -> bool:
     text = value.strip()
     if "BEGIN" in text and "PRIVATE KEY" in text:
         return True
-    if text.startswith(("sk-", "dtn_", "dtna_")):
-        return True
-    return False
+    return bool(text.startswith(("sk-", "dtn_", "dtna_")))
 
 
 def normalize_sandbox_param(raw: Any) -> dict[str, Any]:

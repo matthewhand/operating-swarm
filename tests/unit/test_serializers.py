@@ -75,11 +75,16 @@ def test_validate_messages_multiple_errors():
     assert not serializer.is_valid()
     assert "messages" in serializer.errors
     errors = serializer.errors["messages"]
-    # DRF reports errors positionally: one entry per message, empty for valid ones.
     assert "Expected a dictionary" in str(errors[0]["non_field_errors"][0])
     # Note: int content is coerced to str by DRF CharField, so message 1 is
     # accepted under current rules; only the non-dict item errors.
-    assert len(errors) == 3 and not errors[1] and not errors[2]
+    # DRF <=3.15 emitted a positional entry per message; DRF 3.16 reports
+    # only the failing indexes (#890 lock uplift). Either way: message 0
+    # failed, messages 1–2 produced no errors.
+    if len(errors) == 3:
+        assert not errors[1] and not errors[2]
+    else:
+        assert set(errors) == {0}
 
 def test_validate_messages_null_content_is_allowed():
     data = {

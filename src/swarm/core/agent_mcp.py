@@ -20,7 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from swarm.core.chat_store import normalize_agent_id
-from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
+from swarm.core.paths import (
+    ensure_swarm_directories_exist,
+    get_user_config_dir_for_swarm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -561,7 +564,13 @@ def _progressive_tools(agent_id: str) -> list[Any]:
     if function_tool is not None:
         wrapped = []
         for fn in _progressive_callables(agent_id):
-            wrapped.append(function_tool(fn))
+            # #890: newer openai-agents + pydantic enforce strict JSON schemas
+            # that reject dict[str, Any] returns (additionalProperties). These
+            # meta tools are free-form by design, so opt out of strict mode.
+            try:
+                wrapped.append(function_tool(fn, strict_mode=False))
+            except TypeError:  # older SDK without the kwarg
+                wrapped.append(function_tool(fn))
         if wrapped:
             return wrapped
     from swarm.types import Tool

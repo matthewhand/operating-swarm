@@ -15,6 +15,7 @@ authors = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.1",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
@@ -25,7 +26,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
-    "Django>=4.2,<5.0",
+    # #890: allow Django 5.x alongside 4.2 — 4.2 LTS is EOL (April 2026) and
+    # the runtime can move to 5.x once migrations are verified under it.
+    "Django>=4.2,<6.0",
     "djangorestframework>=3.14,<4.0",
     "openai>=1.3.0,<2.0.0",
     "python-dotenv>=1.0.0",
@@ -36,7 +39,6 @@ dependencies = [
     "psycopg2-binary>=2.9.0",
     "dj-database-url>=2.1.0",
     "django-extensions>=3.2.0",
-    "drf-yasg>=1.21.0",
     "channels>=4.0",
     "channels-redis>=4.0",
     "daphne>=4.0.0",
@@ -45,7 +47,10 @@ dependencies = [
     "platformdirs>=4.0.0",
     "typer>=0.9.0", # Changed from typer[all]
     "pyinstaller>=5.13.0",
-    "httpx>=0.25.2,<0.26.0",
+    # #890: the <0.26 pin blocked daytona>=0.5.0 (needs httpx>=0.28). Modern
+    # httpx is backwards-compatible for our client usage (remotes, TUI, GitHub
+    # services); unlocked so the sandbox extra installs cleanly.
+    "httpx>=0.25.2",
     "django-environ>=0.11.0",
     "django-model-utils>=4.3.0",
     "django-filter>=23.0",
@@ -86,10 +91,9 @@ tui = [
 sandbox = [
     # REQ-863 / #253: Daytona SaaS microVMs. Lazy-imported so a core install
     # stays thin. `pip install 'daytona>=0.5.0'` (or this extra) pulls the SDK.
-    # Marker keeps `uv lock --check` green: daytona requires httpx>=0.28, which
-    # conflicts with the project's httpx>=0.25.2,<0.26.0 pin (same class of
-    # problem as django-mcp-server — see the note below).
-    "daytona>=0.5.0 ; python_version < '3'",
+    # #890: the httpx pin is lifted, so the SDK's httpx>=0.28 requirement now
+    # resolves without conflict.
+    "daytona>=0.5.0",
 ]
 desktop = [
     # REQ-883B: pywebview window. Not required for `swarm-desktop --print-plan`.
