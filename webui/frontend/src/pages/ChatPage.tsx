@@ -7,8 +7,6 @@ import {
   useState,
   type CSSProperties,
   type ChangeEvent,
-  type ClipboardEvent,
-  type DragEvent,
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
@@ -126,14 +124,8 @@ import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
 import ComposerAttachChips from '../components/ComposerAttachChips'
 import {
   attachmentCaption,
-  createPendingAttachment,
-  dataTransferHasFiles,
   filesFromList,
-  imageFilesFromClipboard,
   readyAttachmentIds,
-  revokePreviewUrl,
-  uploadChatAttachment,
-  type PendingAttachment,
 } from '../lib/chatAttachments'
 import { composerMenuCapabilities } from '../lib/composerMenu'
 import { applyRemoteRoutingChange } from '../lib/remoteRouting'
@@ -304,20 +296,6 @@ import { isOpenMousBotKind } from '../lib/remoteKinds'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId } from '../lib/remotesCatalog'
 import { buildComposerProviders, composerOptionsForProvider } from '../lib/composerSources'
 import type { ComposerSources } from '../lib/composerSources'
-
-/** #494: machine-readable remedy the backend stamps on classified failures. */
-interface RemoteAction {
-  kind: 'settings'
-  section: 'remotes'
-  remote?: string
-  field?: string
-}
-
-function isRemoteAction(value: unknown): value is RemoteAction {
-  if (!value || typeof value !== 'object') return false
-  const rec = value as Record<string, unknown>
-  return rec.kind === 'settings' && rec.section === 'remotes'
-}
 import {
   ADD_REMOTE_VALUE,
   configuredRemotes,
@@ -347,8 +325,8 @@ import {
   estimateTokensInContext,
   resolveContextMaxFromProfiles,
 } from '../lib/chatMeter'
-export { chatLoginHref, chatLoginNext } from '../features/chat/chatMessages'
 import { useChatWebSocket } from '../features/chat/useChatWebSocket'
+import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { formatGapLabel, parseCreatedAtMs } from '../lib/chatTime'
 import { workingLabel } from '../lib/chatBubble'
 import { isExperimentalEnabled } from '../experimental/flags'
@@ -466,11 +444,6 @@ import {
   type SeatPickKind,
 } from '../lib/seatRouting'
 
-/** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
-const SHOW_MESSAGE_ACTIONS = isExperimentalEnabled('chat_message_actions')
-
-type ConnectionStatus = ChatConnectionStatus
-
 // #856 slice 1: module-scope message/session types and helpers moved verbatim to
 // features/chat/chatMessages.ts; re-imported here so the component body and the
 // '../ChatPage' import surface are unchanged.
@@ -479,6 +452,26 @@ import {
   hydrateThreadRows,
   type ChatMessage,
 } from '../features/chat/chatMessages'
+
+/** #494: machine-readable remedy the backend stamps on classified failures. */
+interface RemoteAction {
+  kind: 'settings'
+  section: 'remotes'
+  remote?: string
+  field?: string
+}
+
+function isRemoteAction(value: unknown): value is RemoteAction {
+  if (!value || typeof value !== 'object') return false
+  const rec = value as Record<string, unknown>
+  return rec.kind === 'settings' && rec.section === 'remotes'
+}
+export { chatLoginHref, chatLoginNext } from '../features/chat/chatMessages'
+
+/** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
+const SHOW_MESSAGE_ACTIONS = isExperimentalEnabled('chat_message_actions')
+
+type ConnectionStatus = ChatConnectionStatus
 
 export {
   estimateTokensInContext,
@@ -603,7 +596,6 @@ const ChatPage = () => {
     startOffset: number
   } | null>(null)
   const [input, setInput] = useState('')
-  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [sttListening, setSttListening] = useState(false)
   const [sttPathUsed, setSttPathUsed] = useState<SpeechPath | null>(null)
   const sttStopRef = useRef<(() => void) | null>(null)
@@ -2760,138 +2752,32 @@ const ChatPage = () => {
     })
   }, [status, authRejected, signInHref, addToast, dismissByKind, reconnect])
 
-  const readyAttachIds = readyAttachmentIds(pendingAttachments)
-  const hasSendableDraft =
-    !pendingAttachments.some((item) => item.status === 'uploading') &&
-    (input.trim().length > 0 || readyAttachIds.length > 0)
   // #595: one signal for the composer's trailing controls — the Stop button
   // swaps into the microphone's slot while a turn is in flight, so the row
   // keeps a constant control count and never shifts under the pointer.
   const composerBusy = status === 'open' && generationIsInFlight(messages, awaitingAssistant)
 
-  const [composerDragOver, setComposerDragOver] = useState(false)
-  const dragCounterRef = useRef(0)
-
-  const handleComposerDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!dataTransferHasFiles(event.dataTransfer?.types)) return
-    event.preventDefault()
-    dragCounterRef.current += 1
-    if (dragCounterRef.current === 1) {
-      setComposerDragOver(true)
-    }
-  }, [])
-
-  const handleComposerDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!dataTransferHasFiles(event.dataTransfer?.types)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-  }, [])
-
-  const handleComposerDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!dataTransferHasFiles(event.dataTransfer?.types)) return
-    event.preventDefault()
-    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1)
-    if (dragCounterRef.current === 0) {
-      setComposerDragOver(false)
-    }
-  }, [])
-
-  const enqueueComposerFiles = useCallback((files: File[]) => {
-    if (files.length === 0) return
-    const room = Math.max(0, 8 - pendingAttachments.length)
-    const incoming = files.slice(0, room).map(createPendingAttachment)
-    if (incoming.length === 0) return
-    setPendingAttachments((prev) => [...prev, ...incoming])
-    incoming.forEach((item) => {
-      void uploadChatAttachment(item.file, item.abortController?.signal)
-        .then((record) => {
-          setPendingAttachments((prev) =>
-            prev.map((row) =>
-              row.localId === item.localId
-                ? { ...row, uploadId: record.id, status: 'ready' }
-                : row,
-            ),
-          )
-        })
-        .catch((err: unknown) => {
-          if (
-            (err instanceof DOMException && err.name === 'AbortError') ||
-            (err as { name?: string })?.name === 'AbortError'
-          ) {
-            return
-          }
-          setPendingAttachments((prev) =>
-            prev.map((row) =>
-              row.localId === item.localId ? { ...row, status: 'error' } : row,
-            ),
-          )
-        })
-    })
-  }, [pendingAttachments.length])
-
-  const handleComposerDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      if (!dataTransferHasFiles(event.dataTransfer?.types)) return
-      event.preventDefault()
-      dragCounterRef.current = 0
-      setComposerDragOver(false)
-      if (!composerMenu.addFiles.enabled) {
-        addToast({
-          type: 'info',
-          title: 'Add files',
-          message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
-        })
-        return
-      }
-      const files = filesFromList(event.dataTransfer?.files)
-      if (files.length > 0) {
-        enqueueComposerFiles(files)
-      }
-    },
-    [addToast, composerMenu.addFiles.enabled, composerMenu.addFiles.reason, enqueueComposerFiles],
-  )
-
-  const handleComposerPaste = useCallback(
-    (event: ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = imageFilesFromClipboard(event.clipboardData)
-      if (files.length === 0) return
-      event.preventDefault()
-      if (!composerMenu.addFiles.enabled) {
-        addToast({
-          type: 'info',
-          title: 'Add files',
-          message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
-        })
-        return
-      }
-      enqueueComposerFiles(files)
-    },
-    [addToast, composerMenu.addFiles.enabled, composerMenu.addFiles.reason, enqueueComposerFiles],
-  )
-
-  const clearPendingAttachments = useCallback(() => {
-    setPendingAttachments((prev) => {
-      prev.forEach((item) => {
-        item.abortController?.abort()
-        revokePreviewUrl(item.previewUrl)
-      })
-      return []
-    })
-  }, [])
-
-  const pendingAttachmentsRef = useRef(pendingAttachments)
-  useEffect(() => {
-    pendingAttachmentsRef.current = pendingAttachments
-  }, [pendingAttachments])
-
-  useEffect(() => {
-    return () => {
-      pendingAttachmentsRef.current.forEach((item) => {
-        item.abortController?.abort()
-        revokePreviewUrl(item.previewUrl)
-      })
-    }
-  }, [])
+  // #856 slice D: attachment queue moved verbatim to features/chat/useComposerAttachments.
+  const {
+    pendingAttachments,
+    composerDragOver,
+    readyAttachIds,
+    enqueueComposerFiles,
+    handleComposerDragEnter,
+    handleComposerDragOver,
+    handleComposerDragLeave,
+    handleComposerDrop,
+    handleComposerPaste,
+    removeAttachment,
+    clearPendingAttachments,
+  } = useComposerAttachments({
+    addFilesEnabled: composerMenu.addFiles.enabled,
+    addFilesReason: composerMenu.addFiles.reason,
+    addToast,
+  })
+  const hasSendableDraft =
+    !pendingAttachments.some((item) => item.status === 'uploading') &&
+    (input.trim().length > 0 || readyAttachIds.length > 0)
 
   const sendText = useCallback(
     (text: string): boolean => {
@@ -5306,14 +5192,7 @@ const ChatPage = () => {
                 )}
                 <ComposerAttachChips
                   attachments={pendingAttachments}
-                  onRemove={(localId) => {
-                    setPendingAttachments((prev) => {
-                      const gone = prev.find((row) => row.localId === localId)
-                      gone?.abortController?.abort()
-                      revokePreviewUrl(gone?.previewUrl)
-                      return prev.filter((row) => row.localId !== localId)
-                    })
-                  }}
+                  onRemove={removeAttachment}
                 />
                 <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0 ? 'w-full' : 'flex-1'}`}>
                   <div className="relative" ref={plusRef}>
