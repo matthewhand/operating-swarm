@@ -555,160 +555,20 @@ LIST_SESSIONS_TIMEOUT = 15.0
 RECENT_SESSION_LIMIT = 10
 
 
-def _cli_agent_entry(name: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
-    """``cli_agents.<name>`` dict from config, or empty."""
-    raw_agents = (config or {}).get("cli_agents") or {}
-    if not isinstance(raw_agents, dict):
-        return {}
-    entry = raw_agents.get(name)
-    return entry if isinstance(entry, dict) else {}
 
+# #855 slice D — session-cluster helpers moved verbatim to swarm.core.cli.sessions (patch-safe: bodies resolve catalog references through a late-bound handle; names are rebound here so the import surface is unchanged).
+from swarm.core.cli import sessions as _cli_sessions  # noqa: E402
 
-def list_sessions_argv(name: str, config: dict[str, Any] | None = None) -> list[str] | None:
-    """Copy of a non-interactive list-sessions argv, or None if this CLI cannot list.
-
-    Config ``cli_agents.<name>.list_argv`` wins over the catalog (fixtures).
-    An empty list in config disables a catalogued argv (honest paste-only).
-    """
-    entry = _cli_agent_entry(name, config)
-    if "list_argv" in entry:
-        argv = entry.get("list_argv")
-        if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-            return list(argv)
-        return None
-    policy = session_policy(name) or {}
-    argv = policy.get("list_argv")
-    if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-        return list(argv)
-    return None
-
-
-def list_sessions_store(name: str, config: dict[str, Any] | None = None) -> str | None:
-    """Provider-store kind (e.g. ``agy_conversations``), or None.
-
-    Config ``cli_agents.<name>.list_store`` wins. Empty string disables the
-    catalogued store. When ``list_argv`` is set, the argv is preferred.
-    """
-    if list_sessions_argv(name, config) is not None:
-        return None
-    entry = _cli_agent_entry(name, config)
-    if "list_store" in entry:
-        raw = entry.get("list_store")
-        kind = str(raw or "").strip()
-        return kind or None
-    policy = session_policy(name) or {}
-    raw = policy.get("list_store")
-    kind = str(raw or "").strip()
-    return kind or None
-
-
-def list_sessions_store_dir(name: str, config: dict[str, Any] | None = None) -> str | None:
-    """Expanded directory for a provider session store, or None."""
-    kind = list_sessions_store(name, config)
-    if kind is None:
-        return None
-    entry = _cli_agent_entry(name, config)
-    raw = entry.get("list_store_dir")
-    if raw:
-        return os.path.expanduser(str(raw))
-    env_map = {
-        AGY_CONVERSATIONS_STORE: "SWARM_AGY_CONVERSATIONS_DIR",
-        OMP_SESSIONS_STORE: "SWARM_OMP_SESSIONS_DIR",
-    }
-    env = os.environ.get(env_map.get(kind, ""), "").strip()
-    if env:
-        return os.path.expanduser(env)
-    policy = session_policy(name) or {}
-    raw = policy.get("list_store_dir")
-    if raw:
-        return os.path.expanduser(str(raw))
-    kind_defaults = {
-        AGY_CONVERSATIONS_STORE: DEFAULT_AGY_CONVERSATIONS_DIR,
-        OMP_SESSIONS_STORE: DEFAULT_OMP_SESSIONS_DIR,
-    }
-    default_dir = kind_defaults.get(kind)
-    return os.path.expanduser(default_dir) if default_dir else None
-
-
-def list_capability(name: str, config: dict[str, Any] | None = None) -> str:
-    """``works`` | ``paste-only`` | ``unsupported`` for this CLI's session list."""
-    entry = _cli_agent_entry(name, config)
-    override = entry.get("list_capability")
-    if isinstance(override, str) and override in LIST_CAPABILITIES:
-        return override
-    if can_list_sessions(name, config):
-        return LIST_CAPABILITY_WORKS
-    policy = session_policy(name) or {}
-    if policy.get("resume_argv"):
-        return LIST_CAPABILITY_PASTE_ONLY
-    documented = policy.get("list_capability")
-    if isinstance(documented, str) and documented in LIST_CAPABILITIES:
-        return documented
-    return LIST_CAPABILITY_UNSUPPORTED
-
-
-def can_list_sessions(name: str, config: dict[str, Any] | None = None) -> bool:
-    """True when a real list argv or provider store is configured."""
-    return list_sessions_argv(name, config) is not None or list_sessions_store(name, config) is not None
-
-
-def export_sessions_argv(name: str, config: dict[str, Any] | None = None) -> list[str] | None:
-    """Non-interactive transcript-export argv, or None.
-
-    Config ``cli_agents.<name>.export_argv`` wins. An empty list disables a
-    catalogued argv. Catalog CLIs ship no export argv (honest summary inject).
-    ``{session_id}`` is replaced by the caller when invoking.
-    """
-    entry = _cli_agent_entry(name, config)
-    if "export_argv" in entry:
-        argv = entry.get("export_argv")
-        if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-            return list(argv)
-        return None
-    policy = session_policy(name) or {}
-    argv = policy.get("export_argv")
-    if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-        return list(argv)
-    return None
-
-
-def export_capability(name: str, config: dict[str, Any] | None = None) -> str:
-    """``transcript`` | ``summary`` | ``none`` for hop import from this CLI."""
-    entry = _cli_agent_entry(name, config)
-    override = entry.get("export_capability")
-    if isinstance(override, str) and override in EXPORT_CAPABILITIES:
-        return override
-    if export_sessions_argv(name, config) is not None:
-        return EXPORT_CAPABILITY_TRANSCRIPT
-    policy = session_policy(name) or {}
-    documented = policy.get("export_capability")
-    if isinstance(documented, str) and documented in EXPORT_CAPABILITIES:
-        return documented
-    if session_policy(name) or _cli_agent_entry(name, config):
-        return EXPORT_CAPABILITY_SUMMARY
-    return EXPORT_CAPABILITY_NONE
-
-
-def can_export_transcript(name: str, config: dict[str, Any] | None = None) -> bool:
-    """True when a real export argv is configured (fixture or verified CLI)."""
-    return export_sessions_argv(name, config) is not None
-
-
-def list_sessions_catalog() -> dict[str, dict[str, Any]]:
-    """Machine-readable list/resume/export table for every catalogued CLI."""
-    out: dict[str, dict[str, Any]] = {}
-    for name in catalog_names():
-        policy = session_policy(name) or {}
-        out[name] = {
-            "capability": list_capability(name),
-            "list_argv": list_sessions_argv(name),
-            "list_store": list_sessions_store(name),
-            "resume_argv": list(policy["resume_argv"]) if policy.get("resume_argv") else None,
-            "export_capability": export_capability(name),
-            "export_argv": export_sessions_argv(name),
-        }
-    return out
-
+_cli_agent_entry = _cli_sessions._cli_agent_entry
+list_sessions_argv = _cli_sessions.list_sessions_argv
+list_sessions_store = _cli_sessions.list_sessions_store
+list_sessions_store_dir = _cli_sessions.list_sessions_store_dir
+list_capability = _cli_sessions.list_capability
+can_list_sessions = _cli_sessions.can_list_sessions
+export_sessions_argv = _cli_sessions.export_sessions_argv
+export_capability = _cli_sessions.export_capability
+can_export_transcript = _cli_sessions.can_export_transcript
+list_sessions_catalog = _cli_sessions.list_sessions_catalog
 
 # Default capability traits (0..1) per known CLI for inference-profile matching
 # (see swarm.core.inference_profile). These are sensible starting points the
@@ -780,208 +640,25 @@ CLI_SIDEBAR: dict[str, dict[str, str]] = {
 }
 
 
-def cli_traits(name: str) -> dict[str, float] | None:
-    """Default capability traits for a known CLI, or None if unknown."""
-    t = CLI_TRAITS.get(name)
-    return dict(t) if t is not None else None
 
+# #855 slice D — model-cluster helpers moved verbatim to swarm.core.cli.models (patch-safe: bodies resolve catalog references through a late-bound handle; names are rebound here so the import surface is unchanged).
+from swarm.core.cli import models as _cli_models  # noqa: E402
 
-def has_native_consensus(name: str) -> bool:
-    """True when this CLI has a built-in consensus/heavy mode the catalog knows."""
-    return name in NATIVE_CONSENSUS
-
-
-def native_consensus_flags(name: str, n: int = 2) -> list[str] | None:
-    """argv to append to enable ``name``'s built-in consensus for N candidates, or None."""
-    tmpl = NATIVE_CONSENSUS.get(name)
-    if not tmpl:
-        return None
-    count = str(max(2, int(n)))
-    return [count if part == "{n}" else part for part in tmpl]
-
-
-def with_native_consensus(name: str, n: int = 2) -> dict[str, Any] | None:
-    """A catalog entry for ``name`` with its built-in consensus mode enabled.
-
-    Returns None if the CLI is unknown or has no native consensus flag.
-    """
-    entry = catalog_entry(name)
-    flags = native_consensus_flags(name, n)
-    if entry is None or flags is None:
-        return None
-    entry["cmd"] = list(entry["cmd"]) + flags
-    return entry
-
-
-# Non-interactive argv that lists models each catalog CLI can actually run.
-# Sourced from each CLI's ``--help`` / official docs (not a vendor marketing
-# list). Probe via :mod:`swarm.core.cli_models` — never prompts, always times
-# out. antigravity is omitted until it is wired into ``CATALOG``.
-#
-#   grok      ``grok models``           (xAI CLI reference)
-#   claude    ``claude models``         (same shape as grok/opencode; older
-#                                       builds fail the probe → empty+warning)
-#   gemini    ``gemini --list-models``  (JSON; early-exit, no REPL)
-#   codex     ``codex debug models``    (raw catalog JSON)
-#   opencode  ``opencode models``       (already documented in this catalog)
-#   agy       ``agy models``            (tab-separated id<TAB>label lines; a
-#                                       spinner banner goes to stderr, stdout
-#                                       parses as plain lines)
-#   pi        ``pi --list-models``      (provider/model table; pin as
-#                                       ``provider/id``. Empty catalog is a
-#                                       warning — never invent ``default`` or a
-#                                       discontinued Aliyun coding-plan model)
-# qwen: deliberately absent — its current build rejects ``--list-models``
-# ("Unknown arguments") and has no models subcommand, so there is nothing
-# honest to probe; dropdown falls back to ``CLI_MODELS`` presets via ``cli_models``.
-LIST_MODELS: dict[str, list[str]] = {
-    "grok": ["grok", "models"],
-    "claude": ["claude", "models"],
-    "gemini": ["gemini", "--list-models"],
-    "codex": ["codex", "debug", "models"],
-    "opencode": ["opencode", "models"],
-    "agy": ["agy", "models"],
-    "pi": ["pi", "--list-models"],
-}
-
-# List-models probes must stay cheap and never hang a Settings / #358 caller.
-# REQ-877: hard cap is 1.5s so /v1/llm-profiles/ cannot block page hydration.
-LIST_MODELS_TIMEOUT = 1.5
-
-
-def list_models_argv(name: str) -> list[str] | None:
-    """Copy of the list-models argv for ``name``, or None if unknown."""
-    argv = LIST_MODELS.get(name)
-    return list(argv) if argv is not None else None
-
-
-def has_list_models(name: str) -> bool:
-    """True when the catalog documents a list-models probe for ``name``."""
-    return name in LIST_MODELS
-
-
-# Flag each CLI uses to pin a specific model, so callers can request a
-# particular tier (e.g. gemini's pro vs. flash). Only flags verified against the
-# installed CLI version belong here; omit a CLI rather than guess.
-MODEL_FLAG: dict[str, str] = {
-    "gemini": "-m",        # verified live (gemini 0.45): -m gemini-3-pro-preview
-    "claude": "--model",   # claude -p --model <name>
-    "opencode": "--model", # opencode run --model <name>
-    "kilocode": "--model", # kilo run --model <name>
-    "omp": "--model",      # omp -p --model <provider/id>
-    "agy": "--model",      # agy --model <name>
-    "grok": "-m",          # grok -m/--model <id> (verified: grok-4.6, grok-4.5)
-    "qwen": "-m",          # qwen -m/--model <id> (verified live: gateway slug auxiliary)
-    "pi": "--model",       # pi --model <provider/id> (docs + --help; no --provider needed)
-}
-
-# Suggested model ids for the Agent Router CLI-model dropdown, and the
-# fallback when a live list-models probe is empty, times out, or is
-# unsupported for that CLI. The UI always offers a custom string on top.
-# pi is omitted: Chat / Router must use the live ``pi --list-models`` probe
-# (provider/model ids). Do not invent ``default`` or a discontinued Aliyun
-# DashScope coding-plan slug — an empty probe stays empty + warning.
-CLI_MODELS: dict[str, list[str]] = {
-    "grok": ["grok-4.6", "grok-4.5"],
-    "agy": [
-        "gemini-3.8-flash-high",
-        "gemini-3.8-flash-medium",
-        "gemini-3.1-pro-high",
-        "claude-sonnet-4-6",
-        "claude-opus-4-6-thinking",
-        "gpt-oss-120b-medium",
-    ],
-    "gemini": ["gemini-3-flash-preview", "gemini-3-pro-preview"],
-    "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
-    "codex": ["gpt-5.6-terra", "gpt-5.4-mini"],
-    "opencode": ["litellm/orchestration"],
-    "omp": ["litellm/orchestration", "gemini-2.5-flash", "claude-3-5-sonnet"],
-    "qwen": ["qwen2.5-coder:32b", "qwen2.5-coder:7b", "qwen2.5:72b"],
-}
-
-
-# Default capability traits (0..1) per known MODEL, keyed by model id. These
-# refine the per-provider CLI_TRAITS default: a provider runs many models (e.g.
-# gemini flash vs pro) with very different intelligence/speed/cost. Illustrative
-# starting points — users override per-model via config. cost = cheapness.
-MODEL_TRAITS: dict[str, dict[str, float]] = {
-    "gemini-3-pro-preview":   {"intelligence": 0.92, "speed": 0.35, "cost": 0.30},
-    "gemini-3-flash-preview": {"intelligence": 0.62, "speed": 0.95, "cost": 0.92},
-    "claude-opus-4-8":        {"intelligence": 0.98, "speed": 0.45, "cost": 0.20},
-    "claude-sonnet-4-6":      {"intelligence": 0.90, "speed": 0.70, "cost": 0.55},
-    "claude-haiku-4-5":       {"intelligence": 0.70, "speed": 0.92, "cost": 0.85},
-}
-
-
-def model_traits(model: str) -> dict[str, float] | None:
-    """Default capability traits for a known model id, or None if unknown."""
-    t = MODEL_TRAITS.get(model)
-    return dict(t) if t is not None else None
-
-
-_PROMPT_FLAG_TOKENS = frozenset({"-p", "--print", "--prompt", "--single"})
-
-
-def _model_flag_insert_at(cmd: list[str]) -> int:
-    """Index to insert a model flag — before ``-p`` / ``{prompt}``, never after."""
-    if "--" in cmd:
-        return cmd.index("--")
-    for i, part in enumerate(cmd):
-        if part in _PROMPT_FLAG_TOKENS:
-            return i
-        if part.startswith(("-p=", "--print=", "--prompt=", "--single=")):
-            return i
-        if "{prompt}" in part:
-            return i
-    return len(cmd)
-
-
-def apply_model(entry: dict[str, Any], name: str, model: str) -> dict[str, Any]:
-    """Return a copy of ``entry`` with ``name``'s model flag set to ``model``.
-
-    Replaces an already-pinned model (e.g. opencode's default) rather than
-    duplicating it; a no-op for CLIs with no known model flag. New flags sit
-    before ``-p`` / ``{prompt}`` so the prompt cannot swallow them.
-    """
-    entry = _deepcopy(entry)
-    flag = MODEL_FLAG.get(name)
-    if flag is None:
-        return entry
-    cmd = list(entry.get("cmd") or [])
-    if not cmd:
-        return entry  # no command to pin a model on; don't fabricate a flag-only cmd
-    if flag in cmd:
-        i = cmd.index(flag)
-        nxt = cmd[i + 1] if i + 1 < len(cmd) else None
-        if nxt is not None and nxt != "--":
-            cmd[i + 1] = model
-        elif nxt == "--":
-            cmd.insert(i + 1, model)
-        else:
-            cmd.append(model)
-    else:
-        insert_at = _model_flag_insert_at(cmd)
-        cmd[insert_at:insert_at] = [flag, model]
-    entry["cmd"] = cmd
-    return entry
-
-
-def with_model(name: str, model: str, *, timeout: int | None = None) -> dict[str, Any] | None:
-    """A catalog entry for ``name`` pinned to a specific ``model``.
-
-    Pro/heavy tiers (notably ``gemini-3-pro-preview``) think for much longer than
-    the flash default, so pass a larger ``timeout`` when selecting one. Returns
-    None for an unknown CLI; returns the entry unchanged if the catalog has no
-    known model flag for it.
-    """
-    base = catalog_entry(name)
-    if base is None:
-        return None
-    entry = apply_model(base, name, model)
-    if timeout is not None:
-        entry["timeout"] = timeout
-    return entry
-
+cli_traits = _cli_models.cli_traits
+has_native_consensus = _cli_models.has_native_consensus
+native_consensus_flags = _cli_models.native_consensus_flags
+with_native_consensus = _cli_models.with_native_consensus
+list_models_argv = _cli_models.list_models_argv
+has_list_models = _cli_models.has_list_models
+model_traits = _cli_models.model_traits
+_model_flag_insert_at = _cli_models._model_flag_insert_at
+apply_model = _cli_models.apply_model
+with_model = _cli_models.with_model
+LIST_MODELS = _cli_models.LIST_MODELS
+LIST_MODELS_TIMEOUT = _cli_models.LIST_MODELS_TIMEOUT
+MODEL_FLAG = _cli_models.MODEL_FLAG
+CLI_MODELS = _cli_models.CLI_MODELS
+MODEL_TRAITS = _cli_models.MODEL_TRAITS
 
 def listed_cli_specs() -> list[dict[str, Any]]:
     """Host grok/agy as Agent Router sidebar specs (OpenMausBot-style).
