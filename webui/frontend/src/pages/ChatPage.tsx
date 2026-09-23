@@ -8,7 +8,6 @@ import {
   type CSSProperties,
   type ChangeEvent,
   type FormEvent,
-  type KeyboardEvent,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChatBottomDock } from '../features/chat/ChatBottomDock'
@@ -152,15 +151,9 @@ import {
   operateRemote,
 } from '../lib/api'
 import {
-  appendTranscript,
-  listenSystemStt,
-  recordMicrophoneAudio,
-  resolveSttPath,
   resolveTtsPath,
   speakCustom,
   speakSystem,
-  sttUnavailableMessage,
-  transcribeCustomBlob,
   type SpeechPath,
 } from '../lib/speechRuntime'
 import { SPEECH_QUERY_KEY, describeSpeechPath, parseSpeechSettings } from '../lib/speechSettings'
@@ -301,6 +294,7 @@ import { useChatSend } from '../features/chat/useChatSend'
 import { useComposerCommands } from '../features/chat/useComposerCommands'
 import { useChatCompact } from '../features/chat/useChatCompact'
 import { useChatTurnOps } from '../features/chat/useChatTurnOps'
+import { useComposerControls } from '../features/chat/useComposerControls'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
@@ -2544,95 +2538,6 @@ const ChatPage = () => {
     voiceBind,
   )
 
-  const handleMic = () => {
-    if (sttListening) {
-      sttStopRef.current?.()
-      return
-    }
-    const path = resolveSttPath(speechSettings)
-    if (!path) {
-      addToast({
-        type: 'info',
-        title: 'Voice input',
-        message: sttUnavailableMessage(speechSettings),
-      })
-      return
-    }
-    if (path === 'system') {
-      try {
-        const handle = listenSystemStt({
-          onTranscript: (spoken) => {
-            setInput((prev) => appendTranscript(prev, spoken))
-          },
-          onEnd: () => {
-            setSttListening(false)
-            sttStopRef.current = null
-          },
-          onError: (message) => {
-            addToast({ type: 'info', title: 'Voice input', message })
-            setSttListening(false)
-            sttStopRef.current = null
-          },
-        })
-        sttStopRef.current = handle.stop
-        setSttListening(true)
-        setSttPathUsed('system')
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: `Using ${describeSpeechPath('system', 'stt')}. Transcript stays in the composer.`,
-        })
-      } catch (err) {
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: err instanceof Error ? err.message : sttUnavailableMessage(speechSettings),
-        })
-      }
-      return
-    }
-    void (async () => {
-      try {
-        const session = await recordMicrophoneAudio()
-        sttStopRef.current = () => {
-          void (async () => {
-            try {
-              const blob = await session.stop()
-              const spoken = await transcribeCustomBlob(blob, 'audio.webm', {
-                agentId: activeChatAgentId,
-              })
-              if (spoken) setInput((prev) => appendTranscript(prev, spoken))
-            } catch (err) {
-              addToast({
-                type: 'info',
-                title: 'Voice input',
-                message: err instanceof Error ? err.message : 'Custom STT failed.',
-              })
-            } finally {
-              setSttListening(false)
-              sttStopRef.current = null
-            }
-          })()
-        }
-        setSttListening(true)
-        setSttPathUsed('custom')
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: `Using ${describeSpeechPath('custom', 'stt')}. Click the mic again to stop.`,
-        })
-      } catch (err) {
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: err instanceof Error ? err.message : sttUnavailableMessage(speechSettings),
-        })
-        setSttListening(false)
-        sttStopRef.current = null
-      }
-    })()
-  }
-
   useEffect(() => {
     if (!plusOpen) {
       // #516: closing the menu returns it to the actions face.
@@ -2851,84 +2756,39 @@ const ChatPage = () => {
   // #856: slash-command picking moved verbatim to features/chat/useComposerCommands.ts.
   const handleSelectSlashItem = slashHook.handleSelectSlashItem
 
-  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isSlashOpen) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        setSlashSelectedIndex((prev) =>
-          filteredSlashItems.length > 0 ? (prev + 1) % filteredSlashItems.length : 0,
-        )
-        return
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        setSlashSelectedIndex((prev) =>
-          filteredSlashItems.length > 0
-            ? (prev - 1 + filteredSlashItems.length) % filteredSlashItems.length
-            : 0,
-        )
-        return
-      }
-      if (event.key === 'Enter' || event.key === 'Tab') {
-        if (filteredSlashItems.length > 0) {
-          event.preventDefault()
-          const selected = filteredSlashItems[slashSelectedIndex] || filteredSlashItems[0]
-          if (selected) {
-            handleSelectSlashItem(selected)
-            return
-          }
-        }
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setSlashDismissed(true)
-        return
-      }
-    }
-
-    if (event.key === 'Escape') {
-      if (plusOpen) {
-        event.preventDefault()
-        setPlusOpen(false)
-        return
-      }
-      if (replyTarget) {
-        event.preventDefault()
-        setReplyTarget(null)
-        return
-      }
-      if (input.length > 0) {
-        event.preventDefault()
-        setInput('')
-        return
-      }
-      if (showRoleTip) {
-        event.preventDefault()
-        dismissRoleTip()
-        return
-      }
-    }
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      if (input.trim().length > 0 || readyAttachmentIds(pendingAttachments).length > 0) {
-        const textToSend = replyTarget
-          ? buildOutboundReplyText(replyTarget, input)
-          : input
-        submitUserText(textToSend)
-        setInput('')
-        setReplyTarget(null)
-        return
-      }
-      // #198: enter on an empty composer with a queued send interrupts the
-      // running turn; the drain effect then sends the promoted top row.
-      const nextQueued = nextDrainableQueuedSend(queued.rows, queuedHoldIds)
-      if (nextQueued) {
-        interruptRunningTurn()
-      }
-    }
-  }
-
   const tokenCount = estimateTokensInContext(contextTextsForMeter(messages, summaries))
+
+  // #856 slice 17: composer input controls (handleMic, handleComposerKeyDown)
+  // moved verbatim to features/chat/useComposerControls.ts.
+  const { handleMic, handleComposerKeyDown } = useComposerControls({
+    sttListening,
+    speechSettings,
+    activeChatAgentId,
+    setInput,
+    addToast,
+    sttStopRef,
+    setSttListening,
+    setSttPathUsed,
+    isSlashOpen,
+    filteredSlashItems,
+    slashSelectedIndex,
+    setSlashSelectedIndex,
+    handleSelectSlashItem,
+    setSlashDismissed,
+    plusOpen,
+    setPlusOpen,
+    replyTarget,
+    setReplyTarget,
+    input,
+    showRoleTip,
+    dismissRoleTip,
+    pendingAttachments,
+    submitUserText,
+    queuedRows: queued.rows,
+    queuedHoldIds,
+    interruptRunningTurn,
+  })
+
   const selectedModelId = (
     (searchParams.get('model') ?? '').trim() ||
     (isCliAgent ? currentCliModel : (persistedDropdown.model || persistedDropdown.api || ''))
