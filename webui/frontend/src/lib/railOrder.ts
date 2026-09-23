@@ -95,6 +95,49 @@ export function moveRailId(order: string[], fromId: string, beforeId: string): s
 }
 
 /**
+ * #761: Move `fromId` so it sits immediately after `afterId` in the visible
+ * list — the bottom-half drop of the midpoint reorder contract.
+ */
+export function moveRailIdAfter(
+  order: string[],
+  fromId: string,
+  afterId: string,
+): string[] {
+  if (!fromId || !afterId || fromId === afterId) return order
+  const without = order.filter((id) => id !== fromId)
+  const index = without.indexOf(afterId)
+  if (index < 0) return order
+  without.splice(index + 1, 0, fromId)
+  return without
+}
+
+/**
+ * #761: which half of a target row is the pointer over? Top half (inclusive
+ * of the midpoint) drops ABOVE the target, bottom half drops BELOW. A
+ * zero-height rect (jsdom tests, detached or hidden rows) has no midpoint —
+ * it defaults to 'above', the historical insert-before behavior.
+ */
+export function dropHalfFromClientY(
+  clientY: number,
+  rect: Pick<DOMRect, 'top' | 'height'>,
+): 'above' | 'below' {
+  if (!(rect.height > 0)) return 'above'
+  const midpoint = rect.top + rect.height / 2
+  return clientY < midpoint ? 'above' : 'below'
+}
+
+/** Insert `newId` immediately after `afterId` in the rail order (or at start if afterId is absent/unfound). */
+export function insertRailIdAfter(order: string[], newId: string, afterId?: string): string[] {
+  if (!newId) return order
+  const without = order.filter((id) => id !== newId)
+  if (!afterId) return [newId, ...without]
+  const index = without.indexOf(afterId)
+  if (index < 0) return [newId, ...without]
+  without.splice(index + 1, 0, newId)
+  return without
+}
+
+/**
  * REQ-128: Bump an active agent to the top of the non-favourites list on generation finish.
  *
  * Stability and tie-breaking:

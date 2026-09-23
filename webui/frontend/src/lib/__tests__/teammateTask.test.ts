@@ -59,7 +59,7 @@ describe('teammateTask (REQ-84)', () => {
     expect(openInButtonLabel('omb')).toBe('Open in OpenMousBot')
     expect(openInButtonLabel('rakazo')).toBe('Open in Rakazo')
     expect(openInButtonLabel('herdr')).toBe('Open in Herdr')
-    expect(openInButtonLabel('open-swarm')).toBe('Open in Open Swarm')
+    expect(openInButtonLabel('open-swarm')).toBe('Open in Operating Swarm')
     expect(openInButtonLabel('omb')).not.toMatch(OMB_WORD)
   })
 

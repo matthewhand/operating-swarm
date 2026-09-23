@@ -8,35 +8,43 @@ COMPOSER = REPO / "webui" / "frontend" / "src" / "components" / "TeamComposer.ts
 TEAM_ROSTER = REPO / "webui" / "frontend" / "src" / "lib" / "teamRoster.ts"
 APP = REPO / "webui" / "frontend" / "src" / "App.tsx"
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 PKG = REPO / "webui" / "frontend" / "package.json"
 COS = REPO / "src" / "swarm" / "core" / "team_cos.py"
+TEAM_ROSTER_LIB = REPO / "webui" / "frontend" / "src" / "lib" / "teamRoster.ts"
 
 
 def test_designer_has_optional_cos_control_and_instructions():
     src = COMPOSER.read_text(encoding="utf-8")
+    starter = TEAM_ROSTER_LIB.read_text(encoding="utf-8")
     assert 'aria-label="Chief of Staff"' in src
-    assert "No Chief of Staff" in src
+    # #979 renamed the optional-lead surface to "First agent (roster #1)"
+    # with an empty-value sentinel — the literal "No Chief of Staff" option
+    # is retired.
+    assert "NO_COS_VALUE" in src
     assert "COS_EMPTY_ROSTER_HINT" in src
     assert "team-cos-instructions" in src
     assert "How to use this team" in src
     assert "COS_INSTRUCTIONS_HELPER" in src
-    assert "Do not auto-assign" in src
-    assert "type=\"radio\"" in src
-    assert "name=\"team-chief-of-staff\"" in src
+    # The starter brief is the honest instruction set (lib/teamRoster.ts);
+    # an earlier "Do not auto-assign" copy was folded into it.
+    assert "Do not duplicate work" in starter
     helpers = TEAM_ROSTER.read_text(encoding="utf-8")
     assert "same agent can sit on multiple teams" in helpers
 
 
 def test_chat_stays_mounted_under_team_composer():
     app = APP.read_text(encoding="utf-8")
-    chat = CHAT.read_text(encoding="utf-8")
+    rail = SIDEBAR.read_text(encoding="utf-8")
     assert "import TeamComposer" in app
     assert "<TeamComposer" in app
     assert "OPEN_TEAM_COMPOSER_EVENT" in app
-    assert "Compose team" in chat
-    assert "OPEN_TEAM_COMPOSER_EVENT" in chat
-    # Overlay, not a route that unmounts Chat.
-    assert 'path="/team' not in app
+    # #182/#907: the Compose-team dispatch lives in the rail footer button.
+    assert "OPEN_TEAM_COMPOSER_EVENT" in rail
+    assert "os-teams-button" in rail
+    # Overlay, never a route that unmounts Chat. (/teams/* is the deep-link
+    # redirect into chat, not a composer route.)
+    assert 'element={<TeamComposer' not in app
 
 
 def test_daisyui5_react18_lock():

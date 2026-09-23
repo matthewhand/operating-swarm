@@ -17,16 +17,42 @@ function readPyprojectVersion(): string {
 const spaVersion = readPyprojectVersion()
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
     define: {
         'import.meta.env.VITE_SPA_VERSION': JSON.stringify(spaVersion),
+        ...(mode === 'demo' ? { 'import.meta.env.VITE_DEMO_MODE': JSON.stringify('true') } : {}),
     },
     plugins: [
         react(),
         tailwindcss(),
+        {
+            name: 'demo-noindex',
+            transformIndexHtml(html) {
+                if (mode !== 'demo') return html
+                return html.replace(
+                    '<meta name="theme-color"',
+                    '<meta name="robots" content="noindex,nofollow" />\n    <meta name="theme-color"',
+                )
+            },
+        },
     ],
     server: {
         port: 3000,
+        // Vite default CORS reflects any Origin. Allowlist local SPA/Django
+        // only; extra LAN origins via VITE_DEV_CORS_ORIGINS (comma-separated).
+        // Do not reflect arbitrary Origins or send wildcard ACAO.
+        cors: {
+            origin: [
+                'http://localhost:3000',
+                'http://127.0.0.1:3000',
+                'http://localhost:8000',
+                'http://127.0.0.1:8000',
+                ...((process.env.VITE_DEV_CORS_ORIGINS || '')
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean)),
+            ],
+        },
         proxy: {
             // Proxy API routes used by the modern React webui (after porting/cleanup)
             // Enables direct fetch('/v1/...') and fetch('/teams/...') etc. in dev
@@ -130,9 +156,13 @@ export default defineConfig({
         environment: 'jsdom',
         setupFiles: ['./src/setupTests.ts'],
         globals: true,
+        // #592: integration tests mount full ChatPage/AgentSidebar trees; under
+        // full-suite CPU load a cold mount can pass the 5s default. Floor, not
+        // invitation — see TESTING.md.
+        testTimeout: 15000,
         // Unit/component tests live under src/; e2e/*.spec.ts is Playwright and
         // must not be collected by vitest (different runner).
         include: ['src/**/*.{test,spec}.{ts,tsx}'],
         exclude: ['**/node_modules/**', '**/dist/**'],
     }
-})
+}))

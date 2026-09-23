@@ -1,0 +1,58 @@
+name: SDK docs (#857)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/swarm/**'
+      - 'docs/sdk/**'
+      - 'scripts/gen_sdk_reference.py'
+      - 'mkdocs.yml'
+      - 'tests/unit/test_req857_sdk_docs.py'
+  pull_request:
+    paths:
+      - 'src/swarm/**'
+      - 'docs/sdk/**'
+      - 'scripts/gen_sdk_reference.py'
+      - 'mkdocs.yml'
+      - 'tests/unit/test_req857_sdk_docs.py'
+  workflow_dispatch:
+
+jobs:
+  sdk-docs:
+    # Job-level note (#250 / #238 pattern): Actions currently fails jobs
+    # before step 1 with no logs (billing/spend limit). Local verification:
+    #   API_AUTH_TOKEN="" pytest tests/unit/test_req857_sdk_docs.py
+    #   python scripts/gen_sdk_reference.py && git diff --exit-code docs/sdk/reference/
+    #   mkdocs build (see workflow steps)
+    # Re-enable when #250 is resolved. Do not delete this workflow.
+    if: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: SDK boundary + docstring tests
+        run: |
+          API_AUTH_TOKEN="" uv run pytest tests/unit/test_req857_sdk_docs.py -q
+
+      - name: Regenerate reference pages (idempotency check)
+        run: |
+          uv run python scripts/gen_sdk_reference.py
+          git diff --exit-code docs/sdk/reference/ || {
+            echo "::error::Reference pages out of date — run scripts/gen_sdk_reference.py and commit"
+            exit 1
+          }
+
+      - name: Build MkDocs reference (errors abort)
+        run: |
+          PYTHONPATH=src DJANGO_SETTINGS_MODULE=swarm.settings API_AUTH_TOKEN="" \
+            uv run --with mkdocs-material --with "mkdocstrings[python]" \
+            mkdocs build

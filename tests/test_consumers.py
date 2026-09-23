@@ -16,6 +16,8 @@ Covers:
 import asyncio
 import json
 import re
+import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -422,7 +424,9 @@ class TestReceive:
         with patch('swarm.consumers.render_to_string', return_value="<div>user message</div>"):
             with patch('swarm.consumers.AsyncOpenAI') as mock_openai:
                 mock_client = MagicMock()
-                mock_client.base_url = None  # Set base_url to None to avoid litellm check
+                # Hermetic: host .env sets LITELLM_BASE_URL, which turns on the
+                # _enforce_litellm_only guard; an empty base_url would trip it.
+                mock_client.base_url = "http://198.51.100.30:8000/v1"
                 mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
                 mock_client.close = AsyncMock()
                 mock_openai.return_value = mock_client
@@ -468,6 +472,100 @@ class TestReceive:
         await consumer.receive(text_data)
 
         assert len(consumer.messages) == 0
+
+    @pytest.mark.asyncio
+    async def test_receive_empty_message_with_attachments_runs(self, consumer):
+        """REQ-811: image-only paste still starts a turn."""
+        consumer.messages = []
+        aid = str(uuid.uuid4())
+        text_data = json.dumps({"message": "  ", "attachments": [aid]})
+
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "respond_with_default_model", new_callable=AsyncMock
+                ) as mock_default:
+                    await consumer.receive(text_data)
+
+        mock_default.assert_awaited_once()
+        assert consumer.messages[0]["role"] == "user"
+        assert consumer.messages[0]["attachments"] == [aid]
+        assert consumer.messages[0]["content"] == "Attached file"
+
+    @pytest.mark.asyncio
+    async def test_default_model_messages_include_image_url_parts(self, consumer):
+        """REQ-811: consumer expands image attachments to image_url parts."""
+        consumer.messages = []
+        aid = str(uuid.uuid4())
+
+        def fake_expand(_user, messages, **_kwargs):
+            out = []
+            for msg in messages:
+                row = dict(msg)
+                if row.get("role") == "user":
+                    row["content"] = [
+                        {"type": "text", "text": row.get("content") or ""},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abc"},
+                        },
+                    ]
+                    row.pop("attachments", None)
+                out.append(row)
+            return out
+
+        async def mock_stream():
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta.content = "a red square"
+            yield mock_chunk
+            mock_chunk2 = MagicMock()
+            mock_chunk2.choices = [MagicMock()]
+            mock_chunk2.choices[0].delta.content = None
+            yield mock_chunk2
+
+        with patch(
+            "swarm.consumers._expand_model_messages",
+            new_callable=AsyncMock,
+            side_effect=lambda _consumer, messages: fake_expand(None, messages),
+        ):
+            with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+                with patch("swarm.consumers.AsyncOpenAI") as mock_openai:
+                    mock_client = MagicMock()
+                    mock_client.base_url = "http://198.51.100.30:8000/v1"
+                    mock_client.chat.completions.create = AsyncMock(
+                        return_value=mock_stream()
+                    )
+                    mock_client.close = AsyncMock()
+                    mock_openai.return_value = mock_client
+                    import swarm.consumers as consumers_module
+
+                    original_os = consumers_module.os
+                    mock_os = MagicMock()
+                    mock_os.getenv = MagicMock(return_value="test-key")
+                    mock_os.environ = {
+                        "OPENAI_API_KEY": "test-key",
+                        "OPENAI_MODEL": "auxiliary",
+                    }
+                    consumers_module.os = mock_os
+                    try:
+                        with patch.object(consumer, "send", new_callable=AsyncMock):
+                            await consumer.receive(
+                                json.dumps(
+                                    {
+                                        "message": "what is this",
+                                        "attachments": [aid],
+                                    }
+                                )
+                            )
+                    finally:
+                        consumers_module.os = original_os
+
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        user_content = kwargs["messages"][0]["content"]
+        assert isinstance(user_content, list)
+        assert any(part.get("type") == "image_url" for part in user_content)
+        assert "Attached" not in json.dumps(user_content)
 
     @pytest.mark.asyncio
     async def test_receive_missing_message_key_is_ignored(self, consumer):
@@ -648,6 +746,79 @@ class TestReceive:
         assert consumer.messages == []
 
     @pytest.mark.asyncio
+    async def test_question_answer_is_not_blocked_by_in_flight_turn(self, consumer):
+        """ask_user answers must resolve while the turn lock is held."""
+        hold = asyncio.Event()
+        entered = asyncio.Event()
+
+        async def fake_respond(*_args, **_kwargs):
+            entered.set()
+            await hold.wait()
+
+        consumer.messages = []
+        consumer.default_blueprint = "chatbot"
+        future = asyncio.get_running_loop().create_future()
+        consumer._pending_question_answers = {"q-1": future}
+
+        with patch("swarm.consumers.render_to_string", return_value="<div/>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "respond_with_blueprint", side_effect=fake_respond
+                ):
+                    turn = asyncio.create_task(
+                        consumer.receive(
+                            json.dumps({"message": "hello", "blueprint": "chatbot"})
+                        )
+                    )
+                    await asyncio.wait_for(entered.wait(), timeout=2)
+                    await consumer.receive(
+                        json.dumps(
+                            {
+                                "type": "question_answer",
+                                "id": "q-1",
+                                "answer": "staging",
+                            }
+                        )
+                    )
+                    assert future.result() == "staging"
+                    hold.set()
+                    await turn
+
+    @pytest.mark.asyncio
+    async def test_receive_question_answer_resolves_pending_and_skips_chat(self, consumer):
+        future = asyncio.get_running_loop().create_future()
+        consumer.messages = []
+        consumer._pending_question_answers = {"q-1": future}
+        await consumer.receive(
+            json.dumps({"type": "question_answer", "id": "q-1", "answer": "canary"})
+        )
+        assert future.result() == "canary"
+        assert consumer.messages == []
+
+    @pytest.mark.asyncio
+    async def test_elicit_user_question_emits_event_and_resumes(self, consumer):
+        from swarm.core.ask_user import demo_profile_question
+
+        sent = []
+
+        async def fake_send(*, text_data=None, **_kwargs):
+            sent.append(text_data)
+
+        consumer.send = fake_send
+        consumer.active_agent = "chatbot"
+        consumer._pending_question_answers = {}
+        question = demo_profile_question()
+        task = asyncio.create_task(consumer.elicit_user_question(question))
+        await asyncio.sleep(0)
+        frames = [json.loads(raw) for raw in sent if raw and raw.strip().startswith("{")]
+        event = next(frame for frame in frames if frame.get("type") == "user_question")
+        assert event["ask"] == question["ask"]
+        assert event["choices"] == question["choices"]
+        assert event["other"] == question["other"]
+        await consumer.resolve_question_answer({"id": event["id"], "answer": "prod"})
+        assert await asyncio.wait_for(task, timeout=2) == "prod"
+
+    @pytest.mark.asyncio
     async def test_edit_frame_updates_transcript_used_by_next_turn(self, consumer):
         """REQ-49: saved edit is what the next send includes."""
         consumer.messages = [
@@ -685,23 +856,26 @@ class TestReceive:
         assert captured["messages"][-1]["content"] == "follow up"
 
     @pytest.mark.asyncio
-    async def test_edit_frame_ignored_for_cli_and_remote(self, consumer):
+    async def test_edit_frame_api_cli_persist_remote_ignored(self, consumer):
+        """REQ-49 + 8831baf9: CLI edits persist (the edit restarts the provider
+        session, surfaced by cli_session_reset); remote stays read-only."""
         consumer.messages = [{"role": "user", "content": "stay"}]
         consumer.conversation_id = "test-conv-123"
+
         consumer.default_blueprint = "cli:grok"
         consumer.active_agent = "cli:grok"
-
         with patch.object(consumer, "save_conversation", new_callable=AsyncMock) as mock_save:
-            await consumer.receive(json.dumps({"edit": {"index": 0, "content": "nope"}}))
-            mock_save.assert_not_called()
-        assert consumer.messages[0]["content"] == "stay"
+            await consumer.receive(json.dumps({"edit": {"index": 0, "content": "cli edit"}}))
+            mock_save.assert_called_once()
+        assert consumer.messages[0]["content"] == "cli edit"
+        assert consumer.messages[0]["edited"] is True
 
         consumer.default_blueprint = "remote:acp"
         consumer.active_agent = "remote:acp"
         with patch.object(consumer, "save_conversation", new_callable=AsyncMock) as mock_save:
             await consumer.receive(json.dumps({"edit": {"index": 0, "content": "nope"}}))
             mock_save.assert_not_called()
-        assert consumer.messages[0]["content"] == "stay"
+        assert consumer.messages[0]["content"] == "cli edit"
 
 
 # =============================================================================
@@ -1238,6 +1412,85 @@ class TestBlueprintSelection:
         )
 
     @pytest.mark.asyncio
+    async def test_receive_skips_new_session_notice_when_hop_already_recorded(
+        self, consumer, tmp_path, monkeypatch
+    ):
+        """REQ-866: hop notice already in the transcript suppresses the short line."""
+        monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+        hop = (
+            "Started a new grok session (qwen → grok). "
+            "No prior context to carry from qwen."
+        )
+        consumer.messages = []
+        consumer.ui_events = [{"role": "status", "content": hop, "seq": 0}]
+        consumer.conversation_id = "conv-cli-hop"
+
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock):
+                with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                    await consumer.receive(
+                        json.dumps(
+                            {
+                                "message": "hello",
+                                "blueprint": "cli_agent",
+                                "params": {"cli": "grok"},
+                            }
+                        )
+                    )
+                    frames = [
+                        call.kwargs.get("text_data") or call.args[0]
+                        for call in mock_send.await_args_list
+                    ]
+
+        assert all("Started a new grok session." not in str(frame) for frame in frames)
+        assert all(
+            m.get("content") != "Started a new grok session."
+            for m in getattr(consumer, "ui_events", [])
+        )
+
+    @pytest.mark.asyncio
+    async def test_receive_skips_new_session_notice_when_hop_persisted(
+        self, consumer, tmp_path, monkeypatch
+    ):
+        """REQ-866: REST hop on disk suppresses the prompt-time line on a stale socket."""
+        monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+        hop = (
+            "Started a new grok session (qwen → grok). "
+            "No prior context to carry from qwen."
+        )
+        consumer.messages = []
+        consumer.ui_events = []
+        consumer.conversation_id = "conv-cli-hop-disk"
+        persisted = {
+            "messages": [],
+            "ui_events": [{"role": "status", "content": hop}],
+        }
+
+        with patch("swarm.consumers._load_agent_record", return_value=persisted):
+            with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+                with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock):
+                    with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                        await consumer.receive(
+                            json.dumps(
+                                {
+                                    "message": "hello",
+                                    "blueprint": "cli_agent",
+                                    "params": {"cli": "grok"},
+                                }
+                            )
+                        )
+                        frames = [
+                            call.kwargs.get("text_data") or call.args[0]
+                            for call in mock_send.await_args_list
+                        ]
+
+        assert all("Started a new grok session." not in str(frame) for frame in frames)
+        assert all(
+            m.get("content") != "Started a new grok session."
+            for m in getattr(consumer, "ui_events", [])
+        )
+
+    @pytest.mark.asyncio
     async def test_blueprint_run_uses_compacted_context(self, consumer, monkeypatch):
         """REQ-37: blueprint.run sees the summary tree, not covered raw turns."""
         monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
@@ -1255,7 +1508,7 @@ class TestBlueprintSelection:
         instance = MagicMock()
         instance.run = fake_run
 
-        async def fake_context(conversation_id, messages):
+        async def fake_context(consumer, conversation_id, messages):
             assert conversation_id == "ws-compact-conv"
             assert messages[0]["content"] == "secret raw turn"
             return [{"role": "system", "content": "[Conversation summary]\ndigest only"}]
@@ -1484,7 +1737,7 @@ class TestFetchConversation:
 
         attacker_consumer = DjangoChatConsumer()
         attacker_consumer.user = attacker
-        fetch_sync = DjangoChatConsumer.__dict__["fetch_conversation"].func
+        fetch_sync = next(c for c in DjangoChatConsumer.__mro__ if "fetch_conversation" in c.__dict__).__dict__["fetch_conversation"].func
 
         with patch(
             "swarm.core.thread_load.ChatConversation.objects.get",
@@ -1517,7 +1770,7 @@ class TestFetchConversation:
         consumer.user = test_user
         consumer.default_blueprint = None
         consumer.active_agent = None
-        fetch_sync = DjangoChatConsumer.__dict__["fetch_conversation"].func
+        fetch_sync = next(c for c in DjangoChatConsumer.__mro__ if "fetch_conversation" in c.__dict__).__dict__["fetch_conversation"].func
         result = fetch_sync(consumer, "db-conv-123")
 
         assert len(result) == 1
@@ -1609,7 +1862,7 @@ class TestSaveConversation:
         ]
 
         # Call the unwrapped sync function behind database_sync_to_async.
-        save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+        save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
         with CaptureQueriesContext(connection) as ctx:
             save_sync(consumer, "bulk-conv-123", new_messages)
 
@@ -1639,7 +1892,7 @@ class TestSaveConversation:
             {"role": "user", "content": "How are you?"},
         ]
 
-        save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+        save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
         save_sync(consumer, conv_id, messages)
         assert (
             ChatMessage.objects.filter(
@@ -1690,7 +1943,7 @@ class TestSaveConversation:
 
         attacker_consumer = DjangoChatConsumer()
         attacker_consumer.user = attacker
-        save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+        save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
         save_sync(
             attacker_consumer,
             conv_id,
@@ -1755,7 +2008,7 @@ class TestDeleteConversation:
 
         consumer = DjangoChatConsumer()
         consumer.user = test_user
-        delete_sync = DjangoChatConsumer.__dict__["delete_conversation"].func
+        delete_sync = next(c for c in DjangoChatConsumer.__mro__ if "delete_conversation" in c.__dict__).__dict__["delete_conversation"].func
         delete_sync(consumer, "cache-delete")
 
         assert cache_key not in IN_MEMORY_CONVERSATIONS
@@ -2050,3 +2303,123 @@ class TestRespondWithDefaultModelLiteLLM:
             with patch.object(consumer, "send", new_callable=AsyncMock):
                 with pytest.raises(RuntimeError, match="Attempted fallback to OpenAI API"):
                     await consumer.respond_with_default_model("message-response-bad")
+
+
+# =============================================================================
+# #198 — enter-to-interrupt (cancel_turn / turn_cancelled)
+# =============================================================================
+
+
+class TestCancelTurn:
+    """#198: cooperative turn cancel for queued-send promotion."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_turn_sets_event_and_acks(self, consumer):
+        with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+            await consumer.receive(json.dumps({"type": "cancel_turn"}))
+        assert consumer._turn_cancel_event.is_set()
+        ack = mock_send.call_args.kwargs["text_data"]
+        assert json.loads(ack) == {"type": "turn_cancelled"}
+
+    @pytest.mark.asyncio
+    async def test_cancel_frame_during_stream_interrupts_blueprint_turn(
+        self, consumer, monkeypatch
+    ):
+        """A cancel requested mid-run stops the stream; partial text is not
+        recorded and the placeholder closes with an Interrupted note."""
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        consumer.messages = []
+        consumer.conversation_id = "test-conv-123"
+        consumer.default_blueprint = "jeeves"
+
+        chunks_seen = 0
+
+        async def fake_run(messages, **kwargs):
+            nonlocal chunks_seen
+            for i in range(50):
+                if consumer._turn_cancel_event.is_set():
+                    return
+                chunks_seen += 1
+                yield {
+                    "messages": [
+                        {"role": "assistant", "content": f"part {i}"},
+                        "delta",
+                    ]
+                }
+                await asyncio.sleep(0.01)
+
+        instance = MagicMock()
+        instance.run = fake_run
+        instance._params = {}
+        sent = []
+
+        async def capture_send(*, text_data=None, **_kwargs):
+            sent.append(text_data or "")
+
+        def fake_render(template, context):
+            name = str(template)
+            cid = context.get("contents_div_id", "")
+            if "final_system" in name:
+                return f'<div id="{cid}" class="assistant-final"></div>'
+            return f'<div id="{cid}" class="assistant-start"></div>'
+
+        with patch("swarm.consumers.render_to_string", side_effect=fake_render):
+            with patch.object(consumer, "send", new_callable=AsyncMock, side_effect=capture_send):
+                with patch(
+                    "swarm.views.utils.get_blueprint_instance",
+                    new_callable=AsyncMock,
+                    return_value=instance,
+                ):
+                    turn = asyncio.create_task(
+                        consumer.receive(
+                            json.dumps({"message": "hello", "blueprint": "jeeves"})
+                        )
+                    )
+                    await asyncio.sleep(0.05)
+                    await consumer.receive(json.dumps({"type": "cancel_turn"}))
+                    await asyncio.wait_for(turn, timeout=5)
+
+        assert chunks_seen < 50  # stream stopped early, not exhausted
+        joined = "\n".join(sent)
+        # #198: the turn closes with a final partial (so the SPA clears its
+        # streaming state) and the partial reply is never persisted.
+        assert 'class="assistant-final"' in joined
+        assert "part 49" not in joined
+        # The user turn is recorded; no assistant turn is appended after cancel.
+        assert [m["role"] for m in consumer.messages if m["role"] == "user"] == ["user"]
+        assert [m["content"] for m in consumer.messages if m["role"] == "user"] == [
+            "hello"
+        ]
+        assert not any(
+            m["role"] == "assistant" and "part" in str(m.get("content", ""))
+            for m in consumer.messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_cancelled_default_model_stream_persists_nothing(self, consumer):
+        """#198: default-model path also honours the cancel flag and skips
+        _persist_completed_turn after an interrupt."""
+        consumer.messages = []
+        consumer.conversation_id = "test-conv-123"
+        consumer.default_blueprint = None
+        consumer._cancel_event().set()  # cancel already requested
+
+        deltas = [SimpleNamespace(delta=SimpleNamespace(content="partial hello "))]
+        stream = MagicMock()
+        stream.__aiter__ = MagicMock(return_value=iter(deltas))
+
+        client = MagicMock()
+        client.close = AsyncMock()
+        client.chat.completions.create = MagicMock(return_value=stream)
+
+        persisted = []
+        with patch("swarm.consumers.AsyncOpenAI", return_value=client):
+            with patch.object(consumer, "send", new_callable=AsyncMock):
+                with patch.object(
+                    consumer, "_persist_completed_turn", new_callable=AsyncMock
+                ) as mock_persist:
+                    mock_persist.side_effect = lambda: persisted.append(True)
+                    await consumer.respond_with_default_model("message-response-x")
+
+        mock_persist.assert_not_awaited()
+        assert persisted == []

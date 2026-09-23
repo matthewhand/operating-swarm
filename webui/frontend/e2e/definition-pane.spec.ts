@@ -21,21 +21,26 @@ const BLUEPRINTS = {
 }
 
 async function stubApis(page: import('@playwright/test').Page) {
-  await page.route('**/v1/definitions/**/summarize*', async (route) => {
-    const post = route.request().postDataJSON() as { source?: string; extra?: string }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        kind: 'role',
-        id: 'support',
-        configured: true,
-        model: 'stub-llm',
-        summary: `LLM summary includes ${post?.extra || REQ42_INJECTED_FIXTURE} source=${post?.source || ''}`,
-      }),
-    })
-  })
+  // One handler for both definition endpoints: separate routes for
+  // `.../summarize` and the catch-all let the catch-all win and answer the
+  // summarize POST with the definition context, which silently blanked the
+  // summary (no `configured` key → the pane renders its placeholder).
   await page.route('**/v1/definitions/**', async (route) => {
+    if (route.request().url().includes('/summarize')) {
+      const post = route.request().postDataJSON() as { source?: string; extra?: string }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          kind: 'role',
+          id: 'support',
+          configured: true,
+          model: 'stub-llm',
+          summary: `LLM summary includes ${post?.extra || REQ42_INJECTED_FIXTURE} source=${post?.source || ''}`,
+        }),
+      })
+      return
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -117,9 +122,12 @@ test('role badge opens the explained definition pane with stub LLM summary', asy
   })
   await page.goto('/')
 
-  const rail = page.getByRole('navigation', { name: 'Agent list' })
-  await expect(rail.getByRole('link', { name: /Support/ })).toBeVisible()
-  await rail.getByRole('button', { name: 'Open support settings' }).click()
+  // Support is the seeded favourite tile, so both the row and its settings
+  // button live in the pin grid rather than the conversation list.
+  const pins = page.getByLabel('Pinned agents')
+  const support = pins.getByRole('link', { name: /Support/ })
+  await expect(support).toBeVisible()
+  await support.getByRole('button', { name: 'Open support settings' }).click()
 
   const sheet = page.getByRole('dialog', { name: 'Settings' })
   await expect(sheet).toBeVisible()

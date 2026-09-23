@@ -208,20 +208,16 @@ def hop_notice_text(
     empty: bool = False,
     export_warning: str | None = None,
 ) -> str:
-    """Status line distinct from the #362 dropdown-change chrome."""
-    if empty and export_warning:
-        return (
-            f"{session_notice_text(to_cli, resumed=False)} {export_warning} "
-            "Nothing to carry."
-        )
-    if empty:
-        return (
-            f"{session_notice_text(to_cli, resumed=False)} "
-            f"No prior context to carry from {from_cli}."
-        )
-    line = (
-        f"Carried {mode} context from {from_cli} → {to_cli} ({tokens} tokens)."
+    """Single CLI-toggle status line (REQ-866). Includes ``(from → to)``."""
+    head = (
+        f"{session_notice_text(to_cli, resumed=False).rstrip('.')} "
+        f"({from_cli} → {to_cli})."
     )
+    if empty and export_warning:
+        return f"{head} {export_warning} Nothing to carry."
+    if empty:
+        return f"{head} No prior context to carry from {from_cli}."
+    line = f"{head} Carried {mode} context ({tokens} tokens)."
     if export_warning:
         return f"{line} {export_warning}"
     return line
@@ -229,7 +225,9 @@ def hop_notice_text(
 
 def is_context_carried_notice(text: str | None) -> bool:
     blob = (text or "").strip()
-    return blob.startswith("Carried ") and " context from " in blob and " → " in blob
+    if " → " not in blob or "Carried " not in blob:
+        return False
+    return " context (" in blob or " context from " in blob
 
 
 def hop_capability_row(name: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -427,20 +425,37 @@ def hop_backend(
     import_session_id: str | None = None,
     imported_messages: list[dict[str, Any]] | None = None,
     kind: str = "cli",
+    to_kind: str | None = None,
+    to_label: str | None = None,
+    from_label: str | None = None,
+    from_agent: str | None = None,
     config: dict[str, Any] | None = None,
     run_export: RunExport | None = None,
     announced: bool = True,
     base_dir=None,
+    user: Any = None,
 ) -> dict[str, Any]:
     """Switch backends on the same swarm conversation: new session + seed.
 
     Never mints a new Django conversation (that is Select session / design A).
     Never resumes ``to_cli``'s prior native id — including a hop back.
+    When ``user`` is provided the final thread is mirrored into Django
+    ChatMessage rows (#901) so switch-away context handoff reads the local
+    DB snapshot instantly — no export_argv subprocess, no remote calls.
+    #900: ``to_kind`` generalizes the destination beyond CLIs — ``api`` and
+    ``remote`` destinations consume the pending seed through
+    :func:`apply_cross_kind_hop_messages` at their turn-assembly sites.
+    ``from_agent`` reads the source thread from another seat's record
+    (cross-kind hops store the pending seed under the *destination* seat,
+    but the context lives with the *source*). ``to_label`` is the human
+    backend name used in the status banner while ``to_cli`` stays the
+    destination record id the consumer matches against.
     """
     agent = chat_store.normalize_agent_id(agent_id)
     source = chat_store.normalize_agent_id(from_cli)
     target = chat_store.normalize_agent_id(to_cli)
-    hop_kind = "api" if str(kind or "").strip().lower() == "api" else "cli"
+    kind_raw = str(to_kind if to_kind is not None else kind or "").strip().lower()
+    hop_kind = kind_raw if kind_raw in ("cli", "api", "remote") else "cli"
     if not source or not target:
         raise ValueError("from_cli and to_cli are required")
     if source == target and not import_session_id and not imported_messages:
@@ -450,12 +465,23 @@ def hop_backend(
         user_key, agent, conversation_id=conversation_id, base_dir=base_dir
     )
     cid = conversation_id or str(record.get("conversation_id") or "")
+    # #900: cross-kind hops read the source thread from the seat that owns
+    # the context (the destination seat's own record is usually empty).
+    if from_agent:
+        source_agent = chat_store.normalize_agent_id(from_agent)
+        if source_agent and source_agent != agent:
+            record = _load_thread(
+                user_key, source_agent, conversation_id=conversation_id, base_dir=base_dir
+            )
     export_warning = None
+    import_source = "swarm"
     imported: list[dict[str, Any]] | None = None
     if imported_messages:
         imported = parse_exported_messages(json.dumps(imported_messages))
         if not imported:
             imported = [row for row in imported_messages if isinstance(row, dict)]
+        if imported:
+            import_source = "transcript"
     elif import_session_id:
         imported, export_warning = export_provider_transcript(
             source,
@@ -463,6 +489,21 @@ def hop_backend(
             config=config,
             run_export=run_export,
         )
+        if imported:
+            import_source = "transcript"
+    elif not (record.get("messages") or []) and user is not None:
+        # #901: no native export requested and the JSON thread is empty —
+        # fall back to the Django mirror (kept fresh by turn completion and
+        # switch-away flushes). Instant, local, zero subprocess/remote calls.
+        try:
+            from swarm.core.thread_load import messages_from_db
+
+            db_rows = messages_from_db(user, cid)
+            if db_rows:
+                imported = turns_for_injection(db_rows)
+                import_source = "db_mirror"
+        except Exception:
+            logger.debug("hop DB-mirror fallback failed for %s", cid, exc_info=True)
 
     source_messages = imported if imported else list(record.get("messages") or [])
     payload = build_injection_payload(
@@ -473,8 +514,8 @@ def hop_backend(
         token_budget=token_budget,
     )
     notice = hop_notice_text(
-        source,
-        target,
+        (from_label or "").strip() or source,
+        (to_label or "").strip() or target,
         mode=payload["mode"],
         tokens=int(payload["tokens"]),
         empty=bool(payload["empty"]),
@@ -513,6 +554,13 @@ def hop_backend(
         active_cli=target,
         base_dir=base_dir,
     )
+    if user is not None:
+        try:
+            from swarm.core.agent_sessions import mirror_thread_to_db
+
+            mirror_thread_to_db(user, cid, turns, agent_id=agent)
+        except Exception:
+            logger.debug("hop DB mirror failed for %s", cid, exc_info=True)
     clear_cli_session(
         user_key,
         agent,
@@ -544,7 +592,7 @@ def hop_backend(
         "empty": payload["empty"],
         "status": notice,
         "export_warning": export_warning,
-        "import": "transcript" if imported else "swarm",
+        "import": import_source if imported else "swarm",
         "capability": hop_capability_row(source, config),
         "target_capability": hop_capability_row(target, config),
         "injection": {
@@ -744,6 +792,7 @@ def hop_defaults() -> dict[str, Any]:
     return {
         "object": "cli_session_hop_capabilities",
         "modes": sorted(HOP_MODES),
+        "kinds": ["cli", "api", "remote"],
         "default_mode": DEFAULT_HOP_MODE,
         "default_token_budget": DEFAULT_TOKEN_BUDGET,
         "full_token_budget": FULL_TOKEN_BUDGET,
@@ -753,3 +802,50 @@ def hop_defaults() -> dict[str, Any]:
         "always_new_session": True,
         "clis": hop_capability_matrix(),
     }
+
+
+def apply_cross_kind_hop_messages(
+    user_key: str,
+    agent_id: str,
+    messages: list[dict[str, Any]] | None,
+    *,
+    to_kind: str,
+    to_id: str = "",
+    conversation_id: str = "",
+    base_dir=None,
+) -> list[dict[str, Any]]:
+    """Consume a pending hop for a cross-kind destination (#900).
+
+    API and remote turn-assembly sites call this instead of the CLI-specific
+    prompt injection: the carried seed rides in as a ``system`` turn ahead of
+    the model payload. ``to_id`` defaults to ``agent_id`` (remote harness
+    seats store the hop under the seat id, not the framework name).
+    """
+    kind = str(to_kind or "").strip().lower()
+    if kind not in ("api", "remote"):
+        return list(messages or [])
+    agent = chat_store.normalize_agent_id(agent_id)
+    consume_id = chat_store.normalize_agent_id(to_id or agent)
+    hop = consume_pending_hop(
+        user_key,
+        agent,
+        consume_id,
+        conversation_id=conversation_id,
+        base_dir=base_dir,
+    )
+    if hop is None:
+        return list(messages or [])
+    seed = str(hop.get("text") or "").strip()
+    if not seed:
+        return list(messages or [])
+    out = list(messages or [])
+    if kind == "remote":
+        # Server-managed remotes receive only the latest user turn — merge the
+        # seed into it (remote analogue of ``apply_injection_to_prompt``).
+        for i in range(len(out) - 1, -1, -1):
+            row = out[i]
+            if isinstance(row, dict) and row.get("role") == "user":
+                out[i] = {**row, "content": f"{seed}\n\n{row.get('content', '')}"}
+                return out
+    out.insert(0, {"role": "system", "content": seed})
+    return out

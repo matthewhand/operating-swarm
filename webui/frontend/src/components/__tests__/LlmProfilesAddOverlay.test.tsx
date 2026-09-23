@@ -166,4 +166,169 @@ describe('LLM profiles add overlay', () => {
       await screen.findByRole('list', { name: 'Configured LLM profiles' }),
     ).toHaveTextContent('local-groq')
   })
+
+  it('shows testing → ok with latency and hydrates the model combobox', async () => {
+    let release: ((value: Response) => void) | undefined
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = (init?.method || 'GET').toUpperCase()
+      if (url.includes('/v1/llm-profiles/test') && method === 'POST') {
+        return pending
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => catalogPayload(['gpt-4o-mini']),
+      } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderSheet()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add LLM profile' }))
+    const testBtn = screen.getByRole('button', { name: 'Test connection' })
+    expect(testBtn).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Base URL'), {
+      target: { value: 'http://198.51.100.30:4000/v1' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+
+    const status = await screen.findByTestId('llm-profile-probe-status')
+    expect(status).toHaveAttribute('data-state', 'testing')
+    expect(status).toHaveTextContent('Testing')
+
+    release?.({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        object: 'llm_profile_probe',
+        ok: true,
+        latency_ms: 42,
+        error_class: null,
+        state: 'ok',
+        models: ['orchestration', 'auxiliary'],
+      }),
+    } as Response)
+
+    await waitFor(() => {
+      expect(status).toHaveAttribute('data-state', 'ok')
+    })
+    expect(status).toHaveTextContent('42ms')
+    expect(status).toHaveClass('text-success')
+
+    const options = screen.getByTestId('llm-profile-model-options')
+    expect(options.querySelector('option[value="orchestration"]')).not.toBeNull()
+    expect(options.querySelector('option[value="auxiliary"]')).not.toBeNull()
+    const modelInput = screen.getByLabelText('Model')
+    expect(modelInput).toHaveAttribute('list', options.id)
+  })
+
+  it('shows classified error hints on auth / timeout failures', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = (init?.method || 'GET').toUpperCase()
+      if (url.includes('/v1/llm-profiles/test') && method === 'POST') {
+        const body = JSON.parse(String(init?.body || '{}')) as { model?: string }
+        if (body.model === 'dead') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ok: false,
+              latency_ms: 8,
+              error_class: 'timeout',
+              hint: 'is the host up?',
+              state: 'error',
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: false,
+            latency_ms: 5,
+            error_class: 'auth',
+            hint: 'check key',
+            state: 'error',
+          }),
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => catalogPayload(['gpt-4o-mini']),
+      } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderSheet()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add LLM profile' }))
+    fireEvent.change(screen.getByLabelText('Base URL'), {
+      target: { value: 'https://api.openai.com/v1' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+
+    const status = await screen.findByTestId('llm-profile-probe-status')
+    await waitFor(() => {
+      expect(status).toHaveAttribute('data-state', 'error')
+    })
+    expect(status).toHaveTextContent('check key')
+    expect(status).toHaveClass('text-error')
+
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'dead' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+    await waitFor(() => {
+      expect(status).toHaveTextContent('is the host up?')
+    })
+  })
+
+  it('warns when the provider is reachable but the model is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.includes('/v1/llm-profiles/test') && (init?.method || 'GET').toUpperCase() === 'POST') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ok: true,
+              latency_ms: 11,
+              error_class: 'model_missing',
+              hint: 'reachable, but that model is not on the provider',
+              state: 'warn',
+              models: ['orchestration'],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => catalogPayload(['gpt-4o-mini']),
+        } as Response
+      }),
+    )
+
+    renderSheet()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add LLM profile' }))
+    fireEvent.change(screen.getByLabelText('Base URL'), {
+      target: { value: 'http://198.51.100.30:4000/v1' },
+    })
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'nope' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+
+    const status = await screen.findByTestId('llm-profile-probe-status')
+    await waitFor(() => {
+      expect(status).toHaveAttribute('data-state', 'warn')
+    })
+    expect(status).toHaveTextContent(/not on the provider/)
+    expect(status).toHaveClass('text-warning')
+    expect(
+      screen.getByTestId('llm-profile-model-options').querySelector('option[value="orchestration"]'),
+    ).not.toBeNull()
+  })
 })

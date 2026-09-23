@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import SettingsSheet from '../SettingsSheet'
+import SettingsSheet, { settingsDetailFromQuery } from '../SettingsSheet'
 import { ToastProvider } from '../DaisyUI'
 import {
   BUMP_COMPLETED_KEY,
+  BUMP_SCOPE_KEY,
   HOSTNAME_OVERRIDE_KEY,
   RETENTION_MODE_KEY,
 } from '../../lib/settingsPrefs'
@@ -44,11 +45,24 @@ function renderSheet({
   return { ...view, onClose, client }
 }
 
+describe('settingsDetailFromQuery (#254)', () => {
+  it('maps the Django dump banner and named sections onto the SPA sheet', () => {
+    expect(settingsDetailFromQuery(null)).toBeNull()
+    expect(settingsDetailFromQuery('')).toBeNull()
+    expect(settingsDetailFromQuery('true')).toEqual({})
+    expect(settingsDetailFromQuery('1')).toEqual({})
+    expect(settingsDetailFromQuery('cli-agents')).toEqual({ section: 'cli-agents' })
+    expect(settingsDetailFromQuery('llm-profiles')).toEqual({ section: 'llm-profiles' })
+    expect(settingsDetailFromQuery('not-a-section')).toEqual({})
+  })
+})
+
 describe('SettingsSheet', () => {
   afterEach(() => {
     localStorage.removeItem(HOSTNAME_OVERRIDE_KEY)
     localStorage.removeItem(RETENTION_MODE_KEY)
     localStorage.removeItem(BUMP_COMPLETED_KEY)
+    localStorage.removeItem(BUMP_SCOPE_KEY)
     localStorage.removeItem('swarm_theme')
     localStorage.removeItem('swarm_theme_navbar')
     localStorage.removeItem('swarm_mcp_servers')
@@ -62,6 +76,7 @@ describe('SettingsSheet', () => {
     expect(dialog).toHaveClass('modal-end')
     expect(dialog).not.toHaveClass('drawer')
     expect(dialog.className).not.toMatch(/btn-group/)
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
 
     const remotesToggle = screen.getByRole('button', { name: 'Remotes' })
     expect(remotesToggle).not.toHaveClass('menu-dropdown-toggle')
@@ -82,6 +97,8 @@ describe('SettingsSheet', () => {
     expect(screen.getByRole('button', { name: 'Speech' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Plugins' })).toBeInTheDocument()
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
+    expect(screen.queryByText('Open Swarm')).not.toBeInTheDocument()
   })
 
   it('defaults the rail bump toggle on and persists off', () => {
@@ -92,6 +109,23 @@ describe('SettingsSheet', () => {
     fireEvent.click(toggle)
     expect(toggle).not.toBeChecked()
     expect(localStorage.getItem(BUMP_COMPLETED_KEY)).toBe('0')
+  })
+
+  it('#552: the bump scope is a sub-toggle, default Only Unassigned, hidden when the bump is off', () => {
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Rail' }))
+
+    expect(screen.getByTestId('bump-completed-scope')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Only Unassigned' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'All sections' })).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'All sections' }))
+    expect(screen.getByRole('radio', { name: 'All sections' })).toBeChecked()
+    expect(localStorage.getItem(BUMP_SCOPE_KEY)).toBe('all')
+
+    // Subordinate to the master toggle — not a second switch.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Bump completed agents to top' }))
+    expect(screen.queryByTestId('bump-completed-scope')).not.toBeInTheDocument()
   })
 
   it('adds a local MCP server from Plugins without storing secrets', async () => {
@@ -164,16 +198,16 @@ describe('SettingsSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
     expect(await screen.findByRole('button', { name: /Add remote/i })).toBeInTheDocument()
     expect(screen.getByText(/No remotes configured/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Hermes' })).not.toBeInTheDocument()
+    // #573: kinds are not enumerated on the page — they live behind Add remote.
+    expect(screen.queryByTestId('remotes-kind-popup')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('remotes-add-button'))
+    expect(await screen.findByTestId('remotes-kind-popup')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'OMB' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Rakazo' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Swarm' })).not.toBeInTheDocument()
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Add remote/i }))
-    fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), {
-      target: { value: 'swarm' },
-    })
+    // #573: swarm is chosen in the popup (already open from above); the form
+    // then shows its nested-swarm copy.
+    fireEvent.click(screen.getByTestId('remote-kind-swarm'))
     expect(screen.getByText(/do not add this instance as its own remote/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Retention' }))
@@ -312,7 +346,10 @@ describe('SettingsSheet', () => {
       vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
         const url = String(input)
         const method = (init?.method || 'GET').toUpperCase()
-        if (url.includes('/v1/remotes/') && method === 'POST') {
+        // Only the create call is the subject here. #453 added a target list on
+        // pane mount, which POSTs to /v1/remotes/<id>/operate/ once a remote is
+        // added — treating that as a create would push a duplicate entry.
+        if (url.includes('/v1/remotes/') && !url.includes('/operate/') && method === 'POST') {
           const body = JSON.parse(String(init?.body || '{}')) as { kind?: string }
           const created = {
             id: body.kind || 'omb',
@@ -344,15 +381,15 @@ describe('SettingsSheet', () => {
     )
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
-    fireEvent.click(await screen.findByRole('button', { name: /Add remote/i }))
-    const kindSelect = await screen.findByRole('combobox', { name: 'Kind' })
-    expect(within(kindSelect).getByRole('option', { name: 'OpenMousBot' })).toBeInTheDocument()
-    fireEvent.change(kindSelect, { target: { value: 'omb' } })
-    expect(kindSelect).toHaveValue('omb')
+    // #573: Add remote opens the kind picker; pick OpenMousBot there.
+    fireEvent.click(await screen.findByTestId('remotes-add-button'))
+    const kindPopup = screen.getByTestId('remotes-kind-popup')
+    expect(kindPopup).toBeInTheDocument()
+    fireEvent.click(within(kindPopup).getByTestId('remote-kind-omb'))
     fireEvent.change(screen.getByRole('textbox', { name: 'URL' }), {
       target: { value: 'http://127.0.0.1:8802' },
     })
-    fireEvent.submit(kindSelect.closest('form') as HTMLFormElement)
+    fireEvent.submit(screen.getByLabelText('Add remote form'))
 
     const rows = await screen.findByRole('list', { name: 'Configured remotes' })
     expect(within(rows).getByText('OpenMousBot')).toBeInTheDocument()
@@ -447,6 +484,220 @@ describe('SettingsSheet', () => {
     expect(screen.queryByText(/\bOMB\b/)).not.toBeInTheDocument()
   })
 
+  // #572: every settings section must contribute searchable text, so a new
+  // section cannot arrive unsearchable.
+  it('every settings section declares searchable content (#572)', async () => {
+    const { SETTINGS_SECTIONS, SETTINGS_SEARCH_CONTENT } = await import('../SettingsSheet')
+    for (const section of SETTINGS_SECTIONS) {
+      const texts = SETTINGS_SEARCH_CONTENT[section]
+      expect(texts, `section ${section} has a content index`).toBeTruthy()
+      expect(
+        texts.length,
+        `section ${section} contributes searchable text`,
+      ).toBeGreaterThan(0)
+      for (const text of texts) {
+        expect(text.trim(), `section ${section} entry is not blank`).not.toBe('')
+      }
+    }
+  })
+
+  // #572 acceptance: an exact control label visible only inside a settings
+  // page finds its section — previously it returned nothing.
+  it('search finds a control by its own visible name inside a page (#572)', async () => {
+    const { SETTINGS_SEARCH_CONTENT } = await import('../SettingsSheet')
+    // 'Override per task' renders only inside the LLM profiles pane.
+    expect(SETTINGS_SEARCH_CONTENT['llm-profiles']).toContain('Override per task')
+    // And the nav predicate agrees — render and search.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ object: 'list', data: [] }),
+    } as Response))
+    renderSheet()
+    const search = screen.getByLabelText('Search settings')
+    fireEvent.change(search, { target: { value: 'Override per task' } })
+    expect(screen.getByRole('button', { name: 'Show LLM profiles' })).toBeInTheDocument()
+    // An unrelated section is filtered out by the same query.
+    expect(screen.queryByRole('button', { name: 'Retention' })).not.toBeInTheDocument()
+  })
+
+  // #566: the Settings audit pane renders what the send path recorded —
+  // newest first, with the provenance reason, and a clear action.
+  it('backend audit pane lists recorded sends with their reasons (#566)', async () => {
+    const { recordBackendUse, BACKEND_AUDIT_STORAGE_KEY } = await import('../../lib/backendAudit')
+    window.localStorage.removeItem(BACKEND_AUDIT_STORAGE_KEY)
+    recordBackendUse({
+      agentId: 'codey',
+      agentName: 'Codey',
+      kind: 'cli',
+      backend: 'pi',
+      cliSource: 'declared',
+    })
+    recordBackendUse({
+      agentId: 'herdr',
+      agentName: 'Herdr',
+      kind: 'remote',
+      backend: '(none)',
+      cliSource: null,
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ object: 'list', data: [] }),
+    } as Response))
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Backend audit' }))
+
+    const rows = await screen.findAllByTestId('backend-audit-row')
+    expect(rows).toHaveLength(2)
+    // Newest first: Herdr was recorded after Codey.
+    expect(rows[0]).toHaveTextContent('Herdr')
+    expect(rows[0]).toHaveTextContent('remote provider')
+    expect(rows[1]).toHaveTextContent('Codey')
+    expect(rows[1]).toHaveTextContent('pi')
+    expect(rows[1]).toHaveTextContent('declares this CLI')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear log' }))
+    expect(screen.getByText('No sends recorded yet.'))
+    expect(window.localStorage.getItem(BACKEND_AUDIT_STORAGE_KEY)).toBeNull()
+  })
+
+  // #573 acceptance: a configured kind stays visible in the popup but disabled
+  // with its reason, not omitted (the #511 read).
+  it('kind popup disables configured kinds with a reason and enables free ones', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          object: 'list',
+          kinds: [
+            { id: 'hermes', label: 'Hermes' },
+            { id: 'omb', label: 'OpenMousBot' },
+            { id: 'trueforge', label: 'TrueForge' },
+          ],
+          configured: [
+            {
+              id: 'omb',
+              kind: 'omb',
+              label: 'OpenMousBot',
+              title: 'OpenMousBot',
+              host_label: '',
+              base_url: 'http://127.0.0.1:8802',
+              source: 'config',
+            },
+            {
+              id: 'trueforge_a',
+              kind: 'trueforge',
+              label: 'TrueForge',
+              title: 'TrueForge A',
+              host_label: '',
+              base_url: 'http://127.0.0.1:8791',
+              source: 'config',
+            },
+          ],
+          data: [],
+        }),
+      } as Response),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
+    fireEvent.click(await screen.findByTestId('remotes-add-button'))
+
+    const omb = screen.getByTestId('remote-kind-omb')
+    expect(omb).toBeDisabled()
+    expect(omb.getAttribute('title') || '').toMatch(/already configured/i)
+    // trueforge is deliberately multi-instance (#503): one instance configured
+    // does not disable adding another.
+    const trueforge = screen.getByTestId('remote-kind-trueforge')
+    expect(trueforge).toBeEnabled()
+    const hermes = screen.getByTestId('remote-kind-hermes')
+    expect(hermes).toBeEnabled()
+  })
+
+  it('reloads the pane when the Remote picker changes, so one remote never keeps another\'s targets (#453)', async () => {
+    const configured = [
+      {
+        id: 'omb',
+        kind: 'omb',
+        label: 'OpenMousBot',
+        title: 'OpenMousBot',
+        host_label: '',
+        base_url: 'http://127.0.0.1:8802',
+        source: 'config',
+      },
+      {
+        id: 'herdr',
+        kind: 'herdr',
+        label: 'Herdr',
+        title: 'Herdr',
+        host_label: '',
+        base_url: '',
+        source: 'builtin',
+      },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/operate/') && method === 'POST') {
+          if (url.includes('/herdr/operate/')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                remote: 'herdr',
+                op: 'list',
+                ok: true,
+                detail: 'Herdr listed 1 member(s) via local herdr (no SSH)',
+                data: { members: [{ kind: 'herdr', name: 'w2:pG', object: 'herdr.member' }] },
+              }),
+            } as Response
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              remote: 'omb',
+              op: 'list',
+              ok: true,
+              detail: 'OpenMousBot listed 1 bot(s)',
+              data: { bots: [{ id: '3a383904-ec73-444c-ba8b-9805a05d18e3', name: 'hide-qa-beta' }] },
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'list',
+            kinds: [
+              { id: 'omb', label: 'OpenMousBot' },
+              { id: 'herdr', label: 'Herdr' },
+            ],
+            configured,
+            data: configured,
+          }),
+        } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Remotes' }))
+
+    expect(await screen.findByRole('heading', { name: 'OpenMousBot' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Bot id')).toHaveValue('3a383904-ec73-444c-ba8b-9805a05d18e3'),
+    )
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Remote' }), { target: { value: 'herdr' } })
+
+    expect(await screen.findByRole('heading', { name: 'Herdr' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('CLI / pane')).toHaveValue('w2:pG'))
+    expect(screen.queryByText(/hide-qa-beta/)).not.toBeInTheDocument()
+  })
+
   it('shows honest retention pane linking to server dashboard without placebo save button (REQ-188B-1)', async () => {
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Retention' }))
@@ -463,6 +714,29 @@ describe('SettingsSheet', () => {
       dispatchedHost = (event as CustomEvent<{ hostname: string }>).detail?.hostname ?? ''
     }
     window.addEventListener(HOSTNAME_CHANGED_EVENT, onHostChanged)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method === 'PATCH') {
+          const body = JSON.parse(String(init?.body || '{}'))
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: false,
+              favourites: [],
+              hidden_agents: [],
+              hostname_override: body.hostname_override,
+              values: {},
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
 
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
@@ -475,6 +749,70 @@ describe('SettingsSheet', () => {
     expect(dispatchedHost).toBe('swarm.example.com')
 
     window.removeEventListener(HOSTNAME_CHANGED_EVENT, onHostChanged)
+  })
+
+  it('does not toast Hostname saved when the account PATCH fails (#329)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method === 'PATCH') {
+          return { ok: false, status: 500, json: async () => ({ error: 'nope' }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Hostname override' }), {
+      target: { value: 'swarm.example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save hostname' }))
+    expect(await screen.findByText('Hostname not saved')).toBeInTheDocument()
+    expect(screen.queryByText('Hostname saved')).not.toBeInTheDocument()
+  })
+
+  it('does not clobber an in-progress hostname edit when a slow prefs GET lands (#329)', async () => {
+    let releaseGet: () => void = () => {}
+    const delayedGet = new Promise<void>((resolve) => {
+      releaseGet = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (url.includes('/v1/preferences/') && method !== 'PATCH') {
+          await delayedGet
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: false,
+              favourites: [],
+              hidden_agents: [],
+              hostname_override: 'from-server.example.com',
+              values: {},
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Hostname' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Hostname override' }), {
+      target: { value: 'typed.example.com' },
+    })
+    await act(async () => {
+      releaseGet()
+      await delayedGet
+    })
+    expect(screen.getByRole('textbox', { name: 'Hostname override' })).toHaveValue(
+      'typed.example.com',
+    )
   })
 
   it('lists configured profiles and persists the Default picker', async () => {
@@ -583,11 +921,63 @@ describe('SettingsSheet', () => {
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
     expect(await screen.findByLabelText('Default')).toBeInTheDocument()
+    // #575: the flag now lives inside the override popup; the button opens it.
+    fireEvent.click(screen.getByTestId('override-per-task-button'))
+    expect(screen.getByTestId('override-per-task-popup')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Override per task' })).toHaveAttribute(
       'aria-checked',
       'false',
     )
     expect(screen.queryByLabelText('Delegation (design / coding)')).not.toBeInTheDocument()
+  })
+
+  // #575: the popup names which kinds can be overridden per task — API
+  // enabled, cli/remote disabled *with a reason*, per the #511 treatment.
+  it('override popup lists API enabled and cli/remote disabled with reasons', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          object: 'llm_profiles',
+          profiles: [
+            { id: 'gpt-5.6-terra', object: 'llm_profile', source: 'config', owned_by: 'openai' },
+          ],
+          default_llm_profile: 'gpt-5.6-terra',
+          default_is_auto: false,
+          override_per_task: false,
+          task_llm_profiles: {},
+          auto_picks: {},
+          warnings: [],
+          routes: {},
+          task_classes: ['orchestration', 'auxiliary', 'delegation'],
+        }),
+      } as Response),
+    )
+    renderSheet()
+    fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
+    expect(await screen.findByLabelText('Default')).toBeInTheDocument()
+    expect(screen.getByTestId('override-per-task-state')).toHaveTextContent('Off')
+    fireEvent.click(screen.getByTestId('override-per-task-button'))
+
+    expect(screen.getByTestId('override-kind-api-on')).toBeInTheDocument()
+    const cliOff = screen.getByTestId('override-kind-cli-off')
+    expect(cliOff).toBeInTheDocument()
+    const remoteOff = screen.getByTestId('override-kind-remote-off')
+    expect(remoteOff).toBeInTheDocument()
+    const cliTip = cliOff.parentElement as HTMLElement
+    expect(cliTip.getAttribute('data-tip') || '').toMatch(/API-only/i)
+    const remoteTip = remoteOff.parentElement as HTMLElement
+    expect(remoteTip.getAttribute('data-tip') || '').toMatch(/API-only/i)
+
+    // The switch inside the popup round-trips the flag; the badge follows.
+    fireEvent.click(screen.getByTestId('override-per-task-switch'))
+    expect(screen.getByRole('switch', { name: 'Override per task' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByTestId('override-per-task-state')).toHaveTextContent('On')
   })
 
   it('shows the per-task map when override is on', async () => {
@@ -620,7 +1010,13 @@ describe('SettingsSheet', () => {
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Show LLM profiles' }))
     expect(await screen.findByLabelText('Delegation (design / coding)')).toHaveValue('o3')
-    expect(screen.getByLabelText('Auxiliary (code summary)')).toBeInTheDocument()
+    // #935 expanded the task-class set; the auxiliary label gained the
+    // session-labelling mention.
+    expect(screen.getByLabelText(/Auxiliary \(code summary/)).toBeInTheDocument()
+    // #575: the map renders outside the popup (as before); the switch that
+    // controls the flag is inside the popup — open it to read the state.
+    expect(screen.getByTestId('override-per-task-state')).toHaveTextContent('On')
+    fireEvent.click(screen.getByTestId('override-per-task-button'))
     expect(screen.getByRole('switch', { name: 'Override per task' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -836,6 +1232,62 @@ describe('SettingsSheet blueprint editor', () => {
     expect(screen.getByRole('button', { name: 'System' })).toBeInTheDocument()
   })
 
+  it('#87: pre-selects the handed blueprint when a section is handed as well', async () => {
+    // AgentEditor's "Edit blueprint…" hands {section: 'blueprint', blueprintId}.
+    // The open effect used to take the initialSection branch and skip the
+    // selection, leaving every option aria-selected=false.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/source')) {
+          return { ok: false, status: 404, json: async () => ({}) } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'list',
+            data: [
+              {
+                id: 'codey',
+                object: 'blueprint',
+                name: 'Codey',
+                description: 'Code assistant',
+                abbreviation: null,
+                required_mcp_servers: [],
+                tags: [],
+                installed: true,
+                compiled: true,
+              },
+            ],
+          }),
+        } as Response
+      }),
+    )
+    // The sheet lives mounted in the app; the id/section arrive when the user
+    // opens it from AgentEditor, i.e. after the initial (id-less) mount.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const tree = (isOpen: boolean, handOff?: { blueprintId: string; section: 'blueprint' }) => (
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <SettingsSheet
+            isOpen={isOpen}
+            onClose={vi.fn()}
+            blueprintId={handOff?.blueprintId}
+            initialSection={handOff?.section}
+          />
+        </ToastProvider>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(tree(false))
+    rerender(tree(true, { blueprintId: 'codey', section: 'blueprint' }))
+    const list = await screen.findByRole('listbox', { name: 'Blueprints' })
+    const selected = await within(list).findByRole('option', { name: 'Codey' })
+    expect(selected).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: 'Blueprints' })).toHaveClass('menu-active')
+  })
+
   it('REQ-75: catalog shows a role badge and omits a webui kind', async () => {
     vi.stubGlobal(
       'fetch',
@@ -1043,7 +1495,8 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
 
       const select = screen.getByRole('combobox', { name: 'Theme' })
       expect(select).toBeInTheDocument()
-      expect(select).toHaveValue('dark')
+      // #847: 'system' is the default theme state.
+      expect(select).toHaveValue('system')
 
       // Switch to light
       fireEvent.change(select, { target: { value: 'light' } })
@@ -1061,20 +1514,36 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
       expect(localStorage.getItem('swarm_theme')).toBe('dark')
     })
 
-    it('toggles navbar theme control visibility and persists flag', () => {
+    it('opts in Stream replies and persists the user toggle (#220)', () => {
       renderSheet()
       fireEvent.click(screen.getByRole('button', { name: 'General' }))
 
-      const toggle = screen.getByRole('checkbox', { name: 'Show theme control in top bar' })
-      expect(toggle).toBeChecked()
-
-      fireEvent.click(toggle)
+      const toggle = screen.getByRole('checkbox', { name: 'Stream replies' })
       expect(toggle).not.toBeChecked()
-      expect(localStorage.getItem('swarm_theme_navbar')).toBe('false')
-
       fireEvent.click(toggle)
       expect(toggle).toBeChecked()
-      expect(localStorage.getItem('swarm_theme_navbar')).toBe('true')
+      expect(localStorage.getItem('os.streamReplies')).toBe('1')
+    })
+
+    it('sets the navbar theme-control visibility mode and persists it (#847)', () => {
+      renderSheet()
+      fireEvent.click(screen.getByRole('button', { name: 'General' }))
+
+      const select = screen.getByRole('combobox', { name: 'Light/dark toggle in top bar' })
+      expect(select).toBeInTheDocument()
+      expect(select).toHaveValue('if_not_system')
+
+      fireEvent.change(select, { target: { value: 'always' } })
+      expect(select).toHaveValue('always')
+      expect(localStorage.getItem('swarm_theme_navbar_mode')).toBe('always')
+
+      fireEvent.change(select, { target: { value: 'never' } })
+      expect(select).toHaveValue('never')
+      expect(localStorage.getItem('swarm_theme_navbar_mode')).toBe('never')
+
+      fireEvent.change(select, { target: { value: 'if_not_system' } })
+      expect(select).toHaveValue('if_not_system')
+      expect(localStorage.getItem('swarm_theme_navbar_mode')).toBe('if_not_system')
     })
 
     it('shows Auto-compress at default 80 and PATCHes 50 without Django copy', async () => {
@@ -1233,6 +1702,15 @@ describe('SettingsSheet definition pane (REQ-42)', () => {
       upsert: { filesystem: { command: 'npx' } },
     })
     expect(JSON.stringify(patchCall?.[1]?.body)).not.toMatch(/sk-/)
+  })
+
+  it('renders a top-left >> conceal button that closes the sheet', () => {
+    const { onClose } = renderSheet()
+    const conceal = screen.getByRole('button', { name: 'Conceal sidepane' })
+    expect(conceal).toHaveAttribute('title', 'Conceal sidepane')
+    expect(screen.getByText('Operating Swarm')).toBeInTheDocument()
+    fireEvent.click(conceal)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -11,12 +11,35 @@ import pytest
 from swarm.core import remotes as remotes_core
 
 
+@pytest.fixture(autouse=True)
+def clean_remotes_env(monkeypatch):
+    for var in (
+        "HERMES_BASE_URL", "HERMES_API_KEY",
+        "OMB_BASE_URL", "OMB_API_KEY",
+        "RAKAZO_BASE_URL", "RAKAZO_API_KEY", "RAKAZO_SESSION_COOKIE",
+        "TRUEFORGE_BASE_URL", "TRUEFORGE_API_KEY",
+        "SWARM_REMOTE_BASE_URL", "SWARM_REMOTE_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 class _Router(BaseHTTPRequestHandler):
-    routes: dict[tuple[str, str], tuple[int, dict | list | str]] = {}
+    routes: dict = {}
+    posted: list = []
 
     def _handle(self, method: str) -> None:
         key = (method, self.path.split("?", 1)[0])
-        status, body = self.routes.get(key, (404, {"error": "no route"}))
+        if method == "POST":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            raw = self.rfile.read(length) if length else b""
+            type(self).posted.append((key[1], raw.decode("utf-8", "replace")))
+        status_body = self.routes.get(key, (404, {"error": "no route"}))
+        if callable(status_body):
+            status_body = status_body()
+        status, body = status_body
         payload = json.dumps(body).encode("utf-8") if not isinstance(body, str) else body.encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -35,6 +58,8 @@ class _Router(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def http_router():
+    _Router.routes = {}
+    _Router.posted = []
     server = HTTPServer(("127.0.0.1", 0), _Router)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -42,6 +67,7 @@ def http_router():
     yield host, port, _Router
     server.shutdown()
     _Router.routes = {}
+    _Router.posted = []
 
 
 def _cfg(host: str, port: int) -> dict:
@@ -80,13 +106,14 @@ def test_team_members_are_handoff_not_profile_aliases():
     }
     members = remotes_core.list_team_members(cfg)
     ids = {m["id"] for m in members}
-    assert ids == {"hermes", "omb", "rakazo", "swarm"}
+    assert ids == {"hermes", "omb", "rakazo", "swarm", "trueforge"}
     assert all(m["via"] == "as_tool" for m in members)
     placed = {m["id"]: m["placed"] for m in members}
     assert placed["hermes"] is True
     assert placed["omb"] is True
     assert placed["rakazo"] is True
     assert placed["swarm"] is False  # catalog only until explicitly placed
+    assert placed["trueforge"] is False
     assert "DynamicTeam" not in remotes_core.TEAM_VOCABULARY["team"]
     assert "/teams/" in remotes_core.TEAM_VOCABULARY["not_teams_page"]
 
@@ -337,7 +364,10 @@ def test_hermes_list_and_send(http_router):
     router.routes = {
         ("GET", "/v1/models"): (200, {"data": [{"id": "hermes-agent"}]}),
         ("GET", "/api/sessions"): (200, {"sessions": []}),
-        ("GET", "/api/jobs"): (200, []),
+        ("GET", "/api/jobs"): (
+            200,
+            [{"id": "run_1", "status": "completed", "output": "hermes-hello"}],
+        ),
         ("POST", "/v1/runs"): (200, {"run_id": "run_1", "status": "started"}),
     }
     listed = remotes_core.operate("hermes", "list", config=_cfg(host, port))
@@ -345,15 +375,49 @@ def test_hermes_list_and_send(http_router):
     sent = remotes_core.operate("hermes", "send", prompt="hello", config=_cfg(host, port))
     assert sent.ok is True
     assert sent.data["run_id"] == "run_1"
+    assert sent.data["text"] == "hermes-hello"
+    assert "started Hermes run" not in sent.detail
 
 
-def test_omb_list_and_send_creates_bot(http_router):
+def test_omb_list_and_send_creates_bot(http_router, monkeypatch):
     host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    state = {"created": False}
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hi"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "hello-from-bot",
+        "turnTerminal": True,
+    }
+
+    def bots():
+        if not state["created"]:
+            return 200, {"bots": []}
+        return 200, {
+            "bots": [
+                {
+                    "id": "b1",
+                    "threadId": "th-1",
+                    "busy": False,
+                    "activity": "waiting-on-you",
+                    "messages": [user, reply],
+                }
+            ]
+        }
+
+    def create():
+        state["created"] = True
+        return 201, {"bot": {"id": "b1"}}
+
     router.routes = {
         ("GET", "/api/health"): (200, {"app": "openmousbot", "ok": True}),
-        ("GET", "/api/bots"): (200, {"bots": []}),
-        ("POST", "/api/bots"): (201, {"bot": {"id": "b1"}}),
-        ("POST", "/api/bots/b1/messages"): (202, {"ok": True}),
+        ("GET", "/api/bots"): bots,
+        ("POST", "/api/bots"): create,
+        ("POST", "/api/bots/b1/messages"): (202, {"ok": True, "threadId": "th-1", "message": {"id": "u1"}}),
+        ("GET", "/api/threads/th-1/messages"): (200, {"messages": [user, reply]}),
     }
     health = remotes_core.check_health("omb", config=_cfg(host, port), timeout=2.0)
     assert health.ok is True
@@ -365,14 +429,38 @@ def test_omb_list_and_send_creates_bot(http_router):
     sent = remotes_core.operate("omb", "send", prompt="hi", config=_cfg(host, port))
     assert sent.ok is True
     assert sent.data["bot_id"] == "b1"
+    assert sent.data["text"] == "hello-from-bot"
     assert "OpenMousBot" in sent.detail
+    assert "accepted the turn" not in sent.detail
 
 
-def test_openmousbot_list_and_send_to_bot_id(http_router):
+def test_openmousbot_list_and_send_to_bot_id(http_router, monkeypatch):
     host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hello"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "alpha",
+        "turnTerminal": True,
+    }
+    bot = {
+        "id": "bot-9",
+        "name": "alpha",
+        "threadId": "th-1",
+        "busy": False,
+        "activity": "waiting-on-you",
+        "messages": [user, reply],
+    }
     router.routes = {
-        ("GET", "/api/bots"): (200, {"bots": [{"id": "bot-9", "name": "alpha"}]}),
-        ("POST", "/api/bots/bot-9/messages"): (202, {"ok": True, "queued": True}),
+        ("GET", "/api/bots"): (200, {"bots": [bot]}),
+        ("POST", "/api/bots/bot-9/messages"): (
+            202,
+            {"ok": True, "queued": True, "threadId": "th-1", "message": {"id": "u1"}},
+        ),
+        ("GET", "/api/threads/th-1/messages"): (200, {"messages": [user, reply]}),
     }
     listed = remotes_core.operate("omb", "list", config=_cfg(host, port))
     assert listed.ok is True
@@ -382,7 +470,129 @@ def test_openmousbot_list_and_send_to_bot_id(http_router):
     )
     assert sent.ok is True
     assert sent.data["bot_id"] == "bot-9"
+    assert sent.data["text"] == "alpha"
     assert sent.http_status == 202
+    assert "accepted the turn" not in sent.detail
+    assert sent.data.get("minted") is False
+
+
+def test_omb_list_summarizes_bots_and_strips_messages(http_router):
+    host, port, router = http_router
+    fat_messages = [{"role": "assistant", "content": "x" * 8000} for _ in range(50)]
+    router.routes = {
+        ("GET", "/api/bots"): (
+            200,
+            {
+                "bots": [
+                    {
+                        "id": "desk-1",
+                        "name": "Desk",
+                        "title": "ignored-when-name-present",
+                        "messages": fat_messages,
+                    },
+                    {"id": "spec-9", "title": "Specialist", "messages": fat_messages},
+                ]
+            },
+        ),
+    }
+    listed = remotes_core.operate("omb", "list", config=_cfg(host, port))
+    assert listed.ok is True
+    assert listed.data == {
+        "bots": [
+            {"id": "desk-1", "name": "Desk"},
+            {"id": "spec-9", "name": "Specialist"},
+        ]
+    }
+    blob = json.dumps(listed.data)
+    assert "messages" not in blob
+    assert len(blob) < 500
+
+
+def test_omb_send_without_target_mints_dedicated_bot_not_bots0(http_router, monkeypatch):
+    host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hi"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "dedicated-hello",
+        "turnTerminal": True,
+    }
+    router.routes = {
+        ("GET", "/api/bots"): (
+            200,
+            {
+                "bots": [
+                    {
+                        "id": "dedicated-1",
+                        "name": "open-swarm",
+                        "threadId": "th-d",
+                        "busy": False,
+                        "activity": "waiting-on-you",
+                        "messages": [user, reply],
+                    },
+                    {"id": "spec-1", "name": "Specialist"},
+                ]
+            },
+        ),
+        ("POST", "/api/bots"): (201, {"bot": {"id": "dedicated-1", "name": "open-swarm"}}),
+        ("POST", "/api/bots/dedicated-1/messages"): (
+            202,
+            {"ok": True, "threadId": "th-d", "message": {"id": "u1"}},
+        ),
+        ("GET", "/api/threads/th-d/messages"): (200, {"messages": [user, reply]}),
+    }
+    sent = remotes_core.operate("omb", "send", prompt="hi", config=_cfg(host, port))
+    assert sent.ok is True
+    assert sent.data["bot_id"] == "dedicated-1"
+    assert sent.data["minted"] is True
+    assert sent.data["text"] == "dedicated-hello"
+
+
+def test_omb_send_kind_id_target_does_not_post_to_omb_bot(http_router, monkeypatch):
+    host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hi"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "minted-hello",
+        "turnTerminal": True,
+    }
+    router.routes = {
+        ("GET", "/api/bots"): (
+            200,
+            {
+                "bots": [
+                    {
+                        "id": "dedicated-2",
+                        "threadId": "th-2",
+                        "busy": False,
+                        "activity": "waiting-on-you",
+                        "messages": [user, reply],
+                    }
+                ]
+            },
+        ),
+        ("POST", "/api/bots"): (201, {"bot": {"id": "dedicated-2"}}),
+        ("POST", "/api/bots/dedicated-2/messages"): (
+            202,
+            {"ok": True, "threadId": "th-2", "message": {"id": "u1"}},
+        ),
+        ("POST", "/api/bots/omb/messages"): (202, {"ok": True, "wrong": True}),
+        ("GET", "/api/threads/th-2/messages"): (200, {"messages": [user, reply]}),
+    }
+    sent = remotes_core.operate(
+        "omb", "send", prompt="hi", target="omb", config=_cfg(host, port)
+    )
+    assert sent.ok is True
+    assert sent.data["bot_id"] == "dedicated-2"
+    assert sent.data["minted"] is True
+    assert sent.data["text"] == "minted-hello"
 
 
 def test_openmousbot_health_down_is_report_not_crash():
@@ -508,3 +718,65 @@ def test_swarm_missing_child_is_clean_error():
     health = remotes_core.check_health("swarm", config=spec_cfg, timeout=0.4)
     assert health.ok is False
     assert health.state == "DOWN"
+
+
+# --- #849 close-out: single flexible ssh_target passthrough -----------------
+
+
+def test_persist_remote_ssh_target_parses_flexible_forms(tmp_path: Path):
+    """ssh_target feeds parse_ssh_target — host/user/port land split."""
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    spec, _path = remotes_core.persist_remote(
+        "herdr-box",
+        kind="herdr",
+        herdr_mode="ssh",
+        ssh_target="operator@docs-host:2222",
+        config_path=cfg,
+    )
+    assert spec.ssh_user == "operator"
+    assert spec.ssh_host == "docs-host"
+    assert spec.ssh_port == 2222
+
+
+def test_persist_remote_ssh_target_ssh_uri(tmp_path: Path):
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    spec, _path = remotes_core.persist_remote(
+        "herdr-uri",
+        kind="herdr",
+        herdr_mode="ssh",
+        ssh_target="ssh://deploy@192.0.2.55",
+        config_path=cfg,
+    )
+    assert spec.ssh_user == "deploy"
+    assert spec.ssh_host == "192.0.2.55"
+    assert spec.ssh_port == 22
+
+
+def test_persist_remote_ssh_target_plain_host_uses_default_user(tmp_path: Path):
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    spec, _path = remotes_core.persist_remote(
+        "herdr-plain",
+        kind="herdr",
+        herdr_mode="ssh",
+        ssh_target="192.0.2.77",
+        config_path=cfg,
+    )
+    assert spec.ssh_host == "192.0.2.77"
+    assert spec.ssh_user  # default-user fallback filled it in
+    assert spec.ssh_port == 22
+
+
+def test_persist_remote_ssh_target_bad_port_raises(tmp_path: Path):
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text(json.dumps({"llm": {}, "remotes": {}}), encoding="utf-8")
+    with pytest.raises(remotes_core.RemoteError):
+        remotes_core.persist_remote(
+            "herdr-bad",
+            kind="herdr",
+            herdr_mode="ssh",
+            ssh_target="docs-host:notaport",
+            config_path=cfg,
+        )

@@ -5,7 +5,9 @@ import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../../components/DaisyUI'
 import AgentRouterPage from '../AgentRouterPage'
 import { useAgentStore } from '../../lib/agent-store'
+import { OPEN_TEAMS_EVENT } from '../../lib/chromeOverlay'
 import * as agentApi from '../../lib/agent-api'
+import { createTeam } from '../../lib/api'
 import type { Agent, DelegationEvent } from '../../types/agent'
 
 vi.mock('../../lib/agent-api', () => ({
@@ -241,6 +243,11 @@ describe('AgentRouterPage integration', () => {
           avatarThemeByAgent: {},
           avatarEyesByAgent: {},
           roleAssignments: {},
+          defaultLlmProfile: '',
+          llmProfileByAgent: {},
+          cliModelByAgent: {},
+          remoteMemberByAgent: {},
+          frameworkByAgent: {},
         },
       ],
       activeTeamId: 'unsaved',
@@ -339,20 +346,19 @@ describe('AgentRouterPage integration', () => {
     vi.clearAllMocks()
   })
 
-  it('renders all 3 panels: Sidebar, Chat Execution View, and Inspector', async () => {
+  it('renders chat execution view and inspector (rail lives in the App shell)', async () => {
     renderPage()
 
-    // 1. Left Panel: Agent sidebar
-    const sidebar = await screen.findByRole('complementary', { name: 'Agent sidebar' })
-    expect(sidebar).toBeInTheDocument()
+    // #930: no nested sidebar panel — the App shell owns the rail.
+    expect(screen.queryByRole('complementary', { name: 'Agent sidebar' })).not.toBeInTheDocument()
 
-    // 2. Middle Panel: Main chat view
+    // Main chat view
     const main = screen.getByRole('main')
     expect(main).toBeInTheDocument()
     expect(screen.getByText(/Nice to meet you/)).toBeInTheDocument()
     expect(getChatInput()).toBeInTheDocument()
 
-    // 3. Right Panel: Inspector overview
+    // Inspector overview
     const inspector = screen.getByRole('complementary', { name: 'Agent overview inspector' })
     expect(inspector).toBeInTheDocument()
     expect(within(inspector).getByText('Domain Specialty')).toBeInTheDocument()
@@ -379,19 +385,16 @@ describe('AgentRouterPage integration', () => {
   it('displays agents from query and store, and handles agent selection', async () => {
     renderPage()
 
-    // Agents should appear in sidebar
+    // Catalog agents land in the shared store (starters merged in).
     await waitFor(() => {
-      expect(screen.getAllByText('Coder').length).toBeGreaterThan(0)
+      expect(useAgentStore.getState().agents.some((a) => a.agent_id === 'coder')).toBe(true)
     })
-    expect(screen.getAllByText('Researcher').length).toBeGreaterThan(0)
 
     const inspector = screen.getByRole('complementary', { name: 'Agent overview inspector' })
     expect(within(inspector).getByText('Central router that delegates tasks to specialists')).toBeInTheDocument()
 
-    // Click Coder in the sidebar to switch active agent
-    const sidebar = screen.getByRole('complementary', { name: 'Agent sidebar' })
-    const coderBtn = within(sidebar).getByText('Coder')
-    fireEvent.click(coderBtn)
+    // Selection is driven by the shared store (the rail writes it).
+    useAgentStore.getState().selectAgent('coder')
 
     // Coder becomes active agent, reflected in inspector identity card and specialty
     await waitFor(() => {
@@ -434,6 +437,15 @@ describe('AgentRouterPage integration', () => {
     expect(within(screen.getByRole('main')).queryByText('Thinking & routing…')).not.toBeInTheDocument()
   })
 
+  it('#403 header wraps backends so the agent name stays readable', async () => {
+    renderPage()
+    const header = await screen.findByTestId('agents-chat-header')
+    expect(header.className).toMatch(/flex-wrap/)
+    expect(screen.getByTestId('agents-header-backends')).toBeInTheDocument()
+    const nameBtn = within(header).getByRole('button', { name: /click to edit name/i })
+    expect(nameBtn.className).not.toMatch(/max-w-\[12rem\]/)
+  })
+
   it('edits the bot name and purpose from the chat header', async () => {
     renderPage()
     const header = screen.getByRole('banner')
@@ -455,9 +467,10 @@ describe('AgentRouterPage integration', () => {
   })
 
   it('lets you pick CLI vs API from the header dropdown', async () => {
+    // #930: the (deleted) sidebar used to select the CLI starter; the shared
+    // store performs that selection now.
+    useAgentStore.setState({ selectedAgentId: 'starter-cli', targetAgentId: 'starter-cli' })
     renderPage()
-    const sidebar = screen.getByLabelText('Agent sidebar')
-    fireEvent.click(await within(sidebar).findByText('CLI agent'))
     const header = screen.getByRole('banner')
     const select = await within(header).findByLabelText('Model backend')
     await waitFor(() => {
@@ -537,10 +550,9 @@ describe('AgentRouterPage integration', () => {
   })
 
   it('sends CLI and remote agents with Direct routing', async () => {
+    useAgentStore.setState({ selectedAgentId: 'local-grok', targetAgentId: 'local-grok' })
     renderPage()
-    const sidebar = await screen.findByRole('complementary', { name: 'Agent sidebar' })
 
-    fireEvent.click(within(sidebar).getByText('Local grok'))
     const input = getChatInput()
     fireEvent.change(input, { target: { value: 'hi grok' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -556,7 +568,7 @@ describe('AgentRouterPage integration', () => {
     })
 
     vi.mocked(agentApi.routeMessage).mockClear()
-    fireEvent.click(within(sidebar).getByText('Hermes'))
+    useAgentStore.setState({ selectedAgentId: 'hermes', targetAgentId: 'hermes' })
     fireEvent.change(getChatInput(), { target: { value: 'hi hermes' } })
     fireEvent.keyDown(getChatInput(), { key: 'Enter' })
 
@@ -598,19 +610,19 @@ describe('AgentRouterPage integration', () => {
     expect(within(header).queryByRole('button', { name: 'Router' })).toBeNull()
     expect(within(header).queryByRole('button', { name: /Consensus/i })).toBeNull()
 
-    // Open Teams settings popup
-    fireEvent.click(screen.getByRole('button', { name: 'Teams' }))
-    const dialog = screen.getByRole('dialog')
+    // #984: the strategy selector is page-owned in the composer dock — the
+    // deleted sidebar used to host the pills, and the redesigned TeamsSheet
+    // (#763) is a registry that no longer carries them.
+    const strategy = screen.getByRole('combobox', { name: 'Routing strategy' })
+    expect(strategy).toHaveValue('auto_route')
 
     // 1. Switch to Direct
-    const directBtn = within(dialog).getByRole('button', { name: 'Direct' })
-    fireEvent.click(directBtn)
+    fireEvent.change(strategy, { target: { value: 'direct' } })
     expect(useAgentStore.getState().routingStrategy).toBe('direct')
-    expect(screen.getByPlaceholderText(/Message Agent Router directly…/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Message .* directly…/i)).toBeInTheDocument()
 
-    // 2. Switch to Consensus (in dialog)
-    const consensusBtn = within(dialog).getByRole('button', { name: /Consensus/i })
-    fireEvent.click(consensusBtn)
+    // 2. Switch to Consensus
+    fireEvent.change(strategy, { target: { value: 'consensus' } })
     expect(useAgentStore.getState().routingStrategy).toBe('consensus')
     expect(screen.getByPlaceholderText(/Query the multi-agent consensus panel…/i)).toBeInTheDocument()
 
@@ -630,57 +642,29 @@ describe('AgentRouterPage integration', () => {
     })
 
     // 4. Switch to Router
-    const routerBtn = within(dialog).getByRole('button', { name: 'Router' })
-    fireEvent.click(routerBtn)
+    fireEvent.change(strategy, { target: { value: 'router' } })
     expect(useAgentStore.getState().routingStrategy).toBe('router')
 
     // 5. Switch back to Auto Route
-    const autoRouteBtn = within(dialog).getByRole('button', { name: 'Auto Route' })
-    fireEvent.click(autoRouteBtn)
+    fireEvent.change(strategy, { target: { value: 'auto_route' } })
     expect(useAgentStore.getState().routingStrategy).toBe('auto_route')
   })
 
-  it('hide all reveals Support plus CLI, API, and one remote starter', async () => {
+  it('hide all keeps starters and drops selection onto Support (store doctrine)', async () => {
     renderPage()
-    await screen.findByRole('button', { name: 'Hide all' })
-    fireEvent.click(screen.getByRole('button', { name: 'Hide all' }))
-    const sidebar = screen.getByLabelText('Agent sidebar')
-    const apiHeading = within(sidebar).getByRole('button', { name: 'API' })
-    const cliHeading = within(sidebar).getByRole('button', { name: 'CLI' })
-    const remoteHeading = within(sidebar).getByRole('button', { name: 'Remote' })
-    expect(apiHeading.compareDocumentPosition(cliHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(cliHeading.compareDocumentPosition(remoteHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(sidebar).getAllByText('Support').length).toBeGreaterThan(0)
-    expect(within(sidebar).getByText('CLI agent')).toBeInTheDocument()
-    expect(within(sidebar).getByText('API agent')).toBeInTheDocument()
-    expect(within(sidebar).getByText('Remote agent')).toBeInTheDocument()
-    const supportRow = within(sidebar).getAllByText('Support')[0]
-    expect(apiHeading.compareDocumentPosition(supportRow) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
-    expect(within(sidebar).queryByText('Hermes remote')).not.toBeInTheDocument()
-    expect(within(sidebar).queryByText('DSH remote')).not.toBeInTheDocument()
-    expect(within(sidebar).queryByText('OMB remote')).not.toBeInTheDocument()
-    expect(apiHeading.compareDocumentPosition(within(sidebar).getByText('API agent')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(sidebar).getByText('API agent').compareDocumentPosition(cliHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(cliHeading.compareDocumentPosition(within(sidebar).getByText('CLI agent')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(sidebar).getByText('CLI agent').compareDocumentPosition(remoteHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(remoteHeading.compareDocumentPosition(within(sidebar).getByText('Remote agent')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(sidebar).queryByText('Coder')).not.toBeInTheDocument()
-
-    fireEvent.click(within(sidebar).getByText('CLI agent'))
-    expect((await screen.findAllByLabelText('CLI model')).length).toBeGreaterThan(0)
-    expect(screen.queryByLabelText('Blueprint')).not.toBeInTheDocument()
-
-    fireEvent.click(within(sidebar).getByText('API agent'))
-    expect((await screen.findAllByLabelText('Blueprint')).length).toBeGreaterThan(0)
-    expect(screen.queryByLabelText('CLI model')).not.toBeInTheDocument()
-
-    fireEvent.click(within(sidebar).getByText('Remote agent'))
-    const frameworkSelect = await screen.findByLabelText('Remote framework')
-    expect(frameworkSelect).toHaveValue('openmausbot')
-    expect((await screen.findAllByLabelText('Remote member')).length).toBeGreaterThan(0)
-    fireEvent.change(frameworkSelect, { target: { value: 'dsh' } })
-    expect(useAgentStore.getState().frameworkByAgent['starter-remote']).toBe('dsh')
-    expect(screen.getByRole('button', { name: 'Launch DSH' })).toBeInTheDocument()
+    // #930: hide-all lives in the store; the (deleted) sidebar only rendered it.
+    await waitFor(() => {
+      expect(useAgentStore.getState().agents.some((a) => a.agent_id === 'starter-support')).toBe(true)
+    })
+    useAgentStore.getState().hideAllAgents()
+    const state = useAgentStore.getState()
+    expect(state.hiddenAgentIds.length).toBeGreaterThan(0)
+    for (const id of ['starter-support', 'starter-cli', 'starter-api', 'starter-remote']) {
+      expect(state.hiddenAgentIds).not.toContain(id)
+      expect(state.agents.some((a) => a.agent_id === id)).toBe(true)
+    }
+    expect(state.selectedAgentId).toBe('starter-support')
+    expect(state.agents.some((a) => a.agent_id === 'coder' && state.hiddenAgentIds.includes('coder'))).toBe(true)
   })
 
   it('Shift+Tab cycles Default → Plan → Auto-edit', async () => {
@@ -697,9 +681,8 @@ describe('AgentRouterPage integration', () => {
   })
 
   it('Support quickstart pills start the journey', async () => {
+    useAgentStore.setState({ selectedAgentId: 'starter-support', targetAgentId: 'starter-support' })
     renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: 'Hide all' }))
-    fireEvent.click(within(screen.getByLabelText('Agent sidebar')).getAllByText('Support')[0])
     const pill = await screen.findByRole('button', { name: /Create a team/i })
     fireEvent.click(pill)
     expect(getChatInput()).toHaveValue(
@@ -712,12 +695,12 @@ describe('AgentRouterPage integration', () => {
   it('populates input from quick prompt starter pill', async () => {
     renderPage()
 
-    const pill = screen.getByRole('button', { name: /Explain Open Swarm/i })
+    const pill = screen.getByRole('button', { name: /Explain Operating Swarm/i })
     fireEvent.click(pill)
 
     const input = getChatInput()
     expect(input).toHaveValue(
-      'Explain Open Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
+      'Explain Operating Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
     )
   })
 
@@ -778,15 +761,14 @@ describe('AgentRouterPage integration', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('lists discovered blueprints as coded-team agents in the sidebar', async () => {
+  it('lists discovered blueprints as coded-team agents in the store', async () => {
     renderPage()
-    const sidebar = await screen.findByRole('complementary', { name: 'Agent sidebar' })
-    expect(within(sidebar).getByRole('button', { name: 'API' })).toBeInTheDocument()
-    expect(within(sidebar).getByText('Codey')).toBeInTheDocument()
-    expect(within(sidebar).queryByRole('button', { name: /Coded teams/i })).not.toBeInTheDocument()
-    fireEvent.click(within(sidebar).getByText('Codey'))
-    expect(useAgentStore.getState().selectedAgentId).toBe('codey')
-    expect(useAgentStore.getState().routingStrategy).toBe('direct')
+    // #930: blueprint discovery feeds the shared roster the rail renders.
+    await waitFor(() => {
+      const codey = useAgentStore.getState().agents.find((a) => a.agent_id === 'codey')
+      expect(codey).toBeDefined()
+      expect(codey?.kind).toBe('blueprint')
+    })
   })
 
   it('opens the agent designer with API, CLI, and remote types', async () => {
@@ -810,40 +792,39 @@ describe('AgentRouterPage integration', () => {
     expect(within(dialog).getByDisplayValue('Chief of Staff')).toBeInTheDocument()
     expect(within(dialog).getByDisplayValue('Engineer')).toBeInTheDocument()
     expect(within(dialog).getByDisplayValue('Skeptic')).toBeInTheDocument()
+    expect(within(dialog).getByRole('textbox', { name: 'Persona 1 name' })).toHaveDisplayValue(
+      'Chief of Staff',
+    )
+    expect(within(dialog).getByRole('textbox', { name: 'Persona 1 instructions' })).toBeInTheDocument()
   })
 
   it('saves the current agents as a named team and reloads Unsaved', async () => {
     renderPage()
-    await screen.findByRole('complementary', { name: 'Agent sidebar' })
 
     // Team selection is no longer in top navbar header
     const header = screen.getByRole('banner')
     expect(within(header).queryByRole('combobox', { name: 'Team' })).toBeNull()
 
-    // Open Teams settings popup
-    fireEvent.click(screen.getByRole('button', { name: 'Teams' }))
-    const dialog = screen.getByRole('dialog')
+    // #984: the Teams overlay is a registry (redesigned by #763) — browsing
+    // registered teams and creating new ones. The save-current-selection
+    // flow lives in TeamComposer (#780), not here.
+    fireEvent(window, new Event(OPEN_TEAMS_EVENT))
+    const dialog = await screen.findByRole('dialog')
 
-    const select = within(dialog).getByRole('combobox', { name: 'Team' })
-    expect(select).toHaveDisplayValue('Unsaved')
+    expect(within(dialog).getByRole('button', { name: '+ New Team' })).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ New Team' }))
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save as team' }))
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'New team name' }), {
+    const form = await within(dialog).findByRole('form', { name: 'Create team' })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Team name' }), {
       target: { value: 'Night shift' },
     })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    fireEvent.submit(within(form).getByRole('button', { name: 'Create team' }))
 
     await waitFor(() => {
-      expect(within(dialog).getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Night shift')
-    })
-    expect(useAgentStore.getState().activeTeamId).toBe('night-shift')
-    expect(useAgentStore.getState().teams.some((t) => t.id === 'unsaved')).toBe(true)
-
-    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Team' }), {
-      target: { value: 'unsaved' },
-    })
-    await waitFor(() => {
-      expect(within(dialog).getByRole('combobox', { name: 'Team' })).toHaveDisplayValue('Unsaved')
+      expect(createTeam).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Night shift' }),
+        expect.anything(),
+      )
     })
   })
 
@@ -905,8 +886,7 @@ describe('AgentRouterPage integration', () => {
 
     renderPage()
     const inspector = await screen.findByRole('complementary', { name: 'Agent overview inspector' })
-    const sidebar = screen.getByRole('complementary', { name: 'Agent sidebar' })
-    fireEvent.click(within(sidebar).getByText('Coder'))
+    useAgentStore.getState().selectAgent('coder')
     await waitFor(() => {
       expect(within(inspector).getByText('Specialist for writing code and debugging')).toBeInTheDocument()
     })
@@ -931,15 +911,13 @@ describe('AgentRouterPage integration', () => {
     })
 
     renderPage()
-    const sidebar = await screen.findByLabelText('Agent sidebar')
-    // Coder, Researcher, etc. should be visible in the list, not hidden
-    expect(within(sidebar).getByText('Coder')).toBeInTheDocument()
-    expect(within(sidebar).getByText('Researcher')).toBeInTheDocument()
-    // Focused zone should exist as empty drop target
-    expect(within(sidebar).getByRole('region', { name: 'Focused agents' })).toBeInTheDocument()
-    expect(within(sidebar).getByText('Drag agents here')).toBeInTheDocument()
-    // Should NOT have hidden agents count
-    expect(within(sidebar).queryByText(/Hidden \(\d+\)/)).not.toBeInTheDocument()
+    // #930: visibility is store truth — clean load must not auto-hide anyone.
+    await waitFor(() => {
+      expect(useAgentStore.getState().agents.some((a) => a.agent_id === 'coder')).toBe(true)
+    })
+    const state = useAgentStore.getState()
+    expect(state.hiddenAgentIds).toEqual([])
+    expect(state.agents.some((a) => a.agent_id === 'researcher')).toBe(true)
   })
 
   it('unhides deep-linked agent if it was previously hidden', async () => {
@@ -961,11 +939,26 @@ describe('AgentRouterPage integration', () => {
       </QueryClientProvider>
     )
 
-    const sidebar = await screen.findByLabelText('Agent sidebar')
     await waitFor(() => {
       expect(useAgentStore.getState().selectedAgentId).toBe('coder')
     })
     expect(useAgentStore.getState().hiddenAgentIds).not.toContain('coder')
-    expect(within(sidebar).getByText('Coder')).toBeInTheDocument()
+  })
+})
+
+describe('#930: single sidebar doctrine', () => {
+  it('renders no nested AgentSidebar inside AgentRouterPage', () => {
+    renderPage()
+    // The duplicate sidebar rendered its own searchbox and a "Focused" rail
+    // section; neither may exist inside the /agents page anymore.
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(screen.queryByText('Focused')).not.toBeInTheDocument()
+  })
+
+  it('new-agent creation is reachable from the page header', () => {
+    renderPage()
+    fireEvent.click(screen.getByTestId('agents-new-agent-button'))
+    // AgentDesigner overlay opens rather than relying on the removed sidebar.
+    expect(screen.getByTestId('agents-new-agent-button')).toBeInTheDocument()
   })
 })

@@ -17,22 +17,24 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
 from swarm.core.cli_adapter import CliAdapter, CliResult
+from swarm.core.cli_session_error import is_fatal_config_error
 from swarm.core.cli_sessions import (
     clear_cli_session,
     get_cli_session,
     is_resume_failure,
+    is_resume_failure_text,
     put_cli_session,
     resolve_thread,
 )
 from swarm.core.consensus import run_consensus
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.session_policy import resume_cli_session_id
 
 logger = logging.getLogger(__name__)
 
 
-class CliAgentBlueprint(BlueprintBase):
+class CliAgentBlueprint(CliKindBase):
     """Run one configured agentic CLI as an OpenAI-compatible model."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -132,6 +134,41 @@ class CliAgentBlueprint(BlueprintBase):
             conversation_id=str(params.get("conversation_id") or ""),
         )
 
+    def _stamp_store_session(
+        self, params: dict[str, Any], adapter: Any, result: Any
+    ) -> None:
+        """#640: capture the CLI's own session id when stdout carries none.
+
+        omp prints plain text under ``-p`` so ``result.session_id`` is always
+        empty, yet omp persists every session under its agent dir. After a
+        successful production turn (no ``--no-session`` in the cmd), stamp the
+        newest store id so the next turn resumes and the notice stays honest.
+        Only CLIs whose catalog declares a store kind are touched; store reads
+        never mutate the CLI's files.
+        """
+        try:
+            if getattr(result, "session_id", None):
+                return
+            if not getattr(result, "ok", False):
+                return
+            cmd = list(getattr(getattr(adapter, "config", None), "cmd", None) or [])
+            if "--no-session" in cmd:  # smoke/verify run — ephemeral by design
+                return
+            from swarm.core import cli_catalog
+            from swarm.core.cli_session_stores import (
+                latest_session_id_from_store,
+            )
+
+            name = str(getattr(adapter, "name", "") or "")
+            if cli_catalog.list_sessions_store(name) is None:
+                return
+            store_dir = cli_catalog.list_sessions_store_dir(name)
+            sid = latest_session_id_from_store(name, store_dir)
+            if sid:
+                self._remember_session(params, name, sid)
+        except Exception:
+            logger.debug("provider-store session stamp skipped", exc_info=True)
+
     def _forget_session(self, params: dict[str, Any], cli_name: str) -> None:
         ref = self._thread_ref(params)
         if ref is None:
@@ -201,6 +238,46 @@ class CliAgentBlueprint(BlueprintBase):
             config=self._config if isinstance(getattr(self, "_config", None), dict) else None,
         )
 
+    def _seat_remote(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        """Issue #180: per-agent remote endpoint stored on the custom rail seat."""
+        agent_id = str(params.get("agent") or params.get("agent_id") or "").strip()
+        if not agent_id:
+            return None
+        try:
+            from swarm.views.blueprint_library_views import get_user_blueprint_library
+
+            lib = get_user_blueprint_library()
+        except Exception:
+            return None
+        for row in lib.get("custom") or []:
+            if isinstance(row, dict) and str(row.get("id") or "") == agent_id:
+                remote = row.get("remote")
+                return remote if isinstance(remote, dict) else None
+        return None
+
+    def _remote_host(self, adapter: Any, params: dict[str, Any]) -> str | None:
+        from swarm.core.cli_remote import remote_endpoint_label, resolve_cli_remote
+
+        endpoint = resolve_cli_remote(
+            getattr(adapter, "name", None),
+            config=self._config if isinstance(self._config, dict) else None,
+            params=params,
+            seat_remote=self._seat_remote(params),
+        )
+        cfg_remote = getattr(getattr(adapter, "config", None), "remote", None)
+        if endpoint is None and cfg_remote:
+            endpoint = cfg_remote
+        return remote_endpoint_label(endpoint)
+
+    def _session_notice(
+        self, adapter: Any, params: dict[str, Any], *, resumed: bool
+    ) -> dict[str, Any]:
+        return support.session_notice_chunk(
+            adapter.name,
+            resumed=resumed,
+            host=self._remote_host(adapter, params),
+        )
+
     def _mark_active_cli(self, params: dict[str, Any], cli_name: str) -> None:
         ref = self._thread_ref(params)
         if ref is None:
@@ -253,6 +330,8 @@ class CliAgentBlueprint(BlueprintBase):
             self._remember_session(params, adapter.name, result.session_id)
         elif resumed and stored:
             self._remember_session(params, adapter.name, stored)
+        else:
+            self._stamp_store_session(params, adapter, result)
         if result.ok:
             self._mark_active_cli(params, adapter.name)
         return result, resumed
@@ -263,7 +342,11 @@ class CliAgentBlueprint(BlueprintBase):
         # mutated by a concurrent request across await points.
         params = dict(self._params)
 
-        from swarm.core.cli_run_registry import bind_run_owner, reset_run_owner, run_owner_from_params
+        from swarm.core.cli_run_registry import (
+            bind_run_owner,
+            reset_run_owner,
+            run_owner_from_params,
+        )
 
         owner_token = bind_run_owner(run_owner_from_params(params))
         try:
@@ -378,13 +461,20 @@ class CliAgentBlueprint(BlueprintBase):
                 else:
                     yield support.progress_chunk(f"_Inference profile → `{cli}`…_")
 
-        registry = support.apply_overrides(support.build_registry(config), params)
+        seat_remote = self._seat_remote(params)
+        if seat_remote and not params.get(support.PARAM_CLI_REMOTE) and not params.get(
+            "remote"
+        ):
+            params = {**params, support.PARAM_CLI_REMOTE: seat_remote}
+        registry = support.apply_overrides(
+            support.build_registry(config), params, config=config
+        )
         chain = support.resolve_failover_chain(config, params, registry)
         if not chain:
             yield support.message_chunk(
-                "No CLI agents are configured. Add a 'cli_agents' block to your "
-                "swarm config (see docs/CLI_FUSION.md).",
+                support.UNCONFIGURED_CLI_AGENTS_MESSAGE,
                 final=True,
+                meta=support.fatal_config_meta(),
             )
             return
 
@@ -439,7 +529,7 @@ class CliAgentBlueprint(BlueprintBase):
                     yield support.context_carried_chunk(str(prepared["notice"]))
                 # REQ-92: new-session status is context for the reply — emit first.
                 if not can_resume:
-                    yield support.session_notice_chunk(adapter.name, resumed=False)
+                    yield self._session_notice(adapter, params, resumed=False)
                 turn_prompt = str(prepared.get("prompt") or prompt)
                 result = None
                 async for chunk in adapter.stream_run(
@@ -454,7 +544,7 @@ class CliAgentBlueprint(BlueprintBase):
                 resumed = can_resume and result is not None and result.ok
                 if result is not None and can_resume and not result.ok and is_resume_failure(result):
                     self._forget_session(params, adapter.name)
-                    yield support.session_notice_chunk(adapter.name, resumed=False)
+                    yield self._session_notice(adapter, params, resumed=False)
                     turn_prompt = self._turn_prompt(
                         messages, prompt, params, workdir, resume=False
                     )
@@ -466,11 +556,13 @@ class CliAgentBlueprint(BlueprintBase):
                             yield support.message_chunk(chunk.delta)
                     resumed = False
                 elif can_resume:
-                    yield support.session_notice_chunk(adapter.name, resumed=resumed)
+                    yield self._session_notice(adapter, params, resumed=resumed)
                 if result is not None and result.session_id:
                     self._remember_session(params, adapter.name, result.session_id)
                 elif resumed and stored:
                     self._remember_session(params, adapter.name, stored)
+                else:
+                    self._stamp_store_session(params, adapter, result)
                 if result is not None and result.ok:
                     self._mark_active_cli(params, adapter.name)
                 if result is not None and result.terminated:
@@ -478,7 +570,13 @@ class CliAgentBlueprint(BlueprintBase):
                     return
                 if result is None or not result.ok:
                     err = (result.error if result else None) or "unknown error"
-                    yield support.message_chunk(support.format_cli_error(adapter, err), final=True)
+                    text = support.format_cli_error(adapter, err)
+                    meta = (
+                        support.fatal_config_meta()
+                        if is_fatal_config_error(err) or is_resume_failure_text(err)
+                        else None
+                    )
+                    yield support.message_chunk(text, final=True, meta=meta)
                 elif result.parse_error:
                     logger.warning("CLI %s parse issue: %s", target, result.parse_error)
                 # On success the content was already streamed as deltas.
@@ -507,7 +605,7 @@ class CliAgentBlueprint(BlueprintBase):
                 yield support.context_carried_chunk(str(prepared["notice"]))
             # REQ-92: new-session line before the CLI runs so it precedes the reply.
             if announce_new:
-                yield support.session_notice_chunk(adapter.name, resumed=False)
+                yield self._session_notice(adapter, params, resumed=False)
             result, resumed = await self._invoke_cli(
                 adapter, messages, prompt, params, workdir, prepared=prepared
             )
@@ -515,7 +613,7 @@ class CliAgentBlueprint(BlueprintBase):
                 yield support.terminated_notice_chunk()
                 return
             if not announce_new:
-                yield support.session_notice_chunk(adapter.name, resumed=resumed)
+                yield self._session_notice(adapter, params, resumed=resumed)
             if result.ok:
                 if result.parse_error:
                     logger.warning("CLI %s parse issue: %s", name, result.parse_error)
@@ -525,4 +623,10 @@ class CliAgentBlueprint(BlueprintBase):
             yield support.progress_chunk(f"_`{name}` failed: {last[1]} — failing over…_")
 
         detail = f" (last — {last[0]}: {last[1]})" if last else ""
-        yield support.message_chunk(f"All CLI candidates failed{detail}.", final=True)
+        text = f"All CLI candidates failed{detail}."
+        meta = (
+            support.fatal_config_meta()
+            if last is None or is_fatal_config_error(last[1]) or is_resume_failure_text(last[1])
+            else None
+        )
+        yield support.message_chunk(text, final=True, meta=meta)

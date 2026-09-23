@@ -21,7 +21,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -65,7 +65,7 @@ Write the final answer to the goal, integrating the results. Return only the ans
 """
 
 
-class CliPlannerBlueprint(BlueprintBase):
+class CliPlannerBlueprint(CliKindBase):
     """Plan, delegate, review, re-plan on stall, then synthesize."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -136,14 +136,19 @@ class CliPlannerBlueprint(BlueprintBase):
         planner, workers = self._resolve(params, registry)
         if not planner:
             yield support.message_chunk(
-                "No planner CLI is configured for cli_planner. Add a 'cli_planner' "
-                "block (or a 'cli_map'/'cli_fusion' default) to your swarm config "
-                "(see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message(
+                    "No planner CLI is configured for cli_planner"
+                ),
                 final=True,
             )
             return
         if not workers:
-            yield support.message_chunk("No worker CLIs are configured for cli_planner.", final=True)
+            yield support.message_chunk(
+                support.unconfigured_cli_message(
+                    "No worker CLIs are configured for cli_planner"
+                ),
+                final=True,
+            )
             return
 
         from swarm.core.workdir import WorkdirEscapeError

@@ -61,3 +61,103 @@ describe('CompactSummaryCard (REQ-213)', () => {
     expect(onRemove).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('CompactSummaryCard include-in-context (#214)', () => {
+  it('renders no checkbox when the toggle is not wired (system pills unchanged)', () => {
+    render(<CompactSummaryCard body="digest" />)
+    expect(screen.queryByTestId('summary-context-checkbox')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-summary')).not.toHaveAttribute('data-in-context')
+  })
+
+  it('defaults to ticked and renders the honest included state', () => {
+    render(<CompactSummaryCard body="digest" inContext={true} onToggleContext={vi.fn()} />)
+    const box = screen.getByTestId('summary-context-checkbox') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-in-context', 'true')
+    expect(screen.queryByTestId('summary-excluded-note')).not.toBeInTheDocument()
+  })
+
+  it('unticking calls onToggleContext(false)', () => {
+    const onToggleContext = vi.fn()
+    render(<CompactSummaryCard body="digest" inContext={true} onToggleContext={onToggleContext} />)
+    fireEvent.click(screen.getByTestId('summary-context-checkbox'))
+    expect(onToggleContext).toHaveBeenCalledWith(false)
+  })
+
+  it('excluded state is visually honest: dimmed card + note', () => {
+    render(<CompactSummaryCard body="digest" inContext={false} onToggleContext={vi.fn()} />)
+    expect(screen.getByTestId('summary-context-checkbox')).not.toBeChecked()
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-in-context', 'false')
+    expect(screen.getByTestId('chat-summary').className).toContain('opacity-60')
+    expect(screen.getByTestId('summary-excluded-note')).toHaveTextContent(
+      'Not included in chat context',
+    )
+  })
+
+  it('menu offers the live include/exclude context item for summaries', () => {
+    const onToggleContext = vi.fn()
+    render(<CompactSummaryCard body="digest" inContext={false} onToggleContext={onToggleContext} />)
+    fireEvent.contextMenu(screen.getByTestId('chat-summary'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Include in chat context' }))
+    expect(onToggleContext).toHaveBeenCalledWith(true)
+  })
+
+  it('menu shows the ticked state and excludes via menu too', () => {
+    const onToggleContext = vi.fn()
+    render(<CompactSummaryCard body="digest" inContext={true} onToggleContext={onToggleContext} />)
+    fireEvent.contextMenu(screen.getByTestId('chat-summary'))
+    fireEvent.click(screen.getByRole('menuitem', { name: '✓ Included in chat context' }))
+    expect(onToggleContext).toHaveBeenCalledWith(false)
+  })
+
+  it('no context item appears in the menu when the toggle is not wired', () => {
+    render(<CompactSummaryCard body="digest" />)
+    fireEvent.contextMenu(screen.getByTestId('chat-summary'))
+    expect(
+      screen.queryByRole('menuitem', { name: 'Include in chat context' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: '✓ Included in chat context' }),
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe('CompactSummaryCard edit (#57)', () => {
+  it('does not offer edit unless canEdit is set', () => {
+    render(<CompactSummaryCard body="digest" />)
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-can-edit', 'false')
+  })
+
+  it('edits like a chat bubble: hover Edit, save, cancel', () => {
+    const onSaveEdit = vi.fn()
+    render(<CompactSummaryCard body="outer digest" canEdit onSaveEdit={onSaveEdit} />)
+
+    expect(screen.getByTestId('chat-summary')).toHaveAttribute('data-can-edit', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    expect(editor).toHaveValue('outer digest')
+
+    fireEvent.change(editor, { target: { value: 'revised digest' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onSaveEdit).not.toHaveBeenCalled()
+    expect(screen.getByTestId('chat-summary-body')).toHaveTextContent('outer digest')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit message' }), {
+      target: { value: 'revised digest' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSaveEdit).toHaveBeenCalledWith('revised digest')
+  })
+
+  it('clicking the summary body enters edit, Ctrl/Cmd+Enter saves', () => {
+    const onSaveEdit = vi.fn()
+    render(<CompactSummaryCard body="digest" canEdit onSaveEdit={onSaveEdit} />)
+    fireEvent.click(screen.getByTestId('chat-summary-body'))
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    fireEvent.change(editor, { target: { value: 'from click' } })
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true })
+    expect(onSaveEdit).toHaveBeenCalledWith('from click')
+  })
+})

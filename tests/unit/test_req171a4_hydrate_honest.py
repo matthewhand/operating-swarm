@@ -11,6 +11,7 @@ REPO = Path(__file__).resolve().parents[2]
 AGENT_CHAT = REPO / "webui" / "frontend" / "src" / "lib" / "agentChat.ts"
 AGENT_CHAT_TEST = REPO / "webui" / "frontend" / "src" / "lib" / "__tests__" / "agentChat.test.ts"
 CHAT_PAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+MSG_LIST = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "ChatMessageList.tsx"
 HYDRATE_TEST = (
     REPO / "webui" / "frontend" / "src" / "pages" / "__tests__" / "ChatPage.hydrate.test.tsx"
 )
@@ -52,7 +53,7 @@ def test_contract_test_no_longer_locks_empty_on_failure():
 
 
 def test_chat_page_toasts_keeps_bucket_and_hydrates_remotes():
-    src = CHAT_PAGE.read_text(encoding="utf-8")
+    src = CHAT_PAGE.read_text(encoding="utf-8") + MSG_LIST.read_text(encoding="utf-8")
     assert "noteHydrateFailure" in src
     assert "Could not load chat" in src
     assert "Existing messages were kept" in src

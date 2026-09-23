@@ -12,6 +12,17 @@ const KINDS = new Set<AgentKind>(['api', 'cli', 'remote', 'blueprint'])
 const REMOTE_IMPL_IDS = new Set([
   'herdr',
   'hermes',
+  'anythingllm',
+  'letta',
+  'memgpt',
+  'openwebui',
+  'open-webui',
+  'open_webui',
+  'owui',
+  'flowise',
+  'flowiseai',
+  'n8n',
+  'n8n-io',
   'omb',
   'rakazo',
   'openmausbot',
@@ -21,6 +32,9 @@ const REMOTE_IMPL_IDS = new Set([
   'open-swarm',
   'openswarm',
   'open_swarm',
+  'trueforge',
+  'true_forge',
+  'true-forge',
 ])
 
 export function isRemoteImplId(raw: string | null | undefined): boolean {
@@ -40,6 +54,11 @@ export function classifyAgentKind(
   if (isRemoteImplId(explicit)) return 'remote'
   const text = (raw ?? '').trim().toLowerCase()
   if (text.startsWith('cli:')) return 'cli'
+  // #534: recipe blueprints run a turn for their payload kind — the SPA sends
+  // `blueprint: remote_harness` when a remote seat chats, so the recipe id is
+  // what every send-path gate sees. Mirror the backend classifier.
+  if (text === 'remote_harness') return 'remote'
+  if (text === 'cli_agent') return 'cli'
   if (text.startsWith('blueprint:')) return 'blueprint'
   if (
     text.startsWith('remote:') ||
@@ -61,10 +80,11 @@ export function isSwarmOwnedAgent(
   return kind === 'api' || kind === 'blueprint'
 }
 
-/** True for editable threads: API + blueprint. CLI/remote stay read-only. */
+/** True for editable threads: API + blueprint + CLI (edit restarts the
+ * provider session — REQ-808). Remote threads stay read-only (REQ-49). */
 export function canEditAgentMessages(
   raw: string | null | undefined,
   explicit?: string | null,
 ): boolean {
-  return isSwarmOwnedAgent(raw, explicit)
+  return classifyAgentKind(raw, explicit) !== 'remote'
 }

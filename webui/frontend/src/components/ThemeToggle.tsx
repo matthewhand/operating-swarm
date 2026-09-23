@@ -1,84 +1,82 @@
 import { useEffect, useState } from 'react'
-import { Laptop, Moon, Sun } from 'lucide-react'
+import { saveUserPrefs } from '../lib/userPrefs'
+import { Moon, Sun } from 'lucide-react'
 import {
   dispatchSetTheme,
-  initialNavbarThemeVisible,
+  initialNavbarThemeMode,
   initialTheme,
+  isNavbarThemeToggleVisible,
   nextTheme,
-  resolveTheme,
-  subscribeSystemTheme,
+  resolveSystemTheme,
+  THEME_NAVBAR_MODE_SET_EVENT,
   THEME_NAVBAR_SET_EVENT,
   THEME_SET_EVENT,
   THEME_TOGGLE_EVENT,
+  type NavbarThemeToggleMode,
   type Theme,
 } from '../lib/theme'
 
-export default function ThemeToggle() {
-  const [visible, setVisible] = useState<boolean>(initialNavbarThemeVisible)
+export default function ThemeToggle({ className = '' }: { className?: string }) {
+  const [mode, setMode] = useState<NavbarThemeToggleMode>(initialNavbarThemeMode)
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(initialTheme()))
 
   useEffect(() => {
     const onSet = (event: Event) => {
       const detail = (event as CustomEvent<Theme>).detail
       if (detail === 'light' || detail === 'dark' || detail === 'system') {
         setTheme(detail)
-        setResolvedTheme(resolveTheme(detail))
       }
     }
     const onToggle = () => {
-      setTheme((prev) => {
-        const next = nextTheme(prev)
-        setResolvedTheme(resolveTheme(next))
-        return next
-      })
+      setTheme((prev) => nextTheme(prev))
+    }
+    const onNavbarMode = (event: Event) => {
+      const detail = (event as CustomEvent<NavbarThemeToggleMode>).detail
+      if (detail === 'if_not_system' || detail === 'always' || detail === 'never') {
+        setMode(detail)
+      }
     }
     const onNavbarToggle = (event: Event) => {
       const detail = (event as CustomEvent<boolean>).detail
-      setVisible(Boolean(detail))
+      setMode(detail ? 'always' : 'never')
     }
 
     window.addEventListener(THEME_SET_EVENT, onSet)
     window.addEventListener(THEME_TOGGLE_EVENT, onToggle)
+    window.addEventListener(THEME_NAVBAR_MODE_SET_EVENT, onNavbarMode)
     window.addEventListener(THEME_NAVBAR_SET_EVENT, onNavbarToggle)
 
     return () => {
       window.removeEventListener(THEME_SET_EVENT, onSet)
       window.removeEventListener(THEME_TOGGLE_EVENT, onToggle)
+      window.removeEventListener(THEME_NAVBAR_MODE_SET_EVENT, onNavbarMode)
       window.removeEventListener(THEME_NAVBAR_SET_EVENT, onNavbarToggle)
     }
   }, [])
 
-  useEffect(() => {
-    if (theme !== 'system') return
-    return subscribeSystemTheme((nextResolved) => {
-      setResolvedTheme(nextResolved)
-    })
-  }, [theme])
+  if (!isNavbarThemeToggleVisible(mode, theme)) return null
 
-  if (!visible) return null
-
-  const next = nextTheme(theme)
+  const resolved = theme === 'system' ? resolveSystemTheme() : theme
+  const next = resolved === 'dark' ? 'light' : 'dark'
   const ariaLabel =
-    theme === 'dark'
-      ? 'Switch to light theme'
-      : theme === 'light'
-      ? 'Switch to system theme'
-      : 'Switch to dark theme'
+    resolved === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
 
   return (
     <button
       type="button"
-      className="btn btn-ghost btn-sm btn-square"
+      className={`btn btn-ghost btn-sm btn-square shrink-0 ${className}`}
       aria-label={ariaLabel}
       title={`Theme: ${theme}. Click to switch to ${next}`}
       data-testid="theme-toggle-btn"
-      onClick={() => dispatchSetTheme(next)}
+      onClick={() => {
+        dispatchSetTheme(next)
+        // #848: the navbar click is a preference change, so it syncs to the
+        // server like the Settings control does (no-op failure for guests).
+        void saveUserPrefs({ theme: next })
+      }}
     >
-      {theme === 'dark' ? (
+      {resolved === 'dark' ? (
         <Sun className="h-4 w-4" aria-hidden="true" />
-      ) : theme === 'light' ? (
-        <Laptop className="h-4 w-4" aria-hidden="true" />
       ) : (
         <Moon className="h-4 w-4" aria-hidden="true" />
       )}

@@ -32,7 +32,7 @@ try:
     from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
     from openai import AsyncOpenAI
 
-    from swarm.core.blueprint_base import BlueprintBase
+    from swarm.core.kind_bases import TeamKindBase
 except ImportError as e:
     print(f"ERROR: Import failed in PoetsBlueprint: {e}. Check dependencies.")
     print(f"sys.path: {sys.path}")
@@ -260,7 +260,7 @@ def print_operation_box(op_type, results, params=None, result_type="creative", t
     ansi_box(box_title, box_content, count=count, params=params, style=style if not taking_long else 'warning', emoji=emoji)
 
 # --- Define the Blueprint ---
-class PoetsBlueprint(BlueprintBase):
+class PoetsBlueprint(TeamKindBase):
     def __init__(self, blueprint_id: str = "poets", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id=blueprint_id, config=config, config_path=config_path, **kwargs)
         self.blueprint_id = blueprint_id

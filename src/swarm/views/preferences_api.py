@@ -79,6 +79,16 @@ class UserPreferencesView(APIView):
                 "context_cull_fraction_pct": serializers.IntegerField(
                     required=False, min_value=1, max_value=99
                 ),
+                "theme": serializers.ChoiceField(
+                    required=False, choices=["system", "light", "dark"]
+                ),
+                "theme_navbar_mode": serializers.ChoiceField(
+                    required=False, choices=["if_not_system", "always", "never"]
+                ),
+                "bubble_theme": serializers.CharField(
+                    required=False, allow_blank=True, max_length=64
+                ),
+                "rail_sections": serializers.DictField(required=False),
                 "values": serializers.DictField(required=False),
             },
         ),
@@ -96,6 +106,10 @@ class UserPreferencesView(APIView):
                 prefs.CONTEXT_STRATEGY,
                 prefs.CULL_TRIGGER_KEY,
                 prefs.CULL_FRACTION_KEY,
+                prefs.THEME_KEY,
+                prefs.THEME_NAVBAR_MODE_KEY,
+                prefs.BUBBLE_THEME_KEY,
+                prefs.RAIL_SECTIONS_KEY,
                 "values",
             )
         ):
@@ -105,7 +119,8 @@ class UserPreferencesView(APIView):
                         "Provide at least one of favourites, hidden_agents, "
                         "hostname_override, context_auto_compress_pct, "
                         "context_strategy, context_cull_trigger_pct, "
-                        "context_cull_fraction_pct, values."
+                        "context_cull_fraction_pct, theme, theme_navbar_mode, "
+                        "bubble_theme, rail_sections, values."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -125,6 +140,24 @@ class UserPreferencesView(APIView):
             if not isinstance(body.get("hostname_override"), str):
                 return Response(
                     {"error": "hostname_override must be a string."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if "theme" in body and body.get("theme") is not None:
+            if not isinstance(body.get("theme"), str):
+                return Response(
+                    {"error": "theme must be a string ('system', 'light', 'dark')."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if "theme_navbar_mode" in body and body.get("theme_navbar_mode") is not None:
+            if not isinstance(body.get("theme_navbar_mode"), str):
+                return Response(
+                    {"error": "theme_navbar_mode must be a string ('if_not_system', 'always', 'never')."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if "bubble_theme" in body and body.get("bubble_theme") is not None:
+            if not isinstance(body.get("bubble_theme"), str):
+                return Response(
+                    {"error": "bubble_theme must be a string."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         if "values" in body and not isinstance(body.get("values"), dict):
@@ -152,6 +185,19 @@ class UserPreferencesView(APIView):
             patch[prefs.CULL_TRIGGER_KEY] = body[prefs.CULL_TRIGGER_KEY]
         if prefs.CULL_FRACTION_KEY in body:
             patch[prefs.CULL_FRACTION_KEY] = body[prefs.CULL_FRACTION_KEY]
+        if prefs.THEME_KEY in body:
+            patch[prefs.THEME_KEY] = body[prefs.THEME_KEY]
+        if prefs.THEME_NAVBAR_MODE_KEY in body:
+            patch[prefs.THEME_NAVBAR_MODE_KEY] = body[prefs.THEME_NAVBAR_MODE_KEY]
+        if prefs.BUBBLE_THEME_KEY in body:
+            patch[prefs.BUBBLE_THEME_KEY] = body[prefs.BUBBLE_THEME_KEY]
+        if prefs.RAIL_SECTIONS_KEY in body:
+            if not isinstance(body.get(prefs.RAIL_SECTIONS_KEY), dict):
+                return Response(
+                    {"error": "rail_sections must be an object."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            patch[prefs.RAIL_SECTIONS_KEY] = body[prefs.RAIL_SECTIONS_KEY]
 
         current = row.values if row is not None else {}
         merged = prefs.merge_values(current, patch)

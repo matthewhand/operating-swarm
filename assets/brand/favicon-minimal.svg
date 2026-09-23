@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Open Swarm">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Operating Swarm">
   <!--
     option3-minimal-brand-mark : favicon / PWA / small chrome.
     Top-down symmetrical silhouette. Gold #EBA222 / black #111111 on slate
     #17212A. Project-owned recreation of the #537 taster; no stock art.
   -->
-  <title>Open Swarm</title>
+  <title>Operating Swarm</title>
   <rect width="64" height="64" rx="14" fill="#17212A"/>
 
   <!-- Wings: two solid petals -->

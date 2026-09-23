@@ -9,6 +9,7 @@
  */
 
 import { parseStartedAt } from './avatarStack'
+import { ApiThrottleError, coalescedRemotesFetch, isThrottleError } from './api'
 
 export const REMOTES_URL = '/v1/remotes/'
 /** Optional local fixture (no LAN). Checked before GET /v1/remotes/. */
@@ -33,6 +34,11 @@ export interface RemoteEntry {
   title: string
   configured: boolean
   agents: RemoteAgent[]
+  capabilities?: { sessions?: boolean; list?: boolean; send?: boolean }
+  /** #601: server-stamped activity instant (epoch ms), absent when unknown. */
+  lastMessageAt?: number
+  /** #844: server-derived recent-activity snippet, absent when unknown. */
+  lastMessage?: string
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -120,18 +126,54 @@ export function parseRemote(raw: unknown): RemoteEntry | null {
   const agents = agentList(rec)
     .map((row, index) => parseAgent(row, index))
     .filter((row): row is RemoteAgent => row !== null)
-  return { id, kind, title, configured, agents }
+  const capsRec = asRecord(rec.capabilities)
+  const capabilities = capsRec
+    ? {
+        sessions: capsRec.sessions === true,
+        list: capsRec.list === true,
+        send: capsRec.send === true,
+      }
+    : undefined
+  return {
+    id,
+    kind,
+    title,
+    configured,
+    agents,
+    capabilities,
+    ...parseLastMessageAt(rec),
+    ...parseLastMessageText(rec),
+  }
 }
 
-/** Always listed on the conversation rail (Hermes + OpenMousBot). */
+/** #601: server stamps ISO-8601 or epoch-ms; normalise to epoch ms or absent. */
+function parseLastMessageAt(rec: Record<string, unknown>): { lastMessageAt: number } | Record<string, never> {
+  const raw = rec.last_message_at ?? rec.lastMessageAt
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return { lastMessageAt: raw }
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = Date.parse(raw)
+    if (Number.isFinite(parsed)) return { lastMessageAt: parsed }
+  }
+  return {}
+}
+
+/** #844: pass the server snippet through (validated string). */
+function parseLastMessageText(rec: Record<string, unknown>): { lastMessage: string } | Record<string, never> {
+  const raw = rec.last_message ?? rec.lastMessage
+  if (typeof raw === 'string' && raw.trim()) return { lastMessage: raw }
+  return {}
+}
+
+/**
+ * Historic pin set (Hermes + OpenMousBot). Kept for callers that still
+ * special-case those kinds. It does **not** force unconfigured catalog
+ * rows onto the rail — that produced a chat seat whose only reply was
+ * "not added as a remote — catalog placeholder" (issue #430).
+ */
 export const PINNED_RAIL_REMOTE_IDS = new Set(['hermes', 'omb', 'openmousbot', 'openmausbot'])
 
-/** Pinned remotes, plus any the operator added or that already report agents. */
+/** Operator-added remotes, or rows that already report agents. */
 export function isRailRemote(remote: RemoteEntry): boolean {
-  const id = String(remote.id || '').trim().toLowerCase()
-  if (PINNED_RAIL_REMOTE_IDS.has(id) || PINNED_RAIL_REMOTE_IDS.has(String(remote.kind || '').toLowerCase())) {
-    return true
-  }
   return remote.configured || remote.agents.length > 0
 }
 
@@ -160,15 +202,60 @@ export function parseRailRemotes(payload: unknown): RemoteEntry[] {
  * (no live LAN).
  */
 export async function fetchConfiguredRemotes(): Promise<RemoteEntry[]> {
-  for (const url of [REMOTES_FIXTURE_URL, REMOTES_URL]) {
-    try {
-      const response = await fetch(url, { headers: { Accept: 'application/json' } })
-      if (!response.ok) continue
+  // #581: optional fixture first (static file — not throttled), then the
+  // shared coalesced GET /v1/remotes/ instead of an independent fetch.
+  try {
+    const response = await fetch(REMOTES_FIXTURE_URL, {
+      headers: { Accept: 'application/json' },
+    })
+    if (response.ok) {
       const parsed = parseRailRemotes(await response.json())
       if (parsed.length > 0) return parsed
-    } catch {
-      // Try the next candidate; empty list is the last resort.
+    }
+  } catch {
+    // Fixture is optional; fall through to the API.
+  }
+  try {
+    const payload = await coalescedRemotesFetchWithThrottleRetry()
+    return parseRailRemotes(payload)
+  } catch (err) {
+    // #680: a swallowed 429 used to be cached by react-query as a truthful
+    // empty list — the rail's Remotes section stayed missing until a manual
+    // reload. Re-throw so the query lands in the error state (retryable),
+    // never fabricate an empty result from a failure.
+    if (isThrottleError(err)) throw err
+    return []
+  }
+}
+
+/**
+ * #680: the coalesced GET with bounded throttle patience.
+ *
+ * A 429 means the burst tripped the server throttle — the data exists, we
+ * just asked too fast. Wait out the server's Retry-After (capped) and retry
+ * a bounded number of times so the section self-heals without a manual
+ * reload. A genuine failure still surfaces after the budget is spent.
+ */
+const THROTTLE_RETRY_CAP_SECONDS = 20
+const THROTTLE_MAX_ATTEMPTS = 3
+
+function throttleWaitMs(err: ApiThrottleError, attempt: number): number {
+  const seconds = Math.min(
+    err.retryAfterSeconds > 0 ? err.retryAfterSeconds : 2 ** attempt,
+    THROTTLE_RETRY_CAP_SECONDS,
+  )
+  return seconds * 1_000
+}
+
+export async function coalescedRemotesFetchWithThrottleRetry(): Promise<
+  ReturnType<typeof coalescedRemotesFetch>
+> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await coalescedRemotesFetch()
+    } catch (err) {
+      if (!isThrottleError(err) || attempt >= THROTTLE_MAX_ATTEMPTS - 1) throw err
+      await new Promise((resolve) => setTimeout(resolve, throttleWaitMs(err, attempt)))
     }
   }
-  return []
 }

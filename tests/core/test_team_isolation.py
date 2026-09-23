@@ -4,10 +4,12 @@ import pytest
 
 from swarm.core.team_consult import TeamConsultTool, build_cross_team_tools
 from swarm.core.team_isolation import (
+    ROLE_CHIEF_OF_STAFF,
     can_as_tool,
     can_handoff,
     can_talk,
     consultable_team_ids,
+    role_of_member,
     send_to_all_targets,
 )
 
@@ -157,3 +159,42 @@ def test_consult_tool_invokes_send_to_all_and_denies_strangers():
     )
     with pytest.raises(PermissionError, match="cross_team_denied"):
         blocked("nope")
+
+
+def test_role_of_member_honors_roster_level_chief_of_staff_id():
+    """#739 — CoS authority resolves from chief_of_staff_id without a role stamp."""
+    rosters = {
+        "ops": {
+            "id": "ops",
+            "chief_of_staff_id": "jeeves",
+            "members": [
+                {"id": "jeeves", "kind": "api", "role": "default", "source": "blueprint:jeeves"},
+                {"id": "grok", "kind": "cli", "role": "skeptic", "source": "cli:grok"},
+            ],
+        }
+    }
+    assert role_of_member("jeeves", rosters) == ROLE_CHIEF_OF_STAFF
+    # Legacy stamped tag (no explicit chief_of_staff_id key) is recovered into
+    # the roster-level designation during normalization — the migration path.
+    legacy = {
+        "ops": {
+            "id": "ops",
+            "members": [
+                {"id": "jeeves", "kind": "api", "role": "chief_of_staff", "source": "blueprint:jeeves"},
+            ],
+        }
+    }
+    assert role_of_member("jeeves", legacy) == ROLE_CHIEF_OF_STAFF
+    # An explicit clear (chief_of_staff_id: None) demotes and yields no CoS.
+    cleared = {
+        "ops": {
+            "id": "ops",
+            "chief_of_staff_id": None,
+            "members": [
+                {"id": "jeeves", "kind": "api", "role": "chief_of_staff", "source": "blueprint:jeeves"},
+            ],
+        }
+    }
+    assert role_of_member("jeeves", cleared) != ROLE_CHIEF_OF_STAFF
+    # Non-CoS members are unaffected.
+    assert role_of_member("grok", rosters) == "skeptic"

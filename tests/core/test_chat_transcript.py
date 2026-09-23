@@ -14,6 +14,8 @@ from swarm.core.chat_transcript import (
 def test_notice_helpers_match_honest_copy():
     assert is_new_cli_session_notice("Started a new grok session.")
     assert is_cli_session_notice("Resumed opencode session.")
+    assert is_cli_session_notice("Started a new opencode session on dev-gpu.lan:4096.")
+    assert is_new_cli_session_notice("Started a new opencode session on dev-gpu.lan:4096.")
     assert not is_new_cli_session_notice("Resumed grok session.")
     assert not is_cli_session_notice("CLI: antigravity → grok")
 
@@ -42,6 +44,33 @@ def test_insert_skips_duplicate_new_session_line():
     )
     assert out == messages
     assert transcript_already_has_notice(messages, "Started a new grok session.")
+
+
+def test_hop_notice_covers_prompt_time_new_session_line():
+    """REQ-866: dropdown hop notice suppresses the short prompt-time line."""
+    hop = (
+        "Started a new grok session (antigravity → grok). "
+        "No prior context to carry from antigravity."
+    )
+    before_send = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi"},
+        {"role": "status", "content": hop},
+    ]
+    after_send = [
+        *before_send,
+        {"role": "user", "content": "next"},
+    ]
+    assert transcript_already_has_notice(before_send, "Started a new grok session.")
+    assert transcript_already_has_notice(after_send, "Started a new grok session.")
+    assert not transcript_already_has_notice(after_send, "Started a new omp session.")
+    carried = (
+        "Started a new omp session (qwen → omp). Carried summary context (12 tokens)."
+    )
+    assert transcript_already_has_notice(
+        [{"role": "status", "content": carried}, {"role": "user", "content": "hi"}],
+        "Started a new omp session.",
+    )
 
 
 def test_dropdown_status_still_appends():

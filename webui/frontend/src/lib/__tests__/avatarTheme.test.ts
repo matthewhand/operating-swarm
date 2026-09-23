@@ -138,7 +138,7 @@ describe('enabled avatar themes (REQ-828)', () => {
       a: 'bland',
       b: 'bland',
     })
-    const keep = { a: 'bee', b: 'blobs' }
+    const keep = { a: 'bee' as const, b: 'blobs' as const }
     expect(stripDisabledAvatarThemes(keep, ['blobs', 'bee'])).toBe(keep)
   })
 })

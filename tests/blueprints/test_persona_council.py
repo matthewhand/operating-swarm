@@ -96,7 +96,10 @@ async def test_no_judge_returns_labeled_views():
 
 async def test_no_cli_configured():
     bp = PersonaCouncilBlueprint(config={})
-    assert "No CLI backend" in _final(await _collect(bp.run([{"role": "user", "content": "q"}])))
+    final = _final(await _collect(bp.run([{"role": "user", "content": "q"}])))
+    assert "No CLI backend" in final
+    assert "[Manage CLI](/chat?settings=cli-agents)" in final
+    assert "docs/CLI_FUSION.md" not in final
 
 
 async def test_all_lenses_fail():

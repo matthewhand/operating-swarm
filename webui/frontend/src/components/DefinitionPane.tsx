@@ -1,8 +1,8 @@
 import { useEffect, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, FileCode2, RefreshCw } from 'lucide-react'
+import { AlertCircle, FileCode2, RefreshCw, Sparkles } from 'lucide-react'
 import { Alert, Button, Textarea } from './DaisyUI'
-import { fetchBlueprintSource, updateBlueprintSource } from '../lib/api'
+import { fetchBlueprintSource, formatBlueprintSource, updateBlueprintSource } from '../lib/api'
 import {
   MISSING_MODEL_HINT,
   localDefinitionContext,
@@ -31,6 +31,8 @@ export default function DefinitionPane({
   const brief = staticExplanation(kind, resolvedRole)
   const [mode, setMode] = useState<'explain' | 'edit'>('explain')
   const [draft, setDraft] = useState('')
+  const [formatting, setFormatting] = useState(false)
+  const [formatHint, setFormatHint] = useState<string | null>(null)
   const [savedSource, setSavedSource] = useState<string | null>(null)
   const [summary, setSummary] = useState<string | null>(null)
   const [summarizing, setSummarizing] = useState(false)
@@ -68,6 +70,10 @@ export default function DefinitionPane({
   const source = savedSource ?? sourceMetaQuery.data?.content ?? ctx.source
   const sourceKnown = kind === 'team' || sourceMetaQuery.isFetched || sourceMetaQuery.isError
   const editable = sourceKnown && sourceMetaQuery.data?.editable === true
+  // #537: Format is offered for Python files only — markdown/json must not
+  // be "formatted". No file selection defaults to the primary (Python).
+  const selectedFile = sourceMetaQuery.data?.selected || sourceMetaQuery.data?.primary || ''
+  const isPythonFile = selectedFile === '' || selectedFile.toLowerCase().endsWith('.py')
   const readonlyReason =
     kind === 'team'
       ? 'Team roster is not Python blueprint source — open Blueprints for a recipe.'
@@ -113,6 +119,24 @@ export default function DefinitionPane({
     // Auto-summarise once per loaded context.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definitionId, kind, llmConfigured, contextQuery.dataUpdatedAt])
+
+  const handleFormat = async () => {
+    setFormatHint(null)
+    setFormatting(true)
+    try {
+      const result = await formatBlueprintSource(definitionId, {
+        content: draft,
+        file: selectedFile || undefined,
+      })
+      setDraft(result.formatted)
+      setFormatHint('Formatted — review, then Save to apply.')
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Format failed'
+      setFormatHint(msg)
+    } finally {
+      setFormatting(false)
+    }
+  }
 
   const handleSave = async () => {
     const next = draft
@@ -174,6 +198,17 @@ export default function DefinitionPane({
       <div data-testid="definition-explanation" className="space-y-2">
         <h5 className="text-sm font-semibold">How it works</h5>
         <p className="text-sm leading-relaxed text-base-content/80">{brief}</p>
+        {/* REQ-921 / #540: the SDK reference is reachable from the same place
+            the per-blueprint explanation lives. Auth required, opens a tab. */}
+        <a
+          href="/sdk-docs/"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-block text-xs link link-hover"
+          data-testid="definition-sdk-docs-link"
+        >
+          Blueprint SDK reference →
+        </a>
       </div>
 
       <div data-testid="definition-summary" className="space-y-2">
@@ -213,15 +248,30 @@ export default function DefinitionPane({
 
       {mode === 'edit' && editable ? (
         <div className="space-y-3">
+          {/* #537: w-full overrides DaisyUI's .textarea width clamp so the
+              editor fills the available pane width. */}
           <Textarea
             label="Definition source"
             aria-label="Definition source"
-            className="min-h-56 font-mono text-xs"
+            className="w-full min-h-56 font-mono text-xs"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             spellCheck={false}
           />
           <div className="flex flex-wrap gap-2">
+            {isPythonFile ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="definition-format"
+                disabled={formatting}
+                onClick={() => void handleFormat()}
+              >
+                <Sparkles className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                {formatting ? 'Formatting…' : 'Format'}
+              </Button>
+            ) : null}
             <Button type="button" variant="primary" size="sm" onClick={() => void handleSave()}>
               Save
             </Button>
@@ -272,6 +322,11 @@ export default function DefinitionPane({
       )}
 
       {saveHint ? <p className="text-xs text-base-content/60">{saveHint}</p> : null}
+      {formatHint ? (
+        <p className="text-xs text-base-content/60" data-testid="definition-format-hint">
+          {formatHint}
+        </p>
+      ) : null}
       {needResummarise && llmConfigured && mode === 'explain' ? (
         <p className="text-xs text-base-content/60">
           Source changed. Re-summarise / analyse to refresh against the new source and injections.

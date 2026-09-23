@@ -10,6 +10,8 @@ import { clearAllQueuedSends } from '../../lib/chatQueue'
 import { AVATAR_THEME_STORAGE_KEY, saveAvatarTheme } from '../../lib/avatarTheme'
 import { OPEN_AGENT_EDITOR_EVENT } from '../../lib/agentSettings'
 import { saveEnabledPluginToolIds } from '../../lib/chatPluginTools'
+import { CLI_RUN_STATE_EVENT, cliRunStateFromEvent } from '../../lib/cliRunState'
+import { peekApprovalWait, resetAgentAttention } from '../../lib/agentAttention'
 
 type WsHandler = ((ev?: Event) => void) | null
 
@@ -243,6 +245,121 @@ describe('ChatPage Unavailable / Sign-in CTA + connection status', () => {
   })
 })
 
+describe('ChatPage websocket constructor-failure reconnect (#334)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  it('clears the reconnect timer when the constructor-failure effect unmounts', async () => {
+    const reconnectIds: number[] = []
+    const origSetTimeout = globalThis.setTimeout.bind(globalThis)
+    const origClearTimeout = globalThis.clearTimeout.bind(globalThis)
+    const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: TimerHandler,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
+      const id = origSetTimeout(fn, ms, ...args)
+      if (ms === 1000) reconnectIds.push(Number(id))
+      return id
+    }) as typeof setTimeout)
+    const cleared: number[] = []
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((
+      id?: number | ReturnType<typeof setTimeout>,
+    ) => {
+      if (id !== undefined) cleared.push(Number(id))
+      return origClearTimeout(id as Parameters<typeof origClearTimeout>[0])
+    }) as typeof clearTimeout)
+
+    class ThrowSocket {
+      constructor() {
+        throw new Error('constructor failed')
+      }
+    }
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', ThrowSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+
+    const { unmount } = renderChat()
+    expect(await screen.findByText(/Unavailable — websocket unreachable/i)).toBeInTheDocument()
+    expect(reconnectIds.length).toBeGreaterThan(0)
+    unmount()
+    expect(cleared.some((id) => reconnectIds.includes(id))).toBe(true)
+    setSpy.mockRestore()
+    clearSpy.mockRestore()
+  })
+})
+
+describe('ChatPage default Support query (#336)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  it('keeps cli/model/session params when injecting the Support blueprint', async () => {
+    class MockWs {
+      static instances: MockWs[] = []
+      url: string
+      onopen: WsHandler = null
+      onmessage: WsHandler = null
+      onclose: WsHandler = null
+      send = vi.fn()
+      close = vi.fn()
+      constructor(url: string) {
+        this.url = url
+        MockWs.instances.push(this)
+      }
+    }
+    MockWs.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWs as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+
+    function QueryProbe() {
+      const [params] = useSearchParams()
+      return <div data-testid="chat-query">{params.toString()}</div>
+    }
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?cli=grok&model=x&session=s1']}>
+            <QueryProbe />
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      const qs = screen.getByTestId('chat-query').textContent || ''
+      const params = new URLSearchParams(qs)
+      expect(params.get('blueprint')).toBe('support')
+      expect(params.get('cli')).toBe('grok')
+      expect(params.get('model')).toBe('x')
+      expect(params.get('session')).toBe('s1')
+    })
+  })
+})
+
 describe('ChatPage disconnect toasts (REQ-112 #489)', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
@@ -433,7 +550,9 @@ describe('ChatPage agent header (no blueprint dropdown)', () => {
     expect(avatar).toBeTruthy()
     expect(avatar).toHaveAttribute('data-agent-avatar', 'default')
     expect(avatar).toHaveClass('os-chat-header__avatar')
-    expect(identity.firstElementChild).toBe(avatar)
+    // #224: the avatar sits inside the generations trigger button — still the
+    // header's first child, still preceding the heading.
+    expect(identity.firstElementChild?.contains(avatar!)).toBe(true)
     expect(heading.compareDocumentPosition(avatar!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
     expect(within(identity).getByRole('button', { name: 'Open Codey definition' })).toBeInTheDocument()
   })
@@ -555,9 +674,9 @@ describe('ChatPage Send path with mock inference', () => {
     expect(screen.getByRole('button', { name: /^Send$/i })).toBeEnabled()
   })
 
-  it('sends the per-chat enabled_tools allowlist on Send (#805)', async () => {
+  it('sends the per-agent enabled_tools allowlist on Send (#805, re-keyed #516)', async () => {
     window.localStorage.setItem('swarm_agent_chat:support', 'conv-support-805')
-    saveEnabledPluginToolIds('conv-support-805', ['web_search', 'web_fetch'])
+    saveEnabledPluginToolIds('support', ['web_search', 'web_fetch'])
     renderChat()
     await act(async () => {
       MockWebSocket.instances[0]?.open()
@@ -1503,6 +1622,13 @@ describe('ChatPage Grok composer and per-agent threads', () => {
       'Message …',
     )
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('menuitem', { name: 'Add files' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Compact' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Compose team' })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('menuitem', { name: 'Add files' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Compact' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Blueprints' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Teams' })).not.toBeInTheDocument()
@@ -1510,8 +1636,89 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(screen.getByRole('button', { name: 'Open settings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit agent' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Tokens in context')).toBeInTheDocument()
+    // #776: the navbar estimate meter is gone. The composer badge is the one
+    // meter, and it renders only once usage is known (WS frame / API) — no
+    // invented numbers on a fresh chat.
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     expect(document.querySelector('.os-chat-header [data-avatar-theme="blobs"]')).toBeInTheDocument()
+  })
+
+  it('#427: clicking Add files on a CLI seat toasts explanation and closes menu', async () => {
+    renderChat('/chat?blueprint=cli_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const addFilesBtn = screen.getByRole('menuitem', { name: 'Add files' })
+    expect(addFilesBtn).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(addFilesBtn)
+    expect(await screen.findByText(/File attachments aren’t supported for CLI or remote seats/)).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add files' })).not.toBeInTheDocument()
+  })
+
+  it('#550: Compact is offered but disabled on a CLI seat, with the reason reachable', async () => {
+    renderChat('/chat?blueprint=cli_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const compact = screen.getByRole('menuitem', { name: 'Compact' })
+    // Visible-but-disabled rather than silently absent: the user just opened
+    // this menu, so the reason has to be reachable (#511's precedent). #636:
+    // the reason names the missing API, not the provider transcript.
+    expect(compact).toHaveAttribute('aria-disabled', 'true')
+    expect(compact.getAttribute('title')).toMatch(/no api is configured/i)
+
+    fireEvent.click(compact)
+    expect(await screen.findByText(/no api is configured/i)).toBeInTheDocument()
+    // A refusal must not leave the menu hanging open.
+    expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
+  })
+
+  it('#550: Compact stays live on an API seat', async () => {
+    renderChat()
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const compact = screen.getByRole('menuitem', { name: 'Compact' })
+    expect(compact).toHaveAttribute('aria-disabled', 'false')
+  })
+
+  it('shows an explanatory toast when Add files is clicked on an unsupported seat', async () => {
+    vi.mocked(fetch).mockImplementation(async (info) => {
+      const url = String(info)
+      if (url.includes('/api/remotes/')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 'omb', name: 'OpenMousBot', kind: 'remote', base_url: 'http://127.0.0.1:9' },
+            ],
+          }),
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response
+    })
+    renderChat('/chat?remote=omb')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    const addFilesBtn = screen.getByRole('menuitem', { name: 'Add files' })
+    expect(addFilesBtn).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(addFilesBtn)
+
+    expect(await screen.findByText(/File attachments aren’t supported/i)).toBeInTheDocument()
   })
 
   it('REQ-76: circular up-arrow send appears only while the field has text', async () => {
@@ -1546,10 +1753,13 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     expect(composer).toHaveValue('')
     expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
+    // #632: the outer send morphs into the square stop; the mic is untouched.
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
+    expect(screen.getByTestId('composer-stop')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-stop')).toHaveClass('os-composer__send--stop')
   })
 
-  it('ghosts composer shortcut chips until hover or focus, swapping Enter/Esc by draft', async () => {
+  it('#631: ghosts composer shortcut chips — the ↵ hint only exists with a queued send', async () => {
     renderChat()
     await act(async () => {
       MockWebSocket.instances[0]?.open()
@@ -1557,18 +1767,16 @@ describe('ChatPage Grok composer and per-agent threads', () => {
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     expect(screen.queryByTestId('first-load-tips')).not.toBeInTheDocument()
-    const sendHint = screen.getByTestId('composer-send-hint')
-    expect(sendHint).toHaveClass('os-composer__hint')
-    expect(composer.closest('.os-composer')).toContainElement(sendHint)
+    // No queue → no ↵ hint (its hover purpose is gone with #631).
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
 
     fireEvent.focus(composer)
-    expect(screen.getByTestId('composer-send-hint')).toBeInTheDocument()
-    fireEvent.change(composer, { target: { value: 'draft' } })
     expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+    fireEvent.change(composer, { target: { value: 'draft' } })
     expect(screen.getByTestId('composer-clear-hint')).toBeInTheDocument()
 
     fireEvent.change(composer, { target: { value: '' } })
-    expect(screen.getByTestId('composer-send-hint')).toBeInTheDocument()
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
   })
 
   it('shows a Blobs header avatar by default and falls back to bland when opted in', async () => {
@@ -1596,7 +1804,7 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     const headerBee = document.querySelector('.os-chat-header [data-avatar-theme="bee"]')
     expect(headerBee).toBeInTheDocument()
     expect(headerBee?.querySelector('[data-googly="true"]')).toBeTruthy()
-    expect(['side-on', 'face-only']).toContain(
+    expect(['side-on', 'face-only', 'flying', 'honeycell', 'bumblebee', 'top-down']).toContain(
       headerBee?.querySelector('svg')?.getAttribute('data-bee-variant')
       || headerBee?.getAttribute('data-bee-variant'),
     )
@@ -1762,7 +1970,7 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     window.localStorage.clear()
   })
 
-  it('lists only configured remotes plus Add remote on remote agents', async () => {
+  it('lists only configured remotes plus Manage Remote on remote agents', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo) => {
@@ -1807,16 +2015,19 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'remote')
     expect(pill).toHaveAttribute('data-value', 'omb')
     fireEvent.click(pill)
-    const menu = await screen.findByTestId('routing-menu-agent')
-    const options = within(menu)
-      .getAllByRole('menuitem')
+    // #681: the provider stage lists only *configured* remotes — kinds are
+    // not providers. The Manage footer moved into the dialog.
+    await screen.findByTestId('composer-picker')
+    const options = screen
+      .getAllByTestId('composer-picker-row')
       .map((opt) => opt.textContent)
-    expect(options).toContain('OpenMousBot')
-    expect(options).toContain('Add remote')
-    expect(options).not.toContain('Hermes')
-    expect(options).not.toContain('Rakazo')
-    expect(options).not.toContain('OMB')
-    expect(options).not.toContain('No remotes')
+    expect(options.some((text) => text?.includes('OpenMousBot'))).toBe(true)
+    expect(options.every((text) => !text?.includes('Hermes'))).toBe(true)
+    expect(options.every((text) => !text?.includes('Rakazo'))).toBe(true)
+    expect(options.every((text) => !/\bOMB\b/.test(text || ''))).toBe(true)
+    expect(screen.getByTestId('composer-picker').textContent).not.toContain('No remotes')
+    // #836: unified cross-provider footer on every seat kind.
+    expect(screen.getByTestId('composer-picker-manage')).toHaveTextContent('Manage providers')
     expect(screen.getByTestId('navbar-routing-picker').textContent).not.toMatch(/\bOMB\b/)
   })
 
@@ -1860,9 +2071,18 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     const pill = await screen.findByTestId('routing-pill-agent')
     expect(pill).toHaveAttribute('data-value', 'omb')
     fireEvent.click(pill)
-    const menu = await screen.findByTestId('routing-menu-agent')
-    expect(within(menu).getByRole('menuitem', { name: 'OpenMousBot' })).toBeInTheDocument()
-    expect(within(menu).queryByRole('menuitem', { name: 'No remotes' })).not.toBeInTheDocument()
+    // #681: stage 2 for the bound remote — its (empty here) agent list under
+    // the always-present Use-default row; 'No remotes' chrome never appears.
+    const boundRow = (await screen.findAllByTestId('composer-picker-row')).find((el) =>
+      el.textContent?.includes('OpenMousBot'),
+    )
+    fireEvent.click(boundRow!)
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('OpenMousBot')
+    const rows = screen.getAllByTestId('composer-picker-row')
+    // No agents are listed for this remote in the fixture, so the default row
+    // is the provider-fallback form (no declared default id to name).
+    expect(rows[0]).toHaveTextContent('Use default')
+    expect(screen.queryByText('No remotes')).not.toBeInTheDocument()
   })
 
   it('opens Add remote instead of No remotes chrome when none are configured', async () => {
@@ -1948,12 +2168,15 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
     const pill = await screen.findByTestId('routing-pill-agent')
     expect(pill).toHaveTextContent('Pick a remote')
     fireEvent.click(pill)
-    const menu = await screen.findByTestId('routing-menu-agent')
-    const options = within(menu)
-      .getAllByRole('menuitem')
-      .map((opt) => opt.textContent)
-    expect(options).toContain('OpenMousBot')
-    expect(options).not.toContain('No remotes')
+    // #681: the unbound remote's provider row sits on stage 1; selecting it
+    // offers the Use-default row — 'No remotes' chrome never appears.
+    const unboundRow = (await screen.findAllByTestId('composer-picker-row')).find((el) =>
+      el.textContent?.includes('OpenMousBot'),
+    )
+    fireEvent.click(unboundRow!)
+    const rows = screen.getAllByTestId('composer-picker-row')
+    expect(rows[0]).toHaveTextContent('Use default')
+    expect(screen.queryByText('No remotes')).not.toBeInTheDocument()
   })
 
   it('hides the Remotes control on local API and CLI agents', async () => {
@@ -2067,24 +2290,81 @@ describe('ChatPage team member dropdown', () => {
     vi.unstubAllGlobals()
   })
 
-  it('lists All members first, then name + kind/role, then Manage Teams (unlabeled)', async () => {
+  it('lists All members first, then name + kind/role, with Manage Team as the footer action (#755)', async () => {
     renderChat('/chat?team=demo-team')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(select).not.toHaveAccessibleName('Blueprint')
-    const options = within(select).getAllByRole('option')
-    expect(options.map((opt) => opt.textContent)).toEqual([
-      'All members',
-      'Codey (agent/coder)',
-      'Stewie (agent/ops)',
-      'Manage Team',
-    ])
-    expect(select).toHaveValue('codey') // #169: seat default = first roster member
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
     expect(screen.queryByText('Blueprint')).not.toBeInTheDocument()
+    const options = ['all', 'codey', 'stewie'].map((id) =>
+      screen.getByTestId(`os-model-row-${id}`).textContent,
+    )
+    // Palette rows carry group/index chrome — assert the label is present.
+    expect(options[0]).toContain('All members')
+    expect(options[1]).toContain('Codey (agent/coder)')
+    expect(options[2]).toContain('Stewie (agent/ops)')
+    expect(screen.getByTestId('os-model-manage-api')).toHaveTextContent('Manage teams')
     expect(screen.getByRole('heading', { name: 'Demo Team' })).toBeInTheDocument()
+  })
+
+  it('#528: the navbar shows the team chat face where a single agent gets an avatar', async () => {
+    renderChat('/chat?team=demo-team')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    // Previously this rendered nothing for a team without a declared roster, so
+    // the header showed a bare name where a single agent gets an avatar.
+    const button = await screen.findByTestId('header-team-avatar')
+    // The face is the member you are talking to — the seat default (first
+    // roster member, #169) resolved through `defaultSessionForTeam`.
+    expect(button).toHaveAttribute('data-face-agent-id', 'codey')
+    expect(within(button).getByRole('img', { hidden: true })).toBeTruthy()
+    expect(screen.queryByTestId('header-avatar-generations')).not.toBeInTheDocument()
+
+    // Switching the active member updates the face (#755 picker path).
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-stewie'))
+    await waitFor(() => {
+      expect(screen.getByTestId('header-team-avatar')).toHaveAttribute(
+        'data-face-agent-id',
+        'stewie',
+      )
+    })
+  })
+
+  it('#528: the avatar is not a dead-end control when no member resolves', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('team_rosters') || url.includes('team-rosters')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [{ id: 'empty-team', name: 'Empty', members: [] }] }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+    renderChat('/chat?team=empty-team')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    const button = await screen.findByTestId('header-team-avatar')
+    // No member to open generations for, so the control must not claim to open
+    // anything: disabled, out of the tab order, and named after the team.
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('tabindex', '-1')
+    expect(button).not.toHaveAttribute('aria-haspopup', 'dialog')
+    // It claims no member face, because there is no member — the mark falls back
+    // to the team's own id rather than naming a member that does not exist.
+    expect(button).not.toHaveAttribute('data-face-agent-id')
   })
 
   it('shows Mode A kind-clear names in the team chat header dropdown', async () => {
@@ -2125,15 +2405,16 @@ describe('ChatPage team member dropdown', () => {
       MockWebSocket.instances[0]?.open()
     })
     expect(await screen.findByRole('heading', { name: 'Demo Harness Kinds' })).toBeInTheDocument()
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    const options = within(select).getAllByRole('option').map((opt) => opt.textContent)
-    expect(options).toEqual([
-      'All members',
-      'Grok CLI (cli/default)',
-      'LiteLLM API (api/default)',
-      'OpenMousBot Remote (remote/default)',
-      'Manage Team',
-    ])
+    // #755: the roster rows now live in the composer picker's palette.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    const options = ['all', 'grok-cli', 'litellm-api', 'openmousbot-remote'].map((id) =>
+      screen.queryByTestId(`os-model-row-${id}`)?.textContent,
+    )
+    expect(options[0]).toContain('All members')
+    expect(options[1]).toContain('Grok CLI (cli/default)')
+    expect(options[2]).toContain('LiteLLM API (api/default)')
+    expect(options[3]).toContain('OpenMousBot Remote (remote/default)')
     expect(options.join(' ')).not.toMatch(/\bOMB\b/)
   })
 
@@ -2144,10 +2425,9 @@ describe('ChatPage team member dropdown', () => {
     })
 
     const composer = await screen.findByRole('textbox', { name: 'Chat message' })
-    // #169: the dropdown now defaults to the first member; go explicit for the all-members frame.
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'all' },
-    })
+    // #169: the picker defaults to the first member; go explicit for the all-members frame.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-all'))
     fireEvent.change(composer, { target: { value: 'hello team' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
@@ -2160,9 +2440,8 @@ describe('ChatPage team member dropdown', () => {
       params: { team: 'demo-team', target: 'all', enabled_tools: [] },
     })
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'codey' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-codey'))
     fireEvent.change(composer, { target: { value: 'just codey' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
@@ -2204,19 +2483,15 @@ describe('ChatPage team member dropdown', () => {
     })
   })
 
-  it('keeps Manage Team last with separator and does not send when that item is chosen', async () => {
+  it('keeps Manage Team as the footer action and does not send when it is chosen (#755)', async () => {
     renderChat('/chat?team=demo-team')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    const options = within(select).getAllByRole('option')
-    expect(options[options.length - 1]).toHaveValue('__manage__')
-    expect(options[options.length - 1]).toHaveTextContent('Manage Team')
-    const allOptions = Array.from(select.querySelectorAll('option'))
-    expect(allOptions[allOptions.length - 2]).toBeDisabled()
-    expect(select).toHaveValue('codey') // #169: seat default = first roster member
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    expect(screen.getByTestId('os-model-manage-api')).toHaveTextContent('Manage teams')
     expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
   })
 
@@ -2229,9 +2504,8 @@ describe('ChatPage team member dropdown', () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
-      target: { value: '__manage__' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-manage-api'))
     expect(assign).toHaveBeenCalledWith('/teams/#demo-team')
     expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
   })
@@ -2632,6 +2906,16 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
 
   it('drops the token meter after Compact replaces raw turns with a short summary', async () => {
     const compactPayload = {
+      usage: {
+        type: 'context_usage',
+        conversation_id: 'c-meter',
+        agent_id: 'codey',
+        tokens: 600,
+        window: 128000,
+        pct: 1,
+        estimate: true,
+        breakdown: { messages: 0, summaries: 400, system: 200, tools: 0 },
+      },
       summary: {
         id: 1,
         conversation_id: 'c-meter',
@@ -2692,16 +2976,33 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
       MockWebSocket.instances[0]?.open()
     })
     expect(await screen.findByText('aaaaaaaaaaaaaaaa')).toBeInTheDocument()
-    const meter = screen.getByRole('meter', { name: 'Tokens in context' })
-    const before = Number(meter.getAttribute('aria-valuenow'))
-    expect(before).toBeGreaterThan(0)
+    // #776: usage arrives as the server-reported badge (WS frame), not a
+    // client-side navbar estimate meter.
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'context_usage',
+            conversation_id: 'c-meter',
+            agent_id: 'codey',
+            tokens: 12000,
+            window: 128000,
+            pct: 9,
+            estimate: true,
+            breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 500 },
+          }),
+        }),
+      )
+    })
+    const badge = screen.getByTestId('context-usage-badge')
+    expect(badge).toHaveTextContent('in ~12k / 128k tok')
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Compact' }))
     })
     await screen.findByTestId('chat-summary')
-    expect(Number(meter.getAttribute('aria-valuenow'))).toBeLessThan(before)
+    expect(screen.getByTestId('context-usage-badge')).toHaveTextContent('in ~600 / 128k tok')
   })
 
   it('hover Compress to here posts a span ending at that message', async () => {
@@ -2780,27 +3081,60 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     expect(screen.getByText('later stays raw')).toBeInTheDocument()
   })
 
-  it('opens session token diagnostics popup when clicking token meter (REQ-115)', async () => {
+  it('opens session token diagnostics popup when clicking the context badge (REQ-115, #776)', async () => {
     renderChat('/chat?blueprint=support')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const meterBtn = screen.getByRole('button', { name: 'Session token usage' })
-    expect(meterBtn).toBeInTheDocument()
+    // The badge only renders once usage is known — push a server frame.
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'context_usage',
+            conversation_id: 'c1',
+            agent_id: 'support',
+            tokens: 12300,
+            window: null,
+            pct: null,
+            estimate: true,
+            breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+          }),
+        }),
+      )
+    })
+    const badge = screen.getByTestId('context-usage-badge')
+    expect(badge).toBeInTheDocument()
 
-    fireEvent.click(meterBtn)
+    fireEvent.click(badge)
 
     expect(await screen.findByTestId('token-diagnostics-modal')).toBeInTheDocument()
     expect(screen.getByText('Session Token Diagnostics')).toBeInTheDocument()
   })
 
-  it('displays token meter button for API agents and not for CLI or remote agents', async () => {
+  it('renders the context badge for API agents and not for CLI or remote agents (#776)', async () => {
     const { unmount: unmountApi } = renderChat('/chat?blueprint=support')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.getByTestId('token-meter-button')).toBeInTheDocument()
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'context_usage',
+            conversation_id: 'c1',
+            agent_id: 'support',
+            tokens: 12300,
+            window: null,
+            pct: null,
+            estimate: true,
+            breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+          }),
+        }),
+      )
+    })
+    expect(screen.getByTestId('context-usage-badge')).toBeInTheDocument()
     unmountApi()
 
     MockWebSocket.instances = []
@@ -2808,7 +3142,7 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     unmountCli()
 
     MockWebSocket.instances = []
@@ -2816,7 +3150,7 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     unmountGrok()
 
     MockWebSocket.instances = []
@@ -2824,7 +3158,7 @@ describe('ChatPage Compact empty/failure toasts (REQ-37 #365)', () => {
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    expect(screen.queryByTestId('token-meter-button')).toBeNull()
+    expect(screen.queryByTestId('context-usage-badge')).toBeNull()
     unmountRemote()
   })
 })
@@ -2881,14 +3215,16 @@ describe('ChatPage remote members (PR #318 / REQ-23)', () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(within(select).getAllByRole('option').map((opt) => opt.textContent)).toEqual([
-      'All members',
-      'Hermes (remote/default)',
-      'OpenMousBot (remote/default)',
-      'Rakazo (remote/default)',
-      'Manage Team',
-    ])
+    // #755: roster rows live in the composer picker's palette.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    await screen.findByTestId('os-model-search-palette')
+    const options = ['all', 'hermes', 'omb', 'rakazo'].map((id) =>
+      screen.getByTestId(`os-model-row-${id}`).textContent,
+    )
+    expect(options[0]).toContain('All members')
+    expect(options[1]).toContain('Hermes (remote/default)')
+    expect(options[2]).toContain('OpenMousBot (remote/default)')
+    expect(options[3]).toContain('Rakazo (remote/default)')
     expect(screen.getByRole('heading', { name: 'Harness Team' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
   })
@@ -2900,9 +3236,8 @@ describe('ChatPage remote members (PR #318 / REQ-23)', () => {
     })
 
     const composer = await screen.findByRole('textbox', { name: 'Chat message' })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'hermes' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-hermes'))
     fireEvent.change(composer, { target: { value: 'ping hermes' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
@@ -2992,6 +3327,7 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
   })
 
   afterEach(() => {
+    resetAgentAttention()
     vi.unstubAllGlobals()
     window.localStorage.clear()
     resetConversationThreads()
@@ -3102,6 +3438,128 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
       decision: 'always',
     })
   })
+
+  it('flags the waiting agent on the rail until the decision resolves (#446)', async () => {
+    const ws = await openAndStart()
+    expect(peekApprovalWait('codey')).toBe(false)
+
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'tool_approval',
+            id: 'att1',
+            name: 'write_file',
+            agent_id: 'codey',
+          }),
+        }),
+      )
+    })
+    expect(peekApprovalWait('codey')).toBe(true)
+    expect(peekApprovalWait('stewie')).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+    expect(peekApprovalWait('codey')).toBe(false)
+  })
+})
+
+describe('ChatPage ask_user question cards (issue #221)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    window.localStorage.clear()
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: 'chatbot', name: 'Chatbot', kind: 'api' }] }),
+      } as Response),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+    resetConversationThreads()
+  })
+
+  async function openChat() {
+    renderChat('/chat?blueprint=chatbot')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const ws = MockWebSocket.instances[0]!
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-q1" class="assistant-message"></div></div>',
+        }),
+      )
+    })
+    return ws
+  }
+
+  it('renders a blocking card and sends question_answer', async () => {
+    const ws = await openChat()
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'user_question',
+            id: 'deploy-profile',
+            ask: 'Which profile should I deploy?',
+            choices: ['staging', 'canary', 'prod'],
+            other: 'Custom profile',
+            agent_id: 'chatbot',
+          }),
+        }),
+      )
+    })
+    expect(screen.getByTestId('question-card')).toHaveAttribute(
+      'data-question-id',
+      'deploy-profile',
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'staging' }))
+    expect(JSON.parse(String(ws.send.mock.calls.at(-1)?.[0]))).toEqual({
+      type: 'question_answer',
+      id: 'deploy-profile',
+      answer: 'staging',
+    })
+    expect(screen.getByRole('radio', { name: 'staging' })).toBeDisabled()
+  })
+
+  it('disables the question card while a Safety gate is pending', async () => {
+    const ws = await openChat()
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'user_question',
+            id: 'deploy-profile',
+            ask: 'Which profile should I deploy?',
+            choices: ['staging', 'canary', 'prod'],
+            other: 'Custom profile',
+          }),
+        }),
+      )
+    })
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'tool_approval',
+            id: 'ap1',
+            name: 'write_file',
+            agent_id: 'chatbot',
+          }),
+        }),
+      )
+    })
+    expect(screen.getByRole('dialog', { name: 'Safety approval' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'canary' })).toBeDisabled()
+  })
 })
 
 function mockChatFetches(options: {
@@ -3196,6 +3654,13 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
       'true',
     )
 
+    const actionRows = screen.getAllByTestId('os-message-row-actions')
+    expect(actionRows).toHaveLength(2)
+    for (const row of actionRows) {
+      const edit = within(row).getByRole('button', { name: 'Edit message' })
+      const copy = within(row).getByRole('button', { name: 'Copy message' })
+      expect(edit.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
     const editButtons = screen.getAllByRole('button', { name: 'Edit message' })
     expect(editButtons).toHaveLength(2)
 
@@ -3238,7 +3703,7 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
     )
   })
 
-  it('clicking an API bubble enters edit mode', async () => {
+  it('clicking an API bubble does not enter edit; Edit in the action row does (REQ-867 / REQ-869)', async () => {
     vi.stubGlobal(
       'fetch',
       mockChatFetches({
@@ -3259,6 +3724,11 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
     expect(await screen.findByText('assistant bubble')).toBeInTheDocument()
     const bubbles = screen.getAllByTestId('chat-bubble')
     fireEvent.click(bubbles[1])
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument()
+
+    const rows = screen.getAllByTestId('os-message-row-actions')
+    expect(rows).toHaveLength(2)
+    fireEvent.click(within(rows[1]).getByRole('button', { name: 'Edit message' }))
     expect(await screen.findByRole('textbox', { name: 'Edit message' })).toHaveValue(
       'assistant bubble',
     )
@@ -3395,7 +3865,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
               token_budget: 4000,
               omitted: ['secrets', 'tool_noise'],
               empty: false,
-              status: `Carried summary context from ${fromCli} → ${toCli} (12 tokens).`,
+              status: `Started a new ${toCli} session (${fromCli} → ${toCli}). Carried summary context (12 tokens).`,
               export_warning: null,
               import: 'swarm',
               injection: { text: 'seed', mode: 'summary', tokens: 12, empty: false },
@@ -3445,9 +3915,9 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
       MockWebSocket.instances[0]?.open()
     })
 
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'stewie' },
-    })
+    // #755: the member pick rides the composer routing picker.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-stewie'))
 
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent('Team target: Codey (agent/coder) → Stewie (agent/ops)')
@@ -3473,7 +3943,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     expect(screen.getAllByTestId('chat-status')).toHaveLength(1)
   })
 
-  it('appends one CLI status event (antigravity → grok) that is not a bubble', async () => {
+  it('emits one consolidated hop status on CLI change (REQ-866)', async () => {
     const store = { messages: [] as { role: string; content: string }[] }
     stubWithThreadStore(store)
 
@@ -3484,18 +3954,26 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
 
     const cliPill = await screen.findByTestId('routing-pill-agent')
     fireEvent.click(cliPill)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'grok' }))
+    // #681/#682: stage 1 lists providers (CLI seats included); picking the
+    // grok provider and accepting its default selects that CLI.
+    fireEvent.click(await screen.findByText('grok'))
+    fireEvent.click(screen.getAllByTestId('composer-picker-row')[0])
 
-    const statuses = await screen.findAllByTestId('chat-status')
-    expect(statuses[0]).toHaveTextContent('CLI: antigravity → grok')
-    expect(statuses[0].className).not.toMatch(/chat-start|chat-end/)
-    expect(statuses[0].querySelector('.chat-bubble')).toBeNull()
-    const carried = await screen.findByText(/Carried summary context from antigravity → grok/)
-    expect(carried.closest('[data-testid="chat-status"]')).toHaveClass('os-chat-status')
-    expect(carried.closest('[data-testid="chat-status"]')?.className).not.toMatch(
-      /chat-start|chat-end/,
+    const status = await screen.findByTestId('chat-status')
+    expect(status).toHaveTextContent(
+      'Started a new grok session (antigravity → grok). Carried summary context (12 tokens).',
     )
-    expect(screen.getAllByTestId('chat-status').length).toBeGreaterThanOrEqual(2)
+    expect(status).toHaveClass('os-chat-status')
+    expect(status.className).not.toMatch(/chat-start|chat-end/)
+    expect(status.querySelector('.chat-bubble')).toBeNull()
+    expect(screen.queryByText(/CLI: antigravity → grok/)).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('chat-status')).toHaveLength(1)
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0]).toEqual({
+      role: 'status',
+      content:
+        'Started a new grok session (antigravity → grok). Carried summary context (12 tokens).',
+    })
   })
 
   it('renders one CLI routing picker and hides API and Remotes controls (REQ-133 / REQ-200)', async () => {
@@ -3601,12 +4079,20 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
 
     const cliPill = await screen.findByTestId('routing-pill-agent')
     fireEvent.click(cliPill)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'antigravity' }))
-    const modelPill = await screen.findByTestId('routing-pill-model')
-    fireEvent.click(modelPill)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'grok-4' }))
-    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'antigravity')
-    expect(screen.getByTestId('routing-pill-model')).toHaveAttribute('data-value', 'grok-4')
+    // #681/#682: descend into the antigravity provider, accept the default
+    // (the CLI itself), then reopen and pick its probed model row.
+    fireEvent.click(await screen.findByText('antigravity'))
+    fireEvent.click(screen.getAllByTestId('composer-picker-row')[0])
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    // Reopening lands on stage 1 — descend into antigravity again, then pick
+    // its probed model row.
+    fireEvent.click(await screen.findByText('antigravity'))
+    // #757: the closed pill now shows the leaf model, so the 'grok-4' row is
+    // no longer unique by text — click inside the two-stage dialog.
+    const pickerDialog = screen.getByTestId('composer-picker')
+    fireEvent.click(within(pickerDialog).getByText('grok-4'))
+    // #743/#884: the pill reads specific-first (model / provider).
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'grok-4 / antigravity')
 
     first.unmount()
     renderChat('/chat?blueprint=cli_agent&mode=cli')
@@ -3615,10 +4101,9 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
     })
 
     const restoredCli = await screen.findByTestId('routing-pill-agent')
-    const restoredModel = await screen.findByTestId('routing-pill-model')
     await waitFor(() => {
-      expect(restoredCli).toHaveAttribute('data-value', 'antigravity')
-      expect(restoredModel).toHaveAttribute('data-value', 'grok-4')
+      // #743/#884: the pill reads specific-first (model / provider).
+      expect(restoredCli).toHaveAttribute('data-value', 'grok-4 / antigravity')
     })
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
@@ -3703,20 +4188,497 @@ describe('ChatPage cascading navbar picker (REQ-200)', () => {
     expect(screen.getAllByTestId('navbar-routing-picker')).toHaveLength(1)
     expect(screen.getByTestId('routing-face')).toHaveAttribute(
       'title',
-      'agy / gemini-3.8-flash / medium',
+      'gemini-3.8-flash / agy / medium',
     )
-    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('agy')
-    expect(screen.getByTestId('routing-pill-model')).toHaveTextContent('gemini-3.8-flash')
-    expect(screen.getByTestId('routing-pill-effort')).toHaveTextContent('medium')
+    // #757: the closed pill shows the leaf model only; the full path stays
+    // on title/data-value (asserted above via routing-face title).
+    expect(screen.getByTestId('routing-pill-agent')).toHaveTextContent('gemini-3.8-flash')
 
-    fireEvent.click(screen.getByTestId('routing-pill-effort'))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'high' }))
+    // #681/#682: the two-stage picker carries the effort pick — descend into
+    // the agy provider, then the probed model row is a model-dimension pick,
+    // same base → effort change.
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('agy'))
+    fireEvent.click(await screen.findByText('gemini-3.8-flash-high'))
     const status = await screen.findByTestId('chat-status')
     expect(status).toHaveTextContent('Effort: medium → high')
     expect(status.className).not.toMatch(/chat-start|chat-end/)
-    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'agy')
-    expect(screen.getByTestId('routing-pill-model')).toHaveAttribute('data-value', 'gemini-3.8-flash')
-    expect(screen.getByTestId('routing-pill-effort')).toHaveAttribute('data-value', 'high')
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'gemini-3.8-flash / agy / high')
+  })
+})
+describe('ChatPage seat state survives navigation (#229)', () => {
+  /** #229 helpers: same wire shape the queued tests use. */
+  function startStreaming(ws: MockWebSocket, id = 'message-response-abc123') {
+    ws.onmessage?.(
+      new MessageEvent('message', {
+        data: `<div id="message-list" hx-swap-oob="beforeend"><div id="${id}" class="assistant-message"></div></div>`,
+      }),
+    )
+  }
+
+  function finishStreaming(ws: MockWebSocket, id = 'message-response-abc123', reply = 'done') {
+    ws.onmessage?.(
+      new MessageEvent('message', {
+        data: `<div id="${id}" class="assistant-message" hx-swap-oob="true">${reply}</div>`,
+      }),
+    )
+  }
+
+  function renderSoloChat(initialEntry = '/chat?blueprint=codey') {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <SearchProbe />
+            <Routes>
+              <Route path="/chat" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    window.localStorage.clear()
+    resetConversationThreads()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/chat/thread/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ agent_id: 'codey', conversation_id: '', messages: [] }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'codey', name: 'Codey', description: 'Code assistant' }],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    resetConversationThreads()
+    window.localStorage.clear()
+  })
+
+  it('shows the completed reply after detach/return mid-turn (snapshot re-sync, no TrueForge loss)', async () => {
+    const { unmount } = renderSoloChat('/chat?blueprint=codey')
+    const ws = await act(async () => {
+      MockWebSocket.instances[0]?.open()
+      return MockWebSocket.instances[0]!
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'question before detach' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    // Detach mid-turn: user navigates away while the reply is streaming.
+    await act(async () => {
+      startStreaming(ws, 'message-response-detach1')
+    })
+    unmount()
+
+    // Turn completes server-side while detached; disconnect already saved the
+    // partial turn, and the final content lands in the persisted thread.
+    ;(fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/chat/thread/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              agent_id: 'codey',
+              conversation_id: '',
+              messages: [
+                { role: 'user', content: 'question before detach' },
+                { role: 'assistant', content: 'full reply after detach' },
+              ],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'codey', name: 'Codey', description: 'Code assistant' }],
+          }),
+        } as Response
+      },
+    )
+
+    // Remount: snapshot-on-mount shows the full reply, not a blank/missing turn.
+    renderSoloChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[MockWebSocket.instances.length - 1]?.open()
+    })
+    expect(await screen.findByText('full reply after detach')).toBeInTheDocument()
+    expect(screen.getByText('question before detach')).toBeInTheDocument()
+  })
+
+  it('keeps the rail working animation honest: per-seat start/stop while switching', async () => {
+    renderSoloChat('/chat?blueprint=codey')
+    const ws = await act(async () => {
+      MockWebSocket.instances[0]?.open()
+      return MockWebSocket.instances[0]!
+    })
+
+    const runStates: Array<{ agentId: string; running: boolean }> = []
+    const onRunState = (event: Event) => {
+      const detail = cliRunStateFromEvent(event)
+      if (detail) runStates.push(detail)
+    }
+    window.addEventListener(CLI_RUN_STATE_EVENT, onRunState)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'work the seat' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(runStates.some((s) => s.agentId === 'codey' && s.running === true)).toBe(true)
+
+    // Stream starts, then the turn completes → the seat's working state clears.
+    await act(async () => {
+      startStreaming(ws, 'message-response-mock1')
+    })
+    await act(async () => {
+      finishStreaming(ws, 'message-response-mock1', 'reply done')
+    })
+    await waitFor(() => {
+      expect(runStates.some((s) => s.agentId === 'codey' && s.running === false)).toBe(true)
+    })
+    window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
+  })
+
+  it('stops a departed seat working state on switch-away (no stale rail animation)', async () => {
+    const { unmount } = renderSoloChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'detach while working' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    const runStates: Array<{ agentId: string; running: boolean }> = []
+    const onRunState = (event: Event) => {
+      const detail = cliRunStateFromEvent(event)
+      if (detail) runStates.push(detail)
+    }
+    window.addEventListener(CLI_RUN_STATE_EVENT, onRunState)
+
+    // Seat switch: the component unmounts (new route) — the cleanup must
+    // publish running=false for the departed seat immediately.
+    unmount()
+    expect(runStates.some((s) => s.agentId === 'codey' && s.running === false)).toBe(true)
+    window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
   })
 })
 
+describe('ChatPage generations panel (#224)', () => {
+  function renderSoloChat(initialEntry = '/chat?blueprint=codey') {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <SearchProbe />
+            <Routes>
+              <Route path="/chat" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+  }
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    window.localStorage.clear()
+    resetConversationThreads()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/chat/thread/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ agent_id: 'codey', conversation_id: '', messages: [] }),
+          } as Response
+        }
+        if (url.includes('/chat/raw-context/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              conversation_id: '',
+              context: [{ role: 'user', content: 'the raw turn' }],
+              summaries_included: [],
+              summaries_excluded: [],
+              cull_offset: 0,
+              raw_turn_count: 1,
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'codey', name: 'Codey', description: 'Code assistant' }],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    resetConversationThreads()
+    window.localStorage.clear()
+  })
+
+  it('header avatar opens the panel with the seat tool calls and raw context', async () => {
+    renderSoloChat('/chat?blueprint=codey')
+    const ws = await act(async () => {
+      MockWebSocket.instances[0]?.open()
+      return MockWebSocket.instances[0]!
+    })
+
+    // Idle: no panel.
+    expect(screen.queryByTestId('generations-panel')).toBeNull()
+
+    // Generate a turn with a tool event so the seat has one call on record.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'use a tool' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-gen1" class="assistant-message"></div></div>',
+        }),
+      )
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'tool_status',
+            id: 'gen-tool-1',
+            name: 'read_file',
+            status: 'done',
+            agent_id: 'codey',
+          }),
+        }),
+      )
+    })
+
+    fireEvent.click(screen.getByTestId('header-avatar-generations'))
+    const panel = screen.getByTestId('generations-panel')
+    expect(panel).toBeTruthy()
+    expect(screen.getByTestId('generations-tool')).toHaveTextContent('read_file')
+
+    fireEvent.click(screen.getByTestId('generations-raw-toggle'))
+    expect(await screen.findByTestId('generations-raw-view')).toHaveTextContent(
+      'the raw turn',
+    )
+
+    fireEvent.click(screen.getByTestId('generations-close'))
+    expect(screen.queryByTestId('generations-panel')).toBeNull()
+  })
+})
+
+const API_PALETTE_PROFILES = {
+  object: 'llm_profiles',
+  profiles: [
+    {
+      id: 'orchestration',
+      object: 'llm_profile',
+      source: 'test',
+      owned_by: 'test',
+      name: 'Orchestration',
+      model: 'gpt-4o',
+    },
+    {
+      id: 'orchestration-mini',
+      object: 'llm_profile',
+      source: 'test',
+      owned_by: 'test',
+      name: 'Orchestration Mini',
+    },
+    {
+      id: 'claude-work',
+      object: 'llm_profile',
+      source: 'test',
+      owned_by: 'test',
+      name: 'Claude Work',
+      model: 'anthropic/claude-3-5-sonnet',
+    },
+  ],
+  default_llm_profile: 'orchestration',
+  default_is_auto: false,
+  override_per_task: false,
+  task_llm_profiles: {},
+  auto_picks: {},
+  aliases_used: [],
+  warnings: [],
+  routes: {},
+  task_classes: ['orchestration', 'auxiliary', 'delegation'],
+}
+
+describe('ChatPage API model palette (#281)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/llm-profiles')) {
+          return { ok: true, status: 200, json: async () => API_PALETTE_PROFILES } as Response
+        }
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              clis: [],
+              known: [],
+              configured: [],
+              discovered: [],
+              installed: [],
+              suggestions: {},
+              default_cli: '',
+              native_consensus: {},
+              catalog: {},
+              list_models: {},
+              rail: [
+                {
+                  id: 'api_agent',
+                  object: 'cli.agent',
+                  name: 'api_agent',
+                  cli: '',
+                  kind: 'api',
+                  description: 'LiteLLM',
+                  installed: true,
+                },
+              ],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'api_agent', name: 'API agent', description: 'LiteLLM' }],
+            messages: [],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+    resetConversationThreads()
+  })
+
+  it('#681: opens the two-stage picker on API pill click — provider stage, not a dropdown', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const pill = await screen.findByTestId('routing-pill-agent')
+    expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'api')
+    expect(pill).toHaveTextContent('Orchestration')
+    fireEvent.click(pill)
+    const dialog = await screen.findByTestId('composer-picker')
+    // #837: stage 1 drops the redundant 'Providers' header entirely.
+    expect(screen.queryByTestId('composer-picker-breadcrumb')).toBeNull()
+    expect(screen.getByTestId('composer-picker-input')).toBeInTheDocument()
+    expect(screen.queryByTestId('routing-menu-agent')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+    expect(dialog).toBeInTheDocument()
+  })
+
+  it('#681: descends to the API provider and picks a specific profile', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('API gateway'))
+    expect(screen.getByTestId('composer-picker-breadcrumb')).toHaveTextContent('API gateway')
+    // Use-default row first, then the real profiles from the payload.
+    const rows = screen.getAllByTestId('composer-picker-row')
+    expect(rows[0]).toHaveTextContent('Use default for API gateway')
+    fireEvent.click(screen.getByText('Claude Work'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('composer-picker')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute('data-value', 'claude-work')
+  })
+
+  it('#681: Enter accepts the highlighted row — query skips the default row', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByText('API gateway'))
+    fireEvent.change(screen.getByTestId('composer-picker-input'), {
+      target: { value: 'mini' },
+    })
+    fireEvent.keyDown(screen.getByTestId('composer-picker-input'), { key: 'Enter' })
+    await waitFor(() => {
+      expect(screen.queryByTestId('composer-picker')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('routing-pill-agent')).toHaveAttribute(
+      'data-value',
+      'orchestration-mini',
+    )
+  })
+
+  it('#681: launches Settings from the Manage API footer of the two-stage picker', async () => {
+    const opened: Array<{ section?: string }> = []
+    const onOpen = (event: Event) => {
+      opened.push((event as CustomEvent<{ section?: string }>).detail ?? {})
+    }
+    window.addEventListener('swarm:open-settings', onOpen)
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('composer-picker-manage'))
+    window.removeEventListener('swarm:open-settings', onOpen)
+    await waitFor(() => {
+      expect(screen.queryByTestId('composer-picker')).not.toBeInTheDocument()
+    })
+    // #836: the manage footer lands on the unified Providers hub.
+    expect(opened).toEqual([{ section: 'providers' }])
+  })
+})

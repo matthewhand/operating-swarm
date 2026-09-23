@@ -349,6 +349,21 @@ describe('fetchAgentThread', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('agent=remote%3Aomb')
     expect(String(fetchMock.mock.calls[0][0])).toContain('conversation_id=remote-omb')
   })
+
+  it('appends &flush=1 when flush option is true', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        agent_id: 'remote:herdr',
+        conversation_id: 'remote-herdr-session',
+        messages: [],
+      }),
+    } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    await fetchAgentThread('remote:herdr', 'remote-herdr-session', { flush: true })
+    expect(String(fetchMock.mock.calls[0][0])).toContain('&flush=1')
+  })
 })
 
 describe('compactAgentThread', () => {

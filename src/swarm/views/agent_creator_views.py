@@ -15,7 +15,7 @@ from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
 from swarm.core import paths
-from swarm.core.kind_bases import ALLOWED_BLUEPRINT_BASE_NAMES
+from swarm.core.kind_bases import ALLOWED_BLUEPRINT_BASE_NAMES, base_class_for_kind
 
 # Shared ban list for creator write paths (agent + team swarm saves).
 _BANNED_CODE_SNIPPETS = ("__import__", "subprocess", "os.system", "eval(", "exec(")
@@ -289,6 +289,11 @@ class AgentPersonaGenerator:
             f"Instructions: {instructions}"
         )
 
+        # ADR-005 §4: this template's run() is an AsyncOpenAI streaming
+        # implementation, i.e. an API-kind harness — default to ApiKindBase.
+        # An explicit spec kind must stay consistent with that body.
+        base_class = base_class_for_kind(agent_spec.get("kind") or "api")
+
         return f'''#!/usr/bin/env python3
 """
 {description}
@@ -302,10 +307,10 @@ from typing import Any, ClassVar
 
 from openai import AsyncOpenAI
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import {base_class}
 
 
-class {class_name}(BlueprintBase):
+class {class_name}({base_class}):
     """
     {description}
     """
@@ -825,8 +830,11 @@ def _render_swarm_blueprint_code(team: dict[str, Any]) -> str:
     lines.append("")
     lines.append("from agents import Agent, Runner, function_tool")
     lines.append("")
+    # ADR-005 §4: emit a kind base by default (team payload carries no kind
+    # yet, so this resolves through the BlueprintBase fallback).
+    base_class = base_class_for_kind(team.get("kind"))
     lines.append("from swarm.core.agent_roles import find_role_agent, normalize_agent_role")
-    lines.append("from swarm.core.blueprint_base import BlueprintBase")
+    lines.append(f"from swarm.core.kind_bases import {base_class}")
     lines.append("from swarm.core.classifier_verdict import attach_classifier_tools")
     lines.append("from swarm.core.skeptic import attach_skeptic_as_tool, run_with_skeptic")
     lines.append("from swarm.core.suggestions import attach_suggestions_as_tool")
@@ -841,7 +849,7 @@ def _render_swarm_blueprint_code(team: dict[str, Any]) -> str:
     lines.append("")
     lines.append(f"AGENT_SPECS = {agent_specs_literal}")
     lines.append("")
-    lines.append(f"class {class_name}(BlueprintBase):")
+    lines.append(f"class {class_name}({base_class}):")
     lines.append("    \"\"\"")
     lines.append(f"    {description}")
     lines.append("    \"\"\"")
@@ -982,10 +990,18 @@ def save_team_swarm(request):
                 if banned:
                     return JsonResponse({"success": False, "error": banned}, status=400)
         from swarm.core.agent_roles import normalize_agent_role
+        from swarm.core.roles.registry import SUPPORT_ROLE_KIND_ERROR, validate_role_for_kind
+
+        resolved_role = normalize_agent_role(agent.get("role"))
+        # #853: support seats must be API-kind — other kinds lack the
+        # function-calling hooks the role's behavior relies on.
+        kind_error = validate_role_for_kind(resolved_role, agent.get("kind") or "api")
+        if kind_error:
+            return JsonResponse({"success": False, "error": SUPPORT_ROLE_KIND_ERROR}, status=400)
 
         cleaned_agents.append({
             "name": bot_name,
-            "role": normalize_agent_role(agent.get("role")),
+            "role": resolved_role,
             "description": (agent.get("description") or f"{bot_name} bot").strip(),
             "system_prompt": (agent.get("system_prompt") or agent.get("instructions") or f"You are {bot_name}.").strip(),
             "model_profile": (agent.get("model_profile") or "default").strip(),

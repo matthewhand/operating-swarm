@@ -5,9 +5,12 @@ import {
   applyRailOrder,
   bumpRailIdToTop,
   generationCompleteDetail,
+  insertRailIdAfter,
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
+  moveRailIdAfter,
+  dropHalfFromClientY,
   notifyGenerationComplete,
   saveRailOrder,
 } from '../railOrder'
@@ -37,6 +40,24 @@ describe('railOrder persistence', () => {
     expect(loadRailOrder()).toEqual([])
     localStorage.setItem(RAIL_ORDER_STORAGE_KEY, JSON.stringify([1, '', 'ok', 'ok']))
     expect(loadRailOrder()).toEqual(['ok'])
+  })
+
+  it('#761: moves a row AFTER another (bottom-half drop)', () => {
+    const start = ['support', 'codey', 'stewie']
+    expect(moveRailIdAfter(start, 'stewie', 'support')).toEqual(['support', 'stewie', 'codey'])
+    expect(moveRailIdAfter(start, 'codey', 'codey')).toEqual(start)
+    expect(moveRailIdAfter(start, 'stewie', 'missing')).toEqual(start)
+  })
+
+  it('#761: dropHalfFromClientY reads the pointer position against the row midpoint', () => {
+    const rect = { top: 100, height: 40 } as DOMRect
+    expect(dropHalfFromClientY(110, rect)).toBe('above')
+    expect(dropHalfFromClientY(100, rect)).toBe('above')
+    expect(dropHalfFromClientY(120, rect)).toBe('below')
+    expect(dropHalfFromClientY(140, rect)).toBe('below')
+    // zero-height rects (jsdom, detached rows) default to 'above'
+    const empty = { top: 0, height: 0 } as DOMRect
+    expect(dropHalfFromClientY(0, empty)).toBe('above')
   })
 
   it('applies stored order and appends new catalog rows', () => {
@@ -96,6 +117,29 @@ describe('railOrder persistence', () => {
     window.removeEventListener(GENERATION_COMPLETE_EVENT, onComplete)
     expect(seen).toEqual([
       { agentId: 'codey', snippet: 'done', agentName: 'Codey', failed: true },
+    ])
+  })
+
+  it('inserts newId immediately after afterId without moving existing items to top', () => {
+    const start = ['support', 'remote:trueforge', 'codey']
+    expect(insertRailIdAfter(start, 'remote:trueforge_copy', 'remote:trueforge')).toEqual([
+      'support',
+      'remote:trueforge',
+      'remote:trueforge_copy',
+      'codey',
+    ])
+    // If afterId is absent or missing, insert at start
+    expect(insertRailIdAfter(start, 'other', 'nonexistent')).toEqual([
+      'other',
+      'support',
+      'remote:trueforge',
+      'codey',
+    ])
+    // Re-inserting existing item moves it immediately after target
+    expect(insertRailIdAfter(start, 'codey', 'support')).toEqual([
+      'support',
+      'codey',
+      'remote:trueforge',
     ])
   })
 })

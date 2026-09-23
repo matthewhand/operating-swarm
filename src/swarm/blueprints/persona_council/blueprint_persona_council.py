@@ -177,8 +177,9 @@ class PersonaCouncilBlueprint(BlueprintBase):
             return
         if not runner:
             yield support.message_chunk(
-                "No CLI backend is configured to run the council. Add a 'cli_agents' "
-                "block to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message(
+                    "No CLI backend is configured to run the council"
+                ),
                 final=True,
             )
             return

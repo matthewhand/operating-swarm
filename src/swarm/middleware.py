@@ -3,6 +3,7 @@ import asyncio  # Import asyncio
 import ipaddress
 import logging
 import os
+import time
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -129,6 +130,7 @@ def swarm_allow_anonymous(
     """Auth-free preview: explicit env, or DEBUG + LAN/loopback (not pytest).
 
     ``SWARM_ALLOW_ANONYMOUS=1`` forces on (any IP). ``=0``/false forces off.
+    ``SWARM_DEMO_MODE=1`` also forces on (public demo, REQ-882).
     Otherwise, ``DJANGO_DEBUG=true`` auto-logs LAN and loopback clients so a
     phone on the same network can use the operator UI and websockets without
     a password. Production (DEBUG=False) and the pytest suite stay gated.
@@ -137,6 +139,10 @@ def swarm_allow_anonymous(
     if raw in {"0", "false", "no", "n", "off"}:
         return False
     if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    from swarm.demo.mode import is_demo_mode
+
+    if is_demo_mode():
         return True
     if testing is None:
         testing = bool(os.environ.get("PYTEST_CURRENT_TEST"))
@@ -180,3 +186,34 @@ class AllowAnonymousPreviewMiddleware:
                 preview = get_or_create_preview_user()
                 login(request, preview, backend="django.contrib.auth.backends.ModelBackend")
         return self.get_response(request)
+
+
+class RequestTelemetryMiddleware:
+    """#800: observe every request into the burst-telemetry window.
+
+    Purely observational — it never short-circuits or mutates responses.
+    The 429 exception handler reads the window back for forensics.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from swarm.core.request_telemetry import default_telemetry
+
+        started = time.monotonic()
+        response = self.get_response(request)
+        try:
+            duration_ms = (time.monotonic() - started) * 1000.0
+            default_telemetry().record(
+                client_ip=request.META.get("REMOTE_ADDR") or "unknown",
+                method=request.method,
+                path=request.path,
+                status_code=response.status_code,
+                user_key=str(getattr(getattr(request, "user", None), "pk", "") or ""),
+                source=request.headers.get("X-Swarm-Client-Source", ""),
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            logger.debug("request telemetry record failed", exc_info=True)
+        return response

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../../App'
@@ -22,6 +22,43 @@ function renderApp() {
     </QueryClientProvider>,
   )
 }
+
+describe('#816 sidepane placement', () => {
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  it('settings sheet mirrors to the opposite edge of the rail', async () => {
+    localStorage.setItem('swarm_rail_side', 'right')
+    renderApp()
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+    const dialog = screen.getByRole('dialog', { name: 'Settings', hidden: true })
+    expect(dialog).toHaveClass('modal-start')
+  })
+
+  it('the rail layout flips when the preference is right', () => {
+    localStorage.setItem('swarm_rail_side', 'right')
+    renderApp()
+    expect(document.querySelector('[data-testid="os-agent-rail"]')).toHaveClass(
+      'os-agent-sidebar--right',
+    )
+    // flex-row-reverse mirrors the VISUAL order (rail renders on the right).
+    const row = document.querySelector('div.flex-row-reverse')!
+    expect(row).toBeInTheDocument()
+    expect(row).toContainElement(document.querySelector('aside.os-agent-sidebar'))
+  })
+
+  it('the Rail pane toggle persists the side via the announced event', async () => {
+    renderApp()
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+    const dialog = screen.getByRole('dialog', { name: 'Settings', hidden: true })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rail' }))
+    const rightBtn = await screen.findByTestId('rail-side-right')
+    expect(rightBtn).toBeInTheDocument()
+    fireEvent.click(rightBtn)
+    expect(localStorage.getItem('swarm_rail_side')).toBe('right')
+  })
+})
 
 describe('SPA settings chrome (REQ-19)', () => {
   afterEach(() => {

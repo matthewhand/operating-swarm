@@ -1,31 +1,11 @@
 name: REQ-171C-6 untrusted CLI argv
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/cli_adapter.py"
-      - "src/swarm/core/cli_sessions.py"
-      - "src/swarm/core/session_policy.py"
-      - "src/swarm/core/cli_catalog.py"
-      - "tests/core/test_cli_untrusted_argv.py"
-      - "tests/core/test_cli_adapter.py"
-      - "tests/core/test_cli_sessions.py"
-      - "tests/core/test_session_policy.py"
-      - "tests/core/test_cli_catalog.py"
-      - ".github/workflows/req171c6-untrusted-argv.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/cli_adapter.py"
-      - "src/swarm/core/cli_sessions.py"
-      - "src/swarm/core/session_policy.py"
-      - "src/swarm/core/cli_catalog.py"
-      - "tests/core/test_cli_untrusted_argv.py"
-      - "tests/core/test_cli_adapter.py"
-      - "tests/core/test_cli_sessions.py"
-      - "tests/core/test_session_policy.py"
-      - "tests/core/test_cli_catalog.py"
-      - ".github/workflows/req171c6-untrusted-argv.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

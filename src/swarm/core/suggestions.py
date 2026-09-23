@@ -33,12 +33,15 @@ logger = logging.getLogger(__name__)
 SUGGESTIONS_ROLE = ROLE_SUGGESTIONS
 MIN_SUGGESTIONS = 1
 MAX_SUGGESTIONS = 5
+# #532: the role presents a fixed trio of chips unless the caller narrows it.
+SUGGESTIONS_COUNT = 3
 MAX_CHIP_CHARS = 80
 
 SUGGESTIONS_INSTRUCTIONS = (
     "You prepare short quick-select prompts for the operator. "
     "Return a JSON object with a single key 'suggestions' whose value is "
-    "a list of 2-5 concise strings the user might send next. "
+    "a list of exactly "
+    f"{SUGGESTIONS_COUNT} concise strings the user might send next. "
     "No numbering, no quotes in the strings, no explanation."
 )
 
@@ -174,7 +177,9 @@ def _invoke_suggestions(
         try:
             tool = as_tool(
                 tool_name=getattr(agent, "name", None) or "suggestions",
-                tool_description="Prepare 2-5 short quick-select prompts.",
+                tool_description=(
+                    f"Prepare exactly {SUGGESTIONS_COUNT} short quick-select prompts."
+                ),
             )
             on_invoke = getattr(tool, "on_invoke_tool", None)
             if callable(on_invoke):
@@ -206,13 +211,16 @@ def _mode_prompt(
         if is_support_consumer(consumer_id):
             return (
                 "The thread is empty on Support, the first-run onboarder. "
-                "Suggest 2-5 short first messages that start the open-swarm "
+                "Suggest exactly "
+                f"{SUGGESTIONS_COUNT} short first messages that start the "
+                "open-swarm "
                 "journey — create a team, add a remote, wire a CLI, or how "
                 "CLI / API / remotes differ. No Settings maze. "
                 "Return JSON {\"suggestions\": [...]}."
             )
         return (
-            "The thread is empty. Suggest 2-5 short first messages the operator "
+            "The thread is empty. Suggest exactly "
+            f"{SUGGESTIONS_COUNT} short first messages the operator "
             "might send to start usefully. Return JSON {\"suggestions\": [...]}."
         )
     last_user = ""
@@ -230,7 +238,9 @@ def _mode_prompt(
             if last_user and last_assistant:
                 break
     return (
-        "Suggest 2-5 short follow-up messages the operator might send next.\n\n"
+        "Suggest exactly "
+        f"{SUGGESTIONS_COUNT} short follow-up messages the operator might send "
+        "next.\n\n"
         f"Last user message:\n{last_user or '(none)'}\n\n"
         f"Last assistant output:\n{last_assistant or '(none)'}\n\n"
         "Return JSON {\"suggestions\": [...]}."
@@ -451,7 +461,10 @@ def attach_suggestions_as_tool(coordinator: Any, suggestions: Any) -> Any:
     try:
         tool = as_tool(
             tool_name=getattr(suggestions, "name", None) or "suggestions",
-            tool_description="Prepare 2-5 short quick-select prompts for the operator.",
+            tool_description=(
+                f"Prepare exactly {SUGGESTIONS_COUNT} short quick-select prompts "
+                "for the operator."
+            ),
         )
         tools = list(getattr(coordinator, "tools", None) or [])
         tools.append(tool)

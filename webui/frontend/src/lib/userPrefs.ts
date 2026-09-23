@@ -11,7 +11,7 @@
  * blueprint list mock as "empty server").
  */
 
-import { apiGet, apiPatch, ensureCsrfCookie } from './api'
+import { apiGet, apiPatch, ensureCsrfCookie, isThrottleError , withClientSource } from './api'
 import {
   hasHiddenAgentsStorage,
   loadHiddenAgentIds,
@@ -28,6 +28,14 @@ import {
 } from './pinnedAgents'
 import { saveAgentRemoteBinding } from './agentRemote'
 import {
+  hasRailSectionsStorage,
+  loadRailSections,
+  parseRailSectionsValue,
+  railSectionsHasContent,
+  saveRailSections,
+  type RailSectionsState,
+} from './railSections'
+import {
   applyLocalAgentDropdowns,
   loadAllLocalAgentDropdowns,
   parseAgentDropdowns,
@@ -42,19 +50,44 @@ import {
 } from './settingsPrefs'
 import {
   DEFAULT_CONTEXT_STRATEGY,
-  DEFAULT_CULL_FRACTION_PCT,
-  DEFAULT_CULL_TRIGGER_PCT,
   parseContextStrategy,
   parseCullFractionPct,
   parseCullTriggerPct,
   type ContextStrategy,
 } from './contextCull'
+import {
+  initialNavbarThemeMode,
+  initialTheme,
+  persistNavbarThemeMode,
+  persistTheme,
+  dispatchSetNavbarThemeMode,
+  dispatchSetTheme,
+  type NavbarThemeToggleMode,
+  type Theme,
+} from './theme'
+import {
+  loadBubbleTheme,
+  saveBubbleTheme,
+  type BubbleTheme,
+} from './bubbleTheme'
 
 export type { ContextStrategy } from './contextCull'
 
 export type { AgentDropdownChoice, AgentDropdowns }
 
 export const USER_PREFS_PATH = '/v1/preferences/'
+
+export const USER_PREFS_CHANGED_EVENT = 'swarm:user-prefs-changed'
+
+export function dispatchUserPrefsChanged(prefs: UserPrefs): void {
+  try {
+    window.dispatchEvent(
+      new CustomEvent<UserPrefs>(USER_PREFS_CHANGED_EVENT, { detail: prefs }),
+    )
+  } catch {
+    /* ignore in environments without window */
+  }
+}
 
 export const DEFAULT_AUTO_COMPRESS_PCT = 80
 export const MIN_AUTO_COMPRESS_PCT = 1
@@ -72,6 +105,11 @@ export interface UserPrefs {
   context_strategy: ContextStrategy
   context_cull_trigger_pct: number
   context_cull_fraction_pct: number
+  theme?: Theme
+  theme_navbar_mode?: NavbarThemeToggleMode
+  bubble_theme?: string
+  /** #786: sidepane sections + membership, server-persisted. */
+  rail_sections?: RailSectionsState
   values?: Record<string, unknown>
   agent_dropdowns: AgentDropdowns
 }
@@ -86,6 +124,8 @@ export type RailPrefs = {
   pins: PinnedAgent[]
   hidden: string[]
   hostnameOverride: string
+  /** #786: sidepane layout, when the hydrate source carried one. */
+  sections?: RailSectionsState
   source: 'server' | 'import' | 'local'
 }
 
@@ -141,6 +181,23 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
     rec.context_cull_fraction_pct !== undefined
       ? rec.context_cull_fraction_pct
       : values.context_cull_fraction_pct
+  const themeRaw = rec.theme ?? values.theme
+  const theme: Theme | undefined =
+    themeRaw === 'light' || themeRaw === 'dark' || themeRaw === 'system'
+      ? themeRaw
+      : undefined
+  const navbarModeRaw = rec.theme_navbar_mode ?? values.theme_navbar_mode
+  const themeNavbarMode: NavbarThemeToggleMode | undefined =
+    navbarModeRaw === 'if_not_system' || navbarModeRaw === 'always' || navbarModeRaw === 'never'
+      ? navbarModeRaw
+      : undefined
+  const bubbleThemeRaw = rec.bubble_theme ?? values.bubble_theme
+  const bubbleTheme = typeof bubbleThemeRaw === 'string' ? bubbleThemeRaw.trim() : undefined
+  // #786: server-persisted sidepane layout (top-level canonical key, with a
+  // values-bag fallback for rows written before the registry entry).
+  const railSectionsRaw = rec.rail_sections ?? values.rail_sections
+  const railSections =
+    railSectionsRaw === undefined ? undefined : parseRailSectionsValue(railSectionsRaw)
   return {
     object: 'user_preferences',
     principal: typeof rec.principal === 'string' ? rec.principal : '',
@@ -153,6 +210,10 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
     context_strategy: parseContextStrategy(strategyRaw ?? DEFAULT_CONTEXT_STRATEGY),
     context_cull_trigger_pct: parseCullTriggerPct(cullTriggerRaw),
     context_cull_fraction_pct: parseCullFractionPct(cullFractionRaw),
+    theme,
+    theme_navbar_mode: themeNavbarMode,
+    bubble_theme: bubbleTheme,
+    rail_sections: railSections,
     values,
     agent_dropdowns:
       Object.keys(fromTop).length > 0 ? fromTop : fromValues,
@@ -189,22 +250,82 @@ export function applyPrefsToLocal(prefs: {
   favourites: PinnedAgent[]
   hidden_agents: string[]
   hostname_override?: string
+  theme?: Theme
+  theme_navbar_mode?: NavbarThemeToggleMode
+  bubble_theme?: string
+  rail_sections?: RailSectionsState
 }): void {
   savePinnedAgents(prefs.favourites)
   saveHiddenAgentIds(prefs.hidden_agents)
+  // #786: adopt only a layout that actually defines something — the backend
+  // canonicalizes every row to include an empty rail_sections default, so
+  // emptiness cannot be told apart from "written before #786". An empty
+  // server bag leaves the local cache alone; the debounced sync pushes the
+  // local layout up instead.
+  if (railSectionsHasContent(prefs.rail_sections) && prefs.rail_sections) {
+    saveRailSections(prefs.rail_sections)
+  }
   if (typeof prefs.hostname_override === 'string') {
     applyHostnameOverride(prefs.hostname_override)
   }
-}
-
-export async function fetchUserPrefs(): Promise<UserPrefs | null> {
-  try {
-    const data = await apiGet<unknown>(USER_PREFS_PATH)
-    return parseUserPrefs(data)
-  } catch {
-    return null
+  if (prefs.theme) {
+    persistTheme(prefs.theme)
+    dispatchSetTheme(prefs.theme)
+  }
+  if (prefs.theme_navbar_mode) {
+    persistNavbarThemeMode(prefs.theme_navbar_mode)
+    dispatchSetNavbarThemeMode(prefs.theme_navbar_mode)
+  }
+  if (typeof prefs.bubble_theme === 'string' && prefs.bubble_theme.length > 0) {
+    saveBubbleTheme(prefs.bubble_theme as BubbleTheme)
   }
 }
+
+// #726: /v1/preferences/ is read by several surfaces on page load (ChatPage
+// hydrate, SettingsSheet, RoleAgentTip, DefaultLlmTip). Share one in-flight
+// GET and reuse the parsed bag for a short window so mounting four components
+// costs one request, not four. Any real PATCH invalidates the cache.
+let _prefsGetPromise: Promise<UserPrefs | null> | null = null
+let _prefsCache: { at: number; value: UserPrefs | null } | null = null
+const PREFS_GET_CACHE_MS = 60_000
+
+export function invalidateUserPrefsCache(): void {
+  _prefsGetPromise = null
+  _prefsCache = null
+}
+
+/** Test isolation only: reset the #726 dedupe state between tests. */
+export function __resetUserPrefsCacheForTests(): void {
+  invalidateUserPrefsCache()
+}
+
+export function fetchUserPrefs(): Promise<UserPrefs | null> {
+  if (_prefsGetPromise) return _prefsGetPromise
+  if (_prefsCache && Date.now() - _prefsCache.at < PREFS_GET_CACHE_MS) {
+    return Promise.resolve(_prefsCache.value)
+  }
+  const request = (async () => {
+    try {
+      const data = await apiGet<unknown>(USER_PREFS_PATH)
+      return parseUserPrefs(data)
+    } catch {
+      return null
+    }
+  })()
+  _prefsGetPromise = request
+  void request.then((value) => {
+    // Cache successes and failures alike: under throttle the local bag is the
+    // honest fallback and re-GETting immediately just re-429s.
+    _prefsCache = { at: Date.now(), value }
+    if (_prefsGetPromise === request) _prefsGetPromise = null
+  })
+  return request
+}
+// #738: module-level 429 back-off for PATCH /v1/preferences/.
+// When the server throttles us, skip the PATCH for 30s — localStorage already
+// holds the latest value, so no data is lost. The next non-skipped call syncs.
+let _prefsPatchThrottledUntil = 0
+const PREFS_PATCH_BACKOFF_MS = 30_000
 
 export async function saveUserPrefs(patch: {
   favourites?: PinnedAgent[]
@@ -214,6 +335,10 @@ export async function saveUserPrefs(patch: {
   context_strategy?: ContextStrategy
   context_cull_trigger_pct?: number
   context_cull_fraction_pct?: number
+  theme?: Theme
+  theme_navbar_mode?: NavbarThemeToggleMode
+  bubble_theme?: string
+  rail_sections?: RailSectionsState
   values?: Record<string, unknown>
   agent_dropdowns?: AgentDropdowns
 }): Promise<UserPrefs | null> {
@@ -225,6 +350,10 @@ export async function saveUserPrefs(patch: {
     patch.context_strategy === undefined &&
     patch.context_cull_trigger_pct === undefined &&
     patch.context_cull_fraction_pct === undefined &&
+    patch.theme === undefined &&
+    patch.theme_navbar_mode === undefined &&
+    patch.bubble_theme === undefined &&
+    patch.rail_sections === undefined &&
     patch.values === undefined &&
     patch.agent_dropdowns === undefined
   ) {
@@ -246,18 +375,36 @@ export async function saveUserPrefs(patch: {
   if (patch.context_cull_fraction_pct !== undefined) {
     body.context_cull_fraction_pct = parseCullFractionPct(patch.context_cull_fraction_pct)
   }
+  if (patch.theme !== undefined) body.theme = patch.theme
+  if (patch.theme_navbar_mode !== undefined) body.theme_navbar_mode = patch.theme_navbar_mode
+  if (patch.bubble_theme !== undefined) body.bubble_theme = patch.bubble_theme
+  if (patch.rail_sections !== undefined) body.rail_sections = patch.rail_sections
   const values = { ...(patch.values || {}) }
   if (patch.agent_dropdowns !== undefined) values.agent_dropdowns = patch.agent_dropdowns
   if (Object.keys(values).length > 0) body.values = values
+
+  // #738: skip the PATCH if still within the back-off window
+  if (Date.now() < _prefsPatchThrottledUntil) return null
+
   try {
     await ensureCsrfCookie()
-    const data = await apiPatch<unknown>(USER_PREFS_PATH, body)
+    // #800: provenance — this PATCH was the #738 flood; name it in 429 forensics.
+    const data = await withClientSource('saveUserPrefs', () =>
+      apiPatch<unknown>(USER_PREFS_PATH, body),
+    )
+    invalidateUserPrefsCache()
     const parsed = parseUserPrefs(data)
     if (parsed && !parsed.empty) {
       applyPrefsToLocal(parsed)
     }
+    if (parsed) dispatchUserPrefsChanged(parsed)
     return parsed
-  } catch {
+  } catch (err) {
+    // #738: on 429, back off for PREFS_PATCH_BACKOFF_MS before retrying
+    if (isThrottleError(err)) {
+      _prefsPatchThrottledUntil = Date.now() + PREFS_PATCH_BACKOFF_MS
+      invalidateUserPrefsCache()
+    }
     return null
   }
 }
@@ -306,23 +453,38 @@ export async function hydrateRailPrefs(
         }
       }
     }
+    // #786: the effective layout after hydrate — the server's when it has
+    // content, otherwise this browser's untouched local bag.
+    const sections = railSectionsHasContent(server.rail_sections)
+      ? server.rail_sections
+      : hasRailSectionsStorage()
+        ? loadRailSections()
+        : undefined
     return {
       pins: server.favourites,
       hidden: server.hidden_agents,
       hostnameOverride: server.hostname_override,
+      sections,
       source: 'server',
     }
   }
   const local = localRailSnapshot(catalog)
   const localDropdowns = loadAllLocalAgentDropdowns()
   if (server?.empty) {
+    // #786: one-time import — this browser's sections bag seeds the server
+    // row only when the browser has actually persisted one.
+    const localSections = hasRailSectionsStorage() ? loadRailSections() : undefined
     await saveUserPrefs({
       favourites: local.pins,
       hidden_agents: local.hidden,
       hostname_override: local.hostnameOverride,
       agent_dropdowns: localDropdowns,
+      theme: initialTheme(),
+      theme_navbar_mode: initialNavbarThemeMode(),
+      bubble_theme: loadBubbleTheme(),
+      ...(localSections ? { rail_sections: localSections } : {}),
     })
-    return { ...local, source: 'import' }
+    return { ...local, sections: localSections, source: 'import' }
   }
   return local
 }

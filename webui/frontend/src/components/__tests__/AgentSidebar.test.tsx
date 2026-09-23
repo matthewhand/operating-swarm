@@ -12,9 +12,21 @@ import {
   GENERATION_COMPLETE_EVENT,
   RAIL_ORDER_STORAGE_KEY,
 } from '../../lib/railOrder'
-import { BUMP_COMPLETED_KEY, HOSTNAME_OVERRIDE_KEY } from '../../lib/settingsPrefs'
+import {
+  BUMP_COMPLETED_KEY,
+  BUMP_SCOPE_KEY,
+  HOSTNAME_OVERRIDE_KEY,
+} from '../../lib/settingsPrefs'
+import { RAIL_SECTIONS_STORAGE_KEY } from '../../lib/railSections'
+import { DELETED_RAIL_IDS_KEY } from '../../lib/deletedRailIds'
 import { saveAgentSessions, type AgentSession } from '../../lib/scaleOutSessions'
 import { publishChatConnection, resetChatConnection } from '../../lib/chatConnection'
+import { notifyCliRunState, resetCliRunState } from '../../lib/cliRunState'
+import {
+  NEEDS_APPROVAL_LABEL,
+  notifyApprovalWait,
+  resetAgentAttention,
+} from '../../lib/agentAttention'
 
 function blueprint(
   id: string,
@@ -83,6 +95,8 @@ function mockDataTransfer() {
 
 function dragTo(source: Element, target: Element) {
   const dataTransfer = mockDataTransfer()
+  // #761: zero-height jsdom rects resolve to 'above' (insert-before), the
+  // historical behavior this suite pins.
   fireEvent.dragStart(source, { dataTransfer })
   fireEvent.dragEnter(target, { dataTransfer })
   fireEvent.dragOver(target, { dataTransfer })
@@ -273,7 +287,7 @@ function SearchProbe() {
   return <span data-testid="os-test-search">{params.toString()}</span>
 }
 
-/** Hidden Bots opens the Search palette (REQ-190), not an in-rail dialog. */
+/** Hidden Agents opens the Search palette (REQ-190), not an in-rail dialog. */
 function HiddenSearchHost() {
   const [open, setOpen] = useState(false)
   const [options, setOptions] = useState<SearchPaletteOptions | undefined>()
@@ -322,7 +336,7 @@ function storedHidden(): string[] {
 }
 
 function hiddenBotsButton(count: number) {
-  return screen.getByRole('button', { name: `Hidden Bots ${count} (${count} hidden)` })
+  return screen.getByRole('button', { name: `Hidden Agents ${count} (${count} hidden)` })
 }
 
 async function unhideFromSearch(label: string, agentId: string) {
@@ -338,6 +352,34 @@ async function unhideFromSearch(label: string, agentId: string) {
   // Team roster ids stay hidden in localStorage but are not Search bot rows.
   unhideAgentId(agentId, loadHiddenAgentIds())
   window.dispatchEvent(new Event('storage'))
+}
+
+function railRow(id: string): Element | null {
+  return document.querySelector(`[data-rail-id="${id}"]`)
+}
+
+/**
+ * `data-rail-id` sits on the row for team/remote rows and on the wrapping
+ * `<li>` for section rows, so the active class may be one level down.
+ */
+function isRowActive(id: string): boolean {
+  const node = railRow(id)
+  if (!node) return false
+  if (node.classList.contains('os-agent-row--active')) return true
+  return Boolean(node.querySelector('.os-agent-row--active'))
+}
+
+/**
+ * #542: pins are where the active state actually broke. `pinActive` compared
+ * against `selectedId`, which team/remote scopes blanked out to `''` — so no
+ * pin could ever light up once the pane was on a team or a remote.
+ */
+function pinTile(id: string): Element | null {
+  return document.querySelector(`.os-fav-tile[data-agent-id="${id}"]`)
+}
+
+function isPinActive(id: string): boolean {
+  return Boolean(pinTile(id)?.classList.contains('os-fav-tile--active'))
 }
 
 function storedRailOrder(): string[] {
@@ -375,9 +417,10 @@ describe('AgentSidebar Grok rail', () => {
     expect(within(list).queryByRole('link', { name: /Gate/ })).not.toBeInTheDocument()
     expect(within(list).queryByRole('link', { name: /Skeptic/ })).not.toBeInTheDocument()
 
-    const search = screen.getByRole('searchbox', { name: 'Search' })
-    expect(search).toHaveAttribute('placeholder', 'Search')
-    const kbd = search.closest('.os-rail-search')?.querySelector('.os-rail-search__kbd')
+    const search = screen.getByRole('button', { name: 'Search' })
+    expect(search).toHaveClass('os-rail-search')
+    expect(search).toHaveTextContent('Search')
+    const kbd = search.querySelector('.os-rail-search__kbd')
     expect(kbd?.textContent === '⌘K' || kbd?.textContent === 'Ctrl+K').toBe(true)
     fireEvent.focus(search)
     fireEvent.click(search)
@@ -532,7 +575,8 @@ describe('AgentSidebar Grok rail', () => {
       expect(screen.getByTestId('os-test-search')).toHaveTextContent('session=cli-fresh-1')
     })
     const posted = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([input, init]: [RequestInfo, RequestInit | undefined]) => {
+      (call: unknown[]) => {
+        const [input, init] = call as [RequestInfo, RequestInit | undefined]
         const url = String(input)
         const body = typeof init?.body === 'string' ? init.body : ''
         return url.includes('/v1/cli-sessions/select') && body.includes('"start_new":true')
@@ -541,16 +585,20 @@ describe('AgentSidebar Grok rail', () => {
     expect(posted).toBe(true)
   })
 
-  it('keeps cli_agent and api_agent listed even if they were previously hidden', async () => {
+  // #507: the old force-visible exemption (#321/#621) is gone — Hide and
+  // Unhide are inverses for every rail kind, and the Hidden count is truthful.
+  it('hides cli_agent and api_agent when their ids are in the hidden store', async () => {
     localStorage.setItem(
       HIDDEN_AGENTS_STORAGE_KEY,
       JSON.stringify(['cli_agent', 'api_agent', 'codey']),
     )
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
-    await within(list).findByRole('link', { name: /cli_agent/ })
-    expect(within(list).getByRole('link', { name: /api_agent/ })).toBeInTheDocument()
+    await within(list).findByRole('link', { name: /Support/ })
+    expect(within(list).queryByRole('link', { name: /cli_agent/ })).not.toBeInTheDocument()
+    expect(within(list).queryByRole('link', { name: /api_agent/ })).not.toBeInTheDocument()
     expect(within(list).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
+    expect(hiddenBotsButton(3)).toBeInTheDocument()
   })
 
   it('seeds Hidden with gate and skeptic on first load; Support stays visible', async () => {
@@ -764,6 +812,32 @@ describe('AgentSidebar Grok rail', () => {
     expect(screen.queryAllByTestId('rail-update-chrome')).toHaveLength(1)
   })
 
+  it('#400 rail hostname is never a loopback IP', async () => {
+    renderSidebar()
+    await screen.findByRole('navigation', { name: 'Agent list' })
+    const hostname = screen.getByLabelText('Hostname') as HTMLInputElement
+    expect(hostname.value).not.toBe('127.0.0.1')
+    expect(hostname.value).not.toBe('::1')
+  })
+
+  it('#401 rail names keep a title with the full label', async () => {
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const support = await within(list).findByRole('link', { name: /Support/ })
+    const nameEl = within(support).getByTestId('rail-agent-name')
+    expect(nameEl).toHaveTextContent('Support')
+    expect(nameEl).toHaveAttribute('title', 'Support')
+  })
+
+  it('#404 agent list scroller has footer clearance padding (idle: pb-4; #729 expands to pb-16 mid-drag)', async () => {
+    renderSidebar()
+    await screen.findByRole('navigation', { name: 'Agent list' })
+    // #729 supersedes the constant pb-16: the 4rem drag-era clearance is
+    // reserved only while a drag is in progress; idle rows reclaim the height.
+    expect(screen.getByTestId('rail-agent-scroller').className).toMatch(/pb-4/)
+    expect(screen.getByTestId('rail-agent-scroller').className).not.toMatch(/pb-16/)
+  })
+
   it('paints a red dot on rail-server-icon when local WS is disconnected (REQ-195)', async () => {
     resetChatConnection()
     renderSidebar()
@@ -784,15 +858,15 @@ describe('AgentSidebar Grok rail', () => {
     resetChatConnection()
   })
 
-  it('leaves the Hidden Bots area blank until something is hidden', async () => {
+  it('leaves the Hidden Agents area blank until something is hidden', async () => {
     localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify([]))
     renderSidebar()
     await screen.findByRole('navigation', { name: 'Agent list' })
-    const zone = screen.getByRole('region', { name: 'Hidden Bots' })
+    const zone = screen.getByRole('region', { name: 'Hidden Agents' })
     expect(zone).toHaveAttribute('data-empty', 'true')
     expect(zone).not.toHaveTextContent(/drop here to hide/i)
     expect(zone).toHaveTextContent('')
-    expect(screen.queryByRole('button', { name: /Hidden Bots/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Hidden Agents/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Hide all/i })).not.toBeInTheDocument()
   })
 
@@ -801,7 +875,7 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
-    const zone = screen.getByRole('region', { name: 'Hidden Bots' })
+    const zone = screen.getByRole('region', { name: 'Hidden Agents' })
     expect(zone).toHaveAttribute('data-empty', 'true')
     expect(screen.queryByText(/drop here to hide/i)).not.toBeInTheDocument()
 
@@ -818,18 +892,23 @@ describe('AgentSidebar Grok rail', () => {
     })
     expect(storedHidden()).toEqual(['codey'])
     expect(hiddenBotsButton(1)).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Hidden Bots' })).toHaveAttribute('data-empty', 'false')
+    expect(screen.getByRole('region', { name: 'Hidden Agents' })).toHaveAttribute('data-empty', 'false')
   })
 
-  it('shows Hidden Bots count and swaps to a chevron on hover', async () => {
+  it('shows Hidden Agents count and swaps to a chevron on hover', async () => {
     renderSidebar()
     await screen.findByRole('navigation', { name: 'Agent list' })
     const trigger = await screen.findByTestId('os-hidden-bots-button')
-    expect(trigger).toHaveAccessibleName(/Hidden Bots 2/)
-    expect(within(trigger).getByText('Hidden Bots')).toBeInTheDocument()
+    expect(trigger).toHaveAccessibleName(/Hidden Agents 2/)
+    expect(within(trigger).getByText('Hidden Agents')).toBeInTheDocument()
     expect(within(trigger).getByTestId('os-hidden-bots-count')).toHaveTextContent('2')
     fireEvent.mouseEnter(trigger)
-    expect(within(trigger).getByTestId('os-hidden-bots-tail')).toHaveTextContent('>')
+    // #557: the hover affordance is now the lucide chevron rather than a literal
+    // '>' character, so assert the icon (and that the count yields to it) instead
+    // of coupling the test to a text glyph.
+    const tail = within(trigger).getByTestId('os-hidden-bots-tail')
+    expect(tail.querySelector('svg.lucide-chevron-right')).toBeTruthy()
+    expect(tail).not.toHaveTextContent('>')
     fireEvent.mouseLeave(trigger)
     expect(within(trigger).getByTestId('os-hidden-bots-count')).toHaveTextContent('2')
   })
@@ -838,7 +917,7 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const support = await within(list).findByRole('link', { name: /Support/ })
-    const zone = screen.getByRole('region', { name: 'Hidden Bots' })
+    const zone = screen.getByRole('region', { name: 'Hidden Agents' })
 
     fireEvent.dragStart(support, { dataTransfer: mockDataTransfer() })
     expect(support).toHaveClass('os-agent-row--dragging')
@@ -859,7 +938,7 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const codey = await within(list).findByRole('link', { name: /Codey/ })
-    const zone = screen.getByRole('region', { name: 'Hidden Bots' })
+    const zone = screen.getByRole('region', { name: 'Hidden Agents' })
 
     dragTo(codey, zone)
 
@@ -879,11 +958,11 @@ describe('AgentSidebar Grok rail', () => {
     expect(screen.queryByRole('button', { name: /Hide all/i })).not.toBeInTheDocument()
   })
 
-  it('hides role agents (gate, skeptic) via the empty Hidden Bots drop slot', async () => {
+  it('hides role agents (gate, skeptic) via the empty Hidden Agents drop slot', async () => {
     localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify([]))
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
-    const zone = screen.getByRole('region', { name: 'Hidden Bots' })
+    const zone = screen.getByRole('region', { name: 'Hidden Agents' })
 
     dragTo(await within(list).findByRole('link', { name: /Gate/ }), zone)
     dragTo(await within(list).findByRole('link', { name: /Skeptic/ }), zone)
@@ -916,7 +995,7 @@ describe('AgentSidebar Grok rail', () => {
     expect(tile).toBeInTheDocument()
     expect(within(list).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
 
-    dragTo(tile, screen.getByRole('region', { name: 'Hidden Bots' }))
+    dragTo(tile, screen.getByRole('region', { name: 'Hidden Agents' }))
 
     await waitFor(() => {
       expect(within(list).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
@@ -950,7 +1029,7 @@ describe('AgentSidebar Grok rail', () => {
     const listAfter = await screen.findByRole('navigation', { name: 'Agent list' })
     const gridAfter = screen.getByLabelText('Pinned agents')
     const unhideTrigger = await screen.findByRole('button', {
-      name: 'Hidden Bots 3 (3 hidden)',
+      name: 'Hidden Agents 3 (3 hidden)',
     })
     expect(within(gridAfter).queryByRole('link', { name: 'Codey' })).not.toBeInTheDocument()
     expect(within(listAfter).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
@@ -983,11 +1062,14 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const herdr = await within(list).findByRole('link', { name: /w3:p1/ })
-    expect(herdr).toHaveAttribute('href', '/teams/#herdr-members')
+    // #543: the herdr row LINKS TO ITS CHAT — the agent name rides the
+    // remote-harness session param — instead of the settings-adjacent members
+    // page. A herdr seat is a talk-to target like every other kind.
+    expect(herdr).toHaveAttribute('href', '/chat?remote=herdr&session=w3%3Ap1')
     expect(herdr).toHaveTextContent(/Herdr · localhost/)
   })
 
-  it('opens the definition Settings pane when a role badge is clicked', async () => {
+  it('keeps the rail role badge as non-interactive text inside the row link (#332)', async () => {
     localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify([]))
     const opened: Array<Record<string, unknown>> = []
     const onOpen = (event: Event) => {
@@ -997,17 +1079,15 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
 
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
-    const badge = await within(list).findByRole('button', { name: 'Open gate settings' })
+    const gate = await within(list).findByRole('link', { name: /Gate/ })
+    const badge = gate.querySelector('.os-agent-role-badge')
+    expect(badge).not.toBeNull()
     expect(badge).toHaveAttribute('data-definition-id', 'gate')
-    fireEvent.click(badge)
-    expect(opened).toEqual([
-      {
-        section: 'definition',
-        definitionKind: 'role',
-        definitionId: 'gate',
-        blueprintId: 'gate',
-      },
-    ])
+    expect(badge).not.toHaveAttribute('role', 'button')
+    expect(badge).not.toHaveAttribute('tabindex')
+    expect(within(list).queryByRole('button', { name: 'Open gate settings' })).not.toBeInTheDocument()
+    fireEvent.click(badge!)
+    expect(opened).toEqual([])
     window.removeEventListener('swarm:open-settings', onOpen)
   })
 
@@ -1094,6 +1174,64 @@ describe('AgentSidebar Grok rail', () => {
     expect(storedRailOrder()[0]).toBe('stewie')
   })
 
+  it('#552: a sectioned agent is NOT bumped by default — Only Unassigned', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: { stewie: 'sec_stuff' },
+        unassignedCollapsed: false,
+      }),
+    )
+    localStorage.setItem(BUMP_COMPLETED_KEY, '1')
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    await within(list).findByRole('link', { name: /Stewie/ })
+
+    const before = railIds(list)
+    fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
+
+    // Its own position and its section-mates' positions are unchanged.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(railIds(list)).toEqual(before)
+    expect(storedRailOrder()).toEqual([])
+  })
+
+  it('#552: All sections restores the old behaviour for sectioned agents', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: { stewie: 'sec_stuff' },
+        unassignedCollapsed: false,
+      }),
+    )
+    localStorage.setItem(BUMP_COMPLETED_KEY, '1')
+    localStorage.setItem(BUMP_SCOPE_KEY, 'all')
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    await within(list).findByRole('link', { name: /Stewie/ })
+
+    fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
+
+    await waitFor(() => {
+      expect(storedRailOrder()[0]).toBe('stewie')
+    })
+  })
+
+  it('#552: the scope is still subordinate to the master toggle', async () => {
+    localStorage.setItem(BUMP_COMPLETED_KEY, '0')
+    localStorage.setItem(BUMP_SCOPE_KEY, 'all')
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    await within(list).findByRole('link', { name: /Stewie/ })
+
+    fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
+
+    expect(railIds(list)[0]).toBe('support')
+    expect(storedRailOrder()).toEqual([])
+  })
+
   it('does not bump a completed fixture when the toggle is off', async () => {
     localStorage.setItem(BUMP_COMPLETED_KEY, '0')
     renderSidebar()
@@ -1105,6 +1243,48 @@ describe('AgentSidebar Grok rail', () => {
 
     expect(railIds(list)[0]).toBe('support')
     expect(storedRailOrder()).toEqual([])
+  })
+
+  it('#564: a pinned agent dropped inside a section is unpinned AND assigned to it', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: {}, // empty: this is exactly the gap that swallowed the drop
+        unassignedCollapsed: false,
+      }),
+    )
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'stewie', name: 'Stewie' }]),
+    )
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    // Wait for the rows before looking for sections — the rail paints its
+    // loading state first.
+    await within(list).findByRole('link', { name: /Codey/ })
+
+    const tile = within(screen.getByLabelText('Pinned agents')).getByRole('link', {
+      name: 'Stewie',
+    })
+    const section = screen
+      .getAllByTestId('rail-section')
+      .find((node) => node.getAttribute('data-section-id') === 'sec_stuff')!
+
+    // Drop on the section BLOCK, not its header and not its empty hint — the
+    // padding is where a real drag lands and where the container's
+    // dropUnfavourite used to take over (unpin only, never assign).
+    dragTo(tile, section)
+
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership.stewie).toBe('sec_stuff')
+    // And it really did leave the pinned grid.
+    expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
+    expect(
+      within(screen.getAllByTestId('rail-section').find(
+        (node) => node.getAttribute('data-section-id') === 'sec_stuff',
+      )!).getByRole('link', { name: /Stewie/ }),
+    ).toBeInTheDocument()
   })
 
   it('REQ-128: does not duplicate favourite agents into the list when generation finishes', async () => {
@@ -1218,7 +1398,8 @@ describe('AgentSidebar Grok rail', () => {
 
     const office = within(list).getByRole('link', { name: /Office/ })
     expect(office).toHaveAttribute('data-kind', 'team')
-    expect(within(office).getByText('Team')).toHaveAttribute('data-kind', 'team')
+    // #525: team membership is not a role, so a team row carries no badge.
+    expect(within(office).queryByText('Team')).not.toBeInTheDocument()
 
     const research = within(list).getByRole('link', { name: /Research/ })
     expect(research).toHaveAttribute('data-kind', 'team')
@@ -1422,7 +1603,9 @@ describe('AgentSidebar teams', () => {
     const team = await within(list).findByRole('link', { name: /Demo Team \(team\)/ })
     expect(team).toHaveAttribute('href', '/chat?team=demo-team')
     expect(team.className).toMatch(/os-team-item/)
-    expect(within(team).getByText('Team')).toBeInTheDocument()
+    // #525: the 'Team' role-styled pill is gone from sidepane rows.
+    expect(within(team).queryByText('Team')).not.toBeInTheDocument()
+    expect(within(team).queryByText('Remote')).not.toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Stewie/ })).toBeInTheDocument()
   })
@@ -1466,10 +1649,10 @@ describe('AgentSidebar teams', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Demo Harness Kinds \(team\)/ })
     expect(team).toHaveAttribute('href', '/chat?team=demo-harness-kinds')
-    expect(within(team).getByText('Team')).toBeInTheDocument()
+    expect(within(team).queryByText('Team')).not.toBeInTheDocument()
   })
 
-  it('shows three declared persona faces on a team row (REQ-81)', async () => {
+  it('shows one declared persona face plus a remainder on a team row (REQ-81, #438)', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo) => {
@@ -1539,32 +1722,30 @@ describe('AgentSidebar teams', () => {
     const team = await within(list).findByRole('link', { name: /Squad \(team\)/ })
     expect(team).toHaveAttribute('data-persona-count', '3')
     expect(team).toHaveAttribute('data-roster', 'declared')
-    expect(within(team).getByTestId('declared-roster')).toHaveAttribute('data-persona-count', '3')
-    expect(within(team).getByTestId('declared-roster')).toHaveAttribute(
-      'aria-label',
-      'Squad declared members',
-    )
+    const rosterEl = within(team).getByTestId('declared-roster')
+    expect(rosterEl).toHaveAttribute('data-persona-count', '3')
+    // #438: one face (the chat target) plus the remainder, not three fanned
+    // faces. `aria-label` also names the remainder, so it is not a bare glyph.
+    expect(rosterEl).toHaveAttribute('data-stack-count', '1')
+    expect(rosterEl).toHaveAttribute('data-remainder', '2')
+    expect(rosterEl).toHaveAttribute('aria-label', 'Squad declared members, +2')
+    expect(within(team).getByTestId('team-remainder')).toHaveTextContent('+2')
+    // The declared roster keeps every persona name reachable, just not drawn.
+    expect(rosterEl).toHaveTextContent('Researcher, Writer, Reviewer')
   })
 
-  it('opens the definition pane when the Team badge is clicked', async () => {
-    const opened: Array<Record<string, unknown>> = []
-    const onOpen = (event: Event) => {
-      opened.push((event as CustomEvent).detail || {})
-    }
-    window.addEventListener('swarm:open-settings', onOpen)
+  it('#525: a team row renders no Team badge and no definition-pane button', async () => {
     renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const team = await within(list).findByRole('link', { name: /Demo Team \(team\)/ })
 
-    const badge = await screen.findByRole('button', { name: 'Open Demo Team team settings' })
-    fireEvent.click(badge)
-    expect(opened).toEqual([
-      {
-        section: 'definition',
-        definitionKind: 'team',
-        definitionId: 'demo-team',
-        teamId: 'demo-team',
-      },
-    ])
-    window.removeEventListener('swarm:open-settings', onOpen)
+    expect(within(team).queryByText('Team')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Open Demo Team team settings' }),
+    ).not.toBeInTheDocument()
+    // Team membership is still declared on the row itself (semantics kept).
+    expect(team).toHaveAttribute('data-kind', 'team')
+    expect(team).toHaveAttribute('aria-label', 'Demo Team (team)')
   })
 
   it('selects a team like an agent via ?team=', async () => {
@@ -1582,7 +1763,7 @@ describe('AgentSidebar teams', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Demo Team \(team\)/ })
-    const zone = screen.getByRole('region', { name: 'Hidden Bots' })
+    const zone = screen.getByRole('region', { name: 'Hidden Agents' })
     dragTo(team, zone)
 
     await waitFor(() => {
@@ -1919,6 +2100,8 @@ describe('AgentSidebar favourite kind hrefs (REQ-171B #608)', () => {
     expect(codeyTile).toHaveAttribute('href', '/chat?blueprint=codey')
     expect(teamTile).toHaveAttribute('href', '/chat?team=demo')
     expect(teamTile.getAttribute('href')).not.toMatch(/blueprint=/)
+    // Issue #432 fix: 1-member team falls back to the single member's face rather than blank
+    expect(teamTile.querySelector('[data-agent-id="codey"]')).toBeInTheDocument()
     expect(remoteTile).toHaveAttribute('href', '/chat?remote=omb')
     expect(remoteTile.getAttribute('href')).not.toMatch(/blueprint=/)
     expect(herdrTile).toHaveAttribute('href', '/teams/#herdr-members')
@@ -1938,6 +2121,39 @@ describe('AgentSidebar favourite kind hrefs (REQ-171B #608)', () => {
     })
     expect(screen.getByTestId('os-test-search')).toHaveTextContent('remote=omb')
     expect(screen.getByTestId('os-test-search')).not.toHaveTextContent('blueprint=')
+  })
+
+  it('#542 highlights the pinned team when the pane is on that team', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([
+        { id: 'team:demo', name: 'Demo' },
+        { id: 'remote:omb', name: 'OpenMousBot' },
+        { id: 'codey', name: 'Codey' },
+      ]),
+    )
+    renderSidebar('/chat?team=demo')
+    await screen.findByTestId('agent-fav-grid')
+    await waitFor(() => expect(pinTile('team:demo')).toBeTruthy())
+    expect(isPinActive('team:demo')).toBe(true)
+    expect(isPinActive('remote:omb')).toBe(false)
+    expect(isPinActive('codey')).toBe(false)
+  })
+
+  it('#542 highlights the pinned remote when the pane is on that remote', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([
+        { id: 'team:demo', name: 'Demo' },
+        { id: 'remote:omb', name: 'OpenMousBot' },
+        { id: 'codey', name: 'Codey' },
+      ]),
+    )
+    renderSidebar('/chat?remote=omb')
+    await screen.findByTestId('agent-fav-grid')
+    await waitFor(() => expect(pinTile('remote:omb')).toBeTruthy())
+    expect(isPinActive('remote:omb')).toBe(true)
+    expect(isPinActive('team:demo')).toBe(false)
   })
 })
 
@@ -2153,25 +2369,30 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     localStorage.clear()
   })
 
-  it('shows every team face at 4 or fewer members, 2 + N above that', async () => {
+  it('#438: a 5-member team row shows one chat face and +4, not a fan of 3 faces', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
-    // 5-member roster: crowded — first 2 roster faces plus a +3 chip.
-    expect(team).toHaveAttribute('data-stack-count', '2')
-    expect(team).toHaveAttribute('data-remainder', '3')
-    const stack = within(team).getByLabelText('Scale Out members')
-    expect(stack).toHaveAttribute('data-avatar-stack', 'true')
-    expect(stack).toHaveAttribute('data-stack-count', '2')
-    expect(within(stack).getByText('+3')).toBeInTheDocument()
-    const faces = team.querySelectorAll('.os-avatar-stack__face')
-    expect(faces).toHaveLength(2)
-    // Roster order: Pat (CoS, running) then Ada (finished) — working class follows status.
-    expect(faces[0]!.classList.contains('os-avatar-stack__face--working')).toBe(true)
-    expect(faces[1]!.classList.contains('os-avatar-stack__face--working')).toBe(false)
-    const delays = [...faces].map((face) => (face as HTMLElement).style.animationDelay)
-    expect(new Set(delays).size).toBe(2)
-    expect(delays).toContain('0ms')
+    // #438 supersedes REQ-891's sidepane stack: one face for the member you are
+    // talking to, plus a +N for the rest. The old assertion here pinned
+    // "at most 3 faces with no +N remainder" and three `.os-avatar-stack__face`
+    // nodes with staggered pulse delays — the fan this ticket removes.
+    expect(team).toHaveAttribute('data-stack-count', '1')
+    expect(team).toHaveAttribute('data-remainder', '4')
+    expect(team.querySelector('.os-avatar-stack__face')).toBeNull()
+    expect(within(team).getByTestId('team-chat-face')).toBeInTheDocument()
+    expect(within(team).getByTestId('team-remainder')).toHaveTextContent('+4')
+  })
+
+  it('#438: the team row face is the chat target, not an arbitrary first face', async () => {
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
+    // `defaultSessionForTeam` owns "chief_of_staff_id, else CoS-role, else first"
+    // — the rail reads that rule rather than re-deriving a member to show.
+    const face = within(team).getByTestId('team-chat-face')
+    expect(face).toHaveAttribute('data-remainder', '4')
+    expect(face.querySelector('[data-agent-avatar]')).toBeInTheDocument()
   })
 
   it('keeps a single-agent remote as one normal avatar (no mini stack)', async () => {
@@ -2192,8 +2413,11 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     const omb = await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ })
     expect(omb).toHaveTextContent('OpenMousBot')
     expect(omb).not.toHaveTextContent(/\bOMB\b/)
-    expect(omb).toHaveAttribute('data-stack-count', '2')
-    expect(omb).toHaveAttribute('data-remainder', '3')
+    // #438: one face + a +N for the remaining members (this asserted a 3-face
+    // fan with no remainder before — the fan REQ-891 asked for and #438 removes).
+    expect(omb).toHaveAttribute('data-stack-count', '1')
+    expect(omb).toHaveAttribute('data-remainder', '4')
+    expect(within(omb).getByTestId('team-remainder')).toHaveTextContent('+4')
     expect(within(list).getByRole('link', { name: /Rakazo \(remote\)/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Lab swarm \(remote\)/ })).toBeInTheDocument()
 
@@ -2387,7 +2611,7 @@ describe('AgentSidebar special roles', () => {
   })
 })
 
-describe('AgentSidebar REQ-129 — Hidden Bots row chrome', () => {
+describe('AgentSidebar REQ-129 — Hidden Agents row chrome', () => {
   beforeEach(() => {
     localStorage.clear()
     rememberEmptyFavourites()
@@ -2406,21 +2630,23 @@ describe('AgentSidebar REQ-129 — Hidden Bots row chrome', () => {
     localStorage.clear()
   })
 
-  it('renders "Hidden Bots" label with count and swaps count to > on hover', async () => {
+  it('renders "Hidden Agents" label with count and swaps count to a chevron on hover', async () => {
     localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify(['gate', 'skeptic']))
     renderSidebar()
     const btn = await screen.findByTestId('os-hidden-bots-button')
     expect(btn).toBeInTheDocument()
     expect(btn).toHaveClass('os-hidden-bots-row')
-    expect(within(btn).getByText('Hidden Bots')).toBeInTheDocument()
+    expect(within(btn).getByText('Hidden Agents')).toBeInTheDocument()
 
     // Resting state: count is visible
     const countEl = within(btn).getByTestId('os-hidden-bots-count')
     expect(countEl).toHaveTextContent('2')
 
-    // Hover state: swaps count to >
+    // Hover state: swaps the count for the chevron icon (#557 — was a literal '>')
     fireEvent.mouseEnter(btn)
-    expect(within(btn).getByTestId('os-hidden-bots-tail')).toHaveTextContent('>')
+    const tail = within(btn).getByTestId('os-hidden-bots-tail')
+    expect(tail.querySelector('svg.lucide-chevron-right')).toBeTruthy()
+    expect(tail).not.toHaveTextContent('>')
 
     // Leave hover state: restores count
     fireEvent.mouseLeave(btn)
@@ -2448,7 +2674,7 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
   })
 
   it('renders resizer handle on desktop and sets avatar-only state when narrow', async () => {
-    renderSidebar({ narrow: false })
+    renderSidebar('/chat?narrow=false')
     const resizer = await screen.findByTestId('rail-resize-handle')
     expect(resizer).toBeInTheDocument()
     expect(resizer).toHaveAttribute('role', 'separator')
@@ -2469,7 +2695,7 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
 
   it('initializes in avatar-only mode if stored width is <= threshold', async () => {
     localStorage.setItem('swarm_rail_width', '80')
-    renderSidebar({ narrow: false })
+    renderSidebar('/chat?narrow=false')
     const rail = await screen.findByTestId('os-agent-rail')
     expect(rail).toHaveAttribute('data-avatar-only', 'true')
     expect(rail).toHaveClass('os-agent-sidebar--avatar-only')
@@ -2523,4 +2749,663 @@ describe('AgentSidebar REQ-172 — Alt hotkey spill into unpinned rows', () => {
   })
 })
 
+describe('AgentSidebar drag-to-delete recycle bin', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    global.fetch = mockFetch()
+  })
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders normal footer buttons when not dragging', async () => {
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('os-teams-button')).toBeInTheDocument()
+    expect(screen.getByTestId('os-plugins-button')).toBeInTheDocument()
+    expect(screen.queryByTestId('os-recycle-bin')).not.toBeInTheDocument()
+  })
+
+  it('replaces static menu with recycle bin when dragging an agent row', async () => {
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+
+    const codeyRow = screen.getByRole('link', { name: /codey/i })
+    expect(codeyRow).toBeInTheDocument()
+
+    const dt = {
+      setData: vi.fn(),
+      getData: vi.fn(),
+      clearData: vi.fn(),
+      effectAllowed: 'uninitialized',
+      dropEffect: 'none',
+      types: [],
+    }
+
+    fireEvent.dragStart(codeyRow, { dataTransfer: dt })
+
+    // When dragging, recycle bin replaces Teams & Plugins
+    const bin = screen.getByTestId('os-recycle-bin')
+    expect(bin).toBeInTheDocument()
+    expect(within(bin).getByText('Delete')).toBeInTheDocument()
+    expect(screen.queryByTestId('os-teams-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('os-plugins-button')).not.toBeInTheDocument()
+
+    // Drag over bin
+    fireEvent.dragOver(bin, { dataTransfer: dt })
+
+    // Drop onto bin triggers delete confirmation
+    fireEvent.drop(bin, { dataTransfer: dt })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Delete Codey\?/i)).toBeInTheDocument()
+    })
+  })
+})
+
+describe('AgentSidebar REQ-861 conceal', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('#432 pinned team slides members when a worker is working', async () => {
+    resetCliRunState()
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'team:research', name: 'Research' }]),
+    )
+    renderSidebar()
+    const tile = await screen.findByRole('link', { name: 'Research' })
+    expect(tile).toHaveClass('os-fav-tile')
+    expect(tile).not.toHaveClass('os-fav-tile--working-stack')
+    act(() => {
+      notifyCliRunState('ada', true)
+    })
+    expect(tile).toHaveClass('os-fav-tile--working-stack')
+    act(() => {
+      notifyCliRunState('ada', false)
+    })
+    expect(tile).not.toHaveClass('os-fav-tile--working-stack')
+    resetCliRunState()
+  })
+
+  it('REQ-891 sidepane team row gets os-agent-row--working-stack when a worker is working', async () => {
+    resetCliRunState()
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const team = await within(list).findByRole('link', { name: /Research \(team\)/ })
+    expect(team).toHaveClass('os-agent-row--team')
+    expect(team).not.toHaveClass('os-agent-row--working-stack')
+    act(() => {
+      notifyCliRunState('ada', true)
+    })
+    expect(team).toHaveClass('os-agent-row--working-stack')
+    act(() => {
+      notifyCliRunState('ada', false)
+    })
+    expect(team).not.toHaveClass('os-agent-row--working-stack')
+    resetCliRunState()
+  })
+
+  it('#542 keeps the seat row active for a blueprint scope', async () => {
+    renderSidebar('/chat?blueprint=stewie')
+    await waitFor(() => expect(railRow('stewie')).toBeTruthy())
+    expect(isRowActive('stewie')).toBe(true)
+  })
+
+  it('#549 lists a hidden team in the hidden view so the badge and the list agree', async () => {
+    localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify(['team:research']))
+    renderSidebar()
+    const button = await screen.findByTestId('os-hidden-bots-button')
+    // The badge counts it…
+    expect(button.getAttribute('aria-label')).toContain('Hidden Agents 1')
+    fireEvent.click(button)
+    // …and now the list it opens shows the same thing, instead of nothing.
+    const dialog = await screen.findByRole('dialog', { name: 'Search' })
+    await waitFor(() => expect(within(dialog).getByText('Research')).toBeInTheDocument())
+    expect(within(dialog).getByTestId('unhide-team:research')).toBeInTheDocument()
+  })
+
+  it('#555 keeps the collapse control out of the pane header and on the divider pill', async () => {
+    renderSidebar()
+    const pill = await screen.findByTestId('rail-divider-pill')
+    // The pill is the only collapse affordance now…
+    const conceal = within(pill).getByRole('button', { name: 'Collapse sidebar' })
+    expect(conceal).toHaveAttribute('data-testid', 'sidebar-conceal')
+    // …and it lives inside the resizer, which owns the divider.
+    const handle = screen.getByTestId('rail-resize-handle')
+    expect(handle.contains(pill)).toBe(true)
+
+    // A drag starting on the pill must not reach the resizer, or clicking to
+    // collapse would also begin a resize.
+    fireEvent.pointerDown(pill, { clientX: 100 })
+    expect(handle.className).not.toContain('os-rail-resizer--active')
+    fireEvent.pointerDown(handle, { clientX: 100 })
+    expect(handle.className).toContain('os-rail-resizer--active')
+
+    // Collapsed state stays recoverable from the same divider.
+    fireEvent.click(conceal)
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+  })
+
+  it('renders standard pane icons for collapse/expand (#417, #767)', async () => {
+    renderSidebar()
+    const conceal = await screen.findByRole('button', { name: 'Collapse sidebar' })
+    expect(conceal).toHaveAttribute('title', 'Collapse sidebar')
+    expect(conceal).toHaveAttribute('data-testid', 'sidebar-conceal')
+    expect(conceal.querySelector('svg.lucide-panel-left-close')).toBeTruthy()
+    expect(conceal.querySelector('.os-brand-mark-geometric')).toBeNull()
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'false')
+    expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
+
+    fireEvent.click(conceal)
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument()
+    const expand = screen.getByRole('button', { name: 'Expand sidebar' })
+    expect(expand).toHaveAttribute('data-testid', 'sidebar-expand')
+    expect(expand.querySelector('svg.lucide-panel-left-open')).toBeTruthy()
+  })
+
+  it('#421 collapsed rail hides Calendar label and info-i (hostname-only chrome)', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+    expect(css).toMatch(/os-agent-sidebar--avatar-only \.os-calendar-label/)
+    expect(css).toMatch(/os-agent-sidebar--avatar-only \[data-testid="rail-update-chrome"\]/)
+
+    renderSidebar()
+    expect(screen.getByTestId('rail-update-chrome')).toBeInTheDocument()
+    expect(screen.getByLabelText('Hostname')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.getByTestId('os-calendar-button').querySelector('.os-calendar-label')).toBeTruthy()
+    expect(screen.queryByTestId('rail-update-chrome')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Hostname')).not.toBeInTheDocument()
+  })
+
+  it('restores the rail from the collapsed expand control (#417)', async () => {
+    renderSidebar()
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }))
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'false')
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
+  })
+
+  it('conceals the mobile drawer via the close button and backdrop', async () => {
+    // #555: the narrow overlay's dismiss is the dedicated close button. The
+    // divider pill (and so the collapse/expand control) only exists on the
+    // desktop rail, because the drawer has no divider to ride — previously a
+    // second control did the same `onClose()` the close button already does.
+    const onClose = vi.fn()
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AgentSidebar open narrow onClose={onClose} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByTestId('rail-divider-pill')).not.toBeInTheDocument()
+    // [0] is the backdrop, [1] is the drawer's own close button.
+    const drawerClose = screen.getAllByRole('button', { name: 'Close agents sidebar' })[1]
+    fireEvent.click(drawerClose)
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    const backdrop = screen.getAllByRole('button', { name: 'Close agents sidebar' })[0]
+    fireEvent.click(backdrop)
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('AgentSidebar #446 awaiting-approval attention', () => {
+  beforeEach(() => {
+    resetAgentAttention()
+    localStorage.clear()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    resetAgentAttention()
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('paints the rail row snippet slot and restores it when the decision lands', async () => {
+    rememberEmptyFavourites()
+    renderSidebar()
+    const row = await screen.findByRole('link', { name: /Codey/ })
+    expect(within(row).queryByTestId('rail-needs-approval')).not.toBeInTheDocument()
+    expect(within(row).getByText('Code assistant')).toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-1', true)
+    })
+    const mark = within(row).getByTestId('rail-needs-approval')
+    expect(mark).toHaveTextContent(NEEDS_APPROVAL_LABEL)
+    expect(mark).toHaveClass('os-rail-attention')
+    expect(within(row).queryByText('Code assistant')).not.toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-1', false)
+    })
+    expect(within(row).queryByTestId('rail-needs-approval')).not.toBeInTheDocument()
+    expect(within(row).getByText('Code assistant')).toBeInTheDocument()
+  })
+
+  it('overlays the pinned tile for the waiting agent', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'codey', name: 'Codey' }]),
+    )
+    renderSidebar()
+    const tile = await screen.findByRole('link', { name: 'Codey' })
+    expect(tile).toHaveClass('os-fav-tile')
+    expect(within(tile).queryByTestId('pin-needs-approval')).not.toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-7', true)
+    })
+    expect(within(tile).getByTestId('pin-needs-approval')).toHaveTextContent(NEEDS_APPROVAL_LABEL)
+
+    act(() => {
+      notifyApprovalWait('codey', 'tool-7', false)
+    })
+    expect(within(tile).queryByTestId('pin-needs-approval')).not.toBeInTheDocument()
+  })
+
+  it('flags a pinned team while it still has other tools outstanding', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'team:research', name: 'Research' }]),
+    )
+    renderSidebar()
+    const tile = await screen.findByRole('link', { name: 'Research' })
+
+    act(() => {
+      notifyApprovalWait('ada', 'tool-a', true)
+      notifyApprovalWait('ada', 'tool-b', true)
+    })
+    expect(within(tile).getByTestId('pin-needs-approval')).toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('ada', 'tool-a', false)
+    })
+    expect(within(tile).getByTestId('pin-needs-approval')).toBeInTheDocument()
+
+    act(() => {
+      notifyApprovalWait('ada', 'tool-b', false)
+    })
+    expect(within(tile).queryByTestId('pin-needs-approval')).not.toBeInTheDocument()
+  })
+})
+
+
+
+describe('#687 one delete removes at most one seat', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/preferences')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'user_preferences',
+              empty: true,
+              favourites: [],
+              hidden_agents: [],
+            }),
+          } as Response
+        }
+        if (url.includes('team_rosters') || url.includes('team-rosters')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [
+                {
+                  id: 'omb',
+                  title: 'OpenMousBot',
+                  configured: true,
+                  agents: [],
+                },
+              ],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/herdr-agents')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/agents/designs')) {
+          // #687: an explicit empty designs list — a blueprint-shaped fallback
+          // here used to mint a designed-agent row per blueprint and duplicate
+          // every name in the rail.
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: [] }),
+          } as Response
+        }
+        if (url.includes('/v1/cli-agents')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              clis: [],
+              native_consensus: {},
+              catalog: {},
+              rail: [],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'list',
+            data: [
+              ...blueprints,
+              blueprint('omb', 'Hermes', 'Agent sharing its id with a remote'),
+            ],
+          }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('deleting the Hermes agent keeps the same-id remote row', async () => {
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const hermesAgent = await within(list).findByRole('link', { name: /Hermes/ })
+    const ombRemote = await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ })
+    expect(hermesAgent).toBeInTheDocument()
+    expect(ombRemote).toBeInTheDocument()
+
+    fireEvent.contextMenu(hermesAgent)
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Delete$/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(within(list).queryByRole('link', { name: /Hermes/ })).not.toBeInTheDocument()
+    })
+    // The showstopper: the remote shares the bare id `omb` with the deleted
+    // agent. It must survive — 1 delete = at most 1 seat lost.
+    expect(
+      await within(list).findByRole('link', { name: /OpenMousBot \(remote\)/ }),
+    ).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem(DELETED_RAIL_IDS_KEY) || '[]')).toEqual(['omb'])
+  })
+})
+
+describe('#783/#781/#784 — drag footer: zero shift, distinct drop zones, centered compact icons', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  async function css() {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    return readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
+  }
+
+  it('#783: the recycle bin reserves the idle footer cluster height — no drag layout jump', async () => {
+    // jsdom has no layout engine, so the zero-shift contract is pinned at the
+    // source: the bin's min-height equals the idle cluster (Teams + Plugins +
+    // Routines + hostname row), and the bin replaces — never stacks with —
+    // the menu during a drag.
+    const sheet = await css()
+    expect(sheet).toMatch(/\.os-recycle-bin\s*\{[^}]*min-height:\s*10rem/)
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+    fireEvent.dragStart(screen.getByRole('link', { name: /codey/i }), {
+      dataTransfer: { setData: vi.fn(), getData: vi.fn(), types: [] },
+    })
+    const bin = screen.getByTestId('os-recycle-bin')
+    expect(bin).toBeInTheDocument()
+    expect(screen.queryByTestId('os-teams-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('os-plugins-button')).not.toBeInTheDocument()
+  })
+
+  it('#781: the Unassigned drop zone carries a distinct, non-error affordance', async () => {
+    const sheet = await css()
+    expect(sheet).toMatch(/\.os-rail-section-empty--unassigned/)
+    expect(sheet).not.toMatch(/\.os-rail-section-empty--unassigned[^}]*border-error/)
+  })
+
+  it('#784: compact-rail footer icons are center-aligned with the avatars', async () => {
+    const sheet = await css()
+    expect(sheet).toMatch(/\.os-agent-sidebar--avatar-only \[data-testid='sidebar-footer-container'\]/)
+    expect(sheet).toMatch(/\.os-agent-sidebar--avatar-only \.os-rail-hostname-row/)
+  })
+})
+
+describe('#765 — drag the divider to the edge: full collapse to 0px and back', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('dragging the resizer below the collapse threshold snaps the rail fully shut', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const handle = await screen.findByTestId('rail-resize-handle')
+
+    fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1 })
+    // Drag left past COLLAPSE_SNAP_THRESHOLD (52) from a 256px start…
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 120, pointerId: 1 }))
+    })
+    // …release: width 256 - 80 = 176 normally, but the snap contract sends
+    // the rail to 0px only below the threshold; 176 stays continuous.
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 120, pointerId: 1 }))
+    })
+    expect(rail.style.width).toBe('176px')
+
+    // Now drag past the threshold: 256 - 230 = 26 < 52 → collapsed.
+    fireEvent.pointerDown(handle, { clientX: 256, pointerId: 2 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 26, pointerId: 2 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 26, pointerId: 2 }))
+    })
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+    expect(rail).toHaveClass('os-agent-sidebar--collapsed')
+    expect(rail.style.width).toBe('0px')
+    // Persisted, so a reload restores the divider-only state.
+    expect(localStorage.getItem('swarm_rail_width')).toBe('0')
+  })
+
+  it('dragging open from the collapsed state snaps first to avatar width', async () => {
+    localStorage.setItem('swarm_rail_width', '0')
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+
+    // The expand pill is the only way back and is visible without hover.
+    const expand = screen.getByRole('button', { name: 'Expand sidebar' })
+    fireEvent.click(expand)
+    expect(rail).toHaveAttribute('data-collapsed', 'false')
+    expect(rail.style.width).toBe('256px')
+    expect(localStorage.getItem('swarm_rail_width')).toBe('256')
+  })
+
+  it('the collapse button now conceals fully (0px) and keyboard Home matches', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const handle = await screen.findByTestId('rail-resize-handle')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+    expect(rail.style.width).toBe('0px')
+
+    // End re-opens from the collapsed state.
+    fireEvent.keyDown(handle, { key: 'End' })
+    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
+    expect(rail.getAttribute('data-avatar-only')).toBe('false')
+  })
+})
+
+describe('#741 — the pill is a handle: drag from it resizes, click still toggles', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('dragging from the pill resizes the rail (no stopPropagation wall)', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const pill = await screen.findByTestId('rail-divider-pill')
+
+    fireEvent.pointerDown(pill, { clientX: 256, pointerId: 7 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 336, pointerId: 7 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 336, pointerId: 7 }))
+    })
+    // 256 + 80 = 336 — the drag went through to the shared resize body.
+    expect(rail.style.width).toBe('336px')
+    expect(localStorage.getItem('swarm_rail_width')).toBe('336')
+  })
+
+  it('a plain click on the pill still toggles, and the next click is not swallowed', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+
+    // Click collapse → collapses.
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+
+    // Click expand → expands. (A leaked drag-guard would eat this.)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }))
+    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
+    expect(rail.style.width).toBe('256px')
+
+    // And collapse works again — intent gate fully reset.
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+  })
+
+  it('a drag ended on the pill does not toggle on release', async () => {
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const pill = await screen.findByTestId('rail-divider-pill')
+
+    fireEvent.pointerDown(pill, { clientX: 256, pointerId: 8 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 296, pointerId: 8 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 296, pointerId: 8 }))
+    })
+    // The synthetic click React would fire after the gesture:
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    // Width is the dragged value (296), not the toggle's 0px.
+    expect(rail.style.width).toBe('296px')
+    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
+  })
+})
+
+describe('#747 — remote rows render their platform-themed face', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('a Letta remote with no member faces shows the Letta face, not the generic Users mark', async () => {
+    // Patch the remotes fixture for this test by re-stubbing fetch: the
+    // shared mockFetch serves omb; this test needs a letta row.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              object: 'list',
+              data: [
+                { id: 'letta-1', kind: 'letta', title: 'Letta Core', configured: true, agents: [] },
+              ],
+            }),
+          } as Response
+        }
+        return (mockFetch() as unknown as (u: RequestInfo) => Promise<Response>)(input)
+      }),
+    )
+
+    renderSidebar()
+    await waitFor(async () => {
+      const themed = document.querySelector("[data-remote-kind='letta']")
+      expect(themed).not.toBeNull()
+    })
+    expect(document.querySelector('.os-remote-face')).not.toBeNull()
+  })
+})

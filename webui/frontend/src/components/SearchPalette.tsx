@@ -2,45 +2,83 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Bot,
   FileText,
   Link2,
   MessageSquare,
   Plug,
   Search,
+  Settings,
   Sparkles,
   Users,
   Workflow,
 } from 'lucide-react'
-import { fetchBlueprints } from '../lib/api'
+import {
+  fetchBlueprints,
+  fetchCliAgents,
+  fetchHerdrAgents,
+  fetchRemotes,
+  fetchTeamRosters,
+} from '../lib/api'
 import { openChromeOverlay, type ChromeOverlay } from '../lib/chromeOverlay'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet, SETTINGS_SEARCH_CONTENT, type SettingsSection } from './SettingsSheet'
+import { openTechSupportModal } from './TechSupportModal'
 import { agentMarkIndex, loadHiddenAgentIds, unhideAgentId } from '../lib/hiddenAgents'
 import { railSeatAgents } from '../lib/railSeats'
 import { agentLabel } from '../lib/supportAgent'
+import { remoteHideId, remoteDisplayName } from '../lib/remotesCatalog'
+import { parseTeamRosters, teamHideId } from '../lib/teamRosters'
 import { dispatchToggleTheme } from '../lib/theme'
 import { searchShortcutLabel } from '../lib/keybindingTips'
 import AgentAvatar from './AgentAvatar'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export const SEARCH_PALETTE_TABS = [
   'All',
   'Messages',
-  'Bots',
-  'Groups',
+  'Agents',
+  'Teams',
   'Files',
   'Links',
   'Routines',
   'Actions',
+  'Settings',
 ] as const
 
 export type SearchPaletteTab = (typeof SEARCH_PALETTE_TABS)[number]
 
 export const OPEN_SEARCH_EVENT = 'swarm:open-search'
 
+/**
+ * #549: a hidden rail row the palette cannot derive from `/v1/blueprints/`.
+ *
+ * The rail badge counts **agents + teams + remotes**, assembled from blueprints,
+ * rosters, remotes, cli and herdr feeds — but the palette's universe is
+ * `railSeatAgents(blueprints)`, i.e. recipes only. So "Hidden Bots 3" could
+ * open on an empty list whenever the hidden things were a team, a remote or a
+ * CLI/herdr seat. The rail knows those rows, so it hands them over.
+ */
+export interface HiddenRailRow {
+  /** The rail/pin id — a bare agent id, or `team:<id>` / `remote:<id>`. */
+  id: string
+  name: string
+  description?: string
+  href?: string
+  avatarPath?: string | null
+  tab?: 'Agents' | 'Teams'
+}
+
 export interface SearchPaletteOptions {
   filterHidden?: boolean
   tab?: SearchPaletteTab
   query?: string
+  /**
+   * #549: the **reconciled** hidden ids the rail badge counted (local storage
+   * plus server prefs). The palette used to seed from localStorage alone, so
+   * the count could exceed the list for an id hidden only on the server.
+   */
+  hiddenIds?: string[]
+  /** #549: non-catalog hidden rows — teams, remotes, herdr and CLI seats. */
+  hiddenRows?: HiddenRailRow[]
 }
 
 export function openSearchPalette(options?: SearchPaletteOptions): void {
@@ -52,6 +90,7 @@ interface PaletteRow {
   tab: Exclude<SearchPaletteTab, 'All'>
   name: string
   description: string
+  keywords?: string[]
   href?: string
   overlay?: ChromeOverlay
   action?: () => void
@@ -63,6 +102,28 @@ export interface SearchPaletteProps {
   open: boolean
   onClose: () => void
   options?: SearchPaletteOptions
+}
+
+const SETTINGS_SECTION_NAMES: Record<SettingsSection, string> = {
+  general: 'General',
+  aesthetics: 'Aesthetics',
+  hostname: 'Hostname',
+  rail: 'Rail',
+  providers: 'Providers',
+  'cli-agents': 'CLI agents',
+  'llm-profiles': 'LLM profiles',
+  remotes: 'Remotes',
+  sandboxes: 'Sandboxes',
+  'backend-audit': 'Backend audit',
+  mcp: 'MCP servers',
+  plugins: 'Plugins',
+  roles: 'Roles',
+  blueprint: 'Blueprints',
+  definition: 'Definition',
+  'image-gen': 'Image gen',
+  speech: 'Speech',
+  retention: 'Retention',
+  system: 'System',
 }
 
 function shortcutLabel(index: number): string {
@@ -85,19 +146,123 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     enabled: open,
     retry: 1,
   })
+  // #677: the palette's universe is the whole rail, not just recipe seats —
+  // the same feeds AgentSidebar reads, so CLI / remote / herdr / team seats
+  // are searchable here too.
   const agents = railSeatAgents(blueprintsQuery.data?.data ?? [])
+  const cliQuery = useQuery({
+    queryKey: ['cli-agents'],
+    queryFn: fetchCliAgents,
+    enabled: open,
+    retry: 1,
+  })
+  const remotesQuery = useQuery({
+    queryKey: ['remotes-list'],
+    queryFn: fetchRemotes,
+    enabled: open,
+    retry: 1,
+  })
+  const herdrQuery = useQuery({
+    queryKey: ['herdr-agents'],
+    queryFn: fetchHerdrAgents,
+    enabled: open,
+    retry: 1,
+  })
+  const rostersQuery = useQuery({
+    queryKey: ['team-rosters'],
+    queryFn: fetchTeamRosters,
+    enabled: open,
+    retry: 1,
+  })
+  const cliAgents = cliQuery.data?.rail ?? []
+  const remoteConnections = remotesQuery.data?.data ?? []
+  const herdrAgents = herdrQuery.data?.data ?? []
+  const teams = parseTeamRosters(rostersQuery.data ?? [])
 
   const rows = useMemo<PaletteRow[]>(() => {
-    const botRows: PaletteRow[] = agents.map((agent) => ({
-      id: `bot-${agent.id}`,
-      tab: 'Bots',
-      name: agentLabel(agent),
-      description: agent.description || `${agentLabel(agent)} agent`,
-      href: `/chat?blueprint=${encodeURIComponent(agent.id)}`,
-      agentId: agent.id,
-      avatarPath: agent.avatar_path,
-    }))
+    const seen = new Set<string>()
+    const botRows: PaletteRow[] = []
+    // Recipe / blueprint seats.
+    for (const agent of agents) {
+      seen.add(agent.id)
+      botRows.push({
+        id: `bot-${agent.id}`,
+        tab: 'Agents',
+        name: agentLabel(agent),
+        description: agent.description || `${agentLabel(agent)} agent`,
+        href: `/chat?blueprint=${encodeURIComponent(agent.id)}`,
+        agentId: agent.id,
+        avatarPath: agent.avatar_path,
+      })
+    }
+    // Named CLI / API seats from /v1/cli-agents/ (rail list).
+    for (const seat of cliAgents) {
+      if (seen.has(seat.id)) continue
+      seen.add(seat.id)
+      botRows.push({
+        id: `bot-${seat.id}`,
+        tab: 'Agents',
+        name: seat.name || seat.id,
+        description: seat.description || `${seat.cli} CLI agent`,
+        href: `/chat?blueprint=${encodeURIComponent(seat.id)}`,
+        agentId: seat.id,
+        avatarPath: null,
+      })
+    }
+    // Configured remotes — each is a chat target of its own.
+    for (const remote of remoteConnections) {
+      const rid = remote.id
+      if (!rid || seen.has(remoteHideId(rid))) continue
+      seen.add(remoteHideId(rid))
+      botRows.push({
+        id: `bot-${remoteHideId(rid)}`,
+        tab: 'Agents',
+        name: remoteDisplayName(remote),
+        description: remote.kind ? `${remote.kind} remote` : 'Remote agent host',
+        href: `/chat?remote=${encodeURIComponent(rid)}`,
+        agentId: remoteHideId(rid),
+        avatarPath: null,
+      })
+    }
+    // Herdr seats.
+    for (const seat of herdrAgents) {
+      const hid = `herdr:${seat.name}`
+      if (!seat.name || seen.has(hid)) continue
+      seen.add(hid)
+      botRows.push({
+        id: `bot-${hid}`,
+        tab: 'Agents',
+        name: seat.name,
+        description: seat.remote ? `Herdr · ${seat.remote}` : 'Herdr · localhost',
+        href: `/chat?remote=herdr&session=${encodeURIComponent(seat.name)}`,
+        agentId: hid,
+        avatarPath: null,
+      })
+    }
+    // Teams — their own section so compositions are reachable from search.
+    const teamRows: PaletteRow[] = []
+    for (const team of teams) {
+      teamRows.push({
+        id: `team-row-${team.id}`,
+        tab: 'Teams',
+        name: team.name || team.id,
+        description:
+          team.description ||
+          `Team · ${team.members?.length ?? 0} member${(team.members?.length ?? 0) === 1 ? '' : 's'}`,
+        href: `/chat?team=${encodeURIComponent(team.id)}`,
+        agentId: teamHideId(team.id),
+        avatarPath: null,
+      })
+    }
     const actionRows: PaletteRow[] = [
+      {
+        id: 'action-tech-support',
+        tab: 'Actions',
+        name: 'Show Tech Support',
+        description: 'Open a sanitized diagnostics dump for troubleshooting',
+        keywords: ['tech', 'support', 'diagnostics', 'logs', 'debug', 'troubleshooting'],
+        action: () => openTechSupportModal(),
+      },
       {
         id: 'action-theme',
         tab: 'Actions',
@@ -119,13 +284,9 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         description: 'Open the teams sheet over chat',
         overlay: 'teams',
       },
-      {
-        id: 'action-compose-team',
-        tab: 'Actions',
-        name: 'Compose team',
-        description: 'Drag-drop roster overlay (team_rosters.json)',
-        action: () => window.dispatchEvent(new CustomEvent('swarm:open-team-composer')),
-      },
+      // #550 / #182: `Compose team` was moved to the rail footer (the `Teams`
+      // button, above Plugins). Listing it here as well made the palette look
+      // like the owner of the action, which is why it read as a duplicate.
       {
         id: 'action-settings',
         tab: 'Actions',
@@ -140,7 +301,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         description: 'Unhide agents without leaving chat',
         action: () => {
           setHiddenOnly(true)
-          setTab('Bots')
+          setTab('Agents')
         },
       },
       {
@@ -193,25 +354,90 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         action: () => openSettingsSheet({ section: 'speech' }),
       },
     ]
-    return [...botRows, ...actionRows]
-  }, [agents])
+    return [...botRows, ...teamRows, ...actionRows]
+  }, [agents, cliAgents, remoteConnections, herdrAgents, teams])
+
+  /**
+   * #549: rail-supplied hidden rows. Merged in only for the hidden view — normal
+   * search keeps its existing recipe-only universe, because widening that is a
+   * separate change to what search *means*.
+   */
+  const extraHiddenRows = useMemo<PaletteRow[]>(() => {
+    const rows: HiddenRailRow[] = options?.hiddenRows ?? []
+    return rows.map((row) => ({
+      id: `hidden-rail-${row.id}`,
+      tab: row.tab ?? 'Agents',
+      name: row.name,
+      description: row.description || 'Hidden from the rail',
+      href: row.href,
+      agentId: row.id,
+      avatarPath: row.avatarPath ?? null,
+    }))
+  }, [options?.hiddenRows])
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return rows.filter((row) => {
+    // #908: dynamically derive matching Settings rows from SETTINGS_SEARCH_CONTENT
+    const settingsRows: PaletteRow[] = []
+    const seenSections = new Set<string>()
+    for (const [sectionKey, keywords] of Object.entries(SETTINGS_SEARCH_CONTENT)) {
+      const section = sectionKey as SettingsSection
+      const sectionLabel = SETTINGS_SECTION_NAMES[section] ?? section
+      if (!q) {
+        settingsRows.push({
+          id: `settings-${section}-0`,
+          tab: 'Settings',
+          name: sectionLabel,
+          description: `Open the ${section} pane in Settings`,
+          action: () => openSettingsSheet({ section }),
+        })
+        continue
+      }
+      const normQ = q.replace(/[\s_-]+/g, '')
+      const matchedKw = keywords.find((k) => {
+        const lk = k.toLowerCase()
+        return lk.includes(q) || lk.replace(/[\s_-]+/g, '').includes(normQ)
+      })
+      if (matchedKw && !seenSections.has(section)) {
+        seenSections.add(section)
+        settingsRows.push({
+          id: `settings-${section}-0`,
+          tab: 'Settings',
+          name: matchedKw.toLowerCase() === section.toLowerCase() ? sectionLabel : `${sectionLabel}: ${matchedKw}`,
+          description: `Open the ${section} pane in Settings`,
+          keywords: [matchedKw, sectionLabel, section],
+          action: () => openSettingsSheet({ section }),
+        })
+      }
+    }
+
+    const allRowsWithSettings = [...rows, ...settingsRows]
+    // #549: the hidden view lists the same universe the badge counted.
+    const universe = hiddenOnly ? [...extraHiddenRows, ...allRowsWithSettings] : allRowsWithSettings
+    // Rail rows win a duplicate id: they carry the live href/avatar the
+    // blueprints feed may not have.
+    const seen = new Set<string>()
+    return universe.filter((row) => {
       if (hiddenOnly) {
-        if (row.tab !== 'Bots') return false
+        if (row.tab !== 'Agents') return false
         if (!row.agentId || !hiddenIds.includes(row.agentId)) return false
+        if (seen.has(row.agentId)) return false
+        seen.add(row.agentId)
       } else {
         if (tab !== 'All' && row.tab !== tab) return false
       }
-      if (!q) return true
+      if (!q) {
+        if (tab === 'All' && row.tab === 'Settings') return false
+        return true
+      }
+      if (row.tab === 'Settings') return true
       return (
         row.name.toLowerCase().includes(q) ||
-        row.description.toLowerCase().includes(q)
+        row.description.toLowerCase().includes(q) ||
+        Boolean(row.keywords?.some((k) => k.toLowerCase().includes(q)))
       )
     })
-  }, [query, rows, tab, hiddenOnly, hiddenIds])
+  }, [query, rows, extraHiddenRows, tab, hiddenOnly, hiddenIds])
 
   useEffect(() => {
     setActiveIdx(0)
@@ -219,11 +445,13 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
 
   useEffect(() => {
     if (!open) return
-    const ids = loadHiddenAgentIds()
+    // #549: prefer the rail's reconciled list when it supplied one, so the
+    // count and the list read from one source instead of two.
+    const ids = options?.hiddenIds ?? loadHiddenAgentIds()
     setHiddenIds(ids)
     if (options?.filterHidden) {
       setHiddenOnly(true)
-      setTab('Bots')
+      setTab('Agents')
     } else {
       setHiddenOnly(false)
       setTab(options?.tab || 'All')
@@ -237,11 +465,12 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
       const detail = (e as CustomEvent<SearchPaletteOptions>).detail
       if (detail?.filterHidden) {
         setHiddenOnly(true)
-        setTab('Bots')
+        setTab('Agents')
       } else if (detail?.tab) {
         setTab(detail.tab)
       }
       if (detail?.query !== undefined) setQuery(detail.query)
+      if (detail?.hiddenIds) setHiddenIds(detail.hiddenIds)
     }
     window.addEventListener(OPEN_SEARCH_EVENT, handleOpen)
     return () => window.removeEventListener(OPEN_SEARCH_EVENT, handleOpen)
@@ -307,6 +536,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
   if (!open) return null
 
   return (
+    <OverlayFocusTrap onClose={onClose} initialFocus={() => inputRef.current}>
     <div
       className="os-search-overlay os-search-overlay--centered"
       data-testid="os-search-overlay"
@@ -430,9 +660,11 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
                     aria-label={`Unhide ${row.name}`}
                     onClick={(e) => {
                       e.stopPropagation()
+                      // #507: unhideAgentId dispatches HIDDEN_AGENTS_CHANGED_EVENT
+                      // (a same-tab notification); faking a DOM `storage` event
+                      // never worked in real browsers — it only fires cross-tab.
                       const next = unhideAgentId(row.agentId!, hiddenIds)
                       setHiddenIds(next)
-                      window.dispatchEvent(new Event('storage'))
                     }}
                   >
                     Unhide
@@ -451,6 +683,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         </div>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }
 
@@ -467,7 +700,7 @@ function RowIcon({
   avatarPath?: string | null
   name?: string
 }) {
-  if (tab === 'Bots') {
+  if (tab === 'Agents') {
     const botId = agentId || id.replace(/^bot-/, '')
     const mark = agentMarkIndex(botId)
     return (
@@ -488,7 +721,7 @@ function RowIcon({
   const Icon =
     tab === 'Messages'
       ? MessageSquare
-      : tab === 'Groups'
+      : tab === 'Teams'
         ? Users
         : tab === 'Files'
           ? FileText
@@ -498,7 +731,9 @@ function RowIcon({
               ? Workflow
               : tab === 'Actions'
                 ? Sparkles
-                : Plug
+                : tab === 'Settings'
+                  ? Settings
+                  : Plug
   return (
     <span className="os-search-row__icon" aria-hidden="true">
       <Icon className="h-4 w-4" />

@@ -86,7 +86,7 @@ describe('REQ-211: Settings Blueprints inline edit + save', () => {
   })
 
   it('rejects invalid Python with a clear error and keeps the prior draft', async () => {
-    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
+    const fetchMock = vi.fn().mockImplementation(async (_input: RequestInfo, init?: RequestInit) => {
       if ((init?.method || 'GET') === 'PUT') {
         return jsonResponse({ error: 'Invalid Python syntax: invalid syntax at line 1' }, 400)
       }

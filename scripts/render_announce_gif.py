@@ -118,7 +118,7 @@ class Canvas:
         d.rectangle([0, 0, WIDTH, 46], fill=PANEL)
         if self.mark is not None:
             img.paste(self.mark, (14, 6), self.mark)
-        d.text((80, 12), "Open Swarm", font=self.bold, fill=GOLD)
+        d.text((80, 12), "Operating Swarm", font=self.bold, fill=GOLD)
         d.text((260, 18), "announce storyboard  ·  no secrets", font=self.tiny, fill=MUTED)
         # caption bar
         d.rectangle([0, HEIGHT - 72, WIDTH, HEIGHT], fill=PANEL)
@@ -156,7 +156,7 @@ class Canvas:
 
     def scene_solution(self) -> None:
         caption = (
-            "Open Swarm: a Grok-agnostic Grok-Bot-like UI and a multi-harness bridge."
+            "Operating Swarm: a Grok-agnostic Grok-Bot-like UI and a multi-harness bridge."
         )
         img, d = self._base(caption)
         d.text((36, 70), "Grok-agnostic  ·  not locked to xAI", font=self.title, fill=FG)
@@ -172,7 +172,7 @@ class Canvas:
             x += _chip(d, (x, 168), label, color, self.regular) + 12
         _rounded(d, (36, 220, 684, 300), 14, PANEL)
         d.text((56, 238), "Single pane of glass — task all types in one place.", font=self.regular, fill=FG)
-        d.text((56, 268), "You point Open Swarm at Herdr / Hermes / OpenMousBot. You don’t replace them.", font=self.small, fill=MUTED)
+        d.text((56, 268), "You point Operating Swarm at Herdr / Hermes / OpenMousBot. You don’t replace them.", font=self.small, fill=MUTED)
         self.snapshot(img, 3000)
 
     def scene_one_task(self) -> None:
@@ -230,7 +230,7 @@ class Canvas:
 
     def scene_close(self) -> None:
         caption = (
-            "Point Open Swarm at what you already run. Task without typing. Native sessions, not a cage."
+            "Point Operating Swarm at what you already run. Task without typing. Native sessions, not a cage."
         )
         img, d = self._base(caption)
         d.text((36, 70), "Not a cage", font=self.title, fill=FG)
@@ -281,10 +281,10 @@ def main() -> None:
         "req": "REQ-136",
         "captions": [
             "Some tools mix CLIs and APIs. They still don’t talk to remote harnesses.",
-            "Open Swarm: a Grok-agnostic Grok-Bot-like UI and a multi-harness bridge.",
+            "Operating Swarm: a Grok-agnostic Grok-Bot-like UI and a multi-harness bridge.",
             "Task one place. Chief of Staff coordinates the team — not five disconnected chats.",
             "One team: remotes + CLIs + an openai-agents blueprint (BA → Engineer → Tester).",
-            "Point Open Swarm at what you already run. Task without typing. Native sessions, not a cage.",
+            "Point Operating Swarm at what you already run. Task without typing. Native sessions, not a cage.",
         ],
         "roster": [
             "Hermes Remote",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
+import { loadRailSide, RAIL_SIDE_EVENT, type RailSide } from './lib/railSide'
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import ChatPage from './pages/ChatPage'
 import AgentRouterPage from './pages/AgentRouterPage'
 import AgentSidebar from './components/AgentSidebar'
@@ -11,7 +12,6 @@ import TeamsSheet from './components/overlays/TeamsSheet'
 import SettingsSheet, {
   OPEN_SETTINGS_EVENT,
   type OpenSettingsDetail,
-  type SettingsSection,
 } from './components/SettingsSheet'
 import { OPEN_LLM_PROFILES_EVENT, OPEN_HIDDEN_EVENT, OPEN_TEAMS_EVENT } from './lib/chromeOverlay' 
 import { RailChromeProvider, SwipeHint } from './components/RailChrome'
@@ -20,13 +20,14 @@ import CommandPalette from './experimental/CommandPalette'
 import { isExperimentalEnabled } from './experimental/flags'
 import { useLeftEdgeSwipe } from './lib/leftEdgeSwipe'
 import { isNarrowViewport, subscribeNarrowViewport } from './lib/narrowViewport'
+import { useViewportTier } from './lib/responsivePrefs'
 import { dismissSwipeHint, isSwipeHintDismissed } from './lib/swipeHint'
 import {
   initialTheme,
   persistTheme,
   resolveTheme,
-  subscribeSystemTheme,
   nextTheme,
+  subscribeSystemTheme,
   THEME_SET_EVENT,
   THEME_TOGGLE_EVENT,
   THEME_STORAGE_KEY,
@@ -57,6 +58,31 @@ export function chatPathWithSearch(search: string): string {
 }
 
 /**
+ * #524: normalize a `/teams/<id>` deep link onto the `?team=<id>` query form
+ * ChatPage already implements. Both `/teams/demo-team` and the literal
+ * `/teams/#demo-team` (fragment form — the id never reaches the router's
+ * pathname) resolve to `/chat?team=demo-team`; other query params survive.
+ * Returns null when there is no id (plain `/teams/`), which falls back to `/`.
+ */
+export function teamsPathSearch(pathname: string, search = '', hash = ''): string | null {
+  const rest = pathname.replace(/^\/teams\/?/, '')
+  let id = decodeURIComponent(rest.replace(/\/+$/, '')).trim()
+  if (!id && hash) id = decodeURIComponent(hash.replace(/^#/, '')).trim()
+  if (!id) return null
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  params.set('team', id)
+  return `/chat?${params.toString()}`
+}
+
+/** Route element: bounce /teams/<id> onto the canonical ?team= form. */
+function TeamPathRedirect() {
+  const location = useLocation()
+  const target = teamsPathSearch(location.pathname, location.search, location.hash)
+  if (!target) return <Navigate to="/" replace />
+  return <Navigate to={target} replace />
+}
+
+/**
  * Product chrome is Grok-Bot: left rail + the selected agent's chat.
  * `/agents` is Agent Router (own chrome). `/` and `/chat` are the rail + composer.
  * Composer + menu is Compact (REQ-37). Operator Django pages stay on
@@ -69,6 +95,13 @@ function App() {
   )
   const [narrow, setNarrow] = useState(isNarrowViewport)
   const [railOpen, setRailOpen] = useState(() => !isNarrowViewport())
+  // #816: which edge the rail docks to; the layout and the settings sheet mirror.
+  const [railSide, setRailSide] = useState<RailSide>(() => loadRailSide())
+  useEffect(() => {
+    const sync = () => setRailSide(loadRailSide())
+    window.addEventListener(RAIL_SIDE_EVENT, sync)
+    return () => window.removeEventListener(RAIL_SIDE_EVENT, sync)
+  }, [])
   const [swipeHint, setSwipeHint] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchOptions, setSearchOptions] = useState<SearchPaletteOptions | undefined>()
@@ -97,6 +130,14 @@ function App() {
     setSwipeHint(false)
   }, [])
 
+  // #833: shell tier attribute — CSS adapts to the active viewport tier
+  // (mobile / tablet / desktop) without re-render latency.
+  const viewportTier = useViewportTier()
+  useEffect(() => {
+    document.documentElement.setAttribute('data-viewport', viewportTier)
+    return () => document.documentElement.removeAttribute('data-viewport')
+  }, [viewportTier])
+
   useEffect(() => {
     return subscribeNarrowViewport((next) => {
       setNarrow(next)
@@ -118,13 +159,9 @@ function App() {
   useEffect(() => {
     persistTheme(themePreference)
     setResolvedTheme(resolveTheme(themePreference))
-  }, [themePreference])
-
-  useEffect(() => {
-    if (themePreference !== 'system') return
-    return subscribeSystemTheme((nextResolved) => {
-      setResolvedTheme(nextResolved)
-    })
+    if (themePreference === 'system') {
+      return subscribeSystemTheme((resolved) => setResolvedTheme(resolved))
+    }
   }, [themePreference])
 
   useEffect(() => {
@@ -141,7 +178,7 @@ function App() {
       setSearchOpen(true)
     }
     const onOpenHidden = () => {
-      setSearchOptions({ filterHidden: true, tab: 'Bots' })
+      setSearchOptions({ filterHidden: true, tab: 'Agents' })
       setSearchOpen(true)
     }
     const onOpenSettings = (event: Event) => {
@@ -220,6 +257,7 @@ function App() {
           definitionId={settingsDetail?.definitionId}
           initialAddRemote={settingsDetail?.addRemote}
           initialProviderId={settingsDetail?.providerId}
+          initialRemoteId={settingsDetail?.remoteId}
           focusRateLimits={settingsDetail?.focusRateLimits}
         />
         <AgentEditor
@@ -253,7 +291,9 @@ function App() {
             >
               Skip to main content
             </a>
-            <div className="flex min-h-0 flex-1">
+            {/* #816: the rail docks left (default) or right; the Settings
+                sheet mirrors to the opposite edge for one-handed reach. */}
+            <div className={`flex min-h-0 flex-1 ${railSide === 'right' ? 'flex-row-reverse' : ''}`}>
               <AgentSidebar
                 open={narrow ? railOpen : true}
                 narrow={narrow}
@@ -267,6 +307,8 @@ function App() {
                     <Route path="/" element={<ChatPage />} />
                     <Route path="/chat" element={<ChatPage />} />
                     <Route path="/chat/*" element={<ChatPage />} />
+                    <Route path="/teams" element={<TeamPathRedirect />} />
+                    <Route path="/teams/*" element={<TeamPathRedirect />} />
                     <Route path="/agents" element={<AgentRouterPage />} />
                     <Route path="/agents/*" element={<AgentRouterPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ComputerControlStub } from '../ComputerControlStub'
 import { openChromeOverlay } from '../../lib/chromeOverlay'
 
@@ -101,6 +102,27 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
         if (url.includes('/routines') && method === 'GET') {
           return jsonResponse({ object: 'routine_list', agent_id: 'codey', routines })
         }
+        if (url.includes('/test-schedules/status')) {
+          return jsonResponse({ object: 'test_schedule_status', failure_count: 0, failures: [] })
+        }
+        if (url.includes('/test-schedules') && method === 'GET') {
+          return jsonResponse({
+            object: 'test_schedule_list',
+            schedules: [
+              {
+                id: 'seed-remote-harness-health',
+                name: 'Remote harness health',
+                active: false,
+                trigger: { kind: 'interval', seconds: 3600 },
+                target: { kind: 'fleet', fleet: 'all' },
+                check: { kind: 'harness_health', name: 'remote_health' },
+                history: [],
+                when_to_run: 'Every 1 hour…',
+              },
+            ],
+            failure_count: 0,
+          })
+        }
         return jsonResponse({ data: [] })
       }),
     )
@@ -111,7 +133,12 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
   })
 
   async function openPane() {
-    render(<ComputerControlStub agentId="codey" agentName="Codey" />)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <ComputerControlStub agentId="codey" agentName="Codey" />
+      </QueryClientProvider>,
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Computer control' }))
     const dialog = await screen.findByRole('dialog', { name: 'Computer control', hidden: true })
     expect(dialog).toHaveClass('modal-open')
@@ -200,8 +227,24 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
     expect(within(dialog).getByText('No routines yet.')).toBeInTheDocument()
   })
 
+  it('switches to the Test schedule pane with seeded fleet proofs', async () => {
+    const dialog = await openPane()
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('tab', { name: /Test schedule/ }))
+    })
+    expect(await within(dialog).findByTestId('test-schedule-pane')).toBeInTheDocument()
+    expect(within(dialog).getByRole('heading', { name: 'Test schedule' })).toBeInTheDocument()
+    expect(await within(dialog).findByText('Remote harness health')).toBeInTheDocument()
+    expect(within(dialog).getByText('Every 1 hour…')).toBeInTheDocument()
+  })
+
   it('opens from the chrome overlay bus without leaving chat chrome', async () => {
-    render(<ComputerControlStub agentId="codey" agentName="Codey" />)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <ComputerControlStub agentId="codey" agentName="Codey" />
+      </QueryClientProvider>,
+    )
     await act(async () => {
       openChromeOverlay('computer-control')
     })

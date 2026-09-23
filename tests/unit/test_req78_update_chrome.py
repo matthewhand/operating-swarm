@@ -14,7 +14,13 @@ SPA_UPDATE = REPO / "webui" / "frontend" / "src" / "lib" / "spaUpdate.ts"
 GITHUB = REPO / "webui" / "frontend" / "src" / "lib" / "githubRelease.ts"
 CONSUMERS = REPO / "src" / "swarm" / "consumers.py"
 CHAT_WS = REPO / "webui" / "frontend" / "src" / "lib" / "chatWs.ts"
-CHAT_PAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+
+
+def _chat_surface() -> str:
+    """#1030 helper: ChatPage + features/chat/* (pins survive extraction slices)."""
+    from helpers.source_surface import chat_surface
+
+    return chat_surface()
 
 
 def test_update_chrome_sits_right_of_system_name_not_on_server_icon():
@@ -63,8 +69,7 @@ def test_github_call_home_is_public_and_tokenless():
 def test_backend_advertises_spa_hello_on_authenticated_connect():
     consumer = CONSUMERS.read_text(encoding="utf-8")
     ws = CHAT_WS.read_text(encoding="utf-8")
-    page = CHAT_PAGE.read_text(encoding="utf-8")
     assert 'SPA_HELLO_TYPE = "spa_hello"' in consumer
     assert "_send_spa_hello" in consumer
     assert 'kind: \'spa_hello\'' in ws or 'kind: "spa_hello"' in ws
-    assert "publishExpectedSpaVersion" in page
+    assert "publishExpectedSpaVersion" in _chat_surface()

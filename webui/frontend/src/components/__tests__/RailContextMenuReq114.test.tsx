@@ -24,9 +24,8 @@ const blueprints = [
 ]
 
 function mockFetch(options?: { cliRunning?: boolean }) {
-  return vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
+  return vi.fn().mockImplementation(async (input: RequestInfo, _init?: RequestInit) => {
     const url = String(input)
-    const method = (init?.method || 'GET').toUpperCase()
     if (url.includes('/v1/cli-agents/runs/terminate')) {
       return {
         ok: true,
@@ -225,7 +224,8 @@ describe('REQ-114 rail Terminate', () => {
     fireEvent.click(stop)
     await waitFor(() => {
       const posted = fetchMock.mock.calls.some(
-        ([input, init]: [RequestInfo, RequestInit | undefined]) => {
+        (call: unknown[]) => {
+          const [input, init] = call as [RequestInfo, RequestInit | undefined]
           const url = String(input)
           return (
             url.includes('/v1/cli-agents/runs/terminate') &&

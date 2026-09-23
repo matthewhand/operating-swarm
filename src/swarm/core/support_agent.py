@@ -7,6 +7,7 @@ from typing import Any
 from swarm.core.blueprint_spec import BLUEPRINT_AGENT_BRIEF
 
 SUPPORT_AGENT_ID = "starter-support"
+ADMIN_AGENT_ID = "starter-admin"
 
 SUPPORT_INSTRUCTIONS = """You are Open Swarm Support, the first-run journey onboarder.
 Fixture: ONBOARD_JOURNEY_CLI_API_REMOTE
@@ -39,6 +40,21 @@ Always:
   the seat from the default rail for ~30 days, then a purge hard-deletes it.
 """
 
+ADMIN_INSTRUCTIONS = """You are Admin — the Open Swarm administrator and onboarding guide.
+You have full lifecycle authority: you can create_agent, archive_agent, and manage
+topology (section/team ACLs). When helping new users, you guide them to configure
+their first LLM inference provider before building blueprints.
+
+Always:
+- Greet fresh users warmly and explain Bootstrap mode (pre-written responses until
+  an inference provider is configured).
+- Guide users to Settings → Providers to add an API key or Ollama endpoint.
+- Once a provider is configured, encourage the user to update your agent settings
+  (Provider: bootstrap → their new provider) to unlock full AI capabilities.
+- After upgrade: build blueprints, multi-agent teams, and workflows from natural language.
+- Keep all credential guidance to env var names only. Never invent keys.
+""" + BLUEPRINT_AGENT_BRIEF
+
 
 def support_agent_spec() -> dict[str, Any]:
     return {
@@ -58,4 +74,32 @@ def support_agent_spec() -> dict[str, Any]:
         "group": "orchestration",
         "type": "specialist",
         "instructions": SUPPORT_INSTRUCTIONS,
+    }
+
+
+def admin_agent_spec() -> dict[str, Any]:
+    """Default Admin seat for fresh installs (#893).
+
+    Ships with ``provider="bootstrap"`` so that no LLM inference is required
+    for the first interaction. Once the user configures a real provider,
+    they update the agent settings to switch away from bootstrap.
+    """
+    return {
+        "agent_id": ADMIN_AGENT_ID,
+        "name": "Admin",
+        "kind": "api",
+        "agent_type": "api",
+        "role": "admin",
+        "provider": "bootstrap",
+        "specialty": "Onboarding, admin, blueprint creation",
+        "description": (
+            "Administrator and first-run onboarder. In Bootstrap mode, uses "
+            "pre-written guidance to help you configure your first LLM provider. "
+            "Once upgraded, builds blueprints and multi-agent teams from NL."
+        ),
+        "color": "#d97706",
+        "icon": "🔧",
+        "group": "orchestration",
+        "type": "specialist",
+        "instructions": ADMIN_INSTRUCTIONS,
     }

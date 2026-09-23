@@ -22,7 +22,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ The current draft (produced by an earlier stage) is:
 """
 
 
-class CliPipelineBlueprint(BlueprintBase):
+class CliPipelineBlueprint(CliKindBase):
     """Run a prompt through an ordered chain of CLIs, each refining the last."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -124,8 +124,7 @@ class CliPipelineBlueprint(BlueprintBase):
         stages = self._resolve_stages(params, registry)
         if not stages:
             yield support.message_chunk(
-                "No pipeline stages are configured. Add a 'cli_pipeline' block (or a "
-                "'cli_fusion' preset) to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No pipeline stages are configured"),
                 final=True,
             )
             return

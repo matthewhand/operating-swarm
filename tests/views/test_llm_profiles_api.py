@@ -11,6 +11,15 @@ from django.urls import resolve
 from rest_framework.test import APIClient
 
 
+@pytest.fixture(autouse=True)
+def _disable_api_auth(settings):
+    """Keep these tests hermetic: .env may set API_AUTH_TOKEN on the host,
+    which would flip ENABLE_API_AUTH on and 403 every unauthenticated call
+    (the view resolves permissions per-request). Same convention as
+    test_api_views.py."""
+    settings.ENABLE_API_AUTH = False
+
+
 @pytest.fixture
 def api_client():
     return APIClient()

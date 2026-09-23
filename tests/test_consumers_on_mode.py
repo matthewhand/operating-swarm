@@ -51,8 +51,8 @@ def test_fetch_on_mode_does_not_append_to_old_transcript(test_user, tmp_path, mo
     consumer.messages = []
     consumer.ui_events = []
 
-    fetch_sync = DjangoChatConsumer.__dict__["fetch_conversation"].func
-    save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+    fetch_sync = next(c for c in DjangoChatConsumer.__mro__ if "fetch_conversation" in c.__dict__).__dict__["fetch_conversation"].func
+    save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
 
     result = fetch_sync(consumer, old_cid)
     assert result == []

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Expressive Stylized Bee Face Avatar">
+  <defs>
+    <linearGradient id="cute-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#26282E"/>
+      <stop offset="100%" stop-color="#121317"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#cute-bg)" stroke="#EFAB22" stroke-width="1.5"/>
+  <ellipse cx="32" cy="35" rx="20" ry="17" fill="#1D2226" stroke="#EFAB22" stroke-width="1.4"/>
+  <path d="M22 22 Q32 16 42 22 Q32 26 22 22 Z" fill="#EFAB22"/>
+  <ellipse cx="22" cy="34" rx="7.5" ry="9.5" fill="#FFF8EC" stroke="#1D2226" stroke-width="1.2"/>
+  <ellipse cx="24" cy="34" rx="4.5" ry="6" fill="#1A140C"/>
+  <ellipse cx="24.5" cy="34" rx="3.5" ry="5" fill="#EBA222"/>
+  <circle cx="24.5" cy="34" r="2.2" fill="#111111"/>
+  <circle cx="22.5" cy="31.5" r="1.4" fill="#FFFFFF"/>
+  <circle cx="26" cy="36.5" r="0.7" fill="#FFFFFF"/>
+  <ellipse cx="42" cy="34" rx="7.5" ry="9.5" fill="#FFF8EC" stroke="#1D2226" stroke-width="1.2"/>
+  <ellipse cx="44" cy="34" rx="4.5" ry="6" fill="#1A140C"/>
+  <ellipse cx="44.5" cy="34" rx="3.5" ry="5" fill="#EBA222"/>
+  <circle cx="44.5" cy="34" r="2.2" fill="#111111"/>
+  <circle cx="42.5" cy="31.5" r="1.4" fill="#FFFFFF"/>
+  <circle cx="46" cy="36.5" r="0.7" fill="#FFFFFF"/>
+  <ellipse cx="15" cy="41" rx="2.5" ry="1.5" fill="#EFAB22" opacity="0.45"/>
+  <ellipse cx="49" cy="41" rx="2.5" ry="1.5" fill="#EFAB22" opacity="0.45"/>
+  <path d="M29 44 Q32 47 35 44" fill="none" stroke="#EFAB22" stroke-width="1.5" stroke-linecap="round"/>
+  <g fill="none" stroke="#EFAB22" stroke-width="2" stroke-linecap="round">
+    <path d="M27 20 C24 13 20 9 14 8"/>
+    <path d="M37 20 C40 13 44 9 50 8"/>
+  </g>
+  <circle cx="14" cy="8" r="2.2" fill="#EFAB22"/>
+  <circle cx="50" cy="8" r="2.2" fill="#EFAB22"/>
+</svg>

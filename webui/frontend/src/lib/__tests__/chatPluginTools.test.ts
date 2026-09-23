@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  CHAT_PLUGIN_TOOLS_KEY,
+  AGENT_PLUGIN_TOOLS_KEY,
   FIXTURE_PLUGIN_TOOLS,
   enabledToolsParam,
   filterPluginTools,
@@ -8,9 +8,11 @@ import {
   resolvePluginCatalog,
   saveEnabledPluginToolIds,
   setPluginToolEnabled,
+  snapshotPluginToolOrder,
   sortPluginTools,
   toolsFromMcpPlugins,
   visiblePluginTools,
+  visiblePluginToolsFrozen,
 } from '../chatPluginTools'
 import { MCP_SERVERS_KEY } from '../mcpServers'
 
@@ -51,6 +53,15 @@ describe('plugin tool sort and search', () => {
     expect(visible.map((tool) => tool.id)).toEqual(['zebra_tool', 'apple_tool', 'mid_tool'])
   })
 
+  it('freezes snapshot order while filtering even if enablement changes (#278)', () => {
+    const snapshot = snapshotPluginToolOrder([zebra, apple, mid], [])
+    expect(snapshot).toEqual(['apple_tool', 'mid_tool', 'zebra_tool'])
+    const frozen = visiblePluginToolsFrozen([zebra, apple, mid], 'e', snapshot)
+    expect(frozen.map((tool) => tool.id)).toEqual(['apple_tool', 'mid_tool', 'zebra_tool'])
+    const resorted = visiblePluginTools([zebra, apple, mid], 'e', ['zebra_tool'])
+    expect(resorted.map((tool) => tool.id)).toEqual(['zebra_tool', 'apple_tool', 'mid_tool'])
+  })
+
   it('filters by name, description, and server', () => {
     expect(filterPluginTools(FIXTURE_PLUGIN_TOOLS, 'convert').map((t) => t.id)).toEqual([
       'convert_timezone',
@@ -60,31 +71,31 @@ describe('plugin tool sort and search', () => {
   })
 })
 
-describe('per-chat toggle persist', () => {
+describe('per-agent toggle persist (#516 re-key)', () => {
   afterEach(() => {
-    localStorage.removeItem(CHAT_PLUGIN_TOOLS_KEY)
+    localStorage.removeItem(AGENT_PLUGIN_TOOLS_KEY)
     localStorage.removeItem(MCP_SERVERS_KEY)
   })
 
-  it('persists enabled ids for one chat and not another', () => {
-    setPluginToolEnabled('chat-a', 'web_search', true)
-    setPluginToolEnabled('chat-a', 'web_fetch', true)
-    setPluginToolEnabled('chat-b', 'git_status', true)
-    expect(loadEnabledPluginToolIds('chat-a')).toEqual(['web_search', 'web_fetch'])
-    expect(loadEnabledPluginToolIds('chat-b')).toEqual(['git_status'])
-    expect(loadEnabledPluginToolIds('chat-c')).toEqual([])
+  it('persists enabled ids for one agent and not another', () => {
+    setPluginToolEnabled('agent-a', 'web_search', true)
+    setPluginToolEnabled('agent-a', 'web_fetch', true)
+    setPluginToolEnabled('agent-b', 'git_status', true)
+    expect(loadEnabledPluginToolIds('agent-a')).toEqual(['web_search', 'web_fetch'])
+    expect(loadEnabledPluginToolIds('agent-b')).toEqual(['git_status'])
+    expect(loadEnabledPluginToolIds('agent-c')).toEqual([])
   })
 
-  it('reloads the same chat allowlist after remount (storage read)', () => {
-    saveEnabledPluginToolIds('conv-1', ['read_file', 'git_diff'])
-    expect(enabledToolsParam('conv-1')).toEqual({
+  it('reloads the same agent allowlist after remount (storage read)', () => {
+    saveEnabledPluginToolIds('agent-1', ['read_file', 'git_diff'])
+    expect(enabledToolsParam('agent-1')).toEqual({
       enabled_tools: ['read_file', 'git_diff'],
     })
-    expect(JSON.parse(localStorage.getItem(CHAT_PLUGIN_TOOLS_KEY) || '{}')['conv-1']).toEqual([
+    expect(JSON.parse(localStorage.getItem(AGENT_PLUGIN_TOOLS_KEY) || '{}')['agent-1']).toEqual([
       'read_file',
       'git_diff',
     ])
-    expect(loadEnabledPluginToolIds('conv-1')).toEqual(['read_file', 'git_diff'])
+    expect(loadEnabledPluginToolIds('agent-1')).toEqual(['read_file', 'git_diff'])
   })
 })
 

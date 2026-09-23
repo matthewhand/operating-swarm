@@ -118,16 +118,24 @@ export function ComposerSlashPopup({
                     type="button"
                     role="option"
                     aria-selected={isSelected}
+                    aria-disabled={item.unavailableReason ? true : undefined}
+                    disabled={Boolean(item.unavailableReason)}
+                    title={item.unavailableReason || undefined}
                     data-testid={`slash-item-${item.id}`}
                     data-slash-kind={item.kind}
                     className={`group flex w-full min-h-[44px] items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
                       isSelected
                         ? 'bg-base-200 text-base-content font-medium'
                         : 'text-base-content/85 hover:bg-base-200/60'
+                    } ${
+                      item.unavailableReason
+                        ? 'cursor-not-allowed opacity-50 hover:bg-transparent'
+                        : ''
                     }`}
                     onMouseEnter={() => onSelectIndex(currentIndex)}
                     onClick={(e) => {
                       e.preventDefault()
+                      if (item.unavailableReason) return
                       onSelectItem(item)
                     }}
                   >
@@ -157,6 +165,16 @@ export function ComposerSlashPopup({
                         <span className="badge badge-xs badge-primary badge-outline text-[10px] tracking-wide uppercase px-1.5 py-0.5">
                           Action
                         </span>
+                      ) : item.kind === 'cli' ? (
+                        item.unavailableReason ? (
+                          <span className="badge badge-xs badge-warning badge-outline text-[10px] tracking-wide uppercase px-1.5 py-0.5">
+                            Unavailable
+                          </span>
+                        ) : (
+                          <span className="badge badge-xs badge-accent badge-outline text-[10px] tracking-wide uppercase px-1.5 py-0.5">
+                            CLI
+                          </span>
+                        )
                       ) : (
                         <span className="badge badge-xs badge-neutral text-[10px] tracking-wide uppercase px-1.5 py-0.5">
                           Skill

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Server } from 'lucide-react'
+import { Server, Settings2 } from 'lucide-react'
 import { probeRemoteHealth, type RemoteConnection } from '../lib/api'
 import { remoteDisplayName } from '../lib/remotesCatalog'
 import {
@@ -203,6 +203,23 @@ export default function RemoteSessionsPopup({
             })}
           </ul>
         )}
+        {/* #933: every row here is a remote, so a path to manage them always
+            belongs in this popup — not only in the empty state. */}
+        <div className="mt-1 border-t border-base-300 pt-1 px-2">
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center gap-1.5 py-1.5 text-xs text-base-content/70 hover:text-base-content hover:bg-base-200 rounded"
+            data-testid="manage-remotes-link"
+            onClick={() => {
+              onClose()
+              onOpenSettingsRemotes()
+            }}
+          >
+            <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Manage Remotes
+          </button>
+        </div>
       </div>
     </div>
   )

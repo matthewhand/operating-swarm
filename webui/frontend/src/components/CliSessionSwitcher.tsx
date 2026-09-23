@@ -5,7 +5,7 @@ import { useToast } from './DaisyUI'
 import CliSessionPicker from './CliSessionPicker'
 import { fetchCliAgents } from '../lib/api'
 import { conversationIdForAgent } from '../lib/agentChat'
-import { saveAgentEdit } from '../lib/agentEdits'
+import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import {
   dispatchCliSessionSwitched,
   fetchCliSessions,
@@ -16,6 +16,7 @@ import { hopCliSession, hopContinueTargets } from '../lib/cliSessionHop'
 import { persistAgentDropdownChoice } from '../lib/userPrefs'
 import { sessionHref } from '../lib/scaleOutSessions'
 import { FALLBACK_CLIS } from '../lib/chatStatus'
+import { openSettingsSheet } from './SettingsSheet'
 
 export interface CliSessionSwitcherProps {
   agentId: string
@@ -129,7 +130,10 @@ export default function CliSessionSwitcher({
         if ((cliRef.current.trim() || 'grok') !== requestedCli) return
         const resultFolder = (result.folder || '').trim()
         const effectiveFolder = resultFolder || sessionFolder
-        if (effectiveFolder) saveAgentEdit(requestedAgent, { folder: effectiveFolder })
+        persistSessionWorkspace(requestedAgent, {
+          folder: effectiveFolder,
+          gitBranch: result.git_branch,
+        })
         dispatchCliSessionSwitched({
           agentId: requestedAgent,
           conversationId: result.conversation_id,
@@ -211,6 +215,7 @@ export default function CliSessionSwitcher({
         onContinueOn={(session, targetCli) => {
           void continueOn(session, targetCli)
         }}
+        onManageSession={() => openSettingsSheet({ section: 'cli-agents' })}
       />
     </>
   )

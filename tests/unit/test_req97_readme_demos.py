@@ -59,7 +59,7 @@ def test_readme_embeds_four_demo_slots_in_order():
     text = _readme()
     assert "## Demos" in text
     # Pitch, then demos, then how to run.
-    pitch = text.find("**Open Swarm** is a Grok-like")
+    pitch = text.find("**Operating Swarm (OS)** is a provider-agnostic")
     demos = text.find("## Demos")
     how_to = text.find("## WebUI (start here)")
     assert 0 <= pitch < demos < how_to

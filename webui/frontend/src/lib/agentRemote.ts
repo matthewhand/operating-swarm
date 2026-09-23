@@ -162,9 +162,31 @@ export function remotesListForSelect(
 }
 
 /**
+ * REQ-904 / #502 — whose provider is being configured?
+ *
+ * The binding subject is the **agent** and only the agent. A remote id in the
+ * URL is an identity (a seat being viewed) and can never be a binding
+ * subject: there is no key in this space meaning "the remote bound to
+ * itself". The old wiring (`remoteFromUrl || selectedBlueprint`) made
+ * `?remote=omb` write a self-binding under `omb`, so a binding written while
+ * viewing a remote seat was invisible to the same agent opened by name.
+ */
+export function resolveAgentBindingSubject(options: {
+  remoteFromUrl?: string | null
+  selectedBlueprint?: string | null
+}): string {
+  if ((options.remoteFromUrl || '').trim()) return ''
+  return (options.selectedBlueprint || '').trim()
+}
+
+/**
  * Resolve the remote id the navbar should show.
- * URL remotes are already bound. Persisted / agent remote_id must still exist
- * in the catalog — stale ids become an empty repair state ("Pick a remote").
+ *
+ * #502 precedence: a persisted agent binding wins over the URL remote —
+ * *viewing is not configuring*. `?remote=X` in the URL sets the view of a
+ * remote seat, but must never override the binding of an agent opened by
+ * name. Stale ids (persisted or agent `remote_id`) still fall through to an
+ * empty repair state.
  */
 export function resolveBoundRemoteId(options: {
   remoteFromUrl?: string
@@ -172,8 +194,6 @@ export function resolveBoundRemoteId(options: {
   agentRemoteId?: string
   configuredIds: Iterable<string>
 }): string {
-  const url = (options.remoteFromUrl || '').trim()
-  if (url) return url
   const configured = new Set(
     [...options.configuredIds].map((id) => id.trim()).filter(Boolean),
   )
@@ -181,6 +201,10 @@ export function resolveBoundRemoteId(options: {
   if (agent && configured.has(agent)) return agent
   const persisted = (options.persisted?.id || '').trim()
   if (persisted && configured.has(persisted)) return persisted
+  // Identity view only: no agent binding exists, so the URL decides what the
+  // user is looking at.
+  const url = (options.remoteFromUrl || '').trim()
+  if (url && configured.has(url)) return url
   return ''
 }
 

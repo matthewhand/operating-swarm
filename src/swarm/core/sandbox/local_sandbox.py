@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final
 
@@ -55,12 +56,30 @@ class LocalSubprocessSandbox(SandboxBackend):
         if self.work_dir not in self.allowed_paths:
             self.allowed_paths.append(self.work_dir)
 
+    def _unrestricted_host(self) -> bool:
+        """True when Settings confirmed bare-metal (dangerous) host execution."""
+        extra = self.config.extra_options or {}
+        return bool(
+            getattr(self.config, "unrestricted_host", False)
+            or extra.get("unrestricted_host")
+            or extra.get("bare_metal")
+            or extra.get("dangerous_confirmed")
+        )
+
     def _build_env(self) -> dict[str, str]:
-        """Build an isolated and sanitized environment dictionary."""
+        """Build an isolated and sanitized environment dictionary.
+
+        Confirmed bare-metal mode inherits the full host environment so developer
+        CLIs (git, gh, docker) keep their credentials. Path-jailed ``local``
+        backends still strip secret prefixes when ``sanitize_env`` is set.
+        """
         env: dict[str, str] = {}
-        if self.config.inherit_env:
+        unrestricted = self._unrestricted_host()
+        inherit = bool(self.config.inherit_env or unrestricted)
+        sanitize = bool(self.config.sanitize_env) and not unrestricted
+        if inherit:
             for k, v in os.environ.items():
-                if self.config.sanitize_env and any(k.upper().startswith(p) for p in BLOCKED_ENV_PREFIXES):
+                if sanitize and any(k.upper().startswith(p) for p in BLOCKED_ENV_PREFIXES):
                     continue
                 env[k] = v
         else:
@@ -74,13 +93,34 @@ class LocalSubprocessSandbox(SandboxBackend):
         return env
 
     def _validate_path(self, target_path: str | Path) -> Path:
-        """Ensure path is within configured allowed paths."""
+        """Ensure path is within configured allowed paths.
+
+        Confirmed bare-metal host execution skips the jail so agents can read
+        sibling workspaces and user config files on this machine.
+        """
         resolved = Path(target_path).resolve()
+        if self._unrestricted_host():
+            return resolved
         if not any(
             resolved == allowed or allowed in resolved.parents for allowed in self.allowed_paths
         ):
             raise PermissionError(f"Access to path '{resolved}' outside sandbox allowed paths is denied")
         return resolved
+
+    def _audit(self, kind: str, payload: str, result: SandboxExecutionResult) -> None:
+        """INFO-level audit line for every bare-metal python/bash invocation."""
+        if not self._unrestricted_host():
+            return
+        preview = " ".join(payload.split())[:240]
+        logger.info(
+            "bare_metal ts=%s %s duration_ms=%.1f exit=%s success=%s payload=%r",
+            datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            kind,
+            result.duration_ms,
+            result.exit_code,
+            result.success,
+            preview,
+        )
 
     def execute_python(self, code: str, timeout: int | None = None) -> SandboxExecutionResult:
         t_limit = timeout or self.config.timeout_seconds
@@ -99,7 +139,7 @@ class LocalSubprocessSandbox(SandboxBackend):
                 check=False,
             )
             duration_ms = (time.perf_counter() - t0) * 1000.0
-            return SandboxExecutionResult(
+            result = SandboxExecutionResult(
                 stdout=proc.stdout,
                 stderr=proc.stderr,
                 exit_code=proc.returncode,
@@ -109,7 +149,7 @@ class LocalSubprocessSandbox(SandboxBackend):
             )
         except subprocess.TimeoutExpired:
             duration_ms = (time.perf_counter() - t0) * 1000.0
-            return SandboxExecutionResult(
+            result = SandboxExecutionResult(
                 stderr=f"Execution timed out after {t_limit} seconds",
                 exit_code=124,
                 success=False,
@@ -118,13 +158,15 @@ class LocalSubprocessSandbox(SandboxBackend):
             )
         except Exception as exc:
             duration_ms = (time.perf_counter() - t0) * 1000.0
-            return SandboxExecutionResult(
+            result = SandboxExecutionResult(
                 stderr=str(exc),
                 exit_code=1,
                 success=False,
                 duration_ms=duration_ms,
                 error=str(exc),
             )
+        self._audit("python", code, result)
+        return result
 
     def execute_bash(self, command: str, timeout: int | None = None) -> SandboxExecutionResult:
         t_limit = timeout or self.config.timeout_seconds
@@ -144,7 +186,7 @@ class LocalSubprocessSandbox(SandboxBackend):
                 check=False,
             )
             duration_ms = (time.perf_counter() - t0) * 1000.0
-            return SandboxExecutionResult(
+            result = SandboxExecutionResult(
                 stdout=proc.stdout,
                 stderr=proc.stderr,
                 exit_code=proc.returncode,
@@ -154,7 +196,7 @@ class LocalSubprocessSandbox(SandboxBackend):
             )
         except subprocess.TimeoutExpired:
             duration_ms = (time.perf_counter() - t0) * 1000.0
-            return SandboxExecutionResult(
+            result = SandboxExecutionResult(
                 stderr=f"Command timed out after {t_limit} seconds",
                 exit_code=124,
                 success=False,
@@ -163,13 +205,15 @@ class LocalSubprocessSandbox(SandboxBackend):
             )
         except Exception as exc:
             duration_ms = (time.perf_counter() - t0) * 1000.0
-            return SandboxExecutionResult(
+            result = SandboxExecutionResult(
                 stderr=str(exc),
                 exit_code=1,
                 success=False,
                 duration_ms=duration_ms,
                 error=str(exc),
             )
+        self._audit("bash", command, result)
+        return result
 
     def read_file(self, path: str) -> str:
         resolved = self._validate_path(self.work_dir / path if not Path(path).is_absolute() else path)
@@ -185,6 +229,29 @@ class LocalSubprocessSandbox(SandboxBackend):
 
     def is_available(self) -> bool:
         return True
+
+    # -- #719 byte-level transfer (path-jailed like read/write_file) --------
+
+    def upload_bytes(self, remote_path: str, data: bytes) -> bool:
+        """Write raw bytes inside the jail; parents created as needed."""
+        resolved = self._validate_path(
+            self.work_dir / remote_path if not Path(remote_path).is_absolute() else remote_path
+        )
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_bytes(data)
+        return True
+
+    def download_bytes(self, remote_path: str) -> bytes | str:
+        """Read raw bytes inside the jail; an error string when missing."""
+        try:
+            resolved = self._validate_path(
+                self.work_dir / remote_path if not Path(remote_path).is_absolute() else remote_path
+            )
+        except PermissionError as exc:
+            return f"download refused: {exc}"
+        if not resolved.exists():
+            return f"file not found: {remote_path}"
+        return resolved.read_bytes()
 
     def cleanup(self) -> None:
         if self._temp_dir is not None:

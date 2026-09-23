@@ -7,7 +7,7 @@ import {
 } from '../chatTime'
 import {
   AGENT_CHAT_SESSIONS_EVENT,
-  AGENT_CHAT_SESSIONS_KEY,
+
   putAgentChatSession,
 } from '../agentChatSessions'
 
@@ -158,5 +158,43 @@ describe('REQ-177: Rail preview snippet and live updates', () => {
       const res = getRowLastMessage('support', [], { description: 'Fallback description' })
       expect(res.snippet).toBe('Fallback description')
     })
+  })
+})
+
+// #844 — server-derived activity snippets hydrate rail rows on first paint.
+describe('#844 server snippet hydration', () => {
+  it('prefers the server last_message over the static description', () => {
+    const res = getRowLastMessage(
+      'remote-trueforge',
+      [],
+      { description: 'TrueForge remote', last_message: 'Refactored the sandbox loader' },
+    )
+    expect(res.snippet).toBe('Refactored the sandbox loader')
+  })
+
+  it('pairs the server snippet with the server instant', () => {
+    const res = getRowLastMessage(
+      'remote-trueforge',
+      [],
+      { last_message: 'Deployed PR #12', last_message_at: '2026-09-18T10:00:00+00:00' },
+    )
+    expect(res.snippet).toBe('Deployed PR #12')
+    expect(res.timestamp).toBe(Date.parse('2026-09-18T10:00:00+00:00'))
+  })
+
+  it('server snippet wins over the local-session thread when both exist', () => {
+    putAgentChatSession('support', {
+      conversationId: 'conv-844',
+      messages: [
+        { key: 'msg-user-1725500000000', role: 'user', text: 'Local-only question' },
+        { key: 'msg-asst-1725500005000', role: 'assistant', text: 'Local-only reply' },
+      ],
+    })
+    const res = getRowLastMessage(
+      'support',
+      [],
+      { description: 'Support', last_message: 'Fresher server-side answer' },
+    )
+    expect(res.snippet).toBe('Fresher server-side answer')
   })
 })

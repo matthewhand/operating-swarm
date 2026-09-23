@@ -5,8 +5,9 @@ import {
   isConversationSummary,
   type ConversationSummary,
 } from './chatCompact'
+import { parseContextUsage, type ContextUsage } from './contextUsage'
 import { newConversationId } from './chatWs'
-import { asTranscriptRole, isStatusRole } from './chatStatus'
+import { asTranscriptRole, isStatusRole, type ChatTranscriptRole } from './chatStatus'
 import { messagesFromThreadPayload } from './transcriptReconstruct'
 import { parseContextMeta, type ContextMeta } from './contextCull'
 
@@ -138,12 +139,16 @@ export function conversationIdForTask(
 }
 
 export interface AgentThreadMessage {
-  role: 'user' | 'assistant' | 'status' | 'system'
+  role: ChatTranscriptRole
   content: string
   edited?: boolean
   kind?: 'prior_history'
   /** ISO timestamp so status/info chrome can show when it occurred after reload. */
   ts?: string
+  /** Terminal CLI/config failure — Chat shows a recovery banner (#274). */
+  fatal_config_error?: boolean
+  /** #527: openai-agents persona that produced this row, when the server says. */
+  persona?: string
 }
 
 export interface AgentThread {
@@ -156,6 +161,8 @@ export interface AgentThread {
   editable?: boolean
   /** Requested session was not on disk/DB — do not silently swap. */
   session_missing?: boolean
+  /** Edited turn cannot rewind the CLI session; next message starts fresh (BE PATCH flag). */
+  cli_session_reset?: boolean
   context_meta?: ContextMeta
 }
 
@@ -178,6 +185,7 @@ export interface CompactResult {
   summary: ConversationSummary
   summaries: ConversationSummary[]
   raw_count?: number
+  usage?: ContextUsage | null
 }
 
 function parseThreadMessage(value: unknown): AgentThreadMessage | null {
@@ -190,6 +198,8 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
     ts?: unknown
     timestamp?: unknown
     created_at?: unknown
+    fatal_config_error?: unknown
+    persona?: unknown
   }
   if (typeof row.role !== 'string' || typeof row.content !== 'string') return null
   if (row.edited !== undefined && row.edited !== true) return null
@@ -212,6 +222,8 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
   if (row.edited === true) parsed.edited = true
   const ts = row.ts || row.timestamp || row.created_at
   if (typeof ts === 'string' && ts.trim()) parsed.ts = ts.trim()
+  if (row.fatal_config_error === true) parsed.fatal_config_error = true
+  if (typeof row.persona === 'string' && row.persona.trim()) parsed.persona = row.persona.trim()
   return parsed
 }
 
@@ -223,12 +235,15 @@ function parseSummaries(value: unknown): ConversationSummary[] {
 export async function fetchAgentThread(
   agentId: string,
   conversationIdOverride?: string,
+  options?: { flush?: boolean },
 ): Promise<AgentThread> {
   const agent = agentIdFromBlueprint(agentId)
   const conversationId =
     (conversationIdOverride || '').trim() || conversationIdForAgent(agent)
+  const flushParam = options?.flush ? '&flush=1' : ''
   const data = await apiGet<AgentThread>(
-    `/chat/thread/?agent=${encodeURIComponent(agent)}&conversation_id=${encodeURIComponent(conversationId)}`,
+    `/chat/thread/?agent=${encodeURIComponent(agent)}&conversation_id=${encodeURIComponent(conversationId)}${flushParam}`,
+    { cache: 'no-store' },
   )
   const reconstructed = messagesFromThreadPayload(data || {})
   const messages = reconstructed
@@ -279,6 +294,36 @@ export async function patchAgentMessage(
       typeof data?.conversation_id === 'string' && data.conversation_id
         ? data.conversation_id
         : conversationIdForAgent(agent),
+    messages,
+    summaries: parseSummaries(data?.summaries),
+    kind,
+    editable: data?.editable === true || (data?.editable !== false && kind === 'api'),
+    cli_session_reset: data?.cli_session_reset === true,
+  }
+}
+
+/** POST /chat/thread/?agent= — wipe a poisoned thread (#274). */
+export async function clearAgentThread(
+  agentId: string,
+  conversationId?: string,
+): Promise<AgentThread> {
+  const agent = agentIdFromBlueprint(agentId)
+  await ensureCsrfCookie()
+  const data = await apiPost<AgentThread>(
+    `/chat/thread/?agent=${encodeURIComponent(agent)}${conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : ''}`,
+    { action: 'clear', conversation_id: conversationId },
+  )
+  const reconstructed = messagesFromThreadPayload(data || {})
+  const messages = reconstructed
+    .map(parseThreadMessage)
+    .filter((row): row is AgentThreadMessage => row != null)
+  const kind = classifyAgentKind(agent, data?.kind)
+  return {
+    agent_id: typeof data?.agent_id === 'string' ? data.agent_id : agent,
+    conversation_id:
+      typeof data?.conversation_id === 'string' && data.conversation_id
+        ? data.conversation_id
+        : conversationId || conversationIdForAgent(agent),
     messages,
     summaries: parseSummaries(data?.summaries),
     kind,
@@ -345,7 +390,23 @@ export async function compactAgentThread(opts: {
     summary,
     summaries: summaries.length ? summaries : [summary],
     raw_count: data?.raw_count,
+    usage: parseContextUsage((data as { usage?: unknown })?.usage),
   }
+}
+
+/** POST /chat/summary/toggle-context/ — #214: tick/untick a summary's context inclusion. */
+export async function toggleSummaryInContext(opts: {
+  summaryId: number
+  includeInContext: boolean
+}): Promise<{ summary: ConversationSummary; usage?: ContextUsage | null }> {
+  const data = await apiPost<{ summary: unknown; usage?: unknown }>('/chat/summary/toggle-context/', {
+    summary_id: opts.summaryId,
+    include_in_context: opts.includeInContext,
+  })
+  if (!isConversationSummary(data?.summary)) {
+    throw new Error('Toggle returned no summary')
+  }
+  return { summary: data.summary, usage: parseContextUsage(data?.usage) }
 }
 
 /** POST /chat/context-start/ — start chat context from a chosen message (REQ-121). */

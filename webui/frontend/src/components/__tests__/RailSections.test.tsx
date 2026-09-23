@@ -1,13 +1,15 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentSidebar from '../AgentSidebar'
+import * as api from '../../lib/api'
 import { ToastProvider } from '../DaisyUI'
 import { HIDDEN_AGENTS_STORAGE_KEY } from '../../lib/hiddenAgents'
 import { PINNED_AGENTS_STORAGE_KEY } from '../../lib/pinnedAgents'
 import {
   NEW_SECTION_PLACEHOLDER,
+  NEW_SECTION_TARGET,
   RAIL_SECTIONS_STORAGE_KEY,
   UNASSIGNED_SECTION_ID,
 } from '../../lib/railSections'
@@ -58,6 +60,32 @@ function mockFetch() {
               name: 'Rakazo',
               description: 'Remote helper',
               rail: true,
+            },
+          ],
+        }),
+      } as Response
+    }
+    if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
+      return {
+        ok: true,
+        json: async () => ({
+          object: 'list',
+          data: [
+            {
+              id: 'trueforge',
+              title: 'TrueForge',
+              kind: 'trueforge',
+              base_url: 'http://127.0.0.1:8792',
+              configured: true,
+            },
+          ],
+          configured: [
+            {
+              id: 'trueforge',
+              title: 'TrueForge',
+              kind: 'trueforge',
+              base_url: 'http://127.0.0.1:8792',
+              configured: true,
             },
           ],
         }),
@@ -121,6 +149,7 @@ describe('REQ-209 sidepane agent sections', () => {
   })
 
   afterEach(() => {
+    cleanup()
     vi.unstubAllGlobals()
     localStorage.clear()
   })
@@ -205,6 +234,36 @@ describe('REQ-209 sidepane agent sections', () => {
       expect(within(sectionById(UNASSIGNED_SECTION_ID)!).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     })
     expect(within(list).getAllByTestId('spill-hotkey').length).toBeGreaterThan(0)
+  })
+
+  it('#497: Move to separates the section list from New section with a divider', async () => {
+    renderRail()
+    await openAgentMenu(/Rakazo/)
+    fireEvent.click(await screen.findByTestId('rail-menu-move-to'))
+    const submenu = await screen.findByTestId('rail-menu-move-to-submenu')
+    const children = Array.from(submenu.children) as HTMLElement[]
+
+    const dividerIndexes = children
+      .map((node, index) =>
+        node.getAttribute('data-testid') === 'rail-menu-submenu-divider' ? index : -1,
+      )
+      .filter((index) => index >= 0)
+    // Exactly one rule — the destinations above it are one undivided list.
+    expect(dividerIndexes).toHaveLength(1)
+
+    const newSectionIndex = children.findIndex(
+      (node) => node.querySelector(`[data-move-to="${NEW_SECTION_TARGET}"]`) !== null,
+    )
+    expect(newSectionIndex).toBeGreaterThan(dividerIndexes[0])
+    // 'New section' is the last child, so the rule only ever separates it.
+    expect(newSectionIndex).toBe(children.length - 1)
+
+    // The destinations themselves are NOT separated from each other.
+    const unassignedIndex = children.findIndex(
+      (node) => node.querySelector('[data-move-to="unassigned"]') !== null,
+    )
+    expect(unassignedIndex).toBeGreaterThanOrEqual(0)
+    expect(dividerIndexes[0]).toBeGreaterThan(unassignedIndex)
   })
 
   it('#173: right-clicking the rail background creates an empty section and focuses its title', async () => {
@@ -299,5 +358,209 @@ describe('REQ-209 sidepane agent sections', () => {
       expect(sectionById('sec_a')).toBeUndefined()
     })
     expect(sectionById(UNASSIGNED_SECTION_ID)).toBeTruthy()
+  })
+
+  it('Issue #163: lock toggle persists internal-only talk; Unassigned has no lock', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false, internalOnly: false }],
+        membership: { rakazo: 'sec_stuff' },
+        unassignedCollapsed: false,
+      }),
+    )
+    const first = renderRail()
+    await loadedList()
+    const unassigned = sectionById(UNASSIGNED_SECTION_ID)!
+    expect(within(unassigned).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
+    const stuff = sectionById('sec_stuff')!
+    // #968: when awareness is on (default), speech bubble icon is omitted to avoid header clutter
+    expect(within(stuff).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
+
+    // Right-click header to isolate members
+    fireEvent.contextMenu(within(stuff).getByTestId('rail-section-header'))
+    const menu1 = await screen.findByRole('menu', { name: 'Actions for stuff' })
+    fireEvent.click(within(menu1).getByRole('menuitem', { name: 'Isolate members (no peer awareness)' }))
+
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
+    })
+    expect(
+      JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}').sections[0].internalOnly,
+    ).toBe(true)
+
+    // Once isolated (internalOnly: true), the icon appears in the header
+    const lock = within(sectionById('sec_stuff')!).getByTestId('rail-section-awareness-toggle')
+    expect(lock).toHaveAttribute('aria-pressed', 'true')
+    expect(lock).toHaveAttribute('aria-label', 'Inter-agent awareness off — members isolated')
+
+    // Clicking the visible toggle restores awareness and hides the icon
+    fireEvent.click(lock)
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'false')
+    })
+    expect(within(sectionById('sec_stuff')!).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
+
+    // Right-click context menu toggle lifecycle after remount
+    first.unmount()
+    renderRail()
+    await loadedList()
+
+    // Isolate via context menu
+    fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
+    const menu2 = await screen.findByRole('menu', { name: 'Actions for stuff' })
+    fireEvent.click(within(menu2).getByRole('menuitem', { name: 'Isolate members (no peer awareness)' }))
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
+    })
+    expect(within(sectionById('sec_stuff')!).getByTestId('rail-section-awareness-toggle')).toBeInTheDocument()
+
+    // Enable awareness via context menu
+    fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
+    const menu3 = await screen.findByRole('menu', { name: 'Actions for stuff' })
+    fireEvent.click(within(menu3).getByRole('menuitem', { name: 'Enable inter-agent awareness' }))
+    await waitFor(() => {
+      expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'false')
+    })
+    expect(within(sectionById('sec_stuff')!).queryByTestId('rail-section-awareness-toggle')).not.toBeInTheDocument()
+  })
+})
+
+describe('#802 / #801 — pinning never erases section membership', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    localStorage.setItem(PINNED_AGENTS_STORAGE_KEY, '[]')
+    localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, '[]')
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('right-click Unpin on a sectioned agent returns it to its assigned section', async () => {
+    // Rakazo lives in sec_stuff AND is pinned (the #802 setup).
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+        membership: { rakazo: 'sec_stuff' },
+      }),
+    )
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'rakazo', name: 'Rakazo' }]),
+    )
+    renderRail()
+    await loadedList()
+
+    // While pinned, the row is stripped from section lists (existing contract).
+    expect(within(sectionById('sec_stuff')!).queryByRole('link', { name: /Rakazo/ })).not.toBeInTheDocument()
+
+    // Right-click the pin → Unpin.
+    const grid = screen.getByTestId('agent-fav-grid')
+    fireEvent.contextMenu(within(grid).getByRole('link', { name: 'Rakazo' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Unpin' }))
+
+    // #802: the agent must land back INSIDE its assigned section.
+    await waitFor(() => {
+      expect(within(sectionById('sec_stuff')!).getByRole('link', { name: /Rakazo/ })).toBeInTheDocument()
+    })
+    expect(within(sectionById(UNASSIGNED_SECTION_ID)!).queryByRole('link', { name: /Rakazo/ })).not.toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership.rakazo).toBe('sec_stuff')
+  })
+
+  it('Move to → New section on a PINNED agent unpins it into the new section (#801)', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'rakazo', name: 'Rakazo' }]),
+    )
+    renderRail()
+    await loadedList()
+    const grid = screen.getByTestId('agent-fav-grid')
+    fireEvent.contextMenu(within(grid).getByRole('link', { name: 'Rakazo' }))
+    await chooseMoveTo(NEW_SECTION_PLACEHOLDER)
+    const rename = await screen.findByTestId('rail-section-rename')
+    fireEvent.change(rename, { target: { value: 'moved' } })
+    fireEvent.blur(rename)
+    await waitFor(() => {
+      expect(screen.queryByTestId('rail-section-rename')).not.toBeInTheDocument()
+    })
+
+    // #801: the agent is unpinned AND rendered inside the new section.
+    await waitFor(() => {
+      expect(within(screen.getByTestId('agent-fav-grid')).queryByRole('link', { name: 'Rakazo' })).not.toBeInTheDocument()
+    })
+    const custom = screen
+      .getAllByTestId('rail-section')
+      .find((node) => node.getAttribute('data-section-custom') === 'true')
+    expect(custom).toBeTruthy()
+    expect(within(custom!).getByTestId('rail-section-name')).toHaveTextContent('moved')
+    expect(within(custom!).getByRole('link', { name: /Rakazo/ })).toBeInTheDocument()
+  })
+
+  it('Move to → existing section on a PINNED agent unpins it into that section (#801)', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_stuff', name: 'stuff', collapsed: false }],
+      }),
+    )
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'rakazo', name: 'Rakazo' }]),
+    )
+    renderRail()
+    await loadedList()
+    const grid = screen.getByTestId('agent-fav-grid')
+    fireEvent.contextMenu(within(grid).getByRole('link', { name: 'Rakazo' }))
+    await chooseMoveTo('stuff')
+
+    await waitFor(() => {
+      expect(within(sectionById('sec_stuff')!).getByRole('link', { name: /Rakazo/ })).toBeInTheDocument()
+    })
+    expect(within(screen.getByTestId('agent-fav-grid')).queryByRole('link', { name: 'Rakazo' })).not.toBeInTheDocument()
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership.rakazo).toBe('sec_stuff')
+    expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
+  })
+
+  it('duplicating a remote in a section assigns the duplicate to the same section without bumping to top', async () => {
+    localStorage.setItem(
+      RAIL_SECTIONS_STORAGE_KEY,
+      JSON.stringify({
+        sections: [{ id: 'sec_prod', name: 'Production', collapsed: false }],
+        membership: { 'remote:trueforge': 'sec_prod' },
+      }),
+    )
+    const createSpy = vi.spyOn(api, 'createRemote').mockResolvedValue({
+      id: 'trueforge_copy',
+      title: 'TrueForge copy',
+      kind: 'trueforge',
+      base_url: 'http://127.0.0.1:8792',
+    } as unknown as api.RemoteConnection)
+
+    renderRail()
+    const list = await loadedList()
+    const remoteLink = await within(list).findByRole('link', { name: /TrueForge/ })
+    fireEvent.contextMenu(remoteLink)
+    const duplicateItem = await screen.findByRole('menuitem', { name: 'Duplicate' })
+    fireEvent.click(duplicateItem)
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'trueforge_copy',
+          title: 'TrueForge copy',
+          kind: 'trueforge',
+        }),
+      )
+    })
+
+    const stored = JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}')
+    expect(stored.membership['remote:trueforge_copy']).toBe('sec_prod')
   })
 })

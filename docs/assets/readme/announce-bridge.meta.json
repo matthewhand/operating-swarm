@@ -8,10 +8,10 @@
   "req": "REQ-136",
   "captions": [
     "Some tools mix CLIs and APIs. They still don\u2019t talk to remote harnesses.",
-    "Open Swarm: a Grok-agnostic Grok-Bot-like UI and a multi-harness bridge.",
+    "Operating Swarm: a Grok-agnostic Grok-Bot-like UI and a multi-harness bridge.",
     "Task one place. Chief of Staff coordinates the team \u2014 not five disconnected chats.",
     "One team: remotes + CLIs + an openai-agents blueprint (BA \u2192 Engineer \u2192 Tester).",
-    "Point Open Swarm at what you already run. Task without typing. Native sessions, not a cage."
+    "Point Operating Swarm at what you already run. Task without typing. Native sessions, not a cage."
   ],
   "roster": [
     "Hermes Remote",

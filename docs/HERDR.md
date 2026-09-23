@@ -1,9 +1,9 @@
 # Herdr connectivity (REQ-21)
 
-Open Swarm can drive **Herdr** as a member `kind=herdr` without owning the TUI.
+Operating Swarm can drive **Herdr** as a member `kind=herdr` without owning the TUI.
 
-`swarm-cli tui` ([REQ-111](https://github.com/matthewhand/open-swarm/issues/481)
-/ [ADR-012](./adr/012-swarm-cli-tui.md)) is **open-swarm’s own** API client
+`os-cli tui` ([REQ-111](https://github.com/matthewhand/open-swarm/issues/481)
+/ [ADR-012](./adr/012-swarm-cli-tui.md)) is Operating Swarm’s own API client
 (Herdr-*like* chrome). It is not this Herdr hop and does not SSH to a Herdr host.
 
 This is **NOT Hermes**, **NOT OMB**, and **NOT Rakazo**. Those are different
@@ -43,10 +43,10 @@ second product hop.
 
 ```bash
 # Local Herdr (this host, no SSH). Localhost URL only if you choose that.
-swarm-cli remotes set herdr --herdr-mode local
+os-cli remotes set herdr --herdr-mode local
 
 # Remote Herdr — SSH to the Herdr host (env-var name for a key path; never a private key)
-swarm-cli remotes set herdr --herdr-mode ssh --ssh-host herdr.example.test --ssh-user herdr --ssh-identity-env HERDR_SSH_IDENTITY
+os-cli remotes set herdr --herdr-mode ssh --ssh-host herdr.example.test --ssh-user herdr --ssh-identity-env HERDR_SSH_IDENTITY
 ```
 
 Settings → Remotes → **+ Add remote** (or Django `/settings/` **Add Herdr remote**)
@@ -63,10 +63,10 @@ Health / list / send / interrogate (stub SSH in tests; no live LAN in CI):
 | Interrogate CLI X | `herdr agent get <TARGET>` | same argv over SSH |
 
 ```bash
-swarm-cli remotes health herdr
-swarm-cli remotes operate herdr --op list
-swarm-cli remotes operate herdr --op send --target w3:p1 --prompt HERDR_PING_OK
-swarm-cli remotes operate herdr --op interrogate --target w3:p1
+os-cli remotes health herdr
+os-cli remotes operate herdr --op list
+os-cli remotes operate herdr --op send --target w3:p1 --prompt HERDR_PING_OK
+os-cli remotes operate herdr --op interrogate --target w3:p1
 ```
 
 Do not commit tokens or private keys. Identity is an env-var *name*

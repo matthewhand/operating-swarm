@@ -1,6 +1,6 @@
-# Open Swarm: A User Journey
+# Operating Swarm: A User Journey
 
-A walkthrough of Open Swarm from a fresh checkout to running agent teams —
+A walkthrough of Operating Swarm from a fresh checkout to running agent teams —
 on the command line, in the web UI, and over the OpenAI-compatible API.
 Blueprints are CLI/API recipes only; the Grok-like SPA is the product web UI.
 
@@ -9,14 +9,14 @@ and every screenshot in [`docs/screenshots/`](./screenshots/) was captured from
 a live local server by [`scripts/capture_user_journey.py`](../scripts/capture_user_journey.py).
 Where a page shows demo, placeholder, or empty-state data, the caption says so.
 
-> Screenshots last regenerated **2026-08-19** with Playwright
+> Screenshots last regenerated **2026-09-16** with Playwright
 > (`scripts/capture_user_journey.py`) against a live local server. Captures
 > reflect that environment’s data (empty states and login-gated chat are
-> called out in captions). The `swarm-cli list` transcript below was
-> refreshed **2026-08-19** (fresh XDG dirs); other CLI blocks further down
+> called out in captions). The `os-cli list` transcript below was
+> refreshed **2026-09-16** (fresh XDG dirs); other CLI blocks further down
 > remain older canned captures from `main`.
 
-> **Documentation map:** [USERGUIDE.md](../USERGUIDE.md) is the `swarm-cli`
+> **Documentation map:** [USERGUIDE.md](../USERGUIDE.md) is the `os-cli`
 > reference, this file is the end-to-end story,
 > [GUIDED_TOUR.md](./GUIDED_TOUR.md) is the screenshot-per-page visual tour of
 > the web UI (Django operator shell + lightweight SPA dashboard/chat), and
@@ -27,8 +27,8 @@ Where a page shows demo, placeholder, or empty-state data, the caption says so.
 ## 1. Install
 
 ```bash
-git clone https://github.com/matthewhand/open-swarm.git
-cd open-swarm
+git clone https://github.com/matthewhand/operating-swarm.git
+cd operating-swarm
 uv sync --all-extras          # or: pip install -e .[dev]
 
 # Configure an LLM key for real agent runs (not needed for the tour below)
@@ -40,18 +40,18 @@ This guide uses the project virtualenv directly (`.venv/bin/...`); if you use
 
 ## 2. Meet the CLI
 
-Open Swarm ships agent teams as **blueprints**. Blueprints are **CLI/API only**
+Operating Swarm ships agent teams as **blueprints**. Blueprints are **CLI/API only**
 — they do not ship a webpage; the Grok-like WebUI is the product chrome.
-`swarm-cli list` inventories **package directories** under
+`os-cli list` inventories **package directories** under
 `src/swarm/blueprints/` plus any installed executables / user sources (fresh
 checkout below — bundled rows, including the non-runnable `common` helpers
 folder):
 
 ```text
-$ .venv/bin/swarm-cli list
+$ .venv/bin/os-cli list
 --- Installed Blueprint Executables (in /home/user/.local/share/swarm/bin) ---
 (No installed blueprint executables found in /home/user/.local/share/swarm/bin)
-Try 'swarm-cli install-executable <blueprint_name>' or see 'swarm-cli list --available'.
+Try 'os-cli install-executable <blueprint_name>' or see 'os-cli list --available'.
 
 --- Bundled Blueprints (available from package) ---
 - fs_introspect (entry: blueprint_fs_introspect.py)
@@ -94,26 +94,26 @@ Those **31** CLI rows are **not** the same count as the web UI:
 
 | Surface | What it counts | This regen |
 | --- | --- | --- |
-| `swarm-cli list` (Bundled) | Package dirs under `src/swarm/blueprints/` (includes non-discoverable `common`) | **31** |
-| Blueprint Library `/blueprint-library/` | `discover_blueprints()` keys (canonical ids + discovery aliases such as `ensemble` / `dynamic-team`) | **38** available; first paint **12 of 38** (`blueprint-library.png`) |
-| SPA dashboard `/` | `/v1/blueprints` + `/v1/models` after `apply_blueprint_aliases` adds synthetic `swarm_*` model ids | Teams **0** / Blueprints **45** / Models **45** (`landing.png`) |
+| `os-cli list` (Bundled) | Package dirs under `src/swarm/blueprints/` (includes non-discoverable `common`) | **31** |
+| Blueprint Library `/blueprint-library/` | `discover_blueprints()` keys (canonical ids + discovery aliases) | **49** available; first paint **12 of 49** (`blueprint-library.png`) |
+| SPA `/` | Grok-like rail + chat (not a count dashboard) | `landing.png` does **not** show API totals |
 
 ### Try a blueprint without an API key (`SWARM_TEST_MODE`)
 
 `SWARM_TEST_MODE=1` makes blueprints emit deterministic, canned output — the
 same mechanism the 600+ test suite uses to run keyless. It also makes
-`swarm-cli install` write a fast shell shim instead of compiling a PyInstaller
+`os-cli install` write a fast shell shim instead of compiling a PyInstaller
 binary:
 
 ```text
-$ SWARM_TEST_MODE=1 .venv/bin/swarm-cli install jeeves
+$ SWARM_TEST_MODE=1 .venv/bin/os-cli install jeeves
 Installing blueprint 'jeeves' as executable...
   Source: /home/user/open-swarm/src/swarm/blueprints/jeeves
   Entry Point: blueprint_jeeves.py
   Output Executable: /home/user/.local/share/swarm/bin/jeeves
 Test-mode shim installed at: /home/user/.local/share/swarm/bin/jeeves
 
-$ SWARM_TEST_MODE=1 .venv/bin/swarm-cli launch jeeves --message "What time is it?"
+$ SWARM_TEST_MODE=1 .venv/bin/os-cli launch jeeves --message "What time is it?"
 Launching 'jeeves' with: /home/user/.local/share/swarm/bin/jeeves --message What time is it?
 --- jeeves Output ---
 [SWARM_CONFIG_DEBUG] Trying: /home/user/open-swarm/swarm_config.json
@@ -183,22 +183,18 @@ ENABLE_WEBUI=true DJANGO_DEBUG=true .venv/bin/python manage.py runserver 8000
 ![Landing page](./screenshots/landing.png)
 
 When the React frontend has been built (`webui/frontend/dist/` exists), `/`
-serves a **lightweight SPA dashboard** (DaisyUI / Tailwind). Live
-teams/blueprints/models counts come from `/v1/teams`, `/v1/blueprints`, and
-`/v1/models` (this capture: **0 / 45 / 45** — matches `landing.png`; **not**
-the 31 CLI dirs or the library’s 38 discoverable keys; see the bridge table in
-§2). Top nav is **Agents** + **More** (**Chat · Blueprints · Teams · Sessions · Settings**)
-(matches `App.tsx`). Quick Actions: **Launch Team**,
-**Browse Blueprints**, **Manage Teams**, **Settings** (recaptured after
-`npm run build` on **2026-08-19**). Bare `/teams`, `/blueprints`,
-`/settings`, and `/agent-creator` **redirect** to Django (`/teams/launch/`,
-`/blueprint-library/`, `/settings/`, `/agent-creator/`) — `spa-*.png`
-captures document those redirect landings (sticky “Redirected: …” banner).
-Experimental SPA chat remains at `/chat` (**Connected** after journey login
-when ASGI/`/ws/` is up; **Unavailable** is the 4401 / unreachable path). See
-the page-by-page [guided tour](./GUIDED_TOUR.md). Without
+serves the **Grok-like product chrome** (left rail + selected agent’s chat —
+same ChatPage as `/chat`). This capture: **Support** selected, kickstart
+chips, composer; **not** a Teams/Blueprints/Models count dashboard. See the
+count-bridge table in §2 (`os-cli list` **31** dirs ≠ library **49** /
+**12 of 49**). Recaptured after `npm run build` on **2026-09-16**. Bare
+`/teams`, `/blueprints`, `/settings`, and `/agent-creator` **redirect** to
+Django (`/teams/launch/`, `/blueprint-library/`, `/settings/`,
+`/agent-creator/`) — `spa-*.png` captures document those redirect landings
+(sticky “Redirected: …” banner). `/chat` is the same chrome. See the
+page-by-page [guided tour](./GUIDED_TOUR.md). Without
 `webui/frontend/dist/`, `/` falls back to Django templates; the Django pages
-below are the supported admin surface either way.
+below are the operator dump either way.
 
 ### Teams admin — `/teams/`
 
@@ -226,23 +222,20 @@ launch. Blueprints do not mount a second chat UI; product Chat is `/` + `/chat`.
 
 **Login required.** Browse discoverable blueprints with per-blueprint MCP
 status badges (async check; this capture shows ready green checkmarks
-labeled **MCP** on each card, not a checking spinner). Summary tile
-**Available: 38** is `discover_blueprints()` (not `swarm-cli list`’s 31 dirs
-and not the SPA’s API **45**). The grid is **paginated** on first paint
-(**Showing 12 of 38 blueprints** + **Show more**) so the catalog does not
-dump every card at once; installed / custom / category tiles reflect this
-environment. Add/remove, the creator form, and avatar generation are
-operator mutators and also require login.
+labeled **MCP: OK** on each card, not a checking spinner). Summary tile
+**Available: 49** is `discover_blueprints()` (not `os-cli list`’s 31 dirs).
+The grid is **paginated** on first paint (**Showing 12 of 49** + **Show
+more**). Add/remove, the creator form, and avatar generation are operator
+mutators and also require login.
 
 ### My blueprints — `/blueprint-library/my-blueprints/`
 
 ![My blueprints](./screenshots/my-blueprints.png)
 
 **Login required.** Your personal collection of installed and custom
-blueprints. This capture shows Installed **0** and Custom Created **3**
-(**Agent A** / **Agent B** / **Agent C**, created Aug 18, 2026) plus a
-**Create a new blueprint** card — host user-blueprints data, not an empty
-fresh library.
+blueprints. This capture shows Installed **0** and Custom Created **20**
+(mostly **Lib Agent** cards from the library creator, plus **First Team**)
+and a **Create a new blueprint** card — not an empty fresh library.
 
 ### Agent creator — `/agent-creator/`
 
@@ -261,16 +254,15 @@ and **3 Optional Tags** collapsed. The right-hand panel **Generate Blueprint**
 **Login required.** Configuration management grouped by category (Django,
 Swarm core, auth, LLM providers, blueprints/agents, MCP servers, database,
 logging, performance, UI features), with a configuration-progress meter and
-import/export of the environment. This fresh-db capture shows the empty
-meter — **No settings configured** / **0 of 0** — not a populated local
-config; section tiles (LLM Providers, Secrets, Logging, …) and **0 profiles**
-are still reachable from here.
+import/export of the environment. This capture’s meter is **40 of 47** /
+**85%** (product setting groups with defaults — not the old empty **0 of 0**
+fixture). Title: **Operating Swarm (OS)**. Chat persistence shows **0** chats.
 
 ### Login page — `/accounts/login/`
 
 ![Login page](./screenshots/login.png)
 
-The login form. Both `/accounts/login/` and `/login/` are wired to the
+The login form (**Operating Swarm** wordmark + bee mark). Both `/accounts/login/` and `/login/` are wired to the
 `custom_login` view (CSRF required on POST; `next` is restricted to rooted
 same-origin paths). Logging in unlocks the Django operator shell — Teams
 admin/export, Blueprint library / My blueprints / creator mutators,

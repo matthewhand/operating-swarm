@@ -201,6 +201,265 @@ def default_chat(
     return sanitize_model_text(content)
 
 
+def _resolve_assist_route() -> tuple[str, str]:
+    """#858/#731: (profile_id, model_id) for tiny-class assist calls.
+
+    Resolution order: the ``tiny`` task override, then ``auxiliary``, then the
+    API default — a configured-but-missing 'tiny' slug must never 404 when the
+    auxiliary override or plain default can serve the call.
+    """
+    from swarm.core.llm_task_routing import (
+        TASK_CLASS_AUXILIARY,
+        get_profile_dict,
+        load_swarm_config,
+        model_id_for_profile,
+        resolve_tiny_model,
+        stored_task_map,
+    )
+
+    # Env overrides self-load config inside the resolver; check them first so
+    # a host without a readable swarm config still honours SWARM_TINY_MODEL.
+    try:
+        route = resolve_tiny_model(None)
+    except Exception:
+        route = None
+    if route is not None and route.source == "env":
+        # Env overrides (SWARM_TINY_MODEL etc.) name a model id directly,
+        # not a catalog profile — trust it as-is.
+        return route.profile, route.profile
+
+    config: dict[str, Any] | None = None
+    try:
+        config = load_swarm_config()
+    except Exception:
+        config = None
+
+    def _known(profile_id: str) -> bool:
+        return bool(get_profile_dict(profile_id, config))
+
+    if config:
+        route = resolve_tiny_model(config)
+        if route.source != "env" and route.override_on and _known(route.profile):
+            model = model_id_for_profile(route.profile, config)
+            if model:
+                return route.profile, model
+
+        stored = stored_task_map(config)
+        aux_profile = stored.get(TASK_CLASS_AUXILIARY) or ""
+        if aux_profile and _known(aux_profile):
+            model = model_id_for_profile(aux_profile, config)
+            if model:
+                return aux_profile, model
+
+        default_profile = str(
+            (config.get("settings") or {}).get("default_llm_profile") or ""
+        ).strip()
+        if default_profile and _known(default_profile):
+            model = model_id_for_profile(default_profile, config)
+            if model:
+                return default_profile, model
+
+    return "tiny", "tiny"
+
+
+def tiny_chat(
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int = 200,
+    temperature: float = 0.3,
+    timeout: float = 30.0,
+) -> str:
+    """#858: Sync chat.completions using the tiny→auxiliary→default chain."""
+    from openai import OpenAI
+
+    from swarm.core.llm_task_routing import get_profile_dict
+    from swarm.utils.env_utils import get_llm_base_url
+
+    profile_id, model = _resolve_assist_route()
+
+    config: dict[str, Any] | None = None
+    try:
+        from swarm.core.llm_task_routing import load_swarm_config
+
+        config = load_swarm_config()
+    except Exception:
+        config = None
+    profile = get_profile_dict(profile_id, config) if config else None
+
+    base_url = ""
+    api_key = ""
+    if profile and isinstance(profile, dict):
+        base_url = str(profile.get("base_url") or "").strip()
+        api_key = str(profile.get("api_key") or "").strip()
+
+    if not base_url:
+        base_url = get_llm_base_url() or os.getenv("OPENAI_BASE_URL") or ""
+    if not api_key:
+        api_key = (
+            os.getenv("LITELLM_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+            or "ollama"
+        )
+
+    kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = OpenAI(**kwargs)
+    resp = client.chat.completions.create(
+        model=model or "tiny",
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    content = (resp.choices[0].message.content or "") if resp.choices else ""
+    return sanitize_model_text(content)
+
+
+def generate_session_title(messages: list[dict[str, Any]]) -> str:
+    """#858: Generate a concise 3-5 word conversation title from opening turns."""
+    first_user = ""
+    for msg in messages or []:
+        role = msg.get("role") or msg.get("sender")
+        if role == "user":
+            first_user = str(msg.get("content") or msg.get("text") or "").strip()
+            if first_user:
+                break
+
+    if not first_user:
+        return "New Conversation"
+
+    fallback = " ".join(first_user.split()[:4]).capitalize() or "New Conversation"
+    if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("SWARM_LLM_ASSIST") != "1":
+        return fallback
+
+    prompt = (
+        "Generate a concise, descriptive 3-5 word title for this conversation based on the user's initial message.\n"
+        "Return ONLY the title text, with no quotes, markdown formatting, or punctuation at the end.\n\n"
+        f"User message: {first_user[:500]}"
+    )
+    try:
+        title = tiny_chat(
+            [
+                {"role": "system", "content": "You generate concise 3-5 word conversation titles."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=30,
+            temperature=0.3,
+        )
+        cleaned = title.strip().strip('"\'`').rstrip(".").strip()
+        return cleaned if cleaned else fallback
+    except Exception:
+        return fallback
+
+
+def generate_commit_message(diff: str) -> str:
+    """#858: Generate a conventional commit message from git diff."""
+    trimmed = (diff or "").strip()
+    if not trimmed:
+        return "chore: update code"
+
+    fallback = "chore: update code changes"
+    if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("SWARM_LLM_ASSIST") != "1":
+        return fallback
+
+    prompt = (
+        "Generate a conventional git commit message (e.g. 'feat: ...', 'fix: ...', 'refactor: ...') for this diff.\n"
+        "Return ONLY the commit message with a short imperative subject line (<72 chars), and optional brief bullet points.\n"
+        "No markdown code fences or quotes.\n\n"
+        f"Diff:\n{trimmed[:4000]}"
+    )
+    try:
+        msg = tiny_chat(
+            [
+                {"role": "system", "content": "You write concise conventional git commit messages."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=150,
+            temperature=0.2,
+        )
+        cleaned = msg.strip().strip('"\'`').strip()
+        return cleaned if cleaned else fallback
+    except Exception:
+        return fallback
+
+
+def enhance_user_prompt(prompt: str) -> str:
+    """#858: Expand and refine user prompt draft to make it clearer and more effective."""
+    trimmed = (prompt or "").strip()
+    if not trimmed:
+        return prompt
+
+    if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("SWARM_LLM_ASSIST") != "1":
+        return f"{trimmed} (enhanced)"
+
+    system_prompt = (
+        "You are an expert prompt engineer. Improve and expand the following user prompt draft to make it clearer, "
+        "more specific, detailed, and effective for an AI assistant while strictly preserving the user's original intent, "
+        "tone, and constraints. Return ONLY the enhanced prompt draft with no introductions, explanations, or quotes."
+    )
+    try:
+        enhanced = tiny_chat(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": trimmed},
+            ],
+            max_tokens=600,
+            temperature=0.4,
+        )
+        cleaned = enhanced.strip().strip('"\'`').strip()
+        return cleaned if cleaned else trimmed
+    except Exception:
+        return trimmed
+def draft_system_instruction(
+    *,
+    name: str = "",
+    brief: str = "",
+    current: str = "",
+) -> tuple[str, str]:
+    """#932: AI-assisted system-instruction drafting for the agent popup.
+
+    Returns ``(status, draft)`` where status is ``"success"`` when the default
+    LLM produced the draft and ``"fallback"`` when a heuristic template was
+    used because no LLM was reachable. Never raises.
+    """
+    agent = (name or "this agent").strip() or "this agent"
+    brief = (brief or "").strip()
+    current = (current or "").strip()
+    if not brief and not current:
+        brief = f"a general-purpose assistant named {agent}"
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You write system instructions for AI agents. Reply with the "
+                "instruction text only — no preamble, no code fences, no quotes. "
+                "Keep it under 120 words, concrete and behavioural."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Agent name: {agent}\n"
+                + (f"What the agent should do: {brief}\n" if brief else "")
+                + (f"Current instruction to improve:\n{current}\n" if current else "")
+                + "Write the improved system instruction."
+            ),
+        },
+    ]
+    try:
+        draft = default_chat(messages, max_tokens=400, timeout=30.0).strip()
+    except Exception:
+        draft = ""
+    if not draft:
+        role_bit = f" — {brief}" if brief else ""
+        draft = (
+            f"You are {agent}{role_bit}. Be concise and concrete. "
+            "When unsure, ask one clarifying question before acting."
+        )
+        return "fallback", draft
+    return "success", draft
+
+
 def _extract_json(text: str) -> Any:
     blob = text.strip()
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", blob, re.I)

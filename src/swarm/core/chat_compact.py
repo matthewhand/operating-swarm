@@ -68,6 +68,47 @@ def _as_summary_rows(summaries: Iterable[Any]) -> list[Any]:
     return [row for row in summaries if row is not None]
 
 
+def _includes_in_context(row: Any) -> bool:
+    """#214: rows without the flag (legacy fakes/rows) default to included."""
+    value = getattr(row, "include_in_context", True)
+    return value is not False
+
+
+def excluded_summary_ids(summaries: Iterable[Any]) -> set[int]:
+    """#214: ids of excluded summaries **plus their nested descendants**.
+
+    Excluding a parent implicitly excludes the summaries nested inside it:
+    an excluded row contributes nothing, and a child's tree would otherwise
+    re-render the excluded parent via ``_format_summary_tree``.
+    """
+    rows = _as_summary_rows(summaries)
+    by_id = {
+        getattr(row, "id"): row
+        for row in rows
+        if getattr(row, "id", None) is not None
+    }
+    excluded: set[int] = set()
+
+    def _row_excluded(row: Any) -> bool:
+        seen: set[int] = set()
+        current = row
+        while current is not None:
+            current_id = getattr(current, "id", None)
+            if current_id in excluded or _includes_in_context(current) is False:
+                return True
+            if current_id is None or current_id in seen:
+                return False
+            seen.add(current_id)
+            current = by_id.get(getattr(current, "parent_summary_id", None))
+        return False
+
+    for row in rows:
+        row_id = getattr(row, "id", None)
+        if row_id is not None and _row_excluded(row):
+            excluded.add(row_id)
+    return excluded
+
+
 def outermost_summaries(summaries: Iterable[Any]) -> list[Any]:
     """Summaries that are not nested inside a later compact (no child points at them)."""
     rows = _as_summary_rows(summaries)
@@ -181,13 +222,30 @@ def _blueprint_section_model(agent_id: str, config: dict[str, Any]) -> str | Non
     return model_id_for_profile(profile_name.strip(), config) or None
 
 
+def validate_compaction_context_window(
+    model_id: str,
+    config: dict[str, Any] | None = None,
+    min_tokens: int = 32768,
+) -> tuple[bool, str | None]:
+    """Validate that the chosen compaction model advertises sufficient context window (>=32k)."""
+    try:
+        from swarm.core.context_compress_policy import resolve_model_context_max
+
+        max_ctx = resolve_model_context_max(model_id=model_id, config=config)
+        if max_ctx is not None and max_ctx < min_tokens:
+            warning = (
+                f"Compaction model '{model_id}' context window ({max_ctx}) is less than "
+                f"recommended minimum ({min_tokens})."
+            )
+            logger.warning(warning)
+            return False, warning
+    except Exception:
+        pass
+    return True, None
+
+
 def resolve_compact_model(agent_id: str = "") -> str:
-    """Agent LLM profile, else Settings / env default. Raises if none configured."""
-    env_model = (
-        (os.environ.get("LITELLM_MODEL") or "").strip()
-        or (os.environ.get("OPENAI_MODEL") or "").strip()
-        or (os.environ.get("DEFAULT_LLM") or "").strip()
-    )
+    """#859: Resolve compaction model using dedicated compaction override, env, auxiliary, then agent/default."""
     config: dict[str, Any] | None = None
     try:
         from swarm.core.llm_task_routing import load_swarm_config
@@ -197,21 +255,68 @@ def resolve_compact_model(agent_id: str = "") -> str:
         logger.debug("compact model: swarm config unavailable")
         config = None
 
+    from swarm.core.llm_task_routing import (
+        TASK_CLASS_AUXILIARY,
+        TASK_CLASS_COMPACTION,
+        model_id_for_profile,
+        resolve_for_task,
+        stored_task_map,
+    )
+
+    # 1. Dedicated compaction override in settings: settings.task_llm_profiles.get("compaction")
     if isinstance(config, dict):
+        compaction_profile = stored_task_map(config).get(TASK_CLASS_COMPACTION)
+        if compaction_profile:
+            resolved = model_id_for_profile(compaction_profile, config)
+            if resolved:
+                validate_compaction_context_window(resolved, config)
+                return resolved
+
+    # 2. Environment check: SWARM_COMPACTION_MODEL or AUXILIARY_LLM_MODEL
+    env_compaction = (
+        (os.environ.get("SWARM_COMPACTION_MODEL") or "").strip()
+        or (os.environ.get("AUXILIARY_LLM_MODEL") or "").strip()
+    )
+    if env_compaction:
+        validate_compaction_context_window(env_compaction, config)
+        return env_compaction
+
+    # 3. Fallback: resolve_for_task(TASK_CLASS_AUXILIARY, config)
+    if isinstance(config, dict):
+        try:
+            aux_route = resolve_for_task(TASK_CLASS_AUXILIARY, config)
+            if aux_route and aux_route.profile and aux_route.profile != "default" and not aux_route.used_fallback:
+                resolved = model_id_for_profile(aux_route.profile, config)
+                if resolved:
+                    validate_compaction_context_window(resolved, config)
+                    return resolved
+        except Exception:
+            logger.debug("compact model: auxiliary task routing fallback failed")
+
+    # 4. Fallback: Agent / default chat model / other env vars
+    if isinstance(config, dict) and agent_id:
         agent_model = _blueprint_section_model(agent_id, config)
         if agent_model:
+            validate_compaction_context_window(agent_model, config)
             return agent_model
 
-    if env_model:
-        return env_model
+    other_env = (
+        (os.environ.get("LITELLM_MODEL") or "").strip()
+        or (os.environ.get("OPENAI_MODEL") or "").strip()
+        or (os.environ.get("DEFAULT_LLM") or "").strip()
+    )
+    if other_env:
+        validate_compaction_context_window(other_env, config)
+        return other_env
 
     if isinstance(config, dict):
         try:
-            from swarm.core.llm_task_routing import model_id_for_profile, resolve_chat_model
+            from swarm.core.llm_task_routing import resolve_chat_model
 
             route = resolve_chat_model(config)
             model = model_id_for_profile(route.profile, config)
-            if model:
+            if model and model != "default":
+                validate_compaction_context_window(model, config)
                 return model
         except Exception:
             logger.debug("compact model: settings default unavailable")
@@ -285,7 +390,13 @@ def build_context_items(
     messages: list[dict[str, Any]],
     summaries: Iterable[Any],
 ) -> list[dict[str, Any]]:
-    """Walk the raw transcript, substituting outermost summaries for covered spans."""
+    """Walk the raw transcript, substituting outermost summaries for covered spans.
+
+    #214: summaries with ``include_in_context=False`` are skipped — the
+    summary is omitted AND its span's raw turns stay out of context (the
+    operator archived this stretch of the conversation; the transcript row
+    itself is untouched).
+    """
     raw = list(messages or [])
     rows = _as_summary_rows(summaries)
     if not rows:
@@ -295,7 +406,10 @@ def build_context_items(
         ]
 
     cover: list[Any | None] = [None] * len(raw)
+    excluded = excluded_summary_ids(rows)
     for row in outermost_summaries(rows):
+        # #214: excluded rows still *cover* their span — the summarised raw
+        # turns stay archived from context — they just emit nothing.
         start, end = _span_bounds(row)
         start = max(0, start)
         end = min(len(raw) - 1, end) if raw else -1
@@ -310,6 +424,10 @@ def build_context_items(
         row = cover[idx]
         if row is not None:
             row_id = getattr(row, "id", None)
+            if row_id is not None and row_id in excluded:
+                # #214: archived from context — emit nothing, skip the span.
+                idx = min(len(raw) - 1, _span_bounds(row)[1]) + 1
+                continue
             if row_id not in emitted:
                 items.append(
                     {
@@ -344,9 +462,20 @@ def build_model_context(
     messages: list[dict[str, Any]],
     summaries: Iterable[Any],
 ) -> list[dict[str, str]]:
-    """Context the model sees: summary tree + uncovered raw turns. Raw file is untouched."""
+    """Context the model sees: summary tree + uncovered raw turns. Raw file is untouched.
+
+    #214: rows with ``include_in_context=False`` contribute nothing — and
+    because ``build_context_items`` keeps their spans covered by no row, the
+    raw turns they summarised do not silently reappear either.
+    """
     rows = _as_summary_rows(summaries)
-    by_id = {getattr(row, "id"): row for row in rows if getattr(row, "id", None) is not None}
+    excluded = excluded_summary_ids(rows)
+    by_id = {
+        row_id: row
+        for row in rows
+        for row_id in (getattr(row, "id", None),)
+        if row_id is not None and row_id not in excluded
+    }
     out: list[dict[str, str]] = []
     for item in build_context_items(messages, rows):
         if item.get("kind") == "summary":
@@ -404,6 +533,7 @@ def summary_to_dict(row: ConversationSummary) -> dict[str, Any]:
         "body": row.body,
         "created_at": created,
         "replaced_count": max(0, replaced),
+        "include_in_context": bool(getattr(row, "include_in_context", True)),
     }
 
 

@@ -292,8 +292,6 @@ class ResponsesView(APIView):
         previous_response_id = continue_api_previous_response(model_name, previous_response_id)
         if previous_response_id:
             prior = await sync_to_async(responses_store.load)(str(previous_response_id))
-            if prior is None:
-                raise NotFound(f"Previous response '{previous_response_id}' not found.")
             _assert_owner_access(request, prior)
             messages = list(prior.get("messages") or []) + messages
 
@@ -411,7 +409,8 @@ class ResponsesView(APIView):
         backend_meta = None
         try:
             # user_id scopes memory per authenticated principal (not shared "default").
-            async_generator = blueprint_instance.run(messages, stream=False, user_id=user_id)
+            run_messages = _messages_for_blueprint(blueprint_instance, messages)
+            async_generator = blueprint_instance.run(run_messages, stream=False, user_id=user_id)
             async for chunk in async_generator:
                 if isinstance(chunk, dict) and chunk.get("meta"):
                     backend_meta = chunk["meta"]  # which CLI(s) answered (system_fingerprint)
@@ -457,7 +456,8 @@ class ResponsesView(APIView):
             async_generator = None
             try:
                 # user_id scopes memory per authenticated principal (not shared "default").
-                async_generator = blueprint_instance.run(messages, stream=True, user_id=user_id)
+                run_messages = _messages_for_blueprint(blueprint_instance, messages)
+                async_generator = blueprint_instance.run(run_messages, stream=True, user_id=user_id)
                 async for chunk in async_generator:
                     if isinstance(chunk, dict) and chunk.get("meta"):
                         backend_meta = chunk["meta"]
@@ -569,18 +569,28 @@ def _persist(
     responses_store.save(record)
 
 
-def _assert_owner_access(request: Request, record: dict[str, Any] | None) -> None:
-    """Refuse access when API auth is on and the principal is not the owner.
+_RESPONSE_NOT_FOUND = "Response not found."
 
-    Fail-closed: legacy records without an ``owner`` stamp are also denied
-    (see :func:`responses_store.owner_allows`). Skipped entirely when API auth
-    is off (open local-dev mode).
+
+def _assert_owner_access(request: Request, record: dict[str, Any] | None) -> None:
+    """Refuse access when the principal is not the owner.
+
+    Owner checks run whenever a record has an ``owner`` stamp, even if
+    ``ENABLE_API_AUTH`` is off (``SWARM_ALLOW_NO_AUTH`` disables authentication
+    only — not per-principal IDOR). Unowned records stay reachable only when
+    API auth is off (explicit open-dev). Foreign and missing ids both raise
+    :class:`NotFound` so existence is not leaked.
     """
-    if not bool(getattr(settings, "ENABLE_API_AUTH", False)):
+    if record is None:
+        raise NotFound(_RESPONSE_NOT_FOUND)
+    owner = record.get("owner")
+    if not owner:
+        if bool(getattr(settings, "ENABLE_API_AUTH", False)):
+            raise NotFound(_RESPONSE_NOT_FOUND)
         return
     principal = request_principal(request)
     if not responses_store.owner_allows(record, principal):
-        raise PermissionDenied("You do not have access to this response.")
+        raise NotFound(_RESPONSE_NOT_FOUND)
 
 
 # --- Cancellation registry -------------------------------------------------- #
@@ -607,6 +617,44 @@ class _Cancelled(Exception):
     """Raised inside the worker when a cancel was requested mid-run."""
 
 
+def _messages_for_blueprint(
+    blueprint_instance: Any,
+    messages: list[dict[str, Any]],
+    params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Conditionally omit prior message history if the provider has server_managed_context (#851)."""
+    server_managed = getattr(blueprint_instance, "server_managed_context", False)
+    if not server_managed:
+        caps = getattr(blueprint_instance, "capabilities", None)
+        if isinstance(caps, dict):
+            server_managed = bool(caps.get("server_managed_context"))
+        elif hasattr(caps, "server_managed_context"):
+            server_managed = bool(caps.server_managed_context)
+    if not server_managed and params and isinstance(params, dict):
+        remote_name = params.get("remote") or params.get("name")
+        if remote_name:
+            from swarm.core.remote_harness import capabilities_for
+
+            remote_caps = capabilities_for(str(remote_name))
+            server_managed = getattr(remote_caps, "server_managed_context", False)
+
+    if server_managed and messages:
+        last_user = next(
+            (
+                m
+                for m in reversed(messages)
+                if isinstance(m, dict) and m.get("role") == "user"
+            ),
+            messages[-1],
+        )
+        return (
+            [last_user]
+            if isinstance(last_user, dict)
+            else [{"role": "user", "content": str(last_user)}]
+        )
+    return messages
+
+
 async def _consume_blueprint(
     blueprint_instance: Any, messages: list[dict[str, Any]], cancel_check: Any = None,
     on_progress: Any = None, user_id: str | None = None,
@@ -622,7 +670,8 @@ async def _consume_blueprint(
     """
     final_message = None
     backend_meta = None
-    async for chunk in blueprint_instance.run(messages, stream=False, user_id=user_id):
+    run_messages = _messages_for_blueprint(blueprint_instance, messages)
+    async for chunk in blueprint_instance.run(run_messages, stream=False, user_id=user_id):
         if cancel_check is not None and cancel_check():
             raise _Cancelled()
         if isinstance(chunk, dict):
@@ -895,15 +944,11 @@ class ResponsesDetailView(APIView):
 
     async def get(self, request: Request, response_id: str, *_a: Any, **_k: Any) -> Response:
         record = await sync_to_async(responses_store.load)(response_id)
-        if record is None:
-            raise NotFound(f"Response '{response_id}' not found.")
         _assert_owner_access(request, record)
         return Response(record.get("response") or record, status=status.HTTP_200_OK)
 
     async def delete(self, request: Request, response_id: str, *_a: Any, **_k: Any) -> Response:
         record = await sync_to_async(responses_store.load)(response_id)
-        if record is None:
-            raise NotFound(f"Response '{response_id}' not found.")
         _assert_owner_access(request, record)
         deleted = await sync_to_async(responses_store.delete)(response_id)
         if not deleted:
@@ -925,8 +970,6 @@ class ResponsesCancelView(APIView):
     )
     async def post(self, request: Request, response_id: str, *_a: Any, **_k: Any) -> Response:
         record = await sync_to_async(responses_store.load)(response_id)
-        if record is None:
-            raise NotFound(f"Response '{response_id}' not found.")
         _assert_owner_access(request, record)
         payload = record.get("response") or {}
         current = payload.get("status")

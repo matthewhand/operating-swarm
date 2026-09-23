@@ -46,7 +46,7 @@ A declared list of directed openai-agents `handoff` (or `as_tool`) edges
 among API seats. Forced sequence = each seat has only the next hop
 (BA → Engineer → Tester). Circular skeptic = last reviewer may punt back
 to an earlier role. Tests lock live `Handoff.agent_name` against the JSON.
-This is **not** the peer mailbox (`list_agents` / `send_message`, REQ-153 / #561). Mailbox tools are a team-scoped API↔API channel with optional whitelist/blacklist ACL (REQ-162 / #573); see [ADR-009](./adr/009-peer-mailbox.md) and [PEER_MAILBOX.md](./PEER_MAILBOX.md).
+This is **not** the peer mailbox (`list_agents` / `send_message`, REQ-153 / #561). Mailbox tools are a team-scoped API↔API channel with optional whitelist/blacklist ACL (REQ-162 / #573) and optional rail-section internal-only lock (Issue #163); see [ADR-009](./adr/009-peer-mailbox.md) and [PEER_MAILBOX.md](./PEER_MAILBOX.md).
 
 ## Skill (`SKILL.md`)
 
@@ -58,7 +58,7 @@ A discoverable `BlueprintBase` subclass (`swarm.core.blueprint_base`) that defin
 
 A Blueprint **catalog** row is a template. A Blueprint **agent** (ADR-006) is a seat that runs a chosen recipe. The AGENTS rail and Search Bots list only recipes with `metadata.rail: true` (default deny). Catalog stays on `GET /v1/blueprints/`, Settings, and Add-agent ([#595](https://github.com/matthewhand/open-swarm/issues/595) / REQ-170). Add-agent CLI/API creates are merged into that list with `rail: true` so the same filter can show them ([#607](https://github.com/matthewhand/open-swarm/issues/607) / REQ-171B).
 
-**Support NL create (REQ-158 / #567):** the happy path is ask **Support** in natural language. Support persists a custom `ApiKindBase` seat. The user does not write Python; **View / edit code** is optional. See [SUPPORT_NL_BLUEPRINTS.md](./SUPPORT_NL_BLUEPRINTS.md).
+**Support NL create (REQ-158 / #567):** the happy path is ask **Support** in natural language. Support persists a custom `ApiKindBase` seat. The user does not write Python; **View code** is optional. See [SUPPORT_NL_BLUEPRINTS.md](./SUPPORT_NL_BLUEPRINTS.md).
 
 ## Team (handoff members — REQ-11)
 

@@ -195,14 +195,33 @@ export function selectLatestMessage(
  * Resolves the last message snippet and timestamp for a rail row.
  * Prefers live thread activity from local chat sessions (REQ-177).
  */
+/**
+ * #601: structural row metadata the rail reads for snippet/time. Typed
+ * instead of `Record<string, unknown>` so the call sites pass their real
+ * objects (SidebarAgent / TeamRoster / RemoteEntry) without `as any`.
+ */
+export type RowActivityMeta = {
+  last_message_at?: unknown
+  lastMessageAt?: unknown
+  updated_at?: unknown
+  updatedAt?: unknown
+  last_message?: unknown
+  lastMessage?: unknown
+  snippet?: unknown
+  description?: unknown
+}
+
 export function getRowLastMessage(
   id: string,
   sessions?: Array<{ updatedAt?: number; startedAt?: number; snippet?: string }>,
-  agentMeta?: Record<string, unknown>,
+  agentMeta?: RowActivityMeta,
   fallbackTimestampMs?: number | null,
 ): { snippet: string | null; timestamp: number | null } {
   const rawTime =
-    agentMeta?.last_message_at ?? agentMeta?.lastMessageAt ?? agentMeta?.updated_at
+    agentMeta?.last_message_at ??
+    agentMeta?.lastMessageAt ??
+    agentMeta?.updated_at ??
+    agentMeta?.updatedAt // #601: camelCase APIs are not silently ignored
   let parsedTime: number | null = null
   if (typeof rawTime === 'number' && Number.isFinite(rawTime)) {
     parsedTime = rawTime

@@ -29,11 +29,13 @@ export interface MemberSession {
 export function facesFromSessions(sessions: MemberSession[]): StackFace[] {
   return sessions.map((session) => ({
     id: session.memberId || session.id,
+    agentId: session.memberId || session.id,
     name: session.title,
     startedAt: session.startedAt,
     role: session.role,
     working: session.status === 'running',
     avatarSrc: session.avatarSrc,
+    src: session.avatarSrc,
   }))
 }
 
@@ -86,6 +88,11 @@ export function sessionsForTeam(team: TeamRoster): MemberSession[] {
 }
 
 export function sessionsForRemote(remote: RemoteEntry): MemberSession[] {
+  // Session-capable remotes (AnythingLLM/Letta/Open WebUI) are listed via operate(),
+  // not a fake single-agent row that cannot resume.
+  if (!remote.agents.length && remote.capabilities?.sessions) {
+    return []
+  }
   const agents: RemoteAgent[] = remote.agents.length
     ? remote.agents
     : [{ id: remote.id, name: remote.title, startedAt: 0 }]

@@ -156,6 +156,8 @@ class CliAgentConfig:
     resume_argv: list[str] | None = None
     resume_insert: int | None = None
     session_id_paths: list[str] | None = None
+    # Issue #180: optional remote serve endpoint {host, port, username, password_env}.
+    remote: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.cmd:
@@ -419,6 +421,13 @@ def normalize_cli_cmd(name: str, cmd: list[str]) -> list[str]:
     return out
 
 
+def _normalize_adapter_remote(name: str, raw: Any) -> dict[str, Any] | None:
+    """Issue #180: persist host/port/auth_env only (no plaintext password)."""
+    from swarm.core.cli_remote import normalize_remote_endpoint
+
+    return normalize_remote_endpoint(raw, cli_name=name)
+
+
 class CliAdapter:
     """Runs one configured agentic CLI as an awaitable one-shot subagent."""
 
@@ -456,6 +465,7 @@ class CliAdapter:
             resume_argv=raw.get("resume_argv"),
             resume_insert=raw.get("resume_insert"),
             session_id_paths=raw.get("session_id_paths"),
+            remote=_normalize_adapter_remote(name, raw.get("remote")),
         )
         return cls(cfg)
 
@@ -522,6 +532,10 @@ class CliAdapter:
 
         sid = sanitize_cli_session_id(raw_sid)
         argv = _protect_prompt_argv(self.config.cmd, prompt, workdir)
+        if self.config.remote:
+            from swarm.core.cli_remote import apply_remote_attach
+
+            argv = apply_remote_attach(argv, self.name, self.config.remote)
         if sid:
             policy = self.session_policy()
             extra = [

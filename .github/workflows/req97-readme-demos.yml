@@ -1,23 +1,11 @@
 name: REQ-97 README demo slots
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "README.md"
-      - "docs/assets/readme/**"
-      - "docs/SCREENSHOTS.md"
-      - "docs/SHOWOFF_DEMO_AGENTS.md"
-      - "tests/unit/test_req97_readme_demos.py"
-      - ".github/workflows/req97-readme-demos.yml"
-  push:
-    branches: [main]
-    paths:
-      - "README.md"
-      - "docs/assets/readme/**"
-      - "docs/SCREENSHOTS.md"
-      - "docs/SHOWOFF_DEMO_AGENTS.md"
-      - "tests/unit/test_req97_readme_demos.py"
-      - ".github/workflows/req97-readme-demos.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

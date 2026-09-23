@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { computeRailHotkeyTargets, type RailRow } from '../railHotkeys'
+import { chatHrefForRowId } from '../agentNotifications'
+import {
+  computeRailHotkeyTargets,
+  herdrChatHref,
+  type RailRow,
+} from '../railHotkeys'
 
 describe('computeRailHotkeyTargets (REQ-172)', () => {
   const mockRows: RailRow[] = [
     { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
     { kind: 'agent', id: 'agent-2', agent: { id: 'agent-2', name: 'Agent 2' } },
-    { kind: 'team', id: 'team-alpha', team: { id: 'alpha', name: 'Team Alpha', object: 'team' } },
-    { kind: 'remote', id: 'remote-omb', remote: { id: 'omb', label: 'OpenMousBot', title: 'OpenMousBot', kind: 'omb' } },
+    { kind: 'team', id: 'team-alpha', team: { id: 'alpha', name: 'Team Alpha' } },
+    { kind: 'remote', id: 'remote-omb', remote: { id: 'omb', label: 'OpenMousBot' } },
     { kind: 'agent', id: 'agent-5', agent: { id: 'agent-5', name: 'Agent 5' } },
     { kind: 'agent', id: 'agent-6', agent: { id: 'agent-6', name: 'Agent 6' } },
     { kind: 'agent', id: 'agent-7', agent: { id: 'agent-7', name: 'Agent 7' } },
@@ -108,10 +113,12 @@ describe('computeRailHotkeyTargets (REQ-172)', () => {
       href: '/chat?remote=omb',
     })
     expect(targets[2].href).not.toMatch(/blueprint=/)
+    // #543: herdr seats chat like every other kind — the pin targets the
+    // agent's own conversation, not the settings-adjacent members page.
     expect(targets[3]).toMatchObject({
       id: 'herdr:w3:p1',
       kind: 'pin',
-      href: '/teams/#herdr-members',
+      href: '/chat?remote=herdr&session=w3%3Ap1',
       isHerdr: true,
     })
   })
@@ -130,5 +137,23 @@ describe('computeRailHotkeyTargets (REQ-172)', () => {
     expect(targets).toHaveLength(2)
     expect(targets[0].id).toBe('pin-1')
     expect(targets[1].id).toBe('agent-1')
+  })
+})
+
+describe('#543 herdrChatHref — herdr seats are URL-addressable', () => {
+  it('builds a chat URL whose session IS the agent target', () => {
+    expect(herdrChatHref('herdr:p1')).toBe('/chat?remote=herdr&session=p1')
+    expect(herdrChatHref('p1')).toBe('/chat?remote=herdr&session=p1')
+  })
+
+  it('encodes agent names that share an id shape with URL params', () => {
+    // Two agents with the same name on different remotes stay distinguishable
+    // through the agent list's remote field; the name itself must survive the
+    // URL round-trip.
+    expect(herdrChatHref('herdr:w3:p1')).toBe('/chat?remote=herdr&session=w3%3Ap1')
+  })
+
+  it('chatHrefForRowId maps herdr seats to their chat URL (not /teams)', () => {
+    expect(chatHrefForRowId('herdr:p1')).toBe('/chat?remote=herdr&session=p1')
   })
 })

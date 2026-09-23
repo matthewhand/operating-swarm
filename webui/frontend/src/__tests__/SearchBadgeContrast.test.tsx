@@ -28,8 +28,31 @@ describe('REQ-197: Search Ctrl-K badge transparent opacity and contrast', () => 
 
     expect(css).toContain('.os-rail-search__kbd')
     expect(css).toContain('background-color: transparent !important;')
+    // #498 / REQ-900: the reveal is scoped to the search field, not the rail.
     expect(css).toContain('.os-rail-search:hover .os-rail-search__kbd')
-    expect(css).toContain('.os-rail-search:focus-within .os-rail-search__kbd')
+    expect(css).toContain('.os-rail-search:focus-visible .os-rail-search__kbd')
+    expect(css).not.toContain('.os-agent-sidebar:hover .os-rail-search__kbd')
+    expect(css).not.toContain('.os-rail-search:focus-within .os-rail-search__kbd')
+  })
+
+  it('#553: the ⌃K chip is overlaid so the concealed state takes no space', () => {
+    const cssPath = path.resolve(__dirname, '../index.css')
+    const css = fs.readFileSync(cssPath, 'utf-8')
+    const kbdRule = css.slice(css.indexOf('.os-rail-search__kbd,'))
+    const block = kbdRule.slice(0, kbdRule.indexOf('}'))
+    expect(block).toContain('position: absolute')
+    // A flex child that reserves width is exactly what clipped 'Search'.
+    expect(block).not.toContain('flex-shrink: 0')
+  })
+
+  it('#495: the search pill clips its own children instead of spilling into +', () => {
+    const cssPath = path.resolve(__dirname, '../index.css')
+    const css = fs.readFileSync(cssPath, 'utf-8')
+    const pill = css.slice(css.indexOf('.os-rail-search {'))
+    const block = pill.slice(0, pill.indexOf('}'))
+    expect(block).toContain('overflow: hidden')
+    const input = css.slice(css.indexOf('.os-rail-search__input {'))
+    expect(input.slice(0, input.indexOf('}'))).toContain('min-width: 0')
   })
 
   it('renders search badge without black fill obstructing search field', () => {
@@ -43,9 +66,9 @@ describe('REQ-197: Search Ctrl-K badge transparent opacity and contrast', () => 
       </QueryClientProvider>,
     )
 
-    const searchInput = screen.getByRole('searchbox')
-    expect(searchInput).toBeInTheDocument()
-    expect(searchInput).toHaveAttribute('placeholder', 'Search')
+    const searchTrigger = screen.getByRole('button', { name: 'Search' })
+    expect(searchTrigger).toBeInTheDocument()
+    expect(searchTrigger).toHaveTextContent('Search')
 
     const kbd = screen.getByText(/Ctrl\+K|⌘K|Alt\+K/i)
     expect(kbd).toBeInTheDocument()

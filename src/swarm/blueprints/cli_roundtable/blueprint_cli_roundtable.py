@@ -19,7 +19,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -54,7 +54,7 @@ Decide whether the panel has converged enough to conclude. Return ONLY a JSON ob
 """
 
 
-class CliRoundtableBlueprint(BlueprintBase):
+class CliRoundtableBlueprint(CliKindBase):
     """Run a bounded multi-CLI debate moderated to a synthesized conclusion."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -131,9 +131,9 @@ class CliRoundtableBlueprint(BlueprintBase):
         debaters, moderator = self._resolve(params, registry)
         if not debaters:
             yield support.message_chunk(
-                "No debater CLIs are configured for the roundtable. Add a "
-                "'cli_roundtable' block (or a 'cli_fusion' preset) to your swarm "
-                "config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message(
+                    "No debater CLIs are configured for the roundtable"
+                ),
                 final=True,
             )
             return

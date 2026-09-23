@@ -8,6 +8,8 @@ export interface ConversationSummary {
   body: string
   created_at: string
   replaced_count?: number
+  /** #214: unticked = summary (and its span) stop feeding model context. */
+  include_in_context?: boolean
 }
 
 export interface ChatBubble {
@@ -18,6 +20,22 @@ export interface ChatBubble {
   /** REQ-104 — expandable archive of the previous swarm thread. */
   kind?: 'prior_history'
   ts?: string
+  /** REQ-88 — provider queue wait chrome on status lines. */
+  rateLimit?: import('./providerRateLimits').RateLimitWait
+  /** REQ-72 — turn was edited after send. */
+  edited?: boolean
+  /** REQ-176 — tool-call chips attached to the turn. */
+  tools?: import('./safety').ToolCallState[]
+  /** REQ-859 — inline fan-out block for dynamically spawned subagent turns. */
+  subagentFanOut?: import('./subagentFanOut').SubagentFanOutData
+  /** #527 — openai-agents persona that produced the row, when the server says. */
+  persona?: string
+  /** #850 — original Herdr pane payload, kept for the Raw Response modal. */
+  rawResponse?: string
+  /** Blocking ``ask_user`` card or a non-blocking ```question fence (ChatMessage parity). */
+  question?: import('./decisionQuestion').DecisionQuestion
+  questionBlocking?: boolean
+  questionAnswered?: boolean
 }
 
 export type DisplayItem =
@@ -90,13 +108,39 @@ export function buildDisplayItems(
   return items
 }
 
-/** Texts the token meter should count (summaries + uncovered raw). */
+/** #214/#215: ids of excluded summaries plus nested descendants. */
+export function excludedSummaryIds(summaries: ConversationSummary[]): Set<number> {
+  const byId = summariesById(summaries)
+  const excluded = new Set<number>()
+  const rowExcluded = (row: ConversationSummary): boolean => {
+    const seen = new Set<number>()
+    let current: ConversationSummary | undefined = row
+    while (current) {
+      if (excluded.has(current.id) || current.include_in_context === false) return true
+      if (seen.has(current.id)) return false
+      seen.add(current.id)
+      const parentId: number | null | undefined = current.parent_summary_id
+      current = parentId != null ? byId[parentId] : undefined
+    }
+    return false
+  }
+  for (const row of summaries) {
+    if (rowExcluded(row)) excluded.add(row.id)
+  }
+  return excluded
+}
+
+/** Texts the token meter should count (included summaries + uncovered raw). */
 export function contextTextsForMeter(
   messages: ChatBubble[],
   summaries: ConversationSummary[],
 ): string[] {
+  const excluded = excludedSummaryIds(summaries)
   return buildDisplayItems(messages, summaries)
-    .filter((item) => item.kind === 'summary' || (item.message.role !== 'status' && item.message.role !== 'system'))
+    .filter((item) => {
+      if (item.kind === 'summary') return !excluded.has(item.summary.id)
+      return item.message.role !== 'status' && item.message.role !== 'system'
+    })
     .map((item) => (item.kind === 'summary' ? item.summary.body : item.message.text))
 }
 

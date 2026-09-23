@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { History, Plus, Search } from 'lucide-react'
+import { openSettingsSheet } from './SettingsSheet'
 import {
   filterCliSessions,
   formatActivityAge,
@@ -7,6 +8,7 @@ import {
   sanitizeCliSessionId,
   type CliProviderSession,
 } from '../lib/cliSessions'
+import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export interface CliSessionPickerProps {
   open: boolean
@@ -21,6 +23,7 @@ export interface CliSessionPickerProps {
   onSelect: (session: CliProviderSession) => void
   onStartNew: () => void
   onContinueOn?: (session: CliProviderSession, targetCli: string) => void
+  onManageSession?: () => void
 }
 
 /**
@@ -41,6 +44,7 @@ export default function CliSessionPicker({
   onSelect,
   onStartNew,
   onContinueOn,
+  onManageSession,
 }: CliSessionPickerProps) {
   const [query, setQuery] = useState('')
   const [activeIdx, setActiveIdx] = useState(0)
@@ -93,6 +97,15 @@ export default function CliSessionPicker({
     onStartNew()
     onClose()
   }, [onClose, onStartNew])
+
+  const manageSession = useCallback(() => {
+    onClose()
+    if (onManageSession) {
+      onManageSession()
+      return
+    }
+    openSettingsSheet({ section: 'cli-agents' })
+  }, [onClose, onManageSession])
 
   const activeIdxRef = useRef(activeIdx)
   activeIdxRef.current = activeIdx
@@ -149,6 +162,7 @@ export default function CliSessionPicker({
       : emptyReason || (canList ? 'No sessions found' : "This CLI can't list sessions")
 
   return (
+    <OverlayFocusTrap onClose={onClose} initialFocus={() => inputRef.current}>
     <div
       className="os-search-overlay"
       data-testid="os-cli-session-picker"
@@ -221,7 +235,12 @@ export default function CliSessionPicker({
             })
           )}
         </ul>
-        <div className="flex flex-wrap items-center gap-2 border-t border-base-300 px-3 py-2">
+        <div
+          role="separator"
+          className="border-t border-base-300"
+          data-testid="manage-surface-divider"
+        />
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
           <button
             type="button"
             className="btn btn-ghost btn-xs gap-1 text-xs"
@@ -235,7 +254,10 @@ export default function CliSessionPicker({
             <label className="flex items-center gap-1 text-xs text-base-content/70">
               <span className="sr-only">Continue selected session on another CLI</span>
               <select
-                className="select select-ghost select-xs"
+                /* #569: `select-ghost` is transparent by design, which reads as a
+                   broken/unstyled control inside the dialog. Match the popup's
+                   other inputs instead. */
+                className="select select-bordered select-xs"
                 aria-label="Continue on CLI"
                 data-testid="cli-session-continue-on"
                 defaultValue=""
@@ -257,8 +279,17 @@ export default function CliSessionPicker({
               </select>
             </label>
           ) : null}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs ms-auto text-xs"
+            data-testid="cli-session-manage"
+            onClick={manageSession}
+          >
+            Manage Session
+          </button>
         </div>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }

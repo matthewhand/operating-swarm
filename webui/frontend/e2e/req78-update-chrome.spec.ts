@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-
-const ARTIFACTS = process.env.ARTIFACTS_DIR || '/opt/cursor/artifacts'
+import { artifactsDir } from './helpers/artifacts'
 
 const BLUEPRINTS = {
   object: 'list',
@@ -75,8 +73,7 @@ async function stubApis(page: import('@playwright/test').Page, githubTag: string
 }
 
 function shot(name: string): string {
-  mkdirSync(ARTIFACTS, { recursive: true })
-  return path.join(ARTIFACTS, name)
+  return path.join(artifactsDir(), name)
 }
 
 test('REQ-78 XOR chrome sits right of the system name', async ({ page }) => {
@@ -90,7 +87,7 @@ test('REQ-78 XOR chrome sits right of the system name', async ({ page }) => {
   await expect(chrome).toBeVisible()
   await expect(server).toBeVisible()
   await expect(chrome).toHaveAttribute('data-kind', 'idle')
-  await expect(chrome).toHaveAttribute('aria-label', 'Open Swarm issues')
+  await expect(chrome).toHaveAttribute('aria-label', 'Operating Swarm issues')
 
   const order = await page.evaluate(() => {
     const row = document.querySelector('.os-rail-hostname-row')
@@ -122,7 +119,7 @@ test('REQ-78 GitHub newer only paints the sky cloud', async ({ page }) => {
   await page.goto('/chat')
   const chrome = page.getByTestId('rail-update-chrome')
   await expect(chrome).toHaveAttribute('data-kind', 'upstream')
-  await expect(chrome).toHaveAttribute('aria-label', 'Newer Open Swarm release available')
+  await expect(chrome).toHaveAttribute('aria-label', 'Newer Operating Swarm release available')
   await page.locator('.os-rail-hostname-row').screenshot({
     path: shot('req78-upstream-sky.png'),
   })

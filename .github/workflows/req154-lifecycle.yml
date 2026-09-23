@@ -1,41 +1,11 @@
 name: REQ-154 Support/CoS lifecycle
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/agent_lifecycle.py"
-      - "src/swarm/core/agent_roles.py"
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/blueprint_base.py"
-      - "src/swarm/core/remotes.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/blueprints/support/blueprint_support.py"
-      - "src/swarm/management/commands/purge_archived_agents.py"
-      - "skills/support-session-ownership/SKILL.md"
-      - "tests/core/test_agent_lifecycle.py"
-      - "tests/unit/test_req154_lifecycle.py"
-      - "docs/AGENT_LIFECYCLE.md"
-      - "docs/adr/009-peer-mailbox.md"
-      - ".github/workflows/req154-lifecycle.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/agent_lifecycle.py"
-      - "src/swarm/core/agent_roles.py"
-      - "src/swarm/core/agent_mailbox.py"
-      - "src/swarm/core/blueprint_base.py"
-      - "src/swarm/core/remotes.py"
-      - "src/swarm/consumers.py"
-      - "src/swarm/views/chat_views.py"
-      - "src/swarm/blueprints/support/blueprint_support.py"
-      - "src/swarm/management/commands/purge_archived_agents.py"
-      - "skills/support-session-ownership/SKILL.md"
-      - "tests/core/test_agent_lifecycle.py"
-      - "tests/unit/test_req154_lifecycle.py"
-      - "docs/AGENT_LIFECYCLE.md"
-      - "docs/adr/009-peer-mailbox.md"
-      - ".github/workflows/req154-lifecycle.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

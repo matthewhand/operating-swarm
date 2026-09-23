@@ -49,4 +49,7 @@ def test_sidebar_unpinned_bump_and_select_agent():
     content = SIDEBAR_TSX.read_text(encoding="utf-8")
     # REQ-164 addendum: newly created agent placed at top of unpinned rail
     assert "bumpRailIdToTop(base, created.id)" in content
-    assert "onSelectAgent={handleAgentSelected}" in content
+    # Row selection is anchor-href based since the rail package refactor;
+    # wizard picks still route through handleAgentSelected (REQ-165 wiring).
+    assert "navigate(chatHrefForRowId(agentId))" in content
+    assert "onAddWizardSelect={handleAgentSelected}" in content

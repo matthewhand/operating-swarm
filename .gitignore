@@ -215,6 +215,9 @@ src/swarm_log.json.lock
 coverage.json
 
 # Node / frontend
+# node_modules matches by name (no trailing slash) so a symlink of that
+# name is ignored too — the directory-only form let one get committed (#630).
+node_modules
 node_modules/
 webui/frontend/dist/
 webui/frontend/build/
@@ -247,3 +250,7 @@ local_manifests/
 docs/host-notes/
 .secrets/
 
+docs/screenshots/overlays/
+
+# agent-guideline symlink: tracked symlinks break fresh clones (see tests/test_no_tracked_symlinks.py)
+CLAUDE.md

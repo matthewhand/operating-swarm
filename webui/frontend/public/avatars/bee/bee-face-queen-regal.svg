@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Queen Bee Regal Face Avatar">
+  <defs>
+    <linearGradient id="queen-face-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#312638"/>
+      <stop offset="100%" stop-color="#16111C"/>
+    </linearGradient>
+    <linearGradient id="queen-face-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE082"/>
+      <stop offset="50%" stop-color="#FFB300"/>
+      <stop offset="100%" stop-color="#FF8F00"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#queen-face-bg)" stroke="#FFD54F" stroke-width="1.5"/>
+  <path d="M32 15 C44 10 52 18 51 32 C50 44 42 54 32 58 C22 54 14 44 13 32 C12 18 20 10 32 15 Z" fill="#1A141F" stroke="#FFD54F" stroke-width="1.3"/>
+  <path d="M24 16 L28 11 L32 14 L36 11 L40 16 Z" fill="url(#queen-face-gold)" stroke="#1A141F" stroke-width="0.8"/>
+  <circle cx="32" cy="12" r="1.2" fill="#FFFFFF"/>
+  <circle cx="28" cy="10" r="1" fill="#FFFFFF"/>
+  <circle cx="36" cy="10" r="1" fill="#FFFFFF"/>
+  <circle cx="32" cy="19" r="1.3" fill="#FFF59D"/>
+  <circle cx="28.5" cy="21" r="1.1" fill="#FFF59D"/>
+  <circle cx="35.5" cy="21" r="1.1" fill="#FFF59D"/>
+  <ellipse cx="19" cy="33" rx="4.8" ry="10.5" transform="rotate(-10 19 33)" fill="#311B92" stroke="#FFD54F" stroke-width="1"/>
+  <ellipse cx="17.5" cy="28" rx="1.8" ry="4.5" fill="#FFFFFF" opacity="0.4" transform="rotate(-10 17.5 28)"/>
+  <ellipse cx="45" cy="33" rx="4.8" ry="10.5" transform="rotate(10 45 33)" fill="#311B92" stroke="#FFD54F" stroke-width="1"/>
+  <ellipse cx="46.5" cy="28" rx="1.8" ry="4.5" fill="#FFFFFF" opacity="0.4" transform="rotate(10 46.5 28)"/>
+  <path d="M27 28 C27 25 37 25 37 28 C38 36 37 44 32 46 C27 44 26 36 27 28 Z" fill="url(#queen-face-gold)" stroke="#1A141F" stroke-width="1.2"/>
+  <ellipse cx="32" cy="34" rx="3.5" ry="5.5" fill="#FFA000"/>
+  <g fill="none" stroke="#FFD54F" stroke-width="1.6" stroke-linecap="round">
+    <path d="M29 25 C26 18 22 13 14 11"/>
+    <path d="M35 25 C38 18 42 13 50 11"/>
+  </g>
+  <circle cx="14" cy="11" r="1.3" fill="#FFD54F"/>
+  <circle cx="50" cy="11" r="1.3" fill="#FFD54F"/>
+  <path d="M29 48 L32 54 L35 48 Z" fill="#1A141F" stroke="#FFD54F" stroke-width="0.8"/>
+</svg>

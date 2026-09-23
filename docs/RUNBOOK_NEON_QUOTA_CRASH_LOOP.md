@@ -117,6 +117,16 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8001/v1/models   # exp
   `status=78` and no restart activity; fix the configuration, then
   `systemctl --user reset-failed` and start it again.
 
+## Dev stack (`:8002`) is the deliberate exception
+
+`docker-compose.dev.yml` overrides `swarm` to `restart: unless-stopped` so the
+LAN/dev endpoint self-heals after a process death. That override assumes the
+**compose-local Postgres**. Merging the dev overlay on top of a
+quota-exhausted Neon `DATABASE_URL` therefore reintroduces exactly the
+crash-loop described above — the base file's `restart: on-failure:5` cap is no
+longer in play. Fix the URL, or stop that stack with
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml down`.
+
 ## References
 
 - `man systemd.service` — `Restart=`, `RestartPreventExitStatus=`

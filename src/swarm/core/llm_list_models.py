@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -38,12 +39,19 @@ _TICKET_JARGON_RE = re.compile(
 )
 
 # Live REQ-44 probes are cached per connected CLI set so Settings / chat
-# do not re-run each CLI on every resolve. Tests call clear_discovery_cache().
-_DISCOVERY_CACHE: dict[tuple[str, ...], tuple[list[dict[str, Any]], str, list[str]]] = {}
+# do not re-run each CLI on every resolve. TTL matches cli_models (5–15 min).
+# Tests call clear_discovery_cache().
+_DISCOVERY_TTL_S = 10 * 60.0
+_DISCOVERY_CACHE: dict[tuple[str, ...], tuple[float, list[dict[str, Any]], str, list[str]]] = {}
 
 
 def clear_discovery_cache() -> None:
     _DISCOVERY_CACHE.clear()
+    try:
+        from swarm.core.cli_models import clear_probe_cache
+    except ImportError:
+        return
+    clear_probe_cache()
 
 # REQ-44 public JSON shape (one CLI) and the OpenAI /v1/models list shape.
 # {cli, models: [...], warning?}
@@ -238,6 +246,30 @@ def _as_req44_dict(result: Any, name: str) -> dict[str, Any]:
     return {"cli": name, "models": [], "warning": f"{name}: list-models helper returned no payload"}
 
 
+def _probe_live_many(names: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Shipped concurrent/cached probe path. Never raises."""
+    from swarm.core.cli_models import list_models_many
+
+    rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    try:
+        raw_rows = list_models_many(names)
+    except Exception as exc:  # never crash Settings / auto-pick
+        warning = f"list-models helper failed: {exc}"
+        logger.warning(warning)
+        for name in names:
+            rows.append({"cli": name, "models": [], "warning": warning})
+        return rows, [warning]
+    for raw in raw_rows:
+        name = str(getattr(raw, "cli", None) or "catalog")
+        row = _as_req44_dict(raw, name)
+        if row.get("warning"):
+            row["warning"] = sanitize_ui_warning(str(row["warning"])) or row["warning"]
+            warnings.append(str(row["warning"]))
+        rows.append(row)
+    return rows, warnings
+
+
 def discover_cli_model_lists(
     config: dict[str, Any] | None = None,
     *,
@@ -280,10 +312,17 @@ def discover_cli_model_lists(
 
     if resolved_helper is not None and should_probe and names:
         cache_key = tuple(names)
-        cached = _DISCOVERY_CACHE.get(cache_key)
-        if cached is not None and helper is None:
-            return cached
-        rows: list[dict[str, Any]] = []
+        if helper is None:
+            cached_probe = _DISCOVERY_CACHE.get(cache_key)
+            if cached_probe is not None:
+                ts, rows, source, cached_warnings = cached_probe
+                if time.monotonic() - ts < _DISCOVERY_TTL_S:
+                    return rows, source, cached_warnings
+            rows, warnings = _probe_live_many(names)
+            result = (rows, SOURCE_REQ44, sanitize_ui_warnings(warnings))
+            _DISCOVERY_CACHE[cache_key] = (time.monotonic(),) + result
+            return result
+        rows = []
         for name in names:
             try:
                 raw = resolved_helper(name)
@@ -298,10 +337,7 @@ def discover_cli_model_lists(
                 row["warning"] = sanitize_ui_warning(str(row["warning"])) or row["warning"]
                 warnings.append(str(row["warning"]))
             rows.append(row)
-        result = (rows, SOURCE_REQ44, sanitize_ui_warnings(warnings))
-        if helper is None:
-            _DISCOVERY_CACHE[cache_key] = result
-        return result
+        return rows, SOURCE_REQ44, sanitize_ui_warnings(warnings)
 
     rows = []
     extra = v1_models

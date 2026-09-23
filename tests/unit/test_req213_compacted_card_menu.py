@@ -13,6 +13,7 @@ CARD = REPO / "webui" / "frontend" / "src" / "components" / "CompactSummaryCard.
 OVERLAY = REPO / "webui" / "frontend" / "src" / "components" / "CompactedCardContextMenu.tsx"
 RAIL = REPO / "webui" / "frontend" / "src" / "components" / "RailContextMenu.tsx"
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+MSG_LIST = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "ChatMessageList.tsx"
 CI = REPO / ".github" / "workflows" / "req213-compacted-card-menu.yml"
 
 
@@ -44,7 +45,7 @@ def test_pill_and_summary_chip_open_the_menu():
     card = CARD.read_text(encoding="utf-8")
     assert "useCompactedCardMenu" in card
     assert "chat-summary-chip" in card
-    chat = CHAT.read_text(encoding="utf-8")
+    chat = CHAT.read_text(encoding="utf-8") + MSG_LIST.read_text(encoding="utf-8")
     assert "hiddenSummaryIds" in chat
     assert "hiddenMessageKeys" in chat
     assert "onRemoveCard" in chat

@@ -9,14 +9,15 @@ Rules:
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 RAIL_ORDER_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "railOrder.ts"
 
 
 def test_chat_page_wires_generation_complete_on_success_and_stop():
-    content = CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    content = chat_surface()
     assert "notifyGenerationComplete" in content
     assert "activeChatAgentId" in content
     # Wires on assistant_final

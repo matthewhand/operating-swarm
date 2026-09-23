@@ -118,4 +118,21 @@ describe('assignUniqueLooks', () => {
   it('has 60 unique looks in the deck', () => {
     expect(allAvatarLooks()).toHaveLength(10 * 6)
   })
+
+  // #128: Apply to all agents must draw from the installed set only.
+  it('builds the deck from the installed themes when given a subset', () => {
+    expect(allAvatarLooks(['blobs', 'bee'])).toHaveLength(2 * 6)
+    expect(allAvatarLooks(['blobs', 'bee']).every((l) => ['blobs', 'bee'].includes(l.theme))).toBe(
+      true,
+    )
+
+    const ids = Array.from({ length: 12 }, (_, i) => `a${i}`)
+    const { themes } = assignUniqueLooks(ids, {}, {}, { themes: ['blobs', 'bee'] })
+    expect(ids.every((id) => ['blobs', 'bee'].includes(themes[id]))).toBe(true)
+  })
+
+  it('falls back to the full deck when the installed set is empty or unknown', () => {
+    expect(allAvatarLooks([])).toHaveLength(60)
+    expect(allAvatarLooks(['not-a-theme' as never])).toHaveLength(60)
+  })
 })

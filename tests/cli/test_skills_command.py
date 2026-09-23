@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from swarm.core.swarm_cli import app
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)

@@ -33,7 +33,9 @@ def test_rail_menu_has_move_to_and_section_items():
     assert "section-move-up" in menu
     assert "section-delete" in menu
     rail = RAIL_MENU.read_text(encoding="utf-8")
-    assert "rail-menu-move-to" in rail
+    # The menu builds per-item testids from the spec id — for 'move-to' this
+    # renders data-testid="rail-menu-move-to" at runtime.
+    assert "data-testid={`rail-menu-${spec.id}`}" in rail
     sidebar = SIDEBAR.read_text(encoding="utf-8")
     assert "partitionRowsBySection" in sidebar
     assert "createSectionWithAgent" in sidebar

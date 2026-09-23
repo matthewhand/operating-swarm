@@ -41,11 +41,25 @@ def test_pane_thumbnail_sits_above_routines_plus():
 
 def test_editor_has_active_delete_test_run_and_pr_merge():
     pane = PANE.read_text(encoding="utf-8")
-    for needle in ("Active", "Delete", "Test run", "Name", "Instruction", "When to run", "When a PR merges"):
+    for needle in (
+        "Active",
+        "Delete",
+        "Test run",
+        "Run now",
+        "Name",
+        "Instruction",
+        "When to run",
+        "When a PR merges",
+        "Mailbox message",
+        "Interval",
+        "Cron",
+    ):
         assert needle in pane
     core = ROUTINES.read_text(encoding="utf-8")
     assert "github_pr_merged" in core
+    assert "mailbox_message" in core
     assert "test_run" in core
+    assert "run_now" in core
     assert ":8001" not in core
     assert "ghp_" in core  # rejected as a secret-looking actor
     assert "WAVE" not in core
@@ -55,8 +69,11 @@ def test_api_is_agent_scoped_and_merge_delivery_is_github_only():
     urls = URLS.read_text(encoding="utf-8")
     assert "v1/agents/<str:agent_id>/routines/" in urls
     assert "v1/routines/github-merge/" in urls
+    assert "v1/routines/mailbox-message/" in urls
+    assert "v1/test-schedules/" in urls
     api = API.read_text(encoding="utf-8")
     assert "test-run" in api
+    assert "run-now" in api
     assert ":8001" not in api
     assert "localhost" not in api
 

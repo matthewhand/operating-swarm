@@ -130,7 +130,11 @@ test('gear opens a DaisyUI modal-end settings sheet over chat', async ({ page })
   await sections.getByRole('button', { name: 'Remotes' }).click()
   await expect(dialog.getByRole('button', { name: /Add remote/i })).toBeVisible()
   await expect(dialog.getByText(/No remotes configured/i)).toBeVisible()
-  await expect(dialog.getByText('OpenMousBot')).toHaveCount(0)
+  // The pane copy *names* OpenMousBot as an example of an HTTP remote kind; the
+  // rule under test is that unconfigured kinds are not listed as remotes
+  // (REQ-59 / #322), plus the copy rule that the letters OMB never appear.
+  await expect(dialog.getByText(/Only remotes you add appear here/i)).toBeVisible()
+  await expect(dialog.getByText(/No remotes configured yet/i)).toBeVisible()
   await expect(dialog.getByText(/\bOMB\b/)).toHaveCount(0)
   await expect(sections.getByRole('button', { name: 'Retention' })).toBeVisible()
   await expect(sections.getByRole('button', { name: 'Hostname' })).toBeVisible()
@@ -154,16 +158,24 @@ test('gear opens a DaisyUI modal-end settings sheet over chat', async ({ page })
     .toBe('swarm.example.com')
 
   await page.getByRole('button', { name: 'Rail' }).click()
-  await expect(page.getByLabel('Avatar theme')).toBeVisible()
-  await expect(page.getByLabel('Avatar theme')).toHaveValue('blobs')
-  await page.getByLabel('Avatar theme').selectOption('bland')
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('swarm_avatar_theme')))
-    .toBe('bland')
-  await page.getByLabel('Avatar theme').selectOption('bee')
+  // Settings installs theme families as checkboxes (REQ-828); the theme in force
+  // follows the sole installed family, so persist it by narrowing the install set.
+  const themes = dialog.getByTestId('installed-avatar-themes')
+  await expect(themes).toBeVisible()
+  const blobsTheme = themes.getByRole('checkbox', { name: 'Blobs' })
+  const beeTheme = themes.getByRole('checkbox', { name: 'Bee' })
+  const blandTheme = themes.getByRole('checkbox', { name: 'Default' })
+  await expect(blobsTheme).toBeChecked()
+  await beeTheme.check()
+  await blobsTheme.uncheck()
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('swarm_avatar_theme')))
     .toBe('bee')
+  await blandTheme.check()
+  await beeTheme.uncheck()
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('swarm_avatar_theme')))
+    .toBe('bland')
 
   await page.getByRole('button', { name: 'System' }).click()
   await expect(page.getByRole('heading', { name: 'System' })).toBeVisible()
@@ -176,4 +188,27 @@ test('gear opens a DaisyUI modal-end settings sheet over chat', async ({ page })
   await expect(dialog).toBeHidden()
 
   expect(jsErrors, `uncaught JS errors: ${jsErrors.join(' | ')}`).toHaveLength(0)
+})
+
+test('settings sheet traps Tab inside the native dialog', async ({ page }) => {
+  await stubApis(page)
+  await page.goto('/chat')
+  const gear = page.getByRole('button', { name: 'Open settings' })
+  await gear.click()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab')
+    const inside = await page.evaluate(() => {
+      const el = document.querySelector('dialog.modal-open')
+      const active = document.activeElement
+      return Boolean(el && active && el.contains(active))
+    })
+    expect(inside, `Tab ${i + 1} left the Settings dialog`).toBe(true)
+  }
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(gear).toBeFocused()
 })

@@ -12,10 +12,11 @@ into CLI or remote sessions.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
 import logging
 import os
-from typing import Any, ClassVar
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
+from typing import Any, ClassVar, TypedDict
 
 from swarm.core.blueprint_base import BlueprintBase
 
@@ -24,13 +25,63 @@ logger = logging.getLogger(__name__)
 KIND_API = "api"
 KIND_CLI = "cli"
 KIND_REMOTE = "remote"
+KIND_TEAM = "team"
 
-KIND_BASE_NAMES: tuple[str, ...] = ("ApiKindBase", "CliKindBase", "RemoteKindBase")
+KIND_BASE_NAMES: tuple[str, ...] = (
+    "ApiKindBase",
+    "CliKindBase",
+    "RemoteKindBase",
+    "TeamKindBase",
+)
 ALLOWED_BLUEPRINT_BASE_NAMES: tuple[str, ...] = (
     *KIND_BASE_NAMES,
     "KindBase",
     "BlueprintBase",
 )
+
+
+class SeatCapability(TypedDict):
+    """One declared seat capability (#551). ``enabled`` gates the UI control;
+    ``reason`` explains an offered-but-unusable action."""
+
+    enabled: bool
+    reason: str
+
+
+def _cap(enabled: bool, reason: str = "") -> SeatCapability:
+    return {"enabled": enabled, "reason": reason}
+
+
+def _capability_names() -> tuple[str, ...]:
+    """The declared capability vocabulary (documented for #540; the
+    ``coordination`` axis arrives with #813's TeamKindBase)."""
+    return ("attach", "compact", "plugins", "routines", "coordination")
+
+
+def seat_capability(base: type, name: str) -> SeatCapability:
+    """One capability, resolved. Resolution order:
+
+    1. a per-axis class attribute on the seat's own class — a subclass may
+       override a **single axis** (``attach = {"enabled": True}``) without
+       redeclaring the rest;
+    2. the kind base's ``seat_capabilities`` declaration dict;
+    3. **not offered** — doctrine rule 4: a capability nobody declared is
+       never invented here.
+    """
+    override = getattr(base, name, None)
+    if isinstance(override, dict) and "enabled" in override:
+        return _cap(bool(override.get("enabled")), str(override.get("reason") or ""))
+    declared = getattr(base, "seat_capabilities", None) or {}
+    if isinstance(declared, dict) and name in declared:
+        entry = declared[name]
+        if isinstance(entry, dict) and "enabled" in entry:
+            return _cap(bool(entry.get("enabled")), str(entry.get("reason") or ""))
+    return _cap(False, "Not declared by this seat kind")
+
+
+def seat_capabilities(base: type) -> dict[str, SeatCapability]:
+    """All declared capabilities for a kind base, as JSON-safe rows."""
+    return {name: seat_capability(base, name) for name in _capability_names()}
 
 
 class KindBase(BlueprintBase):
@@ -40,6 +91,12 @@ class KindBase(BlueprintBase):
     """
 
     kind: ClassVar[str] = ""
+
+    #: #551: per-seat capability declarations. The shared root declares
+    #: nothing kind-specific — each kind base below states its own defaults.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(False, "Attachments are not declared for this seat kind"),
+    }
 
     async def run(self, messages: list[dict[str, Any]], **kwargs: Any) -> AsyncGenerator[dict[str, Any], None]:
         """Default run implementation for kind harnesses."""
@@ -66,6 +123,14 @@ class ApiKindBase(KindBase):
 
     kind: ClassVar[str] = KIND_API
 
+    #: #551: API seats run swarm-side, so swarm capabilities are fully theirs.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(True),
+        "compact": _cap(True),
+        "plugins": _cap(True),
+        "routines": _cap(True),
+    }
+
     def get_navbar_items(self=None) -> list[dict]:
         """Returns metadata for navbar items contributed by this blueprint."""
         return [{"id": "token_counter", "kind": "token_counter", "label": "Tokens"}]
@@ -90,8 +155,19 @@ class ApiKindBase(KindBase):
         if hasattr(self, "create_starting_agent") and callable(self.create_starting_agent):
             from agents import Runner
 
+            from swarm.core.blueprint_base import apply_agent_model_defaults
+
             mcp_servers = kwargs.get("mcp_servers", [])
             agent = self.create_starting_agent(mcp_servers)
+            # #737: support-generated blueprints build bare Agent(...)s — pin
+            # the framework model so non-OpenAI providers don't see gpt-4o.
+            apply_agent_model_defaults(agent)
+            try:
+                from swarm.core.sandbox import attach_sandbox_tools_to_agent
+
+                attach_sandbox_tools_to_agent(agent, config=getattr(self, "config", None))
+            except Exception:
+                logger.debug("Sandbox tool attachment skipped", exc_info=True)
             try:
                 timeout = float(os.getenv("SWARM_AGENT_RUN_TIMEOUT", "30"))
             except (TypeError, ValueError):
@@ -102,7 +178,7 @@ class ApiKindBase(KindBase):
                 response = getattr(result, "final_output", str(result))
                 yield {"messages": [{"role": "assistant", "content": response}], "final": True}
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error("Agent run timed out after %.1fs", timeout)
                 yield {
                     "messages": [{
@@ -129,6 +205,23 @@ class ApiKindBase(KindBase):
         }
 
 
+@dataclass(frozen=True)
+class CliSlashCommand:
+    """A CLI-native slash command a provider declares (REQ-910 / #641).
+
+    Each CLI harness declares its own commands on ``CliKindBase`` subclasses;
+    the webui composer derives its slash popup from the published catalog —
+    never a hardcoded list in JSX. ``available=False`` marks a command the CLI
+    itself cannot run in our non-interactive (print-mode) sessions: the popup
+    greys it with ``unavailable_reason`` and it is never sent as chat text.
+    """
+
+    name: str
+    description: str = ""
+    available: bool = True
+    unavailable_reason: str = ""
+
+
 class CliKindBase(KindBase):
     """CLI-backed template.
 
@@ -138,6 +231,52 @@ class CliKindBase(KindBase):
     """
 
     kind: ClassVar[str] = KIND_CLI
+
+    #: #551: a CLI keeps its transcript in the provider and has no swarm-side
+    #: plugin host; attachments are provider-dependent (off by default).
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(
+            False, "File attachments aren’t supported for CLI seats"
+        ),
+        "compact": _cap(
+            False,
+            "Compact needs a default API profile or a provider cli_compact hook",
+        ),
+        "plugins": _cap(
+            False, "Plugins are available on API and blueprint seats"
+        ),
+        "routines": _cap(False, "Routines drive swarm-side scheduling"),
+    }
+
+    #: Provider-declared native slash commands, keyed by bare command name.
+    cli_slash_commands: ClassVar[dict[str, CliSlashCommand]] = {}
+
+    @classmethod
+    def slash_command(cls, name: str) -> CliSlashCommand | None:
+        """The declaration for ``name`` (leading slash / case tolerated)."""
+        key = (name or "").strip().lstrip("/").lower()
+        return cls.cli_slash_commands.get(key)
+
+    @classmethod
+    def supports_slash_command(cls, name: str) -> bool:
+        """True only when the command is declared *and* actually runnable."""
+        cmd = cls.slash_command(name)
+        return bool(cmd and cmd.available)
+
+    #: #636: optional provider-native compact argv template, ``{session_id}``
+    #: interpolated. ``None`` until a CLI's real compact command is verified.
+    cli_compact: ClassVar[str | None] = None
+
+    @classmethod
+    def supports_cli_compact(cls) -> bool:
+        """True when the provider compacts itself (no default API needed)."""
+        return bool(cls.cli_compact)
+
+    @classmethod
+    def cli_compact_argv(cls, session_id: str) -> str:
+        """The compact command for ``session_id`` (placeholder tolerated)."""
+        template = cls.cli_compact or ""
+        return template.replace("{session_id}", session_id)
 
 
 class RemoteKindBase(KindBase):
@@ -151,15 +290,107 @@ class RemoteKindBase(KindBase):
 
     kind: ClassVar[str] = KIND_REMOTE
 
+    #: #551: the transcript belongs to the remote provider; swarm-side
+    #: capabilities do not apply.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(
+            False, "File attachments aren’t supported for remote seats"
+        ),
+        "compact": _cap(
+            False,
+            "Compact is not available for remote seats — the transcript belongs to the remote provider",
+        ),
+        "plugins": _cap(
+            False, "Plugins are available on API and blueprint seats"
+        ),
+        "routines": _cap(False, "Routines drive swarm-side scheduling"),
+        "coordination": _cap(
+            False, "Cross-agent coordination is a team-seat capability (#813)"
+        ),
+    }
+
+
+class TeamKindBase(KindBase):
+    """Multi-agent team template (#813).
+
+    The fourth first-class kind: the frontend already manages ``kind: 'team'``
+    seats (multi-avatar stacks, role tags, Team Composer) and the roster store
+    (``team_rosters.py``) persists compositions, wires, and CoS briefs — the
+    backend just never gave teams a common base. TeamKindBase stamps
+    ``kind='team'``, declares the ``coordination`` capability, and exposes the
+    shared hooks (roster / strategy / chief-of-staff) so coordination
+    strategies stop being ad-hoc per blueprint.
+    """
+
+    kind: ClassVar[str] = KIND_TEAM
+
+    #: Teams run swarm-side (like API seats) and add cross-agent coordination.
+    seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
+        "attach": _cap(True),
+        "compact": _cap(True),
+        "plugins": _cap(True),
+        "routines": _cap(True),
+        "coordination": _cap(True),
+    }
+
+    #: Coordination strategy: 'direct' (all members see the ask), 'pipeline'
+    #: (ordered handoffs), 'consensus' (collect then synthesise), 'router'
+    #: (a coordinator delegates), 'dynamic' (blueprint decides per turn).
+    strategy: ClassVar[str] = "direct"
+
+    def get_roster(self) -> list[dict[str, Any]]:
+        """Team members as JSON-safe rows. Subclasses backed by the roster
+        store return their persisted composition; the default is empty."""
+        return []
+
+    def get_strategy(self) -> str:
+        """This team's declared coordination strategy."""
+        return str(type(self).strategy)
+
+    def get_chief_of_staff(self) -> Any | None:
+        """The CoS/lead seat if one is wired, else None."""
+        return None
+
+    async def coordinate(self, instruction: str, **kwargs: Any) -> Any:
+        """Drive the declared strategy over ``instruction``. Default teams
+        without an override yield nothing meaningful — blueprints implement
+        this when they actually coordinate."""
+        logger.debug("TeamKindBase.coordinate default for %s", self.blueprint_id)
+        return None
+
+
+def base_class_for_kind(kind: str | None) -> str:
+    """Return the base class name a generated blueprint should subclass.
+
+    Single source of truth for the codegen emitters (agent creator, CLI
+    wizard, blueprint library) so they cannot drift apart (ADR-005 §4 / REQ-851).
+    Unknown, empty, or ``None`` kinds fall back to the low-level
+    ``BlueprintBase``.
+    """
+    normalized = (kind or "").strip().lower()
+    return {
+        KIND_API: "ApiKindBase",
+        KIND_CLI: "CliKindBase",
+        KIND_REMOTE: "RemoteKindBase",
+        KIND_TEAM: "TeamKindBase",
+    }.get(normalized, "BlueprintBase")
+
 
 __all__ = [
     "ALLOWED_BLUEPRINT_BASE_NAMES",
     "ApiKindBase",
     "CliKindBase",
+    "CliSlashCommand",
     "KIND_API",
     "KIND_BASE_NAMES",
     "KIND_CLI",
     "KIND_REMOTE",
+    "KIND_TEAM",
     "KindBase",
     "RemoteKindBase",
+    "SeatCapability",
+    "TeamKindBase",
+    "base_class_for_kind",
+    "seat_capabilities",
+    "seat_capability",
 ]

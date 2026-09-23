@@ -2,8 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   buildChatWsUrl,
   buildChatWsFrame,
+  buildQuestionAnswerFrame,
   buildToolDecisionFrame,
+  cliAgentChatParams,
+  mergeChatSendParams,
   parseChatWsMessage,
+  summarizeUnknownWsFrame,
 } from '../chatWs'
 
 describe('buildChatWsUrl', () => {
@@ -31,6 +35,18 @@ describe('buildChatWsFrame', () => {
 
   it('includes the blueprint field when selected', () => {
     expect(buildChatWsFrame('hi', 'bp-2')).toBe('{"message":"hi","blueprint":"bp-2"}')
+  })
+
+  it('includes attachment ids on send (REQ-811)', () => {
+    expect(
+      JSON.parse(buildChatWsFrame('what is this', 'api_agent', { model: 'auxiliary' }, ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'])),
+    ).toEqual({
+      message: 'what is this',
+      blueprint: 'api_agent',
+      params: { model: 'auxiliary' },
+      attachments: ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'],
+    })
+    expect(JSON.parse(buildChatWsFrame('hi', 'api_agent', undefined, [])).attachments).toBeUndefined()
   })
 
   it('omits blueprint when empty/undefined', () => {
@@ -81,10 +97,56 @@ describe('buildChatWsFrame', () => {
     })
   })
 
+  it('builds a question_answer frame for ask_user', () => {
+    expect(JSON.parse(buildQuestionAnswerFrame('q-1', 'staging'))).toEqual({
+      type: 'question_answer',
+      id: 'q-1',
+      answer: 'staging',
+    })
+  })
+
   it('round-trips back to the original message via JSON.parse', () => {
     expect(JSON.parse(buildChatWsFrame('quote " and \\ slash')).message).toBe(
       'quote " and \\ slash',
     )
+  })
+
+  it('cli_agent dropdown frame is strict: cli + failover false', () => {
+    expect(
+      JSON.parse(buildChatWsFrame('hi', 'cli_agent', cliAgentChatParams('pi'))),
+    ).toEqual({
+      message: 'hi',
+      blueprint: 'cli_agent',
+      params: { cli: 'pi', failover: false },
+    })
+    expect(
+      JSON.parse(
+        buildChatWsFrame('hi', 'cli_agent', cliAgentChatParams('pi', 'pi-v1')),
+      ),
+    ).toEqual({
+      message: 'hi',
+      blueprint: 'cli_agent',
+      params: { cli: 'pi', failover: false, model: 'pi-v1' },
+    })
+  })
+
+  it('dropdown cli wins over inference-seat cli in the shipped merge', () => {
+    const params = mergeChatSendParams(
+      { cli: 'codex', inference_list: ['cli:codex'] },
+      { skills: ['writing'] },
+      cliAgentChatParams('pi'),
+    )
+    expect(params).toEqual({
+      cli: 'pi',
+      failover: false,
+      inference_list: ['cli:codex'],
+      skills: ['writing'],
+    })
+    expect(
+      JSON.parse(buildChatWsFrame('hi', 'cli_agent', params)),
+    ).toMatchObject({
+      params: { cli: 'pi', failover: false },
+    })
   })
 })
 
@@ -168,6 +230,14 @@ describe('parseChatWsMessage', () => {
 
   it('falls back to unknown for empty or unrecognized frames', () => {
     expect(parseChatWsMessage('')).toEqual({ kind: 'unknown', raw: '' })
+    expect(summarizeUnknownWsFrame('secret user prompt')).toBe(
+      `kind=unknown; bytes=${new TextEncoder().encode('secret user prompt').length}`,
+    )
+    expect(summarizeUnknownWsFrame('secret user prompt')).not.toContain('secret')
+    expect(summarizeUnknownWsFrame('{"type":"mystery","text":"do not leak"}')).toBe(
+      `kind=unknown; bytes=${new TextEncoder().encode('{"type":"mystery","text":"do not leak"}').length}; keys=type,text`,
+    )
+    expect(summarizeUnknownWsFrame('{"type":"mystery","text":"do not leak"}')).not.toContain('do not leak')
     const weird = '<div id="something-else" hx-swap-oob="beforeend"><span>x</span></div>'
     expect(parseChatWsMessage(weird)).toEqual({ kind: 'unknown', raw: weird })
   })
@@ -195,6 +265,61 @@ describe('parseChatWsMessage', () => {
         JSON.stringify({ type: 'tool_approval', id: 't2', name: 'wipe', agent_id: 'codey' }),
       ),
     ).toEqual({ kind: 'tool_approval', id: 't2', name: 'wipe', agentId: 'codey' })
+  })
+
+  it('parses a context_usage frame (#215)', () => {
+    expect(
+      parseChatWsMessage(
+        JSON.stringify({
+          type: 'context_usage',
+          conversation_id: 'c1',
+          agent_id: 'jeeves',
+          tokens: 12300,
+          window: null,
+          pct: null,
+          estimate: true,
+          last_output: 320,
+          breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+        }),
+      ),
+    ).toEqual({
+      kind: 'context_usage',
+      usage: {
+        type: 'context_usage',
+        conversation_id: 'c1',
+        agent_id: 'jeeves',
+        tokens: 12300,
+        window: null,
+        pct: null,
+        estimate: true,
+        last_output: 320,
+        breakdown: { messages: 8000, summaries: 2000, system: 1500, tools: 800 },
+      },
+    })
+  })
+
+  it('parses a user_question frame (issue #221)', () => {
+    expect(
+      parseChatWsMessage(
+        JSON.stringify({
+          type: 'user_question',
+          id: 'deploy-profile',
+          ask: 'Which profile should I deploy?',
+          choices: ['staging', 'canary', 'prod'],
+          other: 'Custom profile',
+          agent_id: 'chatbot',
+        }),
+      ),
+    ).toEqual({
+      kind: 'user_question',
+      agentId: 'chatbot',
+      question: {
+        id: 'deploy-profile',
+        ask: 'Which profile should I deploy?',
+        choices: ['staging', 'canary', 'prod'],
+        other: 'Custom profile',
+      },
+    })
   })
 
   it('parses a suggestions frame (REQ-85)', () => {

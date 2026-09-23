@@ -48,6 +48,19 @@ from openai import AsyncOpenAI
 if os.environ.get("SWARM_ENABLE_AGENT_TRACING", "").lower() not in ("1", "true", "yes"):
     set_tracing_disabled(True)
 
+# #737: the SDK defaults bare Agent(...) runs to the /responses API — an
+# endpoint LiteLLM, Ollama, and most OpenAI-compatible gateways do not
+# implement (they serve /v1/chat/completions). Pin the default API to chat
+# completions framework-wide; explicit OpenAIResponsesModel users still opt
+# back in per-model. SWARM_ENABLE_RESPONSES_API=1 restores SDK default.
+try:
+    from agents import set_default_openai_api
+
+    if os.environ.get("SWARM_ENABLE_RESPONSES_API", "").lower() not in ("1", "true", "yes"):
+        set_default_openai_api("chat_completions")
+except Exception:  # pragma: no cover - older SDK without the setter
+    pass
+
 # Keep the function import
 from swarm.core.config_loader import (
     _substitute_env_vars,
@@ -56,6 +69,51 @@ from swarm.core.config_loader import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_framework_chat_model() -> str | None:
+    """#737: best-effort model id for bare openai-agents Agents.
+
+    Order: LITELLM_MODEL / DEFAULT_LLM env, then the settings chat route
+    (default profile, honouring override_per_task) via llm_task_routing.
+    Returns None when nothing is configured — the SDK keeps its own default.
+    """
+    env_model = os.getenv("LITELLM_MODEL") or os.getenv("DEFAULT_LLM")
+    if env_model:
+        return env_model.strip()
+    try:
+        from swarm.core.llm_task_routing import (
+            load_swarm_config,
+            model_id_for_profile,
+            resolve_chat_model,
+        )
+
+        config = load_swarm_config()
+        route = resolve_chat_model(config)
+        model = model_id_for_profile(route.profile, config)
+        return model or None
+    except Exception:
+        return None
+
+
+def apply_agent_model_defaults(agent) -> object:
+    """#737: give a bare ``Agent`` the framework's model when it lacks one.
+
+    Support-generated blueprints and persona_swarm construct ``Agent(...)``
+    without ``model=``; the SDK then silently falls back to its hardcoded
+    ``gpt-4o`` — rejected by non-OpenAI providers. Call this on the agent
+    before ``Runner.run`` to pin the resolved chat model (env override
+    first). Agents with an explicit model are untouched.
+    """
+    try:
+        if getattr(agent, "model", None):
+            return agent
+        model = _resolve_framework_chat_model()
+        if model:
+            agent.model = model
+    except Exception:
+        logger.debug("apply_agent_model_defaults skipped", exc_info=True)
+    return agent
 # --- PATCH: Suppress OpenAI tracing/telemetry errors if using LiteLLM/custom endpoint ---
 import logging
 
@@ -448,7 +506,6 @@ class BlueprintBase(ABC):
         if not profile and self._config and self._config.get('blueprints'):
             logger.debug(f"[DEBUG _resolve_llm_profile] Checking per-blueprint config for: {name}")
             bp_cfg = self._config['blueprints'].get(name) or self._config['blueprints'].get(name.replace('Blueprint', ''))
-            logger.debug(f"[DEBUG _resolve_llm_profile] bp_cfg: {bp_cfg}")
             bp_profile = self._blueprint_section_profile_name(bp_cfg if isinstance(bp_cfg, dict) else None)
             if bp_profile:
                 profile = bp_profile
@@ -840,21 +897,35 @@ class BlueprintBase(ABC):
         if lifecycle_ctx is not None:
             extra = lifecycle_ctx.tool_objects()
             tools = tools + extra
+        topology_ctx = getattr(self, "_topology_context", None)
+        if topology_ctx is not None:
+            extra = topology_ctx.tool_objects()
+            tools = tools + extra
 
-        # Optional sandbox harness integration: attach sandbox execution tools if requested
+        # Optional sandbox harness integration: attach sandbox execution tools
+        # if requested (REQ-860 / REQ-863: Settings provider drives the backend;
+        # #719: the per-agent ``sandbox`` param overrides settings for this
+        # agent alone — opt-in when settings are none, opt-out when enabled).
         sandbox_opt = kwargs.pop("sandbox", None)
+        params_for_sandbox = dict(getattr(self, "_params", None) or {})
         if sandbox_opt is None:
-            sandbox_opt = self.config.get("settings", {}).get("enable_sandbox_tools", False)
+            from swarm.core.sandbox.opt_in import effective_sandbox_config
+
+            effective = effective_sandbox_config(self._config, params_for_sandbox)
+            if effective is not None:
+                sandbox_opt = dict(effective)
         if sandbox_opt:
             try:
-                from swarm.core.sandbox import SandboxManager, get_default_sandbox_manager
+                from swarm.core.sandbox import SandboxManager
                 if isinstance(sandbox_opt, dict):
                     sb_mgr = SandboxManager.from_config(sandbox_opt)
                 elif isinstance(sandbox_opt, SandboxManager):
                     sb_mgr = sandbox_opt
                 else:
-                    sb_mgr = get_default_sandbox_manager()
-                tools = tools + sb_mgr.as_function_tools()
+                    # Legacy boolean: jailed local backend, not unrestricted host.
+                    sb_mgr = SandboxManager.from_config({"backend_type": "local"})
+                if sb_mgr.tools_enabled():
+                    tools = tools + sb_mgr.as_function_tools()
             except Exception as e:
                 logger.warning("Failed to attach sandbox tools to agent '%s': %s", name, e)
 

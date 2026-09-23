@@ -10,6 +10,7 @@ from swarm.core.team_cos import (
     cos_brief_for_member,
     messages_with_cos_brief,
     normalize_cos_id,
+    resolve_chief_of_staff,
     runtime_brief_for_target,
     team_run_context,
 )
@@ -65,9 +66,11 @@ def test_persist_cos_and_reload():
     )
     assert stored["chief_of_staff_id"] == "jeeves"
     assert stored["chief_of_staff_instructions"] == "prefer grok_agent for revision control"
+    # #739: leadership is roster-level; the member role tag is never written.
     roles = {m["id"]: m["role"] for m in stored["members"]}
-    assert roles["jeeves"] == "chief_of_staff"
+    assert roles["jeeves"] == "default"
     assert roles["skeptic"] == "skeptic"
+    assert resolve_chief_of_staff(stored)["id"] == "jeeves"
 
     again = normalize_roster(stored, roster_id="research-squad")
     assert again["chief_of_staff_id"] == "jeeves"

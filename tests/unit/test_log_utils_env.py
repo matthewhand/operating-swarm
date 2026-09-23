@@ -11,8 +11,16 @@ import pytest
 from swarm.utils.log_utils import LogFormat, get_env_log_format, get_env_log_level
 
 
-def test_log_level_defaults_to_debug_when_unset(monkeypatch):
+def test_log_level_defaults_to_info_when_unset(monkeypatch):
     monkeypatch.delenv("SWARM_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("DJANGO_DEBUG", raising=False)
+    monkeypatch.delenv("SWARM_DEBUG", raising=False)
+    assert get_env_log_level() == "INFO"
+
+
+def test_log_level_defaults_to_debug_when_django_debug(monkeypatch):
+    monkeypatch.delenv("SWARM_LOG_LEVEL", raising=False)
+    monkeypatch.setenv("DJANGO_DEBUG", "true")
     assert get_env_log_level() == "DEBUG"
 
 
@@ -50,3 +58,36 @@ def test_logformat_is_a_str_enum():
     # str-Enum: members compare/serialize as their format-string value.
     assert isinstance(LogFormat.SIMPLE, str)
     assert LogFormat.SIMPLE.value == "[{levelname}] {message}"
+
+
+def test_settings_child_loggers_are_not_hardcoded_debug():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[2] / "src" / "swarm" / "settings.py").read_text(
+        encoding="utf-8"
+    )
+    for name in ("swarm.auth", "swarm.views", "swarm.extensions"):
+        assert f"'{name}': {{ 'handlers': ['console'], 'level': get_swarm_log_level()" in text
+
+
+def test_mcp_client_does_not_force_debug_level():
+    from pathlib import Path
+
+    text = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "swarm"
+        / "extensions"
+        / "mcp"
+        / "mcp_client.py"
+    ).read_text(encoding="utf-8")
+    assert "logger.setLevel(logging.DEBUG)" not in text
+
+
+def test_resolve_llm_profile_does_not_dump_bp_cfg():
+    from pathlib import Path
+
+    text = (
+        Path(__file__).resolve().parents[2] / "src" / "swarm" / "core" / "blueprint_base.py"
+    ).read_text(encoding="utf-8")
+    assert "bp_cfg: {bp_cfg}" not in text

@@ -1,4 +1,4 @@
-"""ASCII chrome for the Wave 0 / Wave 1b TUI scaffold."""
+"""ASCII chrome for the --once TUI dump."""
 
 from swarm.tui.client import RailSeat
 from swarm.tui.layout import render_scaffold
@@ -16,7 +16,11 @@ def test_render_scaffold_marks_selected_and_placeholder():
     assert "AGENTS" in text
     assert "> Grok" in text
     assert "Support" in text
+    assert "Operating Swarm TUI" in text
     assert "placeholder" in text.lower()
+    assert "Wave 0" not in text
+    assert "Wave 1" not in text
+    assert "Open Swarm" not in text
     assert "http://127.0.0.1:8000" in text
     assert "8001" not in text
 

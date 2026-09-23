@@ -8,3 +8,7 @@
 # - ANSI/emoji boxes for search/analysis, with result counts, search params, and progress
 # - Creative output box for non-search/agent output
 # - Spinner states: 'Generating.', 'Generating..', 'Generating...', 'Running...'
+
+
+# Deprecated stub — nothing public here by design (#857 boundary audit).
+__all__: list[str] = []

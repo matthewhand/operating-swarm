@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_HIDDEN_AGENT_IDS,
   HIDDEN_AGENTS_STORAGE_KEY,
+  LEGACY_HIDDEN_AGENTS_STORAGE_KEY,
   agentMarkColor,
   canHideAgent,
   defaultHiddenAgentIds,
@@ -9,6 +10,7 @@ import {
   hideAllAgentIds,
   loadHiddenAgentIds,
   loadOrSeedHiddenAgentIds,
+  migrateLegacyHiddenAgentIds,
   reconcileHiddenAgentIds,
   saveHiddenAgentIds,
   unhideAgentId,
@@ -18,6 +20,7 @@ import {
 describe('hiddenAgents persistence', () => {
   afterEach(() => {
     localStorage.removeItem(HIDDEN_AGENTS_STORAGE_KEY)
+    localStorage.removeItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY)
   })
 
   it('reads empty when nothing is stored (seed is opt-in via loadOrSeed)', () => {
@@ -92,6 +95,46 @@ describe('hiddenAgents persistence', () => {
       expect(canHideAgent(id)).toBe(true)
       expect(hideAgentId(id, [])).toEqual([id])
     }
+  })
+
+  describe('#548 legacy agent_hidden_ids migration', () => {
+    it('adopts the legacy list when the canonical key is absent — no seeding', () => {
+      localStorage.setItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify(['codey']))
+
+      // The rail's first load is where the seed used to overwrite the user.
+      const seeded = loadOrSeedHiddenAgentIds([{ id: 'gate' }, { id: 'skeptic' }])
+
+      expect(seeded).toEqual(['codey'])
+      expect(loadHiddenAgentIds()).toEqual(['codey'])
+      // Nothing was seeded over the top, and the legacy key is retired.
+      expect(localStorage.getItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY)).toBeNull()
+      expect(DEFAULT_HIDDEN_AGENT_IDS.every((id) => !seeded.includes(id))).toBe(true)
+    })
+
+    it('lets the canonical list win when both keys are set — dropped, not merged', () => {
+      localStorage.setItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify(['codey']))
+      saveHiddenAgentIds(['stewie'])
+
+      const migrated = migrateLegacyHiddenAgentIds()
+
+      expect(migrated).toEqual(['stewie'])
+      // 'codey' must NOT reappear — merging would re-hide what the user unhid.
+      expect(loadHiddenAgentIds()).toEqual(['stewie'])
+      expect(localStorage.getItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY)).toBeNull()
+    })
+
+    it('is a no-op — returning null — when there is no legacy key', () => {
+      expect(migrateLegacyHiddenAgentIds()).toBeNull()
+      // and the canonical seed path still runs
+      const seeded = loadOrSeedHiddenAgentIds([{ id: 'gate' }])
+      expect(seeded.length).toBeGreaterThan(0)
+    })
+
+    it('migrates an empty legacy list rather than treating it as absent', () => {
+      localStorage.setItem(LEGACY_HIDDEN_AGENTS_STORAGE_KEY, '[]')
+      expect(migrateLegacyHiddenAgentIds()).toEqual([])
+      expect(loadOrSeedHiddenAgentIds([{ id: 'gate' }, { id: 'skeptic' }])).toEqual([])
+    })
   })
 
   describe('reconcileHiddenAgentIds (#170)', () => {

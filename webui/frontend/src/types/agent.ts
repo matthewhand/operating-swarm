@@ -73,7 +73,7 @@ export interface Agent {
   chiefOfStaff?: boolean
   customName?: string
   customPurpose?: string
-  kind?: 'builtin' | 'personality' | 'swarm' | 'cli' | 'remote' | 'blueprint' | 'api'
+  kind?: 'builtin' | 'personality' | 'swarm' | 'cli' | 'remote' | 'blueprint' | 'api' | (string & {})
   agent_type?: AgentType
   personas?: AgentPersona[]
   cli?: string
@@ -168,10 +168,16 @@ export interface CompactedLine {
 
 export interface ChatMessage {
   key: string
+  /** Server-issued container id, when the source provides one (reaction keys fall back to key). */
+  id?: string
+  /** Legacy sender name; new code prefers role/agent. */
+  sender?: string
   role: 'user' | 'assistant' | 'system'
   text: string
   agent?: string
   agent_id?: string
+  /** #527: persona that produced this row (openai-agents blueprint seats). */
+  persona?: string
   streaming?: boolean
   timestamp: Date
   delegatedFrom?: string
@@ -179,6 +185,8 @@ export interface ChatMessage {
   consensus_data?: ConsensusData
   /** Rectangular context block replacing compacted history — not a chat turn. */
   kind?: 'message' | 'summary' | 'review' | 'approval' | 'system'
+  /** In-place edit after send (chat turns and summary cards). */
+  edited?: boolean
   compacted?: CompactedLine[]
   oversightRole?: 'socratic_skeptic' | 'stupidity_checker' | 'taskmaster'
   isSystemPreload?: boolean

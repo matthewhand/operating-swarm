@@ -35,6 +35,7 @@ def test_decision_is_full_and_inventory_has_no_silent_gaps():
     for required in (
         "llm",
         "settings.default_llm_profile",
+        "settings.product_modes",
         "mcpServers",
         "remotes",
         "cli_agents",

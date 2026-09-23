@@ -34,18 +34,53 @@ if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
   nvm use 22 >/dev/null 2>&1 || true
 fi
 
+# Build provenance: record the SHA that actually produced dist/, not blindly
+# the current HEAD. When dist is newer than the repo's last commit and carries
+# a marker, keep the original marker (greptile P1: provenance must not be
+# overwritten by a launcher run from a different checkout).
 SHA="$(git -C "$ROOT" rev-parse HEAD)"
-echo "$SHA" > "$FE/dist/.preview-sha"
+MARKER="$FE/dist/.preview-sha"
+DIST_INDEX="$FE/dist/index.html"
+if [[ -s "$MARKER" && -f "$DIST_INDEX" ]] && [[ "$MARKER" -nt "$DIST_INDEX" ]]; then
+  PREV_SHA="$(cat "$MARKER")"
+  if [[ -n "$PREV_SHA" && "$PREV_SHA" != "$SHA" ]]; then
+    echo "NOTE: dist was built from $PREV_SHA (newer than dist itself); keeping its marker (HEAD is $SHA)" >&2
+    SHA="$PREV_SHA"
+  fi
+else
+  echo "$SHA" > "$MARKER"
+fi
 echo "Starting vite preview on ${HOST}:${PORT} (SHA=$SHA)"
 LOG="$LOG_DIR/spa-preview-${PORT}.log"
 PIDFILE="$LOG_DIR/spa-preview-${PORT}.pid"
 nohup npx --yes vite preview --host "$HOST" --port "$PORT" >"$LOG" 2>&1 &
-echo $! >"$PIDFILE"
-sleep 1
+echo "$!" >"$PIDFILE"
 # Prefer the node listener pid if we can resolve it
 if command -v ss >/dev/null; then
   REAL="$(ss -ltnp 2>/dev/null | awk -v p=":$PORT" '$0 ~ p {print}' | sed -n "s/.*pid=\([0-9]*\).*/\1/p" | head -1 || true)"
   if [[ -n "${REAL:-}" ]]; then echo "$REAL" >"$PIDFILE"; fi
 fi
 echo "PID=$(cat "$PIDFILE") log=$LOG"
-curl -sS -o /dev/null -w "prove_http=%{http_code}\n" "http://127.0.0.1:${PORT}/" || true
+
+# Readiness probe with retry budget (greptile P1: failures must not exit 0).
+# vite preview may take >1s to bind, or bind only on the configured host.
+PROBE_URL="http://127.0.0.1:${PORT}/"
+if [[ "$HOST" == "127.0.0.1" || "$HOST" == "localhost" ]]; then
+  PROBE_URL="http://${HOST}:${PORT}/"
+fi
+READY=0
+for _ in $(seq 1 30); do
+  if curl -sS -o /dev/null -w "%{http_code}" "$PROBE_URL" | grep -q "^2"; then
+    READY=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$READY" -eq 1 ]]; then
+  echo "prove_http=200 url=$PROBE_URL sha=$SHA"
+  exit 0
+fi
+echo "ERROR: SPA preview did not become ready on $PROBE_URL within 30s" >&2
+echo "--- last 40 log lines ($LOG):" >&2
+tail -n 40 "$LOG" >&2 || true
+exit 1

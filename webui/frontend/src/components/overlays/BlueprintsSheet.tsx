@@ -20,7 +20,7 @@ export interface BlueprintsSheetProps {
 export default function BlueprintsSheet({ isOpen, onClose }: BlueprintsSheetProps) {
   const navigate = useNavigate()
   const blueprintsQuery = useQuery({
-    queryKey: ['overlay-blueprints'],
+    queryKey: ['blueprints'],
     queryFn: fetchBlueprints,
     enabled: isOpen,
     retry: 1,

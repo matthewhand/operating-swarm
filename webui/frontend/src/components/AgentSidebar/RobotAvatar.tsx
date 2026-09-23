@@ -170,7 +170,8 @@ export const RobotAvatar = memo(function RobotAvatar({
   const bodyClass =
     status === 'working' || eyesActive ? 'robot-working os-robot-avatar--active' :
     status === 'error' ? 'robot-error' :
-    status === 'waiting' ? 'robot-waiting' :
+    // NOTE: 'waiting' is covered by eyesActive above, so it lands here as
+    // robot-working — pre-existing render behavior, preserved verbatim.
     'robot-idle'
   const face: FaceProps = {
     color, status, hi, sh, metal, visor, gradId, visorId, chassis,
@@ -183,6 +184,7 @@ export const RobotAvatar = memo(function RobotAvatar({
       data-avatar-theme={theme}
       data-avatar-eyes={eyes}
       data-eye-state={eyeState}
+      data-pack-variant={theme}
     >
       <svg
         ref={svgRef}
@@ -456,6 +458,8 @@ function ChassisFace({ color, status, hi, sh, metal, visorId, gradId, chassis }:
         </>
       )}
       <rect x="26" y="40" width="48" height="26" rx="8" fill={`url(#${visorId})`} />
+      {/* #822: scanline band the chassis visor-sweep animation rides on. */}
+      <rect className="os-robot-visor-band" x="28" y="42" width="10" height="22" rx="5" fill="#ffffff" opacity="0.35" />
       <Mouth status={status} hi={hi} sh={sh} />
       <circle cx="26" cy="30" r="1.6" fill={sh} opacity="0.55" />
       <circle cx="74" cy="30" r="1.6" fill={sh} opacity="0.55" />

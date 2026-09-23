@@ -18,13 +18,16 @@ import logging
 import os
 import re
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import unquote
 
 from swarm.core.cli_catalog import (
     AGY_CONVERSATIONS_STORE,
+    DEFAULT_OMP_SESSIONS_DIR,
+    OMP_SESSIONS_STORE,
     QWEN_SESSIONS_STORE,
 )
 from swarm.core.cli_sessions import sanitize_cli_session_id
@@ -34,6 +37,8 @@ logger = logging.getLogger(__name__)
 TranscriptReader = Callable[..., dict[str, Any] | None]
 
 DEFAULT_GROK_SESSIONS_DIR = "~/.grok/sessions"
+# omp's own store: ~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<sid>.jsonl
+DEFAULT_OMP_HOST_SESSIONS_DIR = DEFAULT_OMP_SESSIONS_DIR
 DEFAULT_OPENCODE_SHARE_DIR = "~/.local/share/opencode"
 DEFAULT_AGY_CONVERSATIONS_DIR = "~/.gemini/antigravity-cli/conversations"
 DEFAULT_QWEN_PROJECTS_DIR = "~/.qwen/projects"
@@ -48,6 +53,8 @@ def list_store_sessions(kind: str, store_dir: str | Path | None) -> list[dict[st
         return list_agy_conversations(store_dir)
     if kind == QWEN_SESSIONS_STORE:
         return list_qwen_sessions(store_dir)
+    if kind == OMP_SESSIONS_STORE:
+        return list_omp_sessions(store_dir)
     logger.warning("Unknown CLI session store %r — not listing", kind)
     return []
 
@@ -80,7 +87,7 @@ def list_agy_conversations(store_dir: str | Path | None) -> list[dict[str, Any]]
             mtime = path.stat().st_mtime
         except OSError:
             continue
-        updated = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime(
+        updated = datetime.fromtimestamp(mtime, tz=UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
         rows.append(
@@ -212,6 +219,73 @@ def read_qwen_transcript(
     if not turns and cwd is None and branch is None:
         return None
     return {"turns": turns, "cwd": cwd, "git_branch": branch}
+
+
+# --- omp --------------------------------------------------------------------
+
+# omp session ids are hex strings (16 chars in current builds; accept 8+ so
+# older/shorter schemes still resolve without letting prose through).
+# omp session ids are hyphenated UUIDs (e.g. 01a0b694-440e-740c-aa3a-
+# cfa4e89c4847, seen live in ~/.omp/agent/sessions). The original fullmatch on
+# [0-9a-f]{8,} rejected every real id (hyphens), so the lister filtered out all
+# sessions and #640 never resumed. Accept compact hex too — fixture shape and
+# tolerant of omp id-format drift — but still demand hex-only segments so junk
+# stems ("partial", "not-an-id") never look like ids.
+_OMP_ID_RE = re.compile(r"[0-9a-fA-F]{8,}(?:-[0-9a-fA-F]{4,})*")
+
+
+def list_omp_sessions(store_dir: str | Path | None) -> list[dict[str, Any]]:
+    """List omp session ids from ``<dir>/<encoded-cwd>/<timestamp>_<sid>.jsonl``.
+
+    omp (Oh My Pi) prints plain text under ``-p`` — no id reaches stdout — but
+    it persists every session as JSONL whose stem ends in the session id
+    (can1357/oh-my-pi ``docs/session.md``). Metadata only: id + mtime; the
+    body is never parsed here.
+    """
+    if not store_dir:
+        return []
+    root = Path(store_dir)
+    if not root.is_dir():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        files = list(root.glob("*/*.jsonl"))
+    except OSError:
+        logger.warning("Could not read omp sessions dir %s", root)
+        return []
+    for path in files:
+        stem = path.stem
+        # <timestamp>_<sessionId>.jsonl — the id is the last underscore token.
+        # omp ids are hex (uuid-derived per its session.md), so demand hex shape
+        # after the generic sanitize pass — junk stems must never look like ids.
+        token = stem.rsplit("_", 1)[-1] if stem else ""
+        sid = sanitize_cli_session_id(token)
+        if not sid or not _OMP_ID_RE.fullmatch(sid):
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        updated = datetime.fromtimestamp(mtime, tz=UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        rows.append(
+            {
+                "id": sid,
+                "title": sid,
+                "snippet": "",
+                "updated_at": updated,
+                "source": "provider",
+            }
+        )
+    rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
+    return rows
+
+
+def latest_omp_session_id(store_dir: str | Path | None) -> str | None:
+    """Newest omp session id in the store, or None (never invents one)."""
+    rows = list_omp_sessions(store_dir)
+    return str(rows[0]["id"]) if rows else None
 
 
 # --- grok ------------------------------------------------------------------
@@ -734,6 +808,7 @@ def _default_provider_store_dir(cli_name: str) -> str | Path | None:
         "qwen": "SWARM_QWEN_PROJECTS_DIR",
         "grok": "SWARM_GROK_SESSIONS_DIR",
         "opencode": "SWARM_OPENCODE_SHARE_DIR",
+        "omp": "SWARM_OMP_SESSIONS_DIR",
     }
     env_key = env_map.get(name)
     if env_key:
@@ -754,9 +829,83 @@ def _default_provider_store_dir(cli_name: str) -> str | Path | None:
         "qwen": DEFAULT_QWEN_PROJECTS_DIR,
         "grok": DEFAULT_GROK_SESSIONS_DIR,
         "opencode": DEFAULT_OPENCODE_SHARE_DIR,
+        "omp": DEFAULT_OMP_HOST_SESSIONS_DIR,
     }
     raw = defaults.get(name)
     return os.path.expanduser(raw) if raw else None
+
+
+def provider_store_dir(cli_name: str) -> str | None:
+    """On-disk session-store root for a provider CLI, or ``None`` when unknown."""
+    raw = _default_provider_store_dir(cli_name)
+    return str(raw) if raw else None
+
+
+def latest_session_id_from_store(cli_name: str, store_dir: str | Path | None) -> str | None:
+    """Newest session id in ``cli_name``'s provider store, or None.
+
+    #640 companion to ``list_store_sessions``: the blueprint stamps this after
+    a successful turn when stdout carried no id (text-parse CLIs like omp).
+    Unknown CLIs return None — never invent an id.
+    """
+    name = str(cli_name or "").strip().lower()
+    if name == "omp":
+        return latest_omp_session_id(store_dir)
+    if name == "qwen":
+        rows = list_qwen_sessions(store_dir)
+        return str(rows[0]["id"]) if rows else None
+    if name == "agy":
+        rows = list_agy_conversations(store_dir)
+        return str(rows[0]["id"]) if rows else None
+    return None
+
+
+def _walk_existing_dir(base: Path, segments: list[str]) -> str | None:
+    """Longest-first filesystem walk with backtracking (see below)."""
+    if not segments:
+        return str(base)
+    for take in range(len(segments), 0, -1):
+        candidate = base / "-".join(segments[:take])
+        try:
+            if candidate.is_dir():
+                resolved = _walk_existing_dir(candidate, segments[take:])
+                if resolved:
+                    return resolved
+        except OSError:
+            continue
+    return None
+
+
+def resolve_escaped_project_dir(
+    hint: str | None, store_dir: str | Path | None
+) -> str | None:
+    """Resolve a provider's escaped project-dir hint to a real directory (#71).
+
+    qwen names each project directory after the session cwd with every
+    non-alphanumeric replaced by ``-`` (``-home-me-proj``), which is ambiguous
+    on its own — literal hyphens are indistinguishable from separators. Resolve
+    it against the filesystem instead of guessing: walk from ``/`` preferring
+    the longest existing directory name at each step, with backtracking.
+
+    ``store_dir`` must be the provider's own store root and the hint must name
+    a directory inside it, so we never invent a path for an unrelated provider.
+    Returns ``None`` when nothing matches — callers fall back to the agent
+    folder / temp rather than erroring.
+    """
+    raw = str(hint or "").strip()
+    if not raw or raw.startswith(("/", "~", ".")):
+        return None
+    if not store_dir:
+        return None
+    try:
+        if not (Path(store_dir) / raw).is_dir():
+            return None
+    except OSError:
+        return None
+    segments = [part for part in raw.strip("-").split("-") if part]
+    if not segments:
+        return None
+    return _walk_existing_dir(Path("/"), segments)
 
 
 PROVIDER_TRANSCRIPT_READERS: dict[str, TranscriptReader] = {
@@ -825,7 +974,7 @@ def list_qwen_sessions(store_dir: str | Path | None) -> list[dict[str, Any]]:
                 mtime = path.stat().st_mtime
             except OSError:
                 continue
-            updated = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime(
+            updated = datetime.fromtimestamp(mtime, tz=UTC).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
             )
             title = _qwen_first_user_text(path)

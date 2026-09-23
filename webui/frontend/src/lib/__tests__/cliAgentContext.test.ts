@@ -3,6 +3,7 @@ import {
   apiModelOptionsFromProfiles,
   discoverChatClis,
   honestChatCliModels,
+  isApiBlueprintId,
   isCliAgentContext,
   isCliBlueprintId,
   preferredChatCli,
@@ -45,6 +46,21 @@ describe('isCliAgentContext', () => {
     ).toBe(true)
   })
 
+  it('never treats an API seat as CLI, even with a leftover ?cli= (#108)', () => {
+    expect(
+      isCliAgentContext({
+        blueprintId: 'api_agent',
+        searchParams: new URLSearchParams('blueprint=api_agent&cli=grok'),
+      }),
+    ).toBe(false)
+    expect(
+      isCliAgentContext({
+        blueprintId: 'api_agent',
+        searchParams: new URLSearchParams('mode=cli'),
+      }),
+    ).toBe(false)
+  })
+
   it('stays in blueprint mode without those signals', () => {
     expect(isCliAgentContext({ blueprintId: 'codey' })).toBe(false)
     expect(
@@ -60,11 +76,28 @@ describe('isCliAgentContext', () => {
   })
 })
 
+describe('isApiBlueprintId', () => {
+  it('matches api_agent and api-prefixed ids (#108)', () => {
+    expect(isApiBlueprintId('api_agent')).toBe(true)
+    expect(isApiBlueprintId('API_AGENT')).toBe(true)
+    expect(isApiBlueprintId('api')).toBe(true)
+    expect(isApiBlueprintId('api:orchestration')).toBe(true)
+  })
+
+  it('rejects CLI and blueprint slugs', () => {
+    expect(isApiBlueprintId('cli_agent')).toBe(false)
+    expect(isApiBlueprintId('codey')).toBe(false)
+    expect(isApiBlueprintId('')).toBe(false)
+    expect(isApiBlueprintId(null)).toBe(false)
+  })
+})
+
 describe('discoverChatClis', () => {
-  it('lists only configured names, not every PATH-discovered binary', () => {
+  it('lists discovered host CLIs plus configured names, never the static catalog', () => {
     expect(
       discoverChatClis({
-        clis: ['claude', 'codex', 'gemini', 'grok', 'opencode'],
+        clis: ['claude', 'codex', 'gemini', 'grok', 'opencode', 'pi'],
+        known: ['claude', 'codex', 'gemini', 'grok', 'opencode', 'pi'],
         installed: ['grok', 'claude'],
         discovered: ['grok', 'claude'],
         configured: ['grok', 'my_custom_cli'],
@@ -82,20 +115,21 @@ describe('discoverChatClis', () => {
           },
         ],
       }),
-    ).toEqual(['grok', 'my_custom_cli'])
+    ).toEqual(['grok', 'claude', 'my_custom_cli'])
   })
 
-  it('stays empty when nothing is configured (no catalog fallback)', () => {
+  it('starts from discovered CLIs when nothing is configured (pi absent stays absent)', () => {
     expect(
       discoverChatClis({
-        clis: ['grok', 'claude'],
+        clis: ['grok', 'claude', 'pi'],
+        known: ['grok', 'claude', 'pi'],
         installed: ['grok'],
         discovered: ['grok'],
         configured: [],
         native_consensus: {},
         catalog: {},
       }),
-    ).toEqual([])
+    ).toEqual(['grok'])
   })
 
   it('returns empty when the payload is missing', () => {
@@ -164,6 +198,18 @@ describe('honestChatCliModels', () => {
 
   it('does not invent default when the payload is missing', () => {
     expect(honestChatCliModels(undefined)).toEqual({ models: [], warning: null })
+  })
+
+  it('keeps pi provider/model ids and still drops default', () => {
+    expect(
+      honestChatCliModels({
+        models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-6', 'default'],
+        warning: undefined,
+      }),
+    ).toEqual({
+      models: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-6'],
+      warning: null,
+    })
   })
 })
 

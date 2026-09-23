@@ -15,16 +15,15 @@ def test_rail_menu_has_select_and_new_session_for_agents():
     assert "Select session" in menu
     assert "New session" in menu
     assert "'new-session'" in menu
-    assert "hasSelectSession" in src
-    assert "hasNewSession" in src
-    assert "loadPickerSessions" in src
-    assert "createAgentSession" in src
+    # #580: one declared capability (seatCapabilities.seatHasSessions) drives
+    # the rail menu AND the navbar — the per-kind booleans were folded away.
+    assert "seatHasSessions" in src
+    assert "hasSelectSession: seatHasSessions(menu)" in src
+    assert "hasNewSession: seatHasSessions(menu)" in src
     assert "openAgentSessionPicker" in src
     # Teams/remotes keep Select Agent; do not pretend we own remote stores.
     assert "Select Agent" in menu
     assert "hasSelectAgent" in src
-    assert "menu.kind === 'api'" in src
-    # CLI Select stays on the REQ-104 picker; New posts start_new (fresh id).
     assert "openCliSessionPicker" in src
     assert "startNew: true" in src
 

@@ -13,7 +13,6 @@ import { getInitials, getReadableTextColor } from '../../lib/agent-utils'
 import { useAgentStore } from '../../lib/agent-store'
 import { isRobotPackTheme, resolveAvatarTheme } from '../../lib/avatarTheme'
 import { useAvatarTheme, useEnabledAvatarThemes } from '../../lib/useAvatarTheme'
-import ChatAgentAvatar from '../AgentAvatar'
 import { RobotAvatar } from './RobotAvatar'
 
 export interface AgentAvatarProps {
@@ -103,7 +102,7 @@ export const AgentAvatar = memo(function AgentAvatar({
     <div className={`relative inline-flex items-center justify-center flex-shrink-0 ${className}`}>
       <div className="relative inline-flex items-center justify-center flex-shrink-0">
       <div
-        className={`${sizeClass} rounded-full flex items-center justify-center font-bold shadow-sm overflow-hidden select-none`}
+        className={`${sizeClass} relative rounded-full flex items-center justify-center font-bold shadow-sm overflow-hidden select-none`}
         style={{ backgroundColor: bgColor, color: textColor }}
         title={`${agent.customName || agent.name}`}
         data-avatar-theme={isBland ? 'bland' : undefined}
@@ -116,6 +115,20 @@ export const AgentAvatar = memo(function AgentAvatar({
         ) : (
           <span>{getInitials(agent.customName || agent.name)}</span>
         )}
+        {isBland ? (
+          <svg
+            className="os-bland-avatar pointer-events-none absolute inset-0 h-full w-full"
+            viewBox="0 0 40 40"
+            aria-hidden="true"
+            data-avatar-theme="bland"
+            data-eye-state={eyesActive ? 'active' : 'idle'}
+          >
+            <g className="os-bland-eyes">
+              <circle cx="-3.15" cy="0" r="1.55" fill={textColor} />
+              <circle cx="3.15" cy="0" r="1.55" fill={textColor} />
+            </g>
+          </svg>
+        ) : null}
       </div>
         {(isChiefOfStaff || agent.chiefOfStaff) && (
           <span className="absolute -top-1.5 -right-1.5 bg-amber-400 text-amber-950 rounded-full p-0.5 shadow border border-amber-200 z-10">

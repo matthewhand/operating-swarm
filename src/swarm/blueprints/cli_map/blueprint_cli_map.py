@@ -19,7 +19,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -51,7 +51,7 @@ overlap or contradiction. Return only the combined answer.
 """
 
 
-class CliMapBlueprint(BlueprintBase):
+class CliMapBlueprint(CliKindBase):
     """Plan → map across workers → reduce."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -121,8 +121,7 @@ class CliMapBlueprint(BlueprintBase):
         planner, workers, reducer = self._resolve(params, registry)
         if not workers:
             yield support.message_chunk(
-                "No worker CLIs are configured for map. Add a 'cli_map' block (or a "
-                "'cli_fusion' preset) to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No worker CLIs are configured for map"),
                 final=True,
             )
             return

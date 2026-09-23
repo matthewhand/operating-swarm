@@ -1,9 +1,9 @@
-# Open Swarm: Development Documentation
+# Operating Swarm: Development Documentation
 
 Start at **[docs/DEVELOPER.md](docs/DEVELOPER.md)** (architecture dumps, kinds,
 package layout, CI). The root [README](README.md) is the user-facing front door.
 
-This document provides an in-depth look at the **Open Swarm** framework’s internal architecture, component interactions, and development practices. It is intended for developers and contributors who wish to modify or extend the framework.
+This document provides an in-depth look at the **Operating Swarm** framework’s internal architecture, component interactions, and development practices. It is intended for developers and contributors who wish to modify or extend the framework.
 
 ---
 
@@ -22,7 +22,7 @@ The primary design components, ordered by significance. Every entry is verified 
 | **DaisyUI 5 + Tailwind CSS 4** | SPA component library and styling | `webui/frontend/package.json`, `webui/frontend/src/index.css` |
 | **Vite 8** | SPA build and dev tooling | `webui/frontend/vite.config.ts` |
 | **TanStack react-query 5** | SPA server-state fetching/caching against the REST API | `webui/frontend/src/main.tsx` and pages |
-| **Typer** | `swarm-cli` command-line framework | `src/swarm/core/swarm_cli.py` |
+| **Typer** | `os-cli` command-line framework | `src/swarm/core/swarm_cli.py` |
 | **pytest** (+ pytest-django, -asyncio, -timeout, …) | 600+ test suite, keyless via `SWARM_TEST_MODE` | `tests/`, `[dev]`/`[test]` extras in `pyproject.toml` |
 | **uv** | Python environment / dependency management and task runner | `uv.lock`, README quickstarts, CI |
 | **Playwright** | Headless Chromium for documentation screenshot captures (and SPA test tooling) | `scripts/capture_user_journey.py`, `webui/frontend` devDependencies |
@@ -38,8 +38,8 @@ The primary design components, ordered by significance. Every entry is verified 
 - [Configuration System](#configuration-system)
 - [Blueprint Development](#blueprint-development)
 - [MCP Server Integration](#mcp-server-integration)
-- [Command-Line Interface (`swarm-cli`)](#command-line-interface-swarm-cli)
-- [REST API (`swarm-api` / Django)](#rest-api-swarm-api--django)
+- [Command-Line Interface (`os-cli`)](#command-line-interface-os-cli)
+- [REST API (`os-api` / Django)](#rest-api-os-api--django)
 - [Directory Structure (XDG Compliance)](#directory-structure-xdg-compliance)
 - [Testing Strategy](#testing-strategy)
 - [Docker Deployment Details](#docker-deployment-details)
@@ -49,13 +49,13 @@ The primary design components, ordered by significance. Every entry is verified 
 
 ## Core Architecture
 
-Open Swarm combines a command-line interface (`swarm-cli`) for local management and execution with a Django/DRF-based REST API (`swarm-api`) for network-accessible interaction.
+Operating Swarm combines a command-line interface (`os-cli`) for local management and execution with a Django/DRF-based REST API (`os-api`) for network-accessible interaction.
 
 *   **Agent Core:** Leverages the `openai-agents` SDK for defining agent behaviors, tool usage, and interaction logic.
 *   **Blueprints (`BlueprintBase`):** Encapsulate the definition of an agent swarm, including agent setup, coordination logic, required configuration (LLMs, MCPs, environment variables), and potentially custom CLI arguments or Django extensions.
 *   **Configuration (`swarm_config.json`):** Centralizes definitions for LLM provider profiles and MCP server configurations, allowing flexible swapping and management. Environment variables (via `.env`) are used for sensitive keys. The committed template is `swarm_config.example.json`; a real `swarm_config.json` at the checkout root is gitignored.
-*   **`swarm-cli`:** Provides user-facing commands (built with `typer`) for managing blueprints and config. Commands available today include: `list`, `launch`, `install` / `install-executable`, `add`, `delete`, `uninstall`, `config` (`list`/`add`/`remove`), `moa`, `moa-init`, `skills`, `cli-agents` / `agents`, `list-models`, and `wizard`. Uses XDG directories for user-specific data. Installed via PyPI (`pip install open-swarm`). See `USERGUIDE.md` for examples.
-*   **`swarm-api`:** A Django application exposing installed blueprints via an OpenAI-compatible REST API (`/v1/models`, `/v1/chat/completions`). Uses DRF for views and serializers. Authentication is handled via static API tokens. Deployed preferably via Docker.
+*   **`os-cli`:** Provides user-facing commands (built with `typer`) for managing blueprints and config. Commands available today include: `list`, `launch`, `install` / `install-executable`, `add`, `delete`, `uninstall`, `config` (`list`/`add`/`remove`), `moa`, `moa-init`, `skills`, `cli-agents` / `agents`, `list-models`, and `wizard`. Uses XDG directories for user-specific data. Install from source (`git clone https://github.com/matthewhand/operating-swarm.git` + `uv sync --all-extras`) or, once published, `pip install os-core`. See `USERGUIDE.md` for examples.
+*   **`os-api`:** A Django application exposing installed blueprints via an OpenAI-compatible REST API (`/v1/models`, `/v1/chat/completions`). Uses DRF for views and serializers. Authentication is handled via static API tokens. Deployed preferably via Docker.
 
 ---
 
@@ -63,9 +63,9 @@ Open Swarm combines a command-line interface (`swarm-cli`) for local management 
 
 ```
 .
-├── Dockerfile                  # Defines the container build process for swarm-api
-├── docker-compose.yml          # Base Docker Compose configuration for swarm-api
-├── docker-compose.override.example.yml # Example for swarm-api customizations
+├── Dockerfile                  # Defines the container build process for os-api
+├── docker-compose.yml          # Base Docker Compose configuration for os-api
+├── docker-compose.override.example.yml # Example for os-api customizations
 ├── manage.py                   # Django CLI — stays at root (python manage.py convention)
 ├── pinokio.js                  # Pinokio sideload entry — must stay at clone root
 ├── pinokio/                    # install.js / start.js / update.js / menu.js
@@ -91,7 +91,7 @@ Open Swarm combines a command-line interface (`swarm-cli`) for local management 
 │       │   ├── config/             # Deprecated shim → swarm.core.config_loader
 │       │   │   ├── __init__.py
 │       │   │   └── config_loader.py
-│       │   └── launchers/          # Deprecated swarm-api shim only (entry is core)
+│       │   └── launchers/          # Deprecated os-api shim only (entry is core)
 │       │       ├── __init__.py
 │       │       └── swarm_api.py    # Re-exports swarm.core.swarm_api:main
 │       ├── management/             # Custom Django management commands (API)
@@ -123,14 +123,14 @@ Open Swarm combines a command-line interface (`swarm-cli`) for local management 
 
 *   **Primary File:** `swarm_config.json` (not committed). Start from `swarm_config.example.json`.
 *   **Location:**
-    *   **`swarm-cli`:** Uses XDG paths (default: `~/.config/swarm/swarm_config.json`).
-    *   **`swarm-api` (Docker):** Bind-mounts `${HOME}/.config/swarm` (XDG), not a repo-root `swarm_config.json`.
+    *   **`os-cli`:** Uses XDG paths (default: `~/.config/swarm/swarm_config.json`).
+    *   **`os-api` (Docker):** Bind-mounts `${HOME}/.config/swarm` (XDG), not a repo-root `swarm_config.json`.
 *   **Loading:** Handled by `swarm.core.config_loader`. It searches upwards from the
     current directory, then checks the default XDG path (primarily relevant
-    for `swarm-cli`).
+    for `os-cli`).
 *   **Structure:** Contains top-level keys like `llm` (for LLM profiles) and `mcpServers`.
 *   **Secrets:** Use environment variable placeholders (e.g., `"${OPENAI_API_KEY}"`) in `swarm_config.json` and define actual values in a `.env` file or the runtime environment.
-*   **Management:** Prefer `swarm-cli config list|add|remove` (see `USERGUIDE.md`), or edit the JSON file by hand.
+*   **Management:** Prefer `os-cli config list|add|remove` (see `USERGUIDE.md`), or edit the JSON file by hand.
 
 ---
 
@@ -141,28 +141,51 @@ Open Swarm combines a command-line interface (`swarm-cli`) for local management 
 *   **Configuration:** Access loaded configuration via `self.config`, LLM profiles via `self.get_llm_profile("profile_name")`.
 *   **MCP Servers:** Define requirements in metadata; access running instances via `self.mcp_servers["server_name"]`.
 *   **Metadata:** Define `blueprint_name`, `description`, `required_env_vars`, `required_mcp_servers`.
-*   **CLI Integration:** Define custom arguments in the blueprint's `main` method; they apply when running the blueprint executable or its module entry point directly (`swarm-cli launch` itself only forwards `--message`).
+*   **CLI Integration:** Define custom arguments in the blueprint's `main` method; they apply when running the blueprint executable or its module entry point directly (`os-cli launch` itself only forwards `--message`).
 
 ---
 
 ## MCP Server Integration
 
 *   **Definition:** Defined in the `mcpServers` section of `swarm_config.json` (`command`, `args`, `env`, `cwd`).
-*   **Lifecycle:** `BlueprintBase` starts/stops required MCP servers as subprocesses when run via `swarm-cli` or direct execution. (Note: Lifecycle management within the long-running API server might differ or require external management).
+*   **Lifecycle:** `BlueprintBase` starts/stops required MCP servers as subprocesses when run via `os-cli` or direct execution. (Note: Lifecycle management within the long-running API server might differ or require external management).
 *   **Interaction:** Agents use tools provided by `openai-agents` library.
 
 ---
 
-## Command-Line Interface (`swarm-cli`)
+## Command-Line Interface (`os-cli`)
 
-*   **Installation:** `pip install open-swarm`
+*   **Installation:** from source (`git clone https://github.com/matthewhand/operating-swarm.git` + `uv sync --all-extras`) or, once published, `pip install os-core`. Legacy `open-swarm` on PyPI is a deprecation alias (see [#296](https://github.com/matthewhand/open-swarm-private/issues/296)).
 *   **Framework:** `typer`.
-*   **Entry Point:** Defined in `pyproject.toml` (`swarm-cli = "swarm.core.swarm_cli:app"`).
-*   **Commands:** `list`, `launch`, `install`, `install-executable`, `config`,
-    `wizard`, `moa`, `cli-agents`, `list-models`, `skills`, … — implemented in
-    `src/swarm/core/swarm_cli.py` (Typer). The legacy argparse trees under
-    `extensions/cli` and `core/cli` were deleted (ROADMAP §3.4b / §4.4).
-*   **Installation (`swarm-cli install`):** Uses `PyInstaller` to create standalone executables from managed blueprints.
+*   **Entry Point:** Defined in `pyproject.toml` (`os-cli = "swarm.core.swarm_cli:app"`).
+*   **Commands:** `list`, `compile`, `launch`, `delete`, `uninstall`, `session`,
+    `config`, `wizard`, `moa`, `cli-agents`, `list-models`, `skills`, … —
+    implemented in `src/swarm/core/swarm_cli.py` (Typer). `install` and
+    `install-executable` remain aliases for `compile`; `uninstall` is an alias
+    for `delete --binary`. The legacy argparse trees under `extensions/cli` and
+    `core/cli` were deleted (ROADMAP §3.4b / §4.4).
+*   **Blueprint lifecycle** — REQ-871, spec
+    [docs/qa/REQ-871-cli-blueprint-lifecycle.md](./docs/qa/REQ-871-cli-blueprint-lifecycle.md),
+    lock `tests/unit/test_req871_cli_blueprint_lifecycle.py`:
+    *   **`compile <name>`:** resolves the source (user library, then bundled),
+        finds the entry point via `find_entry_point` (`{name}_cli.py` →
+        `{name}.py` → `blueprint_{name}.py`), and runs a `pyinstaller --onefile`
+        build into `get_user_bin_dir()`. One shared body
+        (`_compile_blueprint_executable`) backs `compile`, `install` and
+        `install-executable`. With `SWARM_TEST_MODE=1` it writes a `#!/bin/sh`
+        stub rather than compiling; `list --installed` labels that `(shim)`.
+    *   **`launch <name>`:** runs the compiled binary, else falls back to the
+        installed source and then the bundled source via `sys.executable`
+        (`_source_launch_target`), naming the tier it used. The fallback never
+        prompts — the `--pre` / `--listen` / `--post` hooks cannot answer one.
+        Only when no tier resolves does it exit 1.
+    *   **`delete <name>`:** `--source` / `--binary` / `--all` (default: both),
+        reporting each artefact separately and exiting 1 when nothing was
+        found. Both removals keep the `_require_safe_blueprint_segment` and
+        `_path_is_under_root` guards.
+    *   **`session list` / `session show`:** read-only inspection of the chat
+        store plus a CLI's own session stores (see the XDG section below).
+*   **Installation (`os-cli compile`):** Uses `PyInstaller` to create standalone executables from managed blueprints.
 *   **User Data Management:** Uses XDG paths (`platformdirs`).
 *   **ANSI/Styling & Terminal Support:** Use Rich's `Console` to detect terminal capabilities (`console.is_terminal` and `console.color_system`) and apply ANSI color/styling when supported, with graceful fallback.
 *   **Hook Flags:** The `launch` command supports `--pre`, `--listen`, and `--post` flags to run additional blueprints before, during, and after the main invocation.
@@ -172,24 +195,31 @@ Open Swarm combines a command-line interface (`swarm-cli`) for local management 
 
 ---
 
-## REST API (`swarm-api` / Django)
+## REST API (`os-api` / Django)
 
 *   **Deployment:** Docker recommended (`docker compose up -d`). Can also be run locally via `uv run python manage.py runserver`.
 *   **Framework:** Django + DRF.
 *   **Core Views:** `ChatCompletionsView` (`/v1/chat/completions`), `ModelsListView` (`/v1/models`).
-*   **Blueprint Loading:** Discovers blueprints from `settings.BLUEPRINT_DIRECTORY` (differs from `swarm-cli`'s XDG path). Use Docker volumes to provide blueprints.
+*   **Blueprint Loading:** Discovers blueprints from `settings.BLUEPRINT_DIRECTORY` (differs from `os-cli`'s XDG path). Use Docker volumes to provide blueprints.
 *   **Authentication:** Static Bearer token via `API_AUTH_TOKEN` in `.env` (`SWARM_API_KEY` legacy alias; optional multi-key `API_AUTH_TOKENS` / `SWARM_API_KEYS`). Production refuses to start without a token unless `SWARM_ALLOW_NO_AUTH=true`.
 
 ---
 
 ## Directory Structure (XDG Compliance)
 
-`swarm-cli` uses standard user directories managed via `platformdirs`:
+`os-cli` uses standard user directories managed via `platformdirs`:
 
 *   **Configuration (`swarm_config.json`):** `~/.config/swarm/swarm_config.json`
 *   **Managed Blueprint Sources:** `~/.local/share/swarm/blueprints/`
 *   **Installed CLI Binaries:** `~/.local/share/swarm/bin/` (Needs to be in `PATH`)
-*   **Build Cache (PyInstaller):** `~/.cache/swarm/build/`
+*   **Build Cache (PyInstaller):** `~/.cache/swarm/build/` (spec files under `~/.cache/swarm/specs/`)
+*   **Chat store (SPA threads):** `<user data>/chats/` — `active/<user_key>/<agent_id>.json`
+    plus `trash/`; override the root with `SWARM_CHAT_DIR`. CLI session ids are stored
+    on each record's `cli_sessions` map, which is what `os-cli session list` reads.
+*   **No `~/.cache/swarm/sessions`:** that path never existed. Swarm-side ids live in the
+    chat store above; a CLI's own sessions live in that CLI's store (e.g. `~/.grok/sessions`,
+    `~/.qwen/projects`) and are read by `core/cli_session_stores.py` +
+    `core/cli_session_select.py`.
 
 ---
 
@@ -243,7 +273,7 @@ sequenceDiagram
     participant ConfigLoader
     participant MCPSessionManager
 
-    User->>swarm_cli / PythonScript: Run blueprint (e.g., `swarm-cli launch mybp --message "..."`)
+    User->>swarm_cli / PythonScript: Run blueprint (e.g., `os-cli launch mybp --message "..."`)
     swarm_cli / PythonScript->>BlueprintBase: Instantiate Blueprint(config_path=..., args=...)
     BlueprintBase->>ConfigLoader: Find and load swarm_config.json
     ConfigLoader-->>BlueprintBase: Return Config Data (incl. LLM/MCP defs)

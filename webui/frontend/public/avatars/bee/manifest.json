@@ -1,0 +1,79 @@
+{
+  "suite": "Operating Swarm Bee Avatar Suite",
+  "version": "1.0.0",
+  "count": 12,
+  "icons": [
+    {
+      "filename": "bee-face-bumble-fluff.svg",
+      "category": "face",
+      "url_spa": "/avatars/bee/bee-face-bumble-fluff.svg",
+      "url_django": "/static/img/avatars/bee/bee-face-bumble-fluff.svg"
+    },
+    {
+      "filename": "bee-face-cyber-swarm.svg",
+      "category": "face",
+      "url_spa": "/avatars/bee/bee-face-cyber-swarm.svg",
+      "url_django": "/static/img/avatars/bee/bee-face-cyber-swarm.svg"
+    },
+    {
+      "filename": "bee-face-expressive-cute.svg",
+      "category": "face",
+      "url_spa": "/avatars/bee/bee-face-expressive-cute.svg",
+      "url_django": "/static/img/avatars/bee/bee-face-expressive-cute.svg"
+    },
+    {
+      "filename": "bee-face-macro-front.svg",
+      "category": "face",
+      "url_spa": "/avatars/bee/bee-face-macro-front.svg",
+      "url_django": "/static/img/avatars/bee/bee-face-macro-front.svg"
+    },
+    {
+      "filename": "bee-face-queen-regal.svg",
+      "category": "face",
+      "url_spa": "/avatars/bee/bee-face-queen-regal.svg",
+      "url_django": "/static/img/avatars/bee/bee-face-queen-regal.svg"
+    },
+    {
+      "filename": "bee-face-three-quarter.svg",
+      "category": "face",
+      "url_spa": "/avatars/bee/bee-face-three-quarter.svg",
+      "url_django": "/static/img/avatars/bee/bee-face-three-quarter.svg"
+    },
+    {
+      "filename": "bee-profile-bumblebee.svg",
+      "category": "profile",
+      "url_spa": "/avatars/bee/bee-profile-bumblebee.svg",
+      "url_django": "/static/img/avatars/bee/bee-profile-bumblebee.svg"
+    },
+    {
+      "filename": "bee-profile-carpenter.svg",
+      "category": "profile",
+      "url_spa": "/avatars/bee/bee-profile-carpenter.svg",
+      "url_django": "/static/img/avatars/bee/bee-profile-carpenter.svg"
+    },
+    {
+      "filename": "bee-profile-dorsal.svg",
+      "category": "profile",
+      "url_spa": "/avatars/bee/bee-profile-dorsal.svg",
+      "url_django": "/static/img/avatars/bee/bee-profile-dorsal.svg"
+    },
+    {
+      "filename": "bee-profile-hover.svg",
+      "category": "profile",
+      "url_spa": "/avatars/bee/bee-profile-hover.svg",
+      "url_django": "/static/img/avatars/bee/bee-profile-hover.svg"
+    },
+    {
+      "filename": "bee-profile-queen.svg",
+      "category": "profile",
+      "url_spa": "/avatars/bee/bee-profile-queen.svg",
+      "url_django": "/static/img/avatars/bee/bee-profile-queen.svg"
+    },
+    {
+      "filename": "bee-profile-worker.svg",
+      "category": "profile",
+      "url_spa": "/avatars/bee/bee-profile-worker.svg",
+      "url_django": "/static/img/avatars/bee/bee-profile-worker.svg"
+    }
+  ]
+}

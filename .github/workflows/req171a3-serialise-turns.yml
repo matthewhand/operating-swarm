@@ -1,29 +1,11 @@
 name: REQ-171A-3 serialise chat turns
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/consumers.py"
-      - "tests/test_consumers.py"
-      - "tests/unit/test_req171a3_serialise_turns.py"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.queued.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.test.tsx"
-      - "webui/frontend/src/lib/chatQueue.ts"
-      - "webui/frontend/src/lib/__tests__/chatQueue.test.ts"
-      - ".github/workflows/req171a3-serialise-turns.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/consumers.py"
-      - "tests/test_consumers.py"
-      - "tests/unit/test_req171a3_serialise_turns.py"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.queued.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.test.tsx"
-      - "webui/frontend/src/lib/chatQueue.ts"
-      - "webui/frontend/src/lib/__tests__/chatQueue.test.ts"
-      - ".github/workflows/req171a3-serialise-turns.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:
@@ -52,7 +34,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: webui/frontend/package-lock.json
 

@@ -1,10 +1,10 @@
-# Open Swarm Oracle — authenticated, durable, public-HTTPS deployment
+# Operating Swarm Oracle — authenticated, durable, public-HTTPS deployment
 
-A runbook to stand up an Open Swarm gateway that an external client (e.g. Grok
+A runbook to stand up an Operating Swarm gateway that an external client (e.g. Grok
 via mcp-gateway) can reach over **public HTTPS with a bearer token**, durable
 across reboots.
 
-> **The one hard constraint — read first.** Open Swarm's CLI blueprints
+> **The one hard constraint — read first.** Operating Swarm's CLI blueprints
 > (`cli_agent`, `cli_fusion`, `cli_*`) **shell out to host-installed CLIs**
 > (`gemini`, `claude`, `grok`, `opencode`), each with its **own** auth (gemini
 > OAuth, grok file-login, claude key/login). Those don't containerize or
@@ -15,7 +15,8 @@ across reboots.
 > constraint.
 
 Artifacts referenced below live in [`deploy/oracle/`](../deploy/oracle/):
-`open-swarm-oracle.service`, `nginx-open-swarm.conf`.
+`open-swarm-oracle.service`, `nginx-open-swarm.conf` (service unit / nginx
+filenames stay `open-swarm-*` until those artifacts are renamed).
 
 ## 0. Prerequisites (on the cloud host)
 - A VM you can SSH into, plus a **domain** (`oracle.example.com`) pointed at its IP.
@@ -25,11 +26,11 @@ Artifacts referenced below live in [`deploy/oracle/`](../deploy/oracle/):
 
 ## 1. App + config
 ```bash
-git clone https://github.com/matthewhand/open-swarm.git ~/open-swarm
-cd ~/open-swarm && uv sync --all-extras
+git clone https://github.com/matthewhand/operating-swarm.git ~/operating-swarm
+cd ~/operating-swarm && uv sync --all-extras
 # Bring your CLI-agent config (or generate it):
 mkdir -p ~/.config/swarm
-swarm-cli cli-agents --init --write     # autodiscovers installed+authed CLIs
+os-cli cli-agents --init --write     # autodiscovers installed+authed CLIs
 # (or copy an existing ~/.config/swarm/swarm_config.json over)
 ```
 
@@ -41,7 +42,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # save this
 ## 3. systemd service (durable, bound to localhost)
 ```bash
 mkdir -p ~/.config/systemd/user
-cp ~/open-swarm/deploy/oracle/open-swarm-oracle.service ~/.config/systemd/user/
+cp ~/operating-swarm/deploy/oracle/open-swarm-oracle.service ~/.config/systemd/user/
 # edit it: set YOURUSER, the node path (match `which gemini`), DJANGO_ALLOWED_HOSTS
 # (include your domain), and API_AUTH_TOKEN=<the token from step 2>.
 systemctl --user daemon-reload
@@ -53,7 +54,7 @@ The unit binds **127.0.0.1:8001** — only nginx (next step) faces the internet.
 
 ## 4. Public HTTPS (nginx + Let's Encrypt)
 ```bash
-sudo cp ~/open-swarm/deploy/oracle/nginx-open-swarm.conf /etc/nginx/sites-available/open-swarm
+sudo cp ~/operating-swarm/deploy/oracle/nginx-open-swarm.conf /etc/nginx/sites-available/open-swarm
 # edit server_name -> your domain
 sudo ln -s /etc/nginx/sites-available/open-swarm /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
@@ -85,7 +86,7 @@ curl -s https://oracle.example.com/v1/responses/resp_... -H "Authorization: Bear
 `chat/completions` also supports `"background": true` (returns a `poll_url`).
 
 ## 7. Wire into mcp-gateway
-Add Open Swarm as a backend pointing at the OpenAPI spec, with the bearer token:
+Add Operating Swarm as a backend pointing at the OpenAPI spec, with the bearer token:
 `https://oracle.example.com/api/schema/` (spec) and base URL
 `https://oracle.example.com/v1`, header `Authorization: Bearer <token>`.
 After the proxy reloads the spec, the generated tools expose `params`, `name`,
@@ -101,7 +102,7 @@ etc. (every write endpoint's body is documented).
 - Keep `DJANGO_DEBUG=true` only if you accept verbose error pages on the LAN side;
   for stricter prod, set `DJANGO_DEBUG=false` and also set `DJANGO_SECRET_KEY` +
   `DJANGO_ALLOWED_HOSTS` (the server refuses to boot without them in prod), and
-  use `--insecure`-free serving via `swarm-api`/daphne if you serve the web UI.
+  use `--insecure`-free serving via `os-api`/daphne if you serve the web UI.
 - Persist `SWARM_RESPONSES_DIR` (async task state) on durable storage so queued
   tasks survive restarts (the worker resumes in-progress tasks on boot).
 - The responses store has **no automatic TTL**. Disk can grow with completed

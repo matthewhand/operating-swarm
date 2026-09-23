@@ -22,6 +22,11 @@ from swarm.models import ChatMessage
 
 REPO = Path(__file__).resolve().parents[2]
 CONSUMERS = REPO / "src" / "swarm" / "consumers.py"
+# #855 slice 2: the stub responders and persistence methods moved verbatim
+# into the swarm/chat mixins; the doctrine now spans both homes.
+STUBS_MIXIN = REPO / "src" / "swarm" / "chat" / "stubs_mixin.py"
+ADVICE_MIXIN = REPO / "src" / "swarm" / "chat" / "advice_mixin.py"
+CONVERSATIONS_MIXIN = REPO / "src" / "swarm" / "chat" / "conversations_mixin.py"
 CHAT_PAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 CI = REPO / ".github" / "workflows" / "req171a2-persist-on-final.yml"
 
@@ -50,31 +55,47 @@ def _db_contents(conversation_id):
     )
 
 
+def _method_body(src: str, header: str) -> str:
+    """A moved method's body: from its def line to the next 4-indented def."""
+    seg = src.split(header, 1)[1]
+    idxs = [i for i in (seg.find("\n    async def "), seg.find("\n    def ")) if i != -1]
+    return seg[: min(idxs)] if idxs else seg
+
+
 def test_source_lock_persist_on_final_and_keep_status_edit():
     """Call sites: final-turn persist; status/edit/disconnect still save."""
     src = CONSUMERS.read_text(encoding="utf-8")
+    stubs = STUBS_MIXIN.read_text(encoding="utf-8")
+    advice = ADVICE_MIXIN.read_text(encoding="utf-8")
     assert "async def _persist_completed_turn(self):" in src
     assert "REQ-171A-2" in src
-    after_team = src.split("async def respond_with_team_stub", 1)[1].split(
-        "async def _emit_teammate_task_cards", 1
-    )[0]
-    after_bp = src.split("async def respond_with_blueprint", 1)[1].split(
-        "async def _persist_completed_turn", 1
-    )[0]
-    after_default = src.split("async def respond_with_default_model", 1)[1].split(
-        "async def apply_message_edit", 1
-    )[0]
-    assert after_team.count("await self._persist_completed_turn()") == 1
-    assert after_bp.count("await self._persist_completed_turn()") == 2
-    assert after_default.count("await self._persist_completed_turn()") == 1
+    # Two persistence points since #637's demo-chips path: the team-stub
+    # final turn and the demo canned final-system-message branch before
+    # chips emit (one each).
+    assert _method_body(stubs, "async def respond_with_team_stub").count(
+        "await self._persist_completed_turn()"
+    ) == 1
+    assert _method_body(stubs, "async def respond_with_demo").count(
+        "await self._persist_completed_turn()"
+    ) == 1
+    # Blueprint path persists the completed turn, the compact summary
+    # rollover, and the skeptic rework loop's reworked answer (bounded
+    # adversarial auto-prompting) — three persistence points.
+    assert _method_body(stubs, "async def respond_with_blueprint").count(
+        "await self._persist_completed_turn()"
+    ) == 2
+    assert _method_body(advice, "async def _run_skeptic_rework_loop").count(
+        "await self._persist_completed_turn()"
+    ) == 1
+    assert _method_body(src, "async def respond_with_default_model").count(
+        "await self._persist_completed_turn()"
+    ) == 1
 
     status_block = src.split('if text_data_json.get("type") == "status":', 1)[1].split(
         'if "edit" in text_data_json:', 1
     )[0]
     assert "await self.save_conversation(conversation_id, self.messages)" in status_block
-    edit_block = src.split("async def apply_message_edit", 1)[1].split(
-        "async def fetch_conversation", 1
-    )[0]
+    edit_block = _method_body(CONVERSATIONS_MIXIN.read_text(encoding="utf-8"), "async def apply_message_edit")
     assert "await self.save_conversation(conversation_id, self.messages)" in edit_block
     disconnect = src.split("async def disconnect", 1)[1].split("async def receive", 1)[0]
     assert "await self.save_conversation(self.conversation_id, self.messages)" in disconnect

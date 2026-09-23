@@ -11,20 +11,20 @@ from rest_framework.views import APIView
 from swarm.auth import api_permission_classes
 from swarm.core.agent_kind import API_AGENT_BLUEPRINT_ID, API_AGENT_RAIL_ID
 from swarm.core.agent_roles import blueprint_role_fields, is_webui_blueprint
-from swarm.core.kind_bases import ApiKindBase
 from swarm.core.blueprint_source import (
     ALLOWED_SOURCE_SUFFIXES,
     load_blueprint_source,
     save_blueprint_source,
 )
 from swarm.core.blueprint_source import custom_blueprint_code as _custom_blueprint_code
+from swarm.core.kind_bases import ApiKindBase
+from swarm.core.persona_parse import parse_openai_agent_personas, serialize_personas
 from swarm.core.rail_seats import (
     CustomSeatError,
+    build_custom_rail_item,
     custom_library_to_blueprint_rows,
     metadata_rail,
-    build_custom_rail_item,
 )
-from swarm.core.persona_parse import parse_openai_agent_personas, serialize_personas
 from swarm.services import github_topics_service as gh_service
 from swarm.settings import (
     ENABLE_GITHUB_MARKETPLACE,
@@ -36,7 +36,7 @@ from swarm.views.blueprint_library_views import (
     get_user_blueprint_library,
     save_user_blueprint_library,
 )
-from swarm.views.utils import get_available_blueprints
+from swarm.views.utils import get_available_blueprints, invalidate_blueprint_meta_cache
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +140,10 @@ _custom_blueprint_request = inline_serializer(
             help_text="Opt the seat onto the AGENTS rail (CLI/API creates set true).",
         ),
         "source": serializers.CharField(required=False, help_text="Provenance, e.g. add-agent."),
+        "remote": serializers.DictField(
+            required=False,
+            help_text="Optional CLI remote endpoint {host, port, username, password_env, box}.",
+        ),
     },
 )
 
@@ -222,6 +226,17 @@ class BlueprintsListView(APIView):
         try:
             available_blueprints = async_to_sync(get_available_blueprints)()
             data = []
+            # #843: the rail's time slot needs an honest instant per blueprint
+            # row, same as remotes/teams. The chat store is the cross-device
+            # source that actually knows; a seat with no persisted thread
+            # stays without the key (no fabricated "now").
+            from swarm.core.chat_store import rail_activity_summaries, user_key_for
+
+            _user = getattr(request, "user", None)
+            if _user is not None and getattr(_user, "is_authenticated", False):
+                _activity = rail_activity_summaries(user_key=user_key_for(_user))
+            else:
+                _activity = rail_activity_summaries(user_key="u0")
             # Filters: search, required_mcp
             search = (request.query_params.get("search") or "").strip().lower()
             required_mcp = (request.query_params.get("required_mcp") or "").strip().lower()
@@ -264,7 +279,7 @@ class BlueprintsListView(APIView):
                         else:
                             navbar_items = []
 
-                    data.append({
+                    row = {
                         "id": blueprint_id,
                         "object": "blueprint",
                         "name": name,
@@ -283,7 +298,15 @@ class BlueprintsListView(APIView):
                         "rail": metadata_rail(meta),
                         "navbar_items": navbar_items,
                         **blueprint_role_fields(meta),
-                    })
+                    }
+                    # #843: thread ids are the bare blueprint id for both
+                    # catalog rows and custom library seats.
+                    _summary = _activity.get(blueprint_id)
+                    if _summary:
+                        row["last_message_at"] = _summary["at"]
+                        if _summary.get("text"):
+                            row["last_message"] = _summary["text"]
+                    data.append(row)
             else:
                 logger.error(f"Unexpected type from get_available_blueprints: {type(available_blueprints)}")
 
@@ -294,6 +317,13 @@ class BlueprintsListView(APIView):
                 for row in custom_library_to_blueprint_rows(_custom_library_items())
                 if row.get("id") and row["id"] not in seen
             ]
+            # #843: custom seats ride the same store stamp as catalog rows.
+            for row in custom_seats:
+                _summary = _activity.get(row["id"])
+                if _summary:
+                    row["last_message_at"] = _summary["at"]
+                    if _summary.get("text"):
+                        row["last_message"] = _summary["text"]
             if search:
                 custom_seats = [
                     row
@@ -376,7 +406,13 @@ class CustomBlueprintsView(APIView):
             custom = lib.get("custom", [])
             existing_ids = {i.get("id") for i in custom}
             if bp_id in existing_ids:
-                return Response({"error": "id already exists"}, status=status.HTTP_409_CONFLICT)
+                # #809: resolve the collision instead of failing "Add as
+                # agent" — the created seat gets the next free <base>_N.
+                base_id = bp_id
+                counter = 2
+                while f"{base_id}_{counter}" in existing_ids:
+                    counter += 1
+                bp_id = f"{base_id}_{counter}"
 
             try:
                 item = build_custom_rail_item(
@@ -393,7 +429,7 @@ class CustomBlueprintsView(APIView):
                         "env_vars": body.get("env_vars") or [],
                         **{
                             key: body[key]
-                            for key in ("kind", "command", "cli", "rail", "source")
+                            for key in ("kind", "command", "cli", "rail", "source", "remote")
                             if key in body
                         },
                     }
@@ -410,6 +446,9 @@ class CustomBlueprintsView(APIView):
                 _custom_blueprints_registry.extend(custom)
             except Exception:
                 pass
+            # #723: chat resolves seats through the metadata cache — a new
+            # custom seat must be visible without a server restart.
+            invalidate_blueprint_meta_cache()
             return Response(item, status=status.HTTP_201_CREATED)
         except Exception:
             logger.exception("Error creating custom blueprint")
@@ -457,6 +496,8 @@ class CustomBlueprintDetailView(APIView):
             _custom_blueprints_registry.extend(items)
         except Exception:
             pass
+        # #723: the seat is gone — the metadata cache must drop it too.
+        invalidate_blueprint_meta_cache()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(summary="Update a custom blueprint", request=_custom_blueprint_request)
@@ -480,9 +521,29 @@ class CustomBlueprintDetailView(APIView):
                 "cli",
                 "rail",
                 "source",
+                "remote",
+                # #932: the agent popup's inline customisation (instruction
+                # writer + provider/model pick) persists through PATCH.
+                "instructions",
+                "provider",
+                "model",
             ]:
                 if key in body:
                     item[key] = body[key]
+            # #719: the per-agent sandbox opt-in is validated, not stored raw.
+            # A ``_clear`` sentinel removes the override entirely (follow settings).
+            if "sandbox" in body:
+                from swarm.core.sandbox.opt_in import normalize_sandbox_param
+
+                sandbox_body = dict(body["sandbox"]) if isinstance(body["sandbox"], dict) else body["sandbox"]
+                clear = isinstance(sandbox_body, dict) and sandbox_body.pop("_clear", False)
+                if clear:
+                    item.pop("sandbox", None)
+                else:
+                    try:
+                        item["sandbox"] = normalize_sandbox_param(sandbox_body)
+                    except ValueError as exc:
+                        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             try:
                 stamped = build_custom_rail_item(item, existing=item)
             except CustomSeatError as exc:
@@ -496,6 +557,8 @@ class CustomBlueprintDetailView(APIView):
                 _custom_blueprints_registry.extend(items)
             except Exception:
                 pass
+            # #723: edited code/tags only apply once the cache is dropped.
+            invalidate_blueprint_meta_cache()
             return Response(item, status=status.HTTP_200_OK)
         except Exception:
             logger.exception("Error updating custom blueprint")
@@ -738,6 +801,115 @@ class BlueprintSourceView(APIView):
 
     patch = put
 
+    @extend_schema(summary="Format blueprint source (proposal)", request=_source_update_request)
+    def post(self, request, blueprint_id, *_args, **_kwargs):
+        """#537: pretty-print the posted draft and return it as a proposal.
+
+        The draft is the request body — nothing is read from or written to
+        disk, so the user's unsaved edits stay theirs until they press Save
+        (which runs the full validation gate). Non-``.py`` files are 400.
+        No formatter on the host is an honest 501.
+        """
+        body = request.data or {}
+        content = body.get("content")
+        if content is None:
+            return Response(
+                {"error": "content is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not isinstance(content, str):
+            return Response(
+                {"error": "content must be a string"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        file_name = body.get("file") or request.query_params.get("file")
+        if isinstance(file_name, str):
+            file_name = file_name.strip() or None
+        else:
+            file_name = None
+
+        from swarm.core.blueprint_source import format_python_source
+
+        result = format_python_source(content, file_name)
+        if not result.available:
+            no_formatter = "formatter is available" in (result.detail or "")
+            return Response(
+                {"error": result.detail or "formatting unavailable"},
+                status=status.HTTP_501_NOT_IMPLEMENTED if no_formatter
+                else status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"formatted": result.formatted, "file": file_name})
+
+    @extend_schema(summary="Delete a blueprint from the install", request=None)
+    def delete(self, _request, blueprint_id, *_args, **_kwargs):
+        """REQ-919: every blueprint is deletable.
+
+        A user-dir recipe's tree is removed. A bundled recipe is tombstoned —
+        hidden from listings/loads while the checkout stays pristine (a file
+        delete would dirty the repo and resurrect on ``git pull``).
+        """
+        from swarm.core.blueprint_source import delete_blueprint
+
+        payload, code = delete_blueprint(blueprint_id)
+        return Response(payload, status=code)
+
+
+@extend_schema(summary="Upload a blueprint (.py or .zip/.tar archive)")
+class BlueprintUploadView(APIView):
+    """POST /v1/blueprints/upload — REQ-919's upload gate.
+
+    Multipart ``file`` + ``id`` (or a JSON body {id, filename, content_b64}
+    for tests/CLI). One ``.py`` becomes a user-dir recipe; a zip/tar extracts
+    into ``get_user_blueprints_dir()/<id>/`` after confinement, suffix, size,
+    and sandbox validation — all before anything is written. Id collision is
+    409: refuse or fork, never silently overwrite.
+    """
+
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def post(self, request, *_args, **_kwargs):
+        import base64
+
+        from swarm.core.blueprint_source import (
+            MAX_UPLOAD_BYTES,
+            upload_blueprint_archive,
+        )
+
+        uploaded = request.FILES.get("file")
+        blueprint_id = str(
+            request.data.get("id") or request.query_params.get("id") or ""
+        ).strip()
+        if uploaded is not None:
+            filename = getattr(uploaded, "name", "") or ""
+            data = uploaded.read()
+            # Multipart clients may omit a filename — a bare ``.py`` upload is
+            # still unambiguous from the id (blueprint_<id>.py).
+            if not filename:
+                filename = f"blueprint_{blueprint_id}.py" if blueprint_id else ""
+        else:
+            body = request.data or {}
+            filename = str(body.get("filename") or "")
+            encoded = body.get("content_b64")
+            if not isinstance(encoded, str):
+                return Response(
+                    {"error": "file (multipart) or content_b64 is required"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                data = base64.b64decode(encoded, validate=True)
+            except Exception:
+                return Response(
+                    {"error": "content_b64 is not valid base64"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if not blueprint_id:
+            return Response({"error": "id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(data) > MAX_UPLOAD_BYTES:
+            return Response({"error": "upload exceeds the size cap"}, status=413)
+        payload, code = upload_blueprint_archive(blueprint_id, data, filename)
+        return Response(payload, status=code)
+
 
 def _swarm_runtime_config() -> dict:
     """App-cached swarm_config, or an empty dict. Never raises."""
@@ -756,8 +928,11 @@ class CliAgentsView(APIView):
     """CLI-agent catalog + opt-in configured list + PATH discovery (REQ-157).
 
     GET /v1/cli-agents/ -> {clis, known, configured, discovered, installed,
-    suggestions, catalog, native_consensus, list_models, list_sessions, rail}.
+    suggestions, catalog, native_consensus, list_models, list_sessions, rail,
+    modes, mode_limitations}.
     Discovery is PATH/stat only — no auth_check, no login, no network.
+    ``modes`` is CLI-first (#151): API/Blueprint/Team/Remote off until enabled.
+    ``discovered`` is the rail/picker start set (#149) — never invents missing CLIs.
     Live model probes are GET /v1/cli-agents/<cli>/models.
     Hop matrix is GET /v1/cli-sessions/hop/.
 
@@ -788,6 +963,88 @@ class CliAgentModelsView(APIView):
         if name:
             return Response(list_models(name).as_dict())
         return Response([row.as_dict() for row in list_models_all()])
+
+
+class CliAgentCandidatesView(APIView):
+    """Discovered candidate executable paths for a CLI name on host_cli_path.
+
+    GET /v1/cli-agents/candidates?name=<name> -> {"name": str, "candidates": [...]}
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def get(self, request, *_args, **_kwargs):
+        from swarm.core.cli_driver import find_cli_candidates
+
+        name = (request.query_params.get("name") or "").strip()
+        candidates = find_cli_candidates(name) if name else []
+        return Response({"name": name, "candidates": candidates})
+
+
+class CliAgentTestView(APIView):
+    """Pre-save probe: execute <cli> --version in sanitized environment.
+
+    POST /v1/cli-agents/test {"cli": "..."} -> {"ok": bool, "version": str, "message": str}
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def post(self, request, *_args, **_kwargs):
+        from swarm.core.cli_driver import test_cli_binary
+
+        cli_cmd = request.data.get("cli") if isinstance(request.data, dict) else ""
+        if isinstance(cli_cmd, list):
+            cli_cmd = " ".join(cli_cmd)
+        result = test_cli_binary(str(cli_cmd or "").strip())
+        return Response(result, status=200)
+
+
+class CliAgentDriversView(APIView):
+    """Catalog of registered BaseCliAgent drivers with metadata and candidates.
+
+    GET /v1/cli-agents/drivers/ -> {"drivers": [...]}
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def get(self, _request, *_args, **_kwargs):
+        from swarm.core.cli_registry import driver_catalog_descriptors
+
+        return Response({"drivers": driver_catalog_descriptors()})
+
+
+class ChatRetentionStatsView(APIView):
+    """Chat persistence and retention stats for Settings.
+
+    GET /v1/chat/retention/stats/ -> stats dict
+    """
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    def get(self, request, *_args, **_kwargs):
+        from swarm.core import chat_store
+
+        user_key = chat_store.user_key_for(request.user)
+        try:
+            chat_store.prune_expired(user_key)
+            stats = chat_store.stats(user_key)
+        except Exception:
+            logger.exception("Failed to collect chat persistence stats")
+            stats = {
+                "store_dir": "",
+                "format": "json",
+                "active_count": 0,
+                "trash_count": 0,
+                "bytes_used": 0,
+                "bytes_label": "0 B",
+                "max_age_days": 90,
+                "auto_archive_enabled": True,
+                "chats": [],
+                "trash": [],
+                "env_dir": "SWARM_CHAT_DIR",
+                "env_max_age": "SWARM_CHAT_MAX_AGE_DAYS",
+            }
+        return Response(stats)
 
 
 class ConfigOptionsView(APIView):

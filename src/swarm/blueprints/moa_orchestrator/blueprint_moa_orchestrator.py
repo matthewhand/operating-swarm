@@ -21,7 +21,7 @@ import logging
 import os
 from typing import Any, ClassVar
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import TeamKindBase
 from swarm.core.moa.agents_orchestrator import run_moa_agents_orchestrator
 from swarm.core.moa.config import resolve_moa_preset
 from swarm.core.moa.team import (
@@ -33,7 +33,7 @@ from swarm.core.moa.team import (
 logger = logging.getLogger(__name__)
 
 
-class MoAOrchestratorBlueprint(BlueprintBase):
+class MoAOrchestratorBlueprint(TeamKindBase):
     """MoA panel then scripted R/W specialists (not a live Runner)."""
 
     metadata: ClassVar[dict[str, Any]] = {

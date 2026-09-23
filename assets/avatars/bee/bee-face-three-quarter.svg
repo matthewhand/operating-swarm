@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Honeybee Three Quarter Face Avatar">
+  <defs>
+    <linearGradient id="tq-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2A2722"/>
+      <stop offset="100%" stop-color="#151310"/>
+    </linearGradient>
+    <linearGradient id="tq-eye" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5D4037"/>
+      <stop offset="50%" stop-color="#2E1C14"/>
+      <stop offset="100%" stop-color="#120B07"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#tq-bg)" stroke="#EFAB22" stroke-width="1.5"/>
+  <path d="M22 16 C34 11 48 16 52 25 C56 34 52 48 44 54 C36 60 22 56 18 46 C14 36 16 22 22 16 Z" fill="#1C1814" stroke="#EFAB22" stroke-width="1.2"/>
+  <ellipse cx="46.5" cy="29" rx="3.2" ry="7.5" transform="rotate(18 46.5 29)" fill="#2B1D14" stroke="#EFAB22" stroke-width="0.8"/>
+  <ellipse cx="23.5" cy="33" rx="5.8" ry="11.5" transform="rotate(-12 23.5 33)" fill="url(#tq-eye)" stroke="#EFAB22" stroke-width="1.2"/>
+  <path d="M21 24 C19 29 19 37 22 42" fill="none" stroke="#FFFFFF" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
+  <path d="M30 26 C33 24 40 25 41 30 C42 38 40 45 35 48 C30 46 29 36 30 26 Z" fill="#EFAB22" stroke="#1C1814" stroke-width="1.2"/>
+  <ellipse cx="35" cy="36" rx="3.5" ry="6" fill="#D99B1E"/>
+  <circle cx="34" cy="18" r="1.1" fill="#FFE082"/>
+  <circle cx="37.5" cy="19" r="1" fill="#FFE082"/>
+  <circle cx="35" cy="21" r="1" fill="#FFE082"/>
+  <g fill="none" stroke="#EFAB22" stroke-width="1.8" stroke-linecap="round">
+    <path d="M31 23 C28 16 23 11 15 10"/>
+    <path d="M38 22 C43 15 50 11 58 13"/>
+  </g>
+  <circle cx="15" cy="10" r="1.2" fill="#EFAB22"/>
+  <circle cx="58" cy="13" r="1.2" fill="#EFAB22"/>
+  <path d="M32 47 L35 55 L38 48 Z" fill="#1C1814" stroke="#EFAB22" stroke-width="0.8"/>
+</svg>

@@ -85,11 +85,15 @@ test('REQ-67: role colour is the badge only; selected/hover stay', async ({ page
   await page.goto('/chat?blueprint=codey')
 
   const list = page.getByRole('navigation', { name: 'Agent list' })
-  const support = list.getByRole('link', { name: /Support/ })
-  const gate = list.getByRole('link', { name: /Gate/ })
-  const skeptic = list.getByRole('link', { name: /Skeptic/ })
-  const cos = list.getByRole('link', { name: /Pat/ })
-  const codey = list.getByRole('link', { name: /Codey/ })
+  // Support is the seeded favourite tile, so it renders as a pin tile rather than
+  // a conversation row (REQ-94: a pin is a move, not a copy).
+  const support = page.getByLabel('Pinned agents').getByRole('link', { name: /Support/ })
+  // Scope rows by id: the Safety seat is blueprint `gate`, and the seeded demo
+  // teams include a "Demo SDLC Skeptic Loop" whose name also matches /Skeptic/.
+  const gate = list.locator('a[data-agent-id="gate"]')
+  const skeptic = list.locator('a[data-agent-id="skeptic"]')
+  const cos = list.locator('a[data-agent-id="cos"]')
+  const codey = list.locator('a[data-agent-id="codey"]')
 
   await expect(support).toBeVisible()
   await expect(gate).toBeVisible()
@@ -97,7 +101,21 @@ test('REQ-67: role colour is the badge only; selected/hover stay', async ({ page
   await expect(cos).toBeVisible()
   await expect(codey).toBeVisible()
 
-  for (const row of [support, gate, skeptic, cos, codey]) {
+  // The tile carries the same REQ-67 contract as a row: role colour on the badge
+  // only, never on the tile chrome.
+  await expect(support).toHaveClass(/os-fav-tile/)
+  await expect(support).not.toHaveClass(/os-agent-role-/)
+  const supportTileStyles = await support.evaluate((el) => {
+    const computed = getComputedStyle(el)
+    return {
+      boxShadow: computed.boxShadow,
+      background: computed.backgroundColor,
+      outline: computed.outlineColor,
+    }
+  })
+  assertNoRoleAccent(supportTileStyles.boxShadow, supportTileStyles.background, supportTileStyles.outline)
+
+  for (const row of [gate, skeptic, cos, codey]) {
     await expect(row).toHaveClass(/os-agent-row/)
     await expect(row).not.toHaveClass(/os-agent-row--(support|gate|skeptic|cos|chief_of_staff)/)
     await expect(row).not.toHaveClass(/os-agent-role-/)
@@ -124,7 +142,7 @@ test('REQ-67: role colour is the badge only; selected/hover stay', async ({ page
   expect(supportBadgeColor).toBe('rgb(61, 143, 138)') // #3d8f8a
 
   await expect(codey).toHaveClass(/os-agent-row--active/)
-  await expect(support).not.toHaveClass(/os-agent-row--active/)
+  await expect(support).not.toHaveClass(/os-fav-tile--active/)
 
   const idleBg = await support.evaluate((el) => getComputedStyle(el).backgroundColor)
   await support.hover()

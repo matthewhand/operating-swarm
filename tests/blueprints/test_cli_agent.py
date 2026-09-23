@@ -290,7 +290,14 @@ async def test_blueprint_stages_skill_assets_into_workdir(tmp_path, monkeypatch)
 async def test_blueprint_no_agents_configured():
     bp = CliAgentBlueprint(blueprint_id="cli_agent", config={})
     chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
-    assert "No CLI agents are configured" in _final_content(chunks)
+    text = _final_content(chunks)
+    assert text == (
+        "No CLI agents are configured. Configure your installed CLIs in "
+        "[Manage CLI](/chat?settings=cli-agents) (Settings → CLI Agents)."
+    )
+    assert "docs/CLI_FUSION.md" not in text
+    finals = [c for c in chunks if isinstance(c, dict) and c.get("final")]
+    assert finals[-1].get("meta", {}).get("fatal_config_error") is True
 
 
 async def test_blueprint_empty_prompt():
@@ -596,6 +603,62 @@ def test_resolve_failover_chain_orders_and_dedups():
     assert chain == ["a", "b", "c"]
     # failover disabled -> primary only
     assert support.resolve_failover_chain(cfg, {"cli": "a", "failover": False}, reg) == ["a"]
+
+
+def test_explicit_cli_is_strict_without_failover_flag():
+    """Dropdown / params.cli must not auto-append agy/claude/codex (#99)."""
+    cfg = {
+        "cli_agents": {
+            "pi": _ok("PI"),
+            "agy": _ok("AGY"),
+            "claude": _ok("CLAUDE"),
+            "codex": _ok("CODEX"),
+        }
+    }
+    reg = CliAdapterRegistry.from_config(cfg)
+    # Shipped Chat send path: explicit cli, with or without failover: false.
+    assert support.resolve_failover_chain(cfg, {"cli": "pi"}, reg) == ["pi"]
+    assert support.resolve_failover_chain(cfg, {"cli": "pi", "failover": False}, reg) == ["pi"]
+    chain = support.resolve_failover_chain(cfg, {"cli": "pi", "failover": True}, reg)
+    assert chain[0] == "pi"
+    assert set(chain) == {"pi", "agy", "claude", "codex"}
+
+
+async def test_explicit_cli_dropdown_runs_only_that_cli():
+    """SPA-like {cli: pi} mints a pi session and returns pi content (#99)."""
+    cfg = {
+        "cli_agents": {
+            "pi": _ok("PI"),
+            "agy": _ok("AGY"),
+            "claude": _ok("CLAUDE"),
+            "codex": _ok("CODEX"),
+        }
+    }
+    bp = CliAgentBlueprint(blueprint_id="cli_agent", config=cfg)
+    bp.set_params({"cli": "pi"})
+    chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
+    assert _session_notices(chunks) == ["Started a new pi session."]
+    assert _final_content(chunks) == "PI: ping"
+
+
+async def test_explicit_cli_failure_does_not_cascade_other_clis():
+    cfg = {
+        "cli_agents": {
+            "pi": _boom(),
+            "agy": _ok("AGY"),
+            "claude": _ok("CLAUDE"),
+            "codex": _ok("CODEX"),
+        }
+    }
+    bp = CliAgentBlueprint(blueprint_id="cli_agent", config=cfg)
+    bp.set_params({"cli": "pi", "failover": False})
+    chunks = await _collect(bp.run([{"role": "user", "content": "ping"}]))
+    assert _session_notices(chunks) == ["Started a new pi session."]
+    text = _final_content(chunks) or ""
+    assert "AGY" not in text
+    assert "CLAUDE" not in text
+    assert "CODEX" not in text
+    assert "failed" in text.lower()
 
 
 # --------------------------------------------------------------------------- #

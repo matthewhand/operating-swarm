@@ -67,11 +67,21 @@ def teams_containing(member_id: str, rosters: dict[str, Any] | None = None) -> s
 
 
 def role_of_member(member_id: str, rosters: dict[str, Any] | None = None, *, fallback: Any = None) -> str:
-    """Canonical role for *member_id*. CoS on any roster wins."""
+    """Canonical role for *member_id*. CoS on any roster wins.
+
+    Since #739 the CoS designation is roster-level (``chief_of_staff_id``);
+    the member-level ``role: chief_of_staff`` stamp is legacy and demoted on
+    write. Both sources resolve here so authority (mailbox scope, topology
+    ACLs, isolation) is identical for pre- and post-#739 rosters.
+    """
     if is_chief_of_staff(fallback):
         return ROLE_CHIEF_OF_STAFF
+    want = str(member_id or "").strip()
     seen: list[str] = []
     for roster in _rosters(rosters).values():
+        cos_id = str(roster.get("chief_of_staff_id") or "").strip()
+        if want and cos_id and want == cos_id:
+            return ROLE_CHIEF_OF_STAFF
         for member in roster.get("members") or []:
             if member.get("id") != member_id:
                 continue

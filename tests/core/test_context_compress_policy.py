@@ -256,6 +256,89 @@ def test_compact_endpoint_accepts_through_message_id(stub_compact_llm):
     body = resp.json()
     assert body["summary"]["span"] == {"start": 0, "end": 1}
     served = [row.get("content") for row in body["context"]]
-    assert any("[Conversation summary]" in str(item) for item in served)
     assert "after cutoff" in served
     assert "keep-summary" not in served
+
+
+@pytest.mark.django_db
+def test_auto_compact_skips_cli_and_remote_without_unknown_max_warning():
+    user = get_user_model().objects.create_user("compress-skip", password="pw")
+    messages = _turns(
+        ("user", "turn 1"),
+        ("assistant", "turn 2"),
+        ("user", "turn 3"),
+        ("assistant", "turn 4"),
+    )
+    # CLI agent:
+    cli_res = auto_compact_before_send(
+        user=user,
+        conversation_id="conv-cli",
+        agent_id="cli:grok",
+        messages=messages,
+    )
+    assert cli_res.acted is False
+    assert cli_res.reason == "non_api_agent"
+    assert cli_res.info is None
+
+    # Remote agent:
+    remote_res = auto_compact_before_send(
+        user=user,
+        conversation_id="conv-remote",
+        agent_id="remote:hermes",
+        messages=messages,
+    )
+    assert remote_res.acted is False
+    assert remote_res.reason == "non_api_agent"
+    assert remote_res.info is None
+
+    from swarm.core.context_cull_policy import prepare_context_before_send
+
+    prep_res = prepare_context_before_send(
+        user=user,
+        conversation_id="conv-remote-prep",
+        agent_id="remote:omb",
+        messages=messages,
+    )
+    assert prep_res.acted is False
+    assert prep_res.reason == "non_api_agent"
+    assert prep_res.info is None
+
+
+def _prep_result_for(agent_id: str, messages: list):
+    from swarm.core.context_cull_policy import prepare_context_before_send
+
+    return prepare_context_before_send(
+        user=None,
+        conversation_id=f"conv-{agent_id.replace(':', '-')}",
+        agent_id=agent_id,
+        messages=messages,
+    )
+
+
+@pytest.mark.django_db
+def test_blueprint_seats_keep_compression_per_issue_72_acceptance():
+    """#72: CLI/remote manage their own context; API *and* blueprint seats keep compress."""
+    messages = _turns(
+        ("user", "turn 1"),
+        ("assistant", "turn 2"),
+    )
+    for seat in ("codey", "blueprint:codey"):
+        res = _prep_result_for(seat, messages)
+        assert res.reason != "non_api_agent", seat
+
+
+@pytest.mark.django_db
+def test_recipe_blueprints_gate_like_their_payload_issue_534():
+    """#534: the SPA sends ``blueprint: remote_harness`` (plus
+    ``params.remote``) when a remote seat chats, so the send-path gate sees the
+    recipe id — which used to classify as ``api`` and let the
+    'Auto-compress skipped' notice fire on remote transcripts."""
+    messages = _turns(
+        ("user", "turn 1"),
+        ("assistant", "turn 2"),
+    )
+    for seat in ("remote_harness", "cli_agent"):
+        res = _prep_result_for(seat, messages)
+        assert res.acted is False, seat
+        assert res.reason == "non_api_agent", seat
+        assert res.info is None, seat

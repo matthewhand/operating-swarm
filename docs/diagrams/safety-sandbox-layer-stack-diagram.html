@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Swarm · Multi-Tier Safety &amp; Sandbox Isolation Stack</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1060px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Layer Stack · Open Swarm</p>
+    <h1>Multi-Tier Safety &amp; Sandbox Isolation Stack</h1>
+
+    <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="safety-stack-title safety-stack-desc">
+      <title id="safety-stack-title">Multi-Tier Safety &amp; Sandbox Isolation Stack</title>
+      <desc id="safety-stack-desc">Layer stack diagram illustrating compensating defense tiers: User Policy Gate, Safety Interceptor, Execution Sandbox Dispatcher, and Egress Governance.</desc>
+      <defs>
+        <pattern id="grid-dots-safety" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.08)"/>
+        </pattern>
+        <marker id="arrow-safety" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="arrow-safety-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#grid-dots-safety)" opacity="0.6"/>
+
+      <!-- Stack Layer 1: Client Surface & Policy Control -->
+      <g transform="translate(40, 24)">
+        <rect width="920" height="110" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+        <rect width="220" height="24" rx="4" fill="#353a4e" x="16" y="14"/>
+        <text x="26" y="30" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" letter-spacing="0.14em">TIER 1 · POLICY &amp; SURFACE</text>
+
+        <g transform="translate(16, 44)">
+          <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Per-Agent Tool Allowlist</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">tools_allowlist JSON filter</text>
+        </g>
+        <g transform="translate(320, 44)">
+          <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Prompt / Tool Whitelist</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Strict function calling schema</text>
+        </g>
+        <g transform="translate(624, 44)">
+          <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Interactive Approval Prompt</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Modal confirmation on concern</text>
+        </g>
+      </g>
+
+      <!-- Stack Layer 2: Safety Interceptor & Gate (Focal) -->
+      <g transform="translate(40, 158)">
+        <rect width="920" height="120" rx="8" fill="#383d54" stroke="#f08a59" stroke-width="2"/>
+        <rect width="260" height="24" rx="4" fill="#f08a59" x="16" y="14"/>
+        <text x="26" y="30" fill="#2d3142" font-family="'Geist Mono', monospace" font-size="9" font-weight="700" letter-spacing="0.14em">TIER 2 · SAFETY GATE (FOCAL)</text>
+
+        <g transform="translate(16, 48)">
+          <rect width="280" height="58" rx="6" fill="#2d3142" stroke="#f08a59" stroke-width="1"/>
+          <text x="14" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Command Classifier</text>
+          <text x="14" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">Destructive bash/fs detection</text>
+        </g>
+        <g transform="translate(320, 48)">
+          <rect width="280" height="58" rx="6" fill="#2d3142" stroke="#f08a59" stroke-width="1"/>
+          <text x="14" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Ask-User Confirmation Gate</text>
+          <text x="14" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">Blocks turn loop until OK / Deny</text>
+        </g>
+        <g transform="translate(624, 48)">
+          <rect width="280" height="58" rx="6" fill="#2d3142" stroke="#f08a59" stroke-width="1"/>
+          <text x="14" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Per-Session Exemption Cache</text>
+          <text x="14" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">"Always Allow" session memory</text>
+        </g>
+      </g>
+
+      <!-- Stack Layer 3: Sandbox Isolation Dispatcher -->
+      <g transform="translate(40, 302)">
+        <rect width="920" height="116" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+        <rect width="260" height="24" rx="4" fill="#353a4e" x="16" y="14"/>
+        <text x="26" y="30" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" letter-spacing="0.14em">TIER 3 · SANDBOX &amp; HARNESS</text>
+
+        <g transform="translate(16, 46)">
+          <rect width="280" height="54" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">LangChain Sandbox Harness</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Issue #195 tool execution wrapper</text>
+        </g>
+        <g transform="translate(320, 46)">
+          <rect width="280" height="54" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Docker &amp; Container Isolation</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Rootless container filesystem</text>
+        </g>
+        <g transform="translate(624, 46)">
+          <rect width="280" height="54" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">OpenShell / E2B Backend</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Remote sandbox ephemeral microVM</text>
+        </g>
+      </g>
+
+      <!-- Stack Layer 4: Egress Governance & Audit Trail -->
+      <g transform="translate(40, 442)">
+        <rect width="920" height="110" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+        <rect width="240" height="24" rx="4" fill="#353a4e" x="16" y="14"/>
+        <text x="26" y="30" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" letter-spacing="0.14em">TIER 4 · EGRESS &amp; AUDIT</text>
+
+        <g transform="translate(16, 44)">
+          <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Token &amp; Secret Redaction</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">redact.py regex sanitization</text>
+        </g>
+        <g transform="translate(320, 44)">
+          <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Private LAN / Egress Guard</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Loopback &amp; RFC1918 egress checks</text>
+        </g>
+        <g transform="translate(624, 44)">
+          <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Immutable Audit Log</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">DB ToolCallEvent recording</text>
+        </g>
+      </g>
+
+      <!-- Vertical Descent Connectors -->
+      <line x1="500" y1="134" x2="500" y2="156" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-safety-accent)"/>
+      <line x1="500" y1="280" x2="500" y2="300" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-safety-accent)"/>
+      <line x1="500" y1="420" x2="500" y2="440" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-safety-accent)"/>
+
+      <!-- Footer Legend -->
+      <g transform="translate(40, 580)">
+        <line x1="0" y1="12" x2="36" y2="12" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-safety-accent)"/>
+        <text x="46" y="16" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12">Execution Request Evaluation Pipeline</text>
+
+        <rect x="360" y="4" width="16" height="16" rx="3" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="386" y="16" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">Focal Safety Gate Layer</text>
+
+        <rect x="620" y="4" width="16" height="16" rx="3" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="646" y="16" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="11">Surrounding Compensating Controls</text>
+      </g>
+    </svg>
+  </div>
+</body>
+</html>

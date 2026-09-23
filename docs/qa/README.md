@@ -11,10 +11,22 @@ Success checklist (docs only), not a look-only audit.
 | **`software_dev` workdir / Runner path** | #150 | [ISSUE-150-software-dev-runner.md](./ISSUE-150-software-dev-runner.md) |
 | **`software_dev` remote workdir (SSH)** | #148 | [ISSUE-148-software-dev-remote-workdir.md](./ISSUE-148-software-dev-remote-workdir.md) |
 | **Fleet patterns (OpenSSH argv note)** | #157 | [ISSUE-157-fleet-patterns.md](./ISSUE-157-fleet-patterns.md) (pointer only; does not close #157) |
+| **Section internal-only talk lock** | #163 | [ISSUE-163-section-internal-talk.md](./ISSUE-163-section-internal-talk.md) |
+| **Stale-PR hygiene (rebase-or-close window)** | #247 | [ISSUE-247-stale-pr-hygiene.md](./ISSUE-247-stale-pr-hygiene.md) (process note; not a product change) |
 | **B — left rail / agents / favourites / hidden / blueprints-as-agents** | REQ-171 [#596](https://github.com/matthewhand/open-swarm/issues/596), coordinates [#595](https://github.com/matthewhand/open-swarm/issues/595) ([`:8001` confirm](https://github.com/matthewhand/open-swarm/issues/595#issuecomment-5537343790)) | [REQ-171-surface-b-rail-agents.md](./REQ-171-surface-b-rail-agents.md) |
 | **Final skeptic sweep — Matthew asks vs delivered** | REQ-126 [#516](https://github.com/matthewhand/open-swarm/issues/516) | [REQ-126-final-skeptic-sweep.md](./REQ-126-final-skeptic-sweep.md) |
 
 Umbrella [#596](https://github.com/matthewhand/open-swarm/issues/596) also asks for surfaces A (chat/composer/session) and C (CLI/API/remote harness). Those are sibling look-only reports, not this file.
+
+## Investigation + implementation plans
+
+These are **forward plans** (not shipped product). Each has a
+`tests/unit/test_req###_*.py` source-lock so the decision cannot silently
+regress, plus any scaffold the ticket named.
+
+| REQ | Surface | Spec | Lock test |
+|-----|---------|------|-----------|
+| REQ-883 | Self-contained desktop packaging for Windows + macOS (#280) | [REQ-883-desktop-app-packaging-windows-macos.md](./REQ-883-desktop-app-packaging-windows-macos.md) | `tests/unit/test_req883_desktop_app_packaging.py` |
 
 ## Requirement + lock specs (shipped features)
 
@@ -30,3 +42,13 @@ source-lock so the spec cannot silently regress.
 | REQ-847 | Stale-hidden reconciliation (#170) | [REQ-847-hidden-reconciliation.md](./REQ-847-hidden-reconciliation.md) | `tests/unit/test_req847_hidden_reconciliation.py` |
 | REQ-848 | Right-click rail → new section (#173) | [REQ-848-rail-pane-menu.md](./REQ-848-rail-pane-menu.md) | `tests/unit/test_req848_rail_pane_menu.py` |
 | REQ-801 | Bee avatar pack incl. #171 extension | [REQ-801-bee-avatar-pack.md](./REQ-801-bee-avatar-pack.md) | `tests/unit/test_req801_bee_avatar_theme.py` |
+| REQ-871 | `swarm-cli` blueprint lifecycle: compile / launch fallback / delete scope / session | [REQ-871-cli-blueprint-lifecycle.md](./REQ-871-cli-blueprint-lifecycle.md) | `tests/unit/test_req871_cli_blueprint_lifecycle.py` |
+| REQ-884 | Chat-turn failures name their cause (socket survival + unresolved `${VAR}`) | [REQ-884-chat-turn-failures-name-their-cause.md](./REQ-884-chat-turn-failures-name-their-cause.md) | `tests/unit/test_req884_chat_turn_failures_name_their_cause.py` |
+| REQ-885 | `load_full_configuration` discovers the config it claims to use | [REQ-885-config-discovery-default.md](./REQ-885-config-discovery-default.md) | `tests/unit/test_req885_config_discovery_default.py` |
+| REQ-862 | Operating Swarm (OS) identity lock (`os-*`, README hero) | [REQ-862-rebrand-swarm-bot.md](./REQ-862-rebrand-swarm-bot.md) | `tests/unit/test_req862_operating_swarm_rebrand.py` |
+| REQ-882 | Public demo site, mocked inference, scripted flows (#279) | [REQ-882-demo-site-mocked-inference.md](./REQ-882-demo-site-mocked-inference.md) | `tests/unit/test_req882_demo_site_mocked_inference.py` |
+| REQ-887 | Teams + Plugins marketplaces (MCP Registry + Agent Skills + OS team packs) | [REQ-887-teams-plugins-marketplaces.md](./REQ-887-teams-plugins-marketplaces.md) | `tests/unit/test_req887_marketplace.py` |
+| REQ-889 | Herdr Send cannot be submitted without a target (#453) | [REQ-889-herdr-send-target-guard.md](./REQ-889-herdr-send-target-guard.md) | `tests/unit/test_req889_herdr_send_target_guard.py` |
+| REQ-893 | Rail seats are `/v1/models` ids or they are not advertised as one (#426) | [REQ-893-rail-seat-model-ids.md](./REQ-893-rail-seat-model-ids.md) | `tests/unit/test_req893_rail_seat_model_ids.py` |
+| REQ-895 | Restore green `main` after the 19-PR batch merge (5 cross-PR regressions) | [REQ-895-batch-merge-regressions.md](./REQ-895-batch-merge-regressions.md) | `tests/unit/test_req890_remote_error_ux.py` |
+| REQ-896 | Sweep fixes: schedules fire, probes stay honest, brand is one truth | [REQ-896-sweep-genuine-defects.md](./REQ-896-sweep-genuine-defects.md) | `tests/core/test_test_schedules.py`, `tests/core/test_cli_models.py` |

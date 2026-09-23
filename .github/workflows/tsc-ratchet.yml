@@ -1,0 +1,38 @@
+name: TSC Ratchet
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "webui/frontend/**"
+      - ".github/workflows/tsc-ratchet.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "webui/frontend/**"
+      - ".github/workflows/tsc-ratchet.yml"
+
+jobs:
+  tsc-ratchet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webui/frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: webui/frontend
+        run: npm ci
+
+      - name: Typecheck count ratchet (issue #246)
+        working-directory: webui/frontend
+        run: npm run typecheck:ratchet

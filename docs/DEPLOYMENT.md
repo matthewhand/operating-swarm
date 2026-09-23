@@ -74,6 +74,25 @@ docker compose up -d
 # — when LiteLLM already owns host :8000.
 ```
 
+**Dev stack restart policy (`make dev`, host `:8002`):**
+[`docker-compose.dev.yml`](../docker-compose.dev.yml) overrides `swarm` to
+`restart: unless-stopped`, so a LAN endpoint that dies comes back by itself.
+The base file deliberately keeps the `restart: on-failure:5` cap — see
+[DATABASE.md](./DATABASE.md#fail-fast) and
+[RUNBOOK_NEON_QUOTA_CRASH_LOOP.md](./RUNBOOK_NEON_QUOTA_CRASH_LOOP.md) — so a
+dev stack pointed at a cloud `DATABASE_URL` does **not** inherit that
+protection. Note that `docker kill` / `docker stop` is a *manual* stop: Docker
+will not restart the container until it is started again, whatever the policy.
+
+**Boot:** [`deploy/systemd/open-swarm-dev.service`](../deploy/systemd/open-swarm-dev.service)
+brings the dev stack up at boot. Install it as root and replace `YOURUSER`:
+
+```bash
+sudo cp deploy/systemd/open-swarm-dev.service /etc/systemd/system/
+sudo sed -i "s|YOURUSER|$USER|g" /etc/systemd/system/open-swarm-dev.service
+sudo systemctl daemon-reload && sudo systemctl enable --now open-swarm-dev
+```
+
 **SPA (`/` + `/chat`, ADR-001):** `webui/frontend/dist/` is gitignored. After
 `git pull` on a source checkout, run **`make frontend`** (wraps
 `./scripts/build_frontend.sh`) once so `/` serves the React dashboard; without
@@ -81,6 +100,20 @@ docker compose up -d
 build bakes that `dist/` into the image, so `docker compose` / Fly deploys serve
 the SPA without a host-side Node install. CI (`python-pytest.yml` `frontend`
 job) runs the same script on PRs.
+
+**Static files (`/static/*`, #423):** served by `whitenoise` as Django middleware
+(see `settings.MIDDLEWARE`), so `/static/*.css` answers with `DEBUG=false` as
+well — the systemd and docker/LAN deployments bind uvicorn directly and have no
+proxy behind which an asset request could hide. `WHITENOISE_USE_FINDERS = True`
+serves the checked-in app static dirs in addition to `STATIC_ROOT`, so a deploy
+that never runs `collectstatic` (the docker/LAN one) still gets styled pages.
+`collectstatic` into `STATIC_ROOT` remains the cheaper production path: with
+finders on, WhiteNoise walks every static directory at boot to build its file
+map. Django's own static view is deliberately **not** used — it is `DEBUG`-only
+and is not meant to face a network. If you *do* put nginx in front of the app,
+[`deploy/oracle/nginx-open-swarm.conf`](../deploy/oracle/nginx-open-swarm.conf)
+carries an equivalent `location /static/` alias. Prove:
+`uv run pytest tests/unit/test_issue423_production_static.py`.
 
 Point any OpenAI client at the **Open Swarm** base (`http://<host>:8000/v1`
 greenfield, or `http://<host>:8002/v1` when LiteLLM already owns `:8000`) with

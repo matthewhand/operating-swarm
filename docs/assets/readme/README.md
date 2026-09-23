@@ -18,10 +18,11 @@ README heroes there.
 |---|---|---|
 | [`announce-bridge.gif`](./announce-bridge.gif) | #529 | Storyboard hero (spiel captions). Live recapture later. |
 | [`announce-bridge.meta.json`](./announce-bridge.meta.json) | #529 | Duration + caption lock. |
-| [`cli-agents.svg`](./cli-agents.svg) | #456 | Poster — CLI agents (Grok / OpenCode / agy). GIF pending. |
-| [`api-agents.svg`](./api-agents.svg) | #456 | Poster — API agents (OpenAI-compat / owned thread). GIF pending. |
-| [`remote-agents.svg`](./remote-agents.svg) | #456 | Poster — Remote agents (**OpenMousBot**, never OMB). GIF pending. |
-| [`combined-team.svg`](./combined-team.svg) | #456 | Poster — Combined team (CLI + API + remote). GIF pending. |
+| [`cli-agents.svg`](../../../assets/readme/cli-agents.svg) | #456 | Poster fallback. |
+| [`api-agents.svg`](../../../assets/readme/api-agents.svg) | #456 | Poster fallback. |
+| [`remote-agents.svg`](../../../assets/readme/remote-agents.svg) | #456 | Poster fallback. |
+| [`combined-team.svg`](../../../assets/readme/combined-team.svg) | #456 | Poster fallback. |
+| live GIFs | #456 | `assets/readme/{cli,api,remote}-agents.gif` + `combined-team.gif` recaptured 2026-09-16 (`scripts/record_readme_demos.py`). |
 | `cli.gif` | #456 | Reserved — live CLI GIF (e.g. OpenCode / Antigravity / grok). |
 | `api.gif` | #456 | Reserved — API / true-inference seat. |
 | `remotes.gif` | #456 | Reserved — Hermes / OpenMousBot / Rakazo (label OpenMousBot, not OMB). |

@@ -10,17 +10,18 @@ Flow:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, ClassVar
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import TeamKindBase
 from swarm.core.moa.config import resolve_moa_preset
 from swarm.core.persona_swarm import run_hybrid_scripted
 
 logger = logging.getLogger(__name__)
 
 
-class HybridMoABlueprint(BlueprintBase):
+class HybridMoABlueprint(TeamKindBase):
     """Persona implementer applies MoA consensus (champagne A←B)."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -71,6 +72,17 @@ class HybridMoABlueprint(BlueprintBase):
             yield {
                 "messages": [{"role": "assistant", "content": "No prompt provided."}],
                 "final": True,
+            }
+            return
+
+        if os.environ.get("SWARM_TEST_MODE"):
+            content = f"[hybrid-moa test-mode] {question}"
+            yield {
+                "messages": [{"role": "assistant", "content": content}],
+                "role": "assistant",
+                "content": content,
+                "final": True,
+                "meta": {"hybrid_moa": True, "test_mode": True},
             }
             return
 

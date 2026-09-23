@@ -26,10 +26,57 @@ export interface PendingAttachment {
   uploadId: string | null
   status: 'uploading' | 'ready' | 'error'
   error?: string
+  abortController?: AbortController
 }
 
-export function isImageFile(file: Pick<File, 'type'> | { type: string }): boolean {
-  return (file.type || '').toLowerCase().startsWith('image/')
+export type AttachmentCategory = 'image' | 'code' | 'table' | 'document' | 'other'
+
+export function attachmentCategory(fileOrItem: { name?: string; type?: string }): AttachmentCategory {
+  const type = (fileOrItem.type || '').toLowerCase()
+  const name = (fileOrItem.name || '').toLowerCase()
+  if (
+    type.startsWith('image/') ||
+    /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(name)
+  ) {
+    return 'image'
+  }
+  if (
+    type.includes('spreadsheet') ||
+    type.includes('excel') ||
+    type.includes('csv') ||
+    /\.(csv|tsv|xlsx|xls)$/i.test(name)
+  ) {
+    return 'table'
+  }
+  if (
+    type.includes('javascript') ||
+    type.includes('typescript') ||
+    type.includes('json') ||
+    type.includes('python') ||
+    type.includes('x-sh') ||
+    type.includes('xml') ||
+    type.includes('html') ||
+    type.includes('css') ||
+    /\.(js|jsx|ts|tsx|py|rb|go|rs|c|cpp|h|java|kt|swift|php|sh|bash|zsh|json|yaml|yml|toml|sql|html|css|scss|md)$/i.test(
+      name,
+    )
+  ) {
+    return 'code'
+  }
+  if (
+    type.includes('pdf') ||
+    type.includes('word') ||
+    type.includes('document') ||
+    type.includes('text/') ||
+    /\.(pdf|doc|docx|txt|rtf|odt|pages)$/i.test(name)
+  ) {
+    return 'document'
+  }
+  return 'other'
+}
+
+export function isImageFile(file: Pick<File, 'type'> | { type?: string; name?: string }): boolean {
+  return attachmentCategory(file) === 'image'
 }
 
 export function formatFileSize(bytes: number): string {
@@ -54,6 +101,25 @@ export function filesFromList(list: FileList | File[] | null | undefined): File[
   return Array.from(list).filter((file) => file instanceof File && file.size >= 0)
 }
 
+/** Image files from a Ctrl/Cmd+V clipboard DataTransfer (REQ-811). */
+export function imageFilesFromClipboard(
+  data: DataTransfer | { files?: FileList | File[] | null; items?: DataTransferItemList | ArrayLike<DataTransferItem> | null } | null | undefined,
+): File[] {
+  if (!data) return []
+  const fromFiles = filesFromList(data.files).filter(isImageFile)
+  if (fromFiles.length > 0) return fromFiles
+  const items = data.items
+  if (!items) return []
+  const out: File[] = []
+  for (const item of Array.from(items as ArrayLike<DataTransferItem>)) {
+    if (!item || item.kind !== 'file') continue
+    if (!isImageFile({ type: item.type || '' })) continue
+    const file = item.getAsFile?.()
+    if (file) out.push(file)
+  }
+  return out
+}
+
 let localIdCounter = 0
 
 export function nextAttachmentLocalId(): string {
@@ -63,6 +129,7 @@ export function nextAttachmentLocalId(): string {
 
 export function createPendingAttachment(file: File): PendingAttachment {
   const previewUrl = isImageFile(file) ? createPreviewUrl(file) : null
+  const abortController = typeof AbortController !== 'undefined' ? new AbortController() : undefined
   return {
     localId: nextAttachmentLocalId(),
     file,
@@ -72,6 +139,7 @@ export function createPendingAttachment(file: File): PendingAttachment {
     previewUrl,
     uploadId: null,
     status: 'uploading',
+    abortController,
   }
 }
 
@@ -92,11 +160,22 @@ export function revokePreviewUrl(url: string | null | undefined): void {
   }
 }
 
-export async function uploadChatAttachment(file: File): Promise<ChatAttachmentRecord> {
+export async function uploadChatAttachment(
+  file: File,
+  signal?: AbortSignal,
+): Promise<ChatAttachmentRecord> {
   await ensureCsrfCookie()
   const body = new FormData()
   body.append('file', file, file.name || 'file')
-  return apiPostForm<ChatAttachmentRecord>(CHAT_ATTACHMENTS_PATH, body)
+  return apiPostForm<ChatAttachmentRecord>(CHAT_ATTACHMENTS_PATH, body, { signal })
+}
+
+/** API/blueprint/team can consume upload ids. CLI/remote native sessions cannot (#427). */
+export function composerFileAttachSupported(opts: {
+  isCli?: boolean
+  isRemote?: boolean
+}): boolean {
+  return !opts.isCli && !opts.isRemote
 }
 
 export function readyAttachmentIds(items: PendingAttachment[]): string[] {

@@ -184,8 +184,9 @@ class BlueprintMCPProvider:
                         f"(MCP server config 'playwright' not found in swarm_config.json)"
                     )
                 raise ValueError(f"MCP server config '{server_name}' not found in swarm_config.json")
-            server_cfg_dict = self._mcp_config[server_name]
-            mcp_config = MCPServerConfig(**server_cfg_dict)
+            mcp_config = MCPServerConfig.from_named_dict(
+                server_name, self._mcp_config[server_name]
+            )
             if not mcp_config.command:
                 raise ValueError(f"MCP server '{server_name}' missing required 'command' in configuration")
             cmd = [mcp_config.command] + mcp_config.args

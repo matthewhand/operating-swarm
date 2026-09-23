@@ -14,10 +14,10 @@ Scene files (docs/demo/captures/scene{1,2,3}.txt) use a simple format:
   - every other line          -> printed output (revealed in blocks)
 
 Regenerate the captures with (trim into scene{1,2,3,4}.txt afterward):
-  SWARM_TEST_MODE=1 uv run swarm-cli list
+  SWARM_TEST_MODE=1 uv run os-cli list
   # prefer documented launch path (install once if needed):
-  #   uv run swarm-cli install-executable zeus
-  SWARM_TEST_MODE=1 uv run swarm-cli launch zeus \
+  #   uv run os-cli install-executable zeus
+  SWARM_TEST_MODE=1 uv run os-cli launch zeus \
       --message "Plan a release: tests, changelog, tag"
   # module path still works:
   #   SWARM_TEST_MODE=1 uv run python -m swarm.blueprints.zeus.zeus_cli \
@@ -27,7 +27,7 @@ Regenerate the captures with (trim into scene{1,2,3,4}.txt afterward):
   curl -s localhost:8447/v1/chat/completions -H 'Content-Type: application/json' \
       -d '{"model":"zeus","stream":true,"messages":[{"role":"user","content":"Plan a release: tests, changelog, tag"}]}'
   # optional scene4 — real fake-backend MoA team only (do not invent frames):
-  #   SWARM_TEST_MODE=1 uv run swarm-cli moa --backend fake --team \
+  #   SWARM_TEST_MODE=1 uv run os-cli moa --backend fake --team \
   #       --workdir /tmp/moa-demo "Should we ship the release?"
 
 Then render:  uv run python scripts/render_demo_gif.py
@@ -68,8 +68,8 @@ FG_PROMPT = (80, 250, 123)
 FG_COMMENT = (124, 131, 155)
 FG_TITLE = (160, 165, 180)
 TRAFFIC = [(255, 95, 86), (255, 189, 46), (39, 201, 63)]
-TITLE = "open-swarm demo — SWARM_TEST_MODE (no API key)"
-PROMPT = "~/open-swarm$ "
+TITLE = "operating-swarm demo — SWARM_TEST_MODE (no API key)"
+PROMPT = "~/operating-swarm$ "
 
 # timing (ms)
 TYPE_MS = 30          # per typing frame (~2 chars/frame)
@@ -187,27 +187,27 @@ def play_scene(term: Terminal, scene_path: Path) -> None:
 DEMO_SPECS = [
     {
         "filename": "cli-agent.gif",
-        "title": "open-swarm — CLI Agent (Host executable & native session)",
+        "title": "operating-swarm — CLI Agent (Host executable & native session)",
         "scenes": ["scene_cli.txt"],
     },
     {
         "filename": "api-agent.gif",
-        "title": "open-swarm — API Agent (OpenAI-compatible inference seat)",
+        "title": "operating-swarm — API Agent (OpenAI-compatible inference seat)",
         "scenes": ["scene_api.txt"],
     },
     {
         "filename": "remote-agent.gif",
-        "title": "open-swarm — Remote Agent (OpenMousBot & Hermes harnesses)",
+        "title": "operating-swarm — Remote Agent (OpenMousBot & Hermes harnesses)",
         "scenes": ["scene_remote.txt"],
     },
     {
         "filename": "combined-team.gif",
-        "title": "open-swarm — Combined Team (CLI + API + Remote)",
+        "title": "operating-swarm — Combined Team (CLI + API + Remote)",
         "scenes": ["scene_team.txt"],
     },
     {
         "filename": "cli-and-api.gif",
-        "title": "open-swarm demo — SWARM_TEST_MODE (no API key)",
+        "title": "operating-swarm demo — SWARM_TEST_MODE (no API key)",
         "scenes": ["scene1.txt", "scene2.txt", "scene3.txt", "scene4.txt"],
     },
 ]

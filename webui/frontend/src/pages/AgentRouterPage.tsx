@@ -8,7 +8,6 @@ import {
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { 
   Send, 
-  Sparkles, 
   Trash2, 
   PanelRightClose, 
   PanelRight, 
@@ -19,8 +18,9 @@ import {
   Code,
   Shuffle,
   Users,
+  Plus,
 } from 'lucide-react'
-import type { Agent, ChatMessage } from '../types/agent'
+import type { Agent, ChatMessage, RoutingStrategy } from '../types/agent'
 import { agentTypeLabel, defaultRemoteMemberId, remoteMembersOf } from '../lib/agent-types'
 import { isSupportAgent } from '../lib/starter-agents'
 import { buildSupportBriefing, inferenceConfigured, supportQuickstarts } from '../lib/support-briefing'
@@ -30,9 +30,9 @@ const DESIGNED_KINDS = new Set(['personality', 'swarm', 'cli', 'remote', 'bluepr
 const QUICK_PROMPTS = [
   {
     key: 'A',
-    label: 'Explain Open Swarm',
+    label: 'Explain Operating Swarm',
     prompt:
-      'Explain Open Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
+      'Explain Operating Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
   },
   {
     key: 'B',
@@ -77,13 +77,14 @@ function routeRequest(
         : routingStrategy
   const params = backendRouteParams(backend, llmProfile, cliModel, remoteId, blueprintId, framework)
   if (sessionMode && sessionMode !== 'default') params.session_mode = sessionMode
-  return {
+  const req: Parameters<typeof routeMessage>[0] = {
     message: text,
     routing_strategy: strategy,
     target_agent: strategy === 'direct' ? (targetAgentId || selectedAgentId) : null,
     agent_ids: strategy === 'consensus' ? ['researcher', 'writer', 'analyst', 'coder'] : undefined,
     params,
   }
+  return req
 }
 import { AVATAR_THEMES, AVATAR_EYES } from '../types/agent'
 import { useSearchParams } from 'react-router-dom'
@@ -100,7 +101,6 @@ import {
   routeMessage 
 } from '../lib/agent-api'
 import { fetchBlueprints } from '../lib/api'
-import { AgentSidebar } from '../components/AgentSidebar/AgentSidebar'
 import { AgentAvatar } from '../components/AgentSidebar/AgentAvatar'
 import { AgentMessageBubble, AgentStatusBadge, BotCommPopup, AgentDesigner, EditableField, BackendSelect, AgentRoles, defaultBackendFor, backendRouteParams } from '../components/AgentChat'
 import TeamsSheet from '../components/overlays/TeamsSheet'
@@ -126,25 +126,17 @@ export default function AgentRouterPage() {
     agents,
     selectedAgentId,
     agentStatus,
-    unreadCounts,
-    chiefOfStaffId,
-    sidebarOpen,
-    sidebarDensity,
-    collapsedSections,
-    searchQuery,
     routingStrategy,
     targetAgentId,
     delegations,
     selectedCommDelegation,
     setAgents,
+    setRoutingStrategy,
+    toggleSidebar,
+    roleAssignments,
+    setAgentRole,
     selectAgent,
     setAgentStatus,
-    setChiefOfStaff,
-    toggleSidebar,
-    setSidebarDensity,
-    toggleSection,
-    setSearchQuery,
-    setRoutingStrategy,
     backendByAgent,
     setAgentBackend,
     setDelegations,
@@ -152,11 +144,6 @@ export default function AgentRouterPage() {
     setSelectedCommDelegation,
     renameAgent,
     setAgentPurpose,
-    moveAgentToSection,
-    reorderAgents,
-    favouriteIds,
-    pinFavourite,
-    unpinFavourite,
     avatarTheme,
     avatarThemeByAgent,
     setAgentAvatarTheme,
@@ -164,8 +151,6 @@ export default function AgentRouterPage() {
     avatarEyes,
     avatarEyesByAgent,
     setAgentAvatarEyes,
-    roleAssignments,
-    setAgentRole,
     defaultLlmProfile,
     llmProfileByAgent,
     setDefaultLlmProfile,
@@ -179,10 +164,7 @@ export default function AgentRouterPage() {
     blueprintByAgent,
     setAgentBlueprint,
     hiddenAgentIds,
-    hideAgent,
     unhideAgent,
-    hideAllAgents,
-    unhideAllAgents,
     quickstartsByAgent,
     setAgentQuickstarts,
     clearAgentQuickstarts,
@@ -301,7 +283,7 @@ export default function AgentRouterPage() {
   const clis = cliCatalogQuery.data?.clis || []
 
   const llmQuery = useQuery({
-    queryKey: ['agent-llm-profiles'],
+    queryKey: ['llm-profiles'],
     queryFn: fetchLlmProfiles,
   })
   const llmProfiles = llmQuery.data?.profiles || []
@@ -707,60 +689,13 @@ export default function AgentRouterPage() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-base-100 font-sans text-base-content antialiased">
-      {/* 1. Left Panel: Swarm agent sidebar */}
-      <AgentSidebar
-        agents={agents}
-        selectedAgentId={selectedAgentId}
-        agentStatus={agentStatus}
-        unreadCounts={unreadCounts}
-        chiefOfStaffId={chiefOfStaffId}
-        density={sidebarDensity}
-        isOpen={sidebarOpen}
-        collapsedSections={collapsedSections}
-        searchQuery={searchQuery}
-        onSelectAgent={(id) => {
-          selectAgent(id)
-          if (id !== 'router') setRoutingStrategy('direct')
-        }}
-        onToggleOpen={toggleSidebar}
-        onSelectDensity={setSidebarDensity}
-        onToggleSection={toggleSection}
-        onSearchChange={setSearchQuery}
-        onRenameAgent={renameAgent}
-        onSetChiefOfStaff={setChiefOfStaff}
-        onMoveToSection={moveAgentToSection}
-        onRefresh={() => refetchAgents()}
-        onConsensusClick={() => {
-          setRoutingStrategy('consensus')
-          selectAgent('router')
-        }}
-        onCreateAgent={() => setDesignerOpen(true)}
-        onTeamsClick={() => setTeamsSheetOpen(true)}
-        onReorderAgents={reorderAgents}
-        favouriteIds={favouriteIds}
-        hiddenAgentIds={hiddenAgentIds}
-        onHideAgent={hideAgent}
-        onUnhideAgent={unhideAgent}
-        onHideAll={hideAllAgents}
-        onUnhideAll={unhideAllAgents}
-        messages={messages}
-        delegations={delegations}
-        onSelectDelegation={(id) => {
-          const found = delegations.find((d) => d.id === id)
-          if (found) setSelectedCommDelegation(found)
-        }}
-        onPinFavourite={pinFavourite}
-        onUnpinFavourite={unpinFavourite}
-        roleAssignments={roleAssignments}
-      />
-
       {/* 2. Middle Panel: Dynamic Chat & Execution View */}
       <main className="flex-1 flex flex-col h-full min-w-0 bg-base-100 relative">
         {/* Chat Header Bar */}
-        <header className="min-h-14 border-b border-base-300/80 px-3 sm:px-4 flex items-center justify-between gap-2 flex-shrink-0 bg-base-100/90 backdrop-blur-md z-20 overflow-x-auto">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="min-h-14 border-b border-base-300/80 px-3 sm:px-4 flex flex-wrap items-start justify-between gap-2 flex-shrink-0 bg-base-100/90 backdrop-blur-md z-20" data-testid="agents-chat-header">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             {/* If sidebar is closed, show expand button */}
-            {!sidebarOpen && (
+            {(
               <button
                 type="button"
                 onClick={toggleSidebar}
@@ -770,6 +705,19 @@ export default function AgentRouterPage() {
                 <PanelLeft className="w-4 h-4" />
               </button>
             )}
+
+            {/* #930: agent creation lives here now — the duplicated sidebar
+                that used to host the create trigger was removed. */}
+            <button
+              type="button"
+              onClick={() => setDesignerOpen(true)}
+              className="btn btn-ghost btn-xs btn-circle text-base-content/70 hover:text-base-content"
+              title="New agent"
+              aria-label="New agent"
+              data-testid="agents-new-agent-button"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
 
             {/* Active Agent Info */}
             {selectedAgent && (
@@ -781,7 +729,7 @@ export default function AgentRouterPage() {
                       label="name"
                       value={selectedAgent.customName || selectedAgent.name}
                       onSave={(next) => renameAgent(selectedAgent.agent_id, next)}
-                      className="font-bold text-sm max-w-[12rem] sm:max-w-[16rem]"
+                      className="font-bold text-sm min-w-0"
                     />
                     <AgentStatusBadge status={agentStatus[selectedAgent.agent_id] || 'idle'} showText={false} />
                   </div>
@@ -789,9 +737,10 @@ export default function AgentRouterPage() {
                     label="purpose"
                     value={selectedAgent.customPurpose || selectedAgent.specialty}
                     onSave={(next) => setAgentPurpose(selectedAgent.agent_id, next)}
-                    className="text-xs text-base-content/60 max-w-[14rem] sm:max-w-[20rem]"
+                    className="text-xs text-base-content/60 min-w-0"
                   />
                 </div>
+                <div className="flex flex-wrap items-center gap-1 shrink-0" data-testid="agents-header-backends">
                 <BackendSelect
                   agent={selectedAgent}
                   value={backendValue}
@@ -813,6 +762,7 @@ export default function AgentRouterPage() {
                   remoteFramework={selectedAgent.framework || frameworkByAgent[selectedAgent.agent_id] || ''}
                   onRemoteFrameworkChange={(next) => setAgentFramework(selectedAgent.agent_id, next)}
                 />
+                </div>
                 {selectedAgent.framework === 'dsh' && (
                   <button
                     type="button"
@@ -950,6 +900,13 @@ export default function AgentRouterPage() {
                   }
                   onCompactToHere={() => handleCompactToHere(idx)}
                   onRegenerateSummary={(steer) => handleRegenerateSummary(idx, steer)}
+                  onSaveEdit={(text) => {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.key === msg.key ? { ...m, text, edited: true } : m,
+                      ),
+                    )
+                  }}
                   onResolveApproval={(status) => {
                     setMessages((prev) =>
                       prev.map((m) =>
@@ -998,6 +955,23 @@ export default function AgentRouterPage() {
               >
                 {sessionModeLabel(sessionMode)}
               </button>
+              {/* Routing strategy selector — re-homed here by #984. The
+                  deleted /agents sidebar used to host these pills; the
+                  redesigned TeamsSheet (#763) is a registry and no longer
+                  carries them, so the control is page-owned (#930 doctrine).
+                  A select (combobox) keeps the dock one control wide. */}
+              <select
+                value={routingStrategy}
+                onChange={(e) => setRoutingStrategy(e.target.value as RoutingStrategy)}
+                aria-label="Routing strategy"
+                title="Auto Route delegates per agent; Direct talks to the selection; Router decides; Consensus asks the panel"
+                className="btn btn-ghost btn-sm rounded-full border border-base-300/80 px-3 font-medium shrink-0"
+              >
+                <option value="auto_route">Auto Route</option>
+                <option value="direct">Direct</option>
+                <option value="router">Router</option>
+                <option value="consensus">Consensus</option>
+              </select>
               <div className="relative flex-1 min-w-0">
               <input
                 ref={inputRef}
@@ -1315,7 +1289,8 @@ export default function AgentRouterPage() {
           onCreated={async (agentId) => {
             setDesignerOpen(false)
             await refetchAgents()
-            selectAgent(agentId)
+            // #930: the rail (App shell) owns agent selection now — route there.
+            window.location.assign(`/chat?blueprint=${encodeURIComponent(agentId)}`)
           }}
         />
       )}

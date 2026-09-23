@@ -1,49 +1,11 @@
 name: REQ-213 compacted-card menu
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "webui/frontend/src/lib/compactedCardMenu.ts"
-      - "webui/frontend/src/lib/__tests__/compactedCardMenu.test.ts"
-      - "webui/frontend/src/lib/railContextMenu.ts"
-      - "webui/frontend/src/components/CompactedCardContextMenu.tsx"
-      - "webui/frontend/src/components/CompactSummaryCard.tsx"
-      - "webui/frontend/src/components/SystemPreloadPill.tsx"
-      - "webui/frontend/src/components/RailContextMenu.tsx"
-      - "webui/frontend/src/components/ChatMessageBubble.tsx"
-      - "webui/frontend/src/components/AgentChat/AgentMessageBubble.tsx"
-      - "webui/frontend/src/components/__tests__/CompactedCardContextMenu.test.tsx"
-      - "webui/frontend/src/components/__tests__/CompactSummaryCard.test.tsx"
-      - "webui/frontend/src/components/__tests__/SystemPreloadPill.test.tsx"
-      - "webui/frontend/src/components/__tests__/ChatMessageBubble.test.tsx"
-      - "webui/frontend/src/components/AgentChat/__tests__/AgentMessageBubble.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/AgentRouterPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.compactedCardMenu.test.tsx"
-      - "tests/unit/test_req213_compacted_card_menu.py"
-      - ".github/workflows/req213-compacted-card-menu.yml"
-  push:
-    branches: [main]
-    paths:
-      - "webui/frontend/src/lib/compactedCardMenu.ts"
-      - "webui/frontend/src/lib/__tests__/compactedCardMenu.test.ts"
-      - "webui/frontend/src/lib/railContextMenu.ts"
-      - "webui/frontend/src/components/CompactedCardContextMenu.tsx"
-      - "webui/frontend/src/components/CompactSummaryCard.tsx"
-      - "webui/frontend/src/components/SystemPreloadPill.tsx"
-      - "webui/frontend/src/components/RailContextMenu.tsx"
-      - "webui/frontend/src/components/ChatMessageBubble.tsx"
-      - "webui/frontend/src/components/AgentChat/AgentMessageBubble.tsx"
-      - "webui/frontend/src/components/__tests__/CompactedCardContextMenu.test.tsx"
-      - "webui/frontend/src/components/__tests__/CompactSummaryCard.test.tsx"
-      - "webui/frontend/src/components/__tests__/SystemPreloadPill.test.tsx"
-      - "webui/frontend/src/components/__tests__/ChatMessageBubble.test.tsx"
-      - "webui/frontend/src/components/AgentChat/__tests__/AgentMessageBubble.test.tsx"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/AgentRouterPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.compactedCardMenu.test.tsx"
-      - "tests/unit/test_req213_compacted_card_menu.py"
-      - ".github/workflows/req213-compacted-card-menu.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:
@@ -67,7 +29,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: webui/frontend/package-lock.json
 

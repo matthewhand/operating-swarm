@@ -2,6 +2,13 @@ import type { Agent, AvatarEyes, AvatarTheme, ChatMessage, DelegationEvent } fro
 import { AVATAR_EYES, AVATAR_THEMES } from '../types/agent'
 import { agentTypeOf } from './agent-types'
 import { isSupportAgent } from './starter-agents'
+import {
+  avatarsForFamily,
+  expandAvatarFamilies,
+  loadEnabledAvatarThemes,
+  uniqueAvatarFamilies,
+  type AvatarThemeChoice,
+} from './avatarTheme'
 
 export type SearchScope = 'all' | 'bots' | 'messages' | 'delegations'
 
@@ -138,14 +145,71 @@ function shuffleInPlace<T>(items: T[], random: () => number): T[] {
   return items
 }
 
-export function allAvatarLooks(): { theme: AvatarTheme; eyes: AvatarEyes }[] {
+/**
+ * Every body×eyes pair. Pass `themes` (the installed set) to build the deck from
+ * those packs only — assigning a look from a pack the operator never installed
+ * just stores a value `resolveAvatarTheme` then has to fall back from (#128).
+ */
+export function allAvatarLooks(
+  themes?: readonly AvatarTheme[],
+): { theme: AvatarTheme; eyes: AvatarEyes }[] {
+  // Installed families expand to their avatars (blobs → blobs; robots → ten
+  // bodies), so the deck is the installed set × eye styles.
+  const installed = themes?.length
+    ? expandAvatarFamilies(uniqueAvatarFamilies([...themes]))
+    : []
+  const pool = installed.length ? installed : AVATAR_THEMES.map((pack) => pack.id)
   const out: { theme: AvatarTheme; eyes: AvatarEyes }[] = []
-  for (const pack of AVATAR_THEMES) {
+  for (const theme of pool) {
     for (const eye of AVATAR_EYES) {
-      out.push({ theme: pack.id, eyes: eye.id })
+      out.push({ theme, eyes: eye.id })
     }
   }
   return out
+}
+
+/**
+ * #563: stamp every agent with the persisted default-theme choice. `mixed`
+ * deals unique looks from the enabled set (the pre-#563 "Apply" behaviour,
+ * REQ-842); a specific family stamps that family's first theme on every
+ * agent, preserving each agent's explicit per-agent pick (custom uploads win).
+ * Mutates nothing directly — callers commit the returned maps to the store.
+ */
+export function applyAvatarThemeChoice(
+  agentIds: string[],
+  choice: AvatarThemeChoice,
+  enabled: AvatarTheme[] = loadEnabledAvatarThemes(),
+  random: () => number = Math.random,
+): { themes: Record<string, AvatarTheme>; eyes: Record<string, AvatarEyes> } {
+  if (choice === 'mixed') {
+    return assignUniqueLooks(agentIds, {}, {}, { reassignAll: true, themes: enabled, random })
+  }
+  // Intersect the chosen family's themes with the installed set so a stale
+  // choice (family uninstalled after selection) cannot stamp a missing look.
+  // If the family is gone entirely, fall back to what IS installed.
+  const installedFamily = new Set(
+    expandAvatarFamilies([choice]).filter((t) => enabled.includes(t)),
+  )
+  const pool = installedFamily.size
+    ? [...installedFamily]
+    : enabled.length
+      ? [enabled[0]]
+      : avatarsForFamily(choice).map((a) => a.id)
+  const theme = pool[0]
+  if (!theme) return { themes: {}, eyes: {} }
+  const themes: Record<string, AvatarTheme> = {}
+  const eyes: Record<string, AvatarEyes> = {}
+  const deck = shuffleInPlace(
+    pool.flatMap((t) => allAvatarLooks([t]).map((look) => ({ theme: t, eyes: look.eyes }))),
+    random,
+  )
+  agentIds.forEach((id, i) => {
+    const pick = deck[i % deck.length]
+    if (!pick) return
+    themes[id] = pick.theme
+    eyes[id] = pick.eyes
+  })
+  return { themes, eyes }
 }
 
 /** Unique body+eyes pairs for each agent. Repeats only after the 60-combo deck is used. */
@@ -153,9 +217,10 @@ export function assignUniqueLooks(
   agentIds: string[],
   existingThemes: Record<string, AvatarTheme> = {},
   existingEyes: Record<string, AvatarEyes> = {},
-  opts?: { reassignAll?: boolean; random?: () => number },
+  opts?: { reassignAll?: boolean; random?: () => number; themes?: readonly AvatarTheme[] },
 ): { themes: Record<string, AvatarTheme>; eyes: Record<string, AvatarEyes> } {
   const random = opts?.random ?? Math.random
+  const pool = allAvatarLooks(opts?.themes)
   const themes: Record<string, AvatarTheme> = opts?.reassignAll ? {} : { ...existingThemes }
   const eyes: Record<string, AvatarEyes> = opts?.reassignAll ? {} : { ...existingEyes }
   const taken = new Set<string>()
@@ -163,11 +228,11 @@ export function assignUniqueLooks(
     if (themes[id] && eyes[id]) taken.add(`${themes[id]}:${eyes[id]}`)
   }
   const deck = shuffleInPlace(
-    allAvatarLooks().filter((look) => !taken.has(`${look.theme}:${look.eyes}`)),
+    pool.filter((look) => !taken.has(`${look.theme}:${look.eyes}`)),
     random,
   )
   let i = 0
-  const overflow = shuffleInPlace(allAvatarLooks(), random)
+  const overflow = shuffleInPlace(pool, random)
   for (const id of agentIds) {
     if (themes[id] && eyes[id]) continue
     const pick = deck[i] ?? overflow[i % overflow.length]

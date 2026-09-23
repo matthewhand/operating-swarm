@@ -79,3 +79,88 @@ describe('QueuedSendPane (REQ-90)', () => {
     expect(onDelete).toHaveBeenCalledWith('q1')
   })
 })
+
+// #198 — 80-char hover-reveal previews + enter-to-interrupt hint
+describe('QueuedSendPane (#198 preview + interrupt hint)', () => {
+  it('truncates previews to 80 chars with fade class and full text on hover', () => {
+    render(
+      <QueuedSendPane
+        rows={[row('q1', `${'x'.repeat(120)} tail`)]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+      />,
+    )
+    const text = screen.getByRole('button', { name: /x{20}/ })
+    expect(text).toHaveClass('is-truncated')
+    expect(text).toHaveAttribute('title', `${'x'.repeat(120)} tail`)
+    expect(text.textContent).toBe(`${'x'.repeat(80)}…`)
+  })
+
+  it('leaves short previews untouched', () => {
+    render(
+      <QueuedSendPane
+        rows={[row('q1', 'short and sweet')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+      />,
+    )
+    const text = screen.getByRole('button', { name: 'short and sweet' })
+    expect(text).not.toHaveClass('is-truncated')
+    expect(text.textContent).toBe('short and sweet')
+  })
+
+  it('shows the enter-to-interrupt hint on the top row only when interruptible', () => {
+    const props = {
+      rows: [row('q1', 'first'), row('q2', 'second')],
+      onChangeText: vi.fn(),
+      onDelete: vi.fn(),
+      onHoldIdsChange: vi.fn(),
+    }
+    const { rerender } = render(<QueuedSendPane {...props} />)
+    expect(screen.queryByTestId('queued-interrupt-hint')).toBeNull()
+    rerender(
+      <QueuedSendPane {...props} interruptible={true} />,
+    )
+    expect(screen.getAllByTestId('queued-interrupt-hint')).toHaveLength(1)
+  })
+
+  // #223 — "Clear all" affordance
+  it('hides Clear all for a single row and with no handler', () => {
+    const { rerender } = render(
+      <QueuedSendPane
+        rows={[row('q1', 'only row')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('queued-clear-all')).toBeNull()
+    rerender(
+      <QueuedSendPane
+        rows={[row('q1', 'first'), row('q2', 'second')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('queued-clear-all')).toBeNull()
+  })
+
+  it('Clear all invokes the handler once', () => {
+    const onClearAll = vi.fn()
+    render(
+      <QueuedSendPane
+        rows={[row('q1', 'first'), row('q2', 'second')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+        onClearAll={onClearAll}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('queued-clear-all'))
+    expect(onClearAll).toHaveBeenCalledTimes(1)
+  })
+})

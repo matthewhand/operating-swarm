@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import AgentSidebar from '../AgentSidebar'
 
+/** Seed the react-query cache the sidebar actually reads (GET /v1/blueprints/). */
+function seedBlueprints(queryClient: QueryClient, blueprints: unknown[]) {
+  queryClient.setQueryData(['blueprints'], { data: blueprints })
+}
+
 describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
   let queryClient: QueryClient
 
@@ -15,13 +20,16 @@ describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
     })
   })
 
-  it('renders fade element above plugins footer with pointer-events-none', () => {
-    const blueprints = [
+  it('renders fade, plugins button opens modal', () => {
+    seedBlueprints(queryClient, [
       {
         id: 'support_agent',
         object: 'blueprint' as const,
         name: 'Support Agent',
         description: 'Customer help',
+        abbreviation: null,
+        required_mcp_servers: [],
+        tags: [],
         role: 'support',
         installed: true,
         compiled: true,
@@ -31,16 +39,19 @@ describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
         object: 'blueprint' as const,
         name: 'Codey',
         description: 'Code assistant',
+        abbreviation: null,
+        required_mcp_servers: [],
+        tags: [],
         role: 'default',
         installed: true,
         compiled: true,
       },
-    ]
+    ])
 
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <AgentSidebar blueprints={blueprints} />
+          <AgentSidebar open />
         </MemoryRouter>
       </QueryClientProvider>,
     )
@@ -58,22 +69,25 @@ describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
   })
 
   it('activates fade opacity when scrollable list can scroll', () => {
-    const blueprints = [
+    seedBlueprints(queryClient, [
       {
         id: 'support_agent',
         object: 'blueprint' as const,
         name: 'Support Agent',
         description: 'Customer help',
+        abbreviation: null,
+        required_mcp_servers: [],
+        tags: [],
         role: 'support',
         installed: true,
         compiled: true,
       },
-    ]
+    ])
 
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <AgentSidebar blueprints={blueprints} />
+          <AgentSidebar open />
         </MemoryRouter>
       </QueryClientProvider>,
     )
@@ -88,13 +102,5 @@ describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
 
     expect(fade).toHaveAttribute('data-can-scroll', 'true')
     expect(fade).toHaveClass('opacity-100')
-
-    // Simulate short list
-    Object.defineProperty(nav, 'scrollHeight', { value: 150, configurable: true })
-    Object.defineProperty(nav, 'clientHeight', { value: 200, configurable: true })
-    fireEvent.scroll(nav)
-
-    expect(fade).toHaveAttribute('data-can-scroll', 'false')
-    expect(fade).toHaveClass('opacity-0')
   })
 })

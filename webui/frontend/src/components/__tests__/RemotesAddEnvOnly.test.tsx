@@ -59,9 +59,10 @@ describe('REQ-188A-5: Remotes Add must not post live api_key (env name only)', (
       expect(screen.getByText('No remotes configured yet.')).toBeInTheDocument()
     })
 
-    // Click "Add remote" button to open add form
+    // #573: "Add remote" opens the kind picker; picking a kind opens the form.
     const addBtn = screen.getByRole('button', { name: /Add remote/i })
     fireEvent.click(addBtn)
+    fireEvent.click(screen.getByTestId('remote-kind-omb'))
 
     // Verify "API key env (optional)" exists
     expect(screen.getByLabelText(/API key env/i)).toBeInTheDocument()
@@ -76,7 +77,10 @@ describe('REQ-188A-5: Remotes Add must not post live api_key (env name only)', (
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
         const url = String(input)
-        if (url.includes('/v1/remotes/') && init?.method === 'POST') {
+        // Only the create call is the subject here. #453 added a target list on
+        // pane mount, which POSTs to /v1/remotes/<id>/operate/ once a remote is
+        // added — capturing that would clobber the create payload.
+        if (url.includes('/v1/remotes/') && !url.includes('/operate/') && init?.method === 'POST') {
           postPayload = JSON.parse(String(init.body))
           return {
             ok: true,
@@ -118,9 +122,8 @@ describe('REQ-188A-5: Remotes Add must not post live api_key (env name only)', (
 
     const addBtn = screen.getByRole('button', { name: /Add remote/i })
     fireEvent.click(addBtn)
-
-    const kindSelect = screen.getByLabelText(/Kind/i)
-    fireEvent.change(kindSelect, { target: { value: 'omb' } })
+    // #573: kind is picked in the popup, not a select
+    fireEvent.click(screen.getByTestId('remote-kind-omb'))
 
     const envInput = screen.getByLabelText(/API key env/i)
     fireEvent.change(envInput, { target: { value: 'OMB_KEY_VAR' } })

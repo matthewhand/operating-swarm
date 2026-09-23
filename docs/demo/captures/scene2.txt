@@ -1,5 +1,5 @@
 $ # 1. run the zeus blueprint as a local CLI
-$ SWARM_TEST_MODE=1 uv run swarm-cli launch zeus --message "Plan a release: tests, changelog, tag"
+$ SWARM_TEST_MODE=1 uv run os-cli launch zeus --message "Plan a release: tests, changelog, tag"
 Launching 'zeus' with: /home/matthewh/.local/share/swarm/bin/zeus --message Plan a release: tests, changelog, tag
 --- zeus Output ---
 ╭────────────────────────────── Zeus Assistance ───────────────────────────────╮

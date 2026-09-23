@@ -5,6 +5,7 @@
  * showing a disabled grey lie. Delete is always last and danger-styled.
  */
 
+import { BUBBLE_THEME_LABELS, BUBBLE_THEMES } from './bubbleTheme'
 import { conversationIdForAgent, peekConversationIdForAgent } from './agentChat'
 import { loadAgentChatSessions } from './agentChatSessions'
 import {
@@ -18,7 +19,7 @@ import { teamThreadId } from './teamRosters'
 
 export const RAIL_LONG_PRESS_MS = 500
 
-export type RailMenuKind = 'api' | 'cli' | 'team' | 'remote' | 'blueprint'
+export type RailMenuKind = 'api' | 'cli' | 'team' | 'remote' | 'blueprint' | 'herdr'
 
 export type RailMenuItemId =
   | 'select-agent'
@@ -38,17 +39,24 @@ export type RailMenuItemId =
   | 'delete'
   | 'section-create'
   | 'section-rename'
+  | 'section-talk-lock'
   | 'section-move-up'
   | 'section-move-down'
   | 'section-delete'
   | 'expand'
   | 'collapse'
   | 'copy'
+  | 'include_context'
+  | 'exclude_context'
+  | 'bubble-theme'
 
 export interface RailMenuSubItemSpec {
   id: string
   label: string
   checked?: boolean
+  /** #497: draw a rule above this child so it does not read as one of the
+   *  destinations it follows (e.g. `New section` after the section list). */
+  dividerBefore?: boolean
 }
 
 export interface RailMenuItemSpec {
@@ -80,6 +88,10 @@ export interface RailMenuOptions {
   cliRunning?: boolean
   /** REQ-209: existing sections for the Move to submenu. */
   moveTo?: RailMenuMoveTo
+  /** #724: the agent's current bubble-theme override (for the check mark). */
+  bubbleTheme?: string
+  /** #724: the chat-wide default, so 'Default (x)' can be labelled honestly. */
+  bubbleThemeDefault?: string
 }
 
 const CLI_NO_PROFILE = 'CLI agents have no swarm-owned profile'
@@ -108,6 +120,7 @@ export function railMenuItems(opts: RailMenuOptions): RailMenuItemSpec[] {
     items.push({ id: 'pin', label: 'Pin', group: 1 })
   }
   items.push(moveToMenuItem(opts.moveTo))
+  items.push(bubbleThemeMenuItem(opts.bubbleTheme, opts.bubbleThemeDefault))
   items.push({
     id: 'unread',
     label: opts.unread ? 'Mark as read' : 'Mark as unread',
@@ -186,6 +199,8 @@ export function moveToMenuItem(moveTo?: RailMenuMoveTo): RailMenuItemSpec {
   children.push({
     id: NEW_SECTION_TARGET,
     label: NEW_SECTION_PLACEHOLDER,
+    // #497: 'New section' is an action, not a destination — separate it.
+    dividerBefore: true,
   })
   return {
     id: 'move-to',
@@ -195,13 +210,53 @@ export function moveToMenuItem(moveTo?: RailMenuMoveTo): RailMenuItemSpec {
   }
 }
 
+/**
+ * #724: per-agent bubble-theme picker as a rail submenu. 'Default (x)' is the
+ * honest no-override entry; the rest are the registered themes from
+ * BUBBLE_THEMES. Dispatch happens in AgentSidebar via setAgentBubbleTheme.
+ */
+export function bubbleThemeMenuItem(
+  current?: string,
+  defaultTheme?: string,
+): RailMenuItemSpec {
+  const children: RailMenuSubItemSpec[] = [
+    {
+      id: '__default__',
+      label: `Default${defaultTheme ? ` (${defaultTheme})` : ''}`,
+      checked: !current,
+    },
+  ]
+  // Registry order (bubbleThemes.ts) — no hardcoded theme list here.
+  for (const theme of BUBBLE_THEMES) {
+    children.push({
+      id: theme,
+      label: BUBBLE_THEME_LABELS[theme] ?? theme,
+      checked: current === theme,
+    })
+  }
+  return {
+    id: 'bubble-theme',
+    label: 'Bubble theme',
+    group: 1,
+    children,
+  }
+}
+
 export function sectionMenuItems(opts: {
   canMoveUp: boolean
   canMoveDown: boolean
+  internalOnly?: boolean
 }): RailMenuItemSpec[] {
   return [
     { id: 'section-create', label: 'New section', group: 0 },
     { id: 'section-rename', label: 'Rename', group: 0 },
+    {
+      // #828: awareness-first framing — the padlock read as security locking;
+      // the toggle is about whether section peers know about each other.
+      id: 'section-talk-lock',
+      label: opts.internalOnly ? 'Enable inter-agent awareness' : 'Isolate members (no peer awareness)',
+      group: 0,
+    },
     {
       id: 'section-move-up',
       label: 'Move up',
@@ -269,7 +324,7 @@ export function copyableConversationId(
     const existing = peekStoredConversationId(id)
     if (existing) return existing
   }
-  if (kind === 'cli' || kind === 'remote') return null
+  if (kind === 'cli' || kind === 'remote' || kind === 'herdr') return null
   if (kind === 'team') return teamThreadId(entityId.replace(/^team:/, ''))
   return conversationIdForAgent(entityId || railId)
 }
@@ -277,4 +332,24 @@ export function copyableConversationId(
 export function duplicateName(name: string): string {
   const trimmed = name.trim() || 'Agent'
   return `${trimmed} copy`
+}
+
+/**
+ * Generate a unique remote id for duplication, maintaining kind compatibility.
+ * e.g. trueforge -> trueforge_copy -> trueforge_copy_2
+ */
+export function duplicateRemoteId(sourceId: string, existingIds: Iterable<string>): string {
+  const existing = new Set<string>()
+  for (const id of existingIds) {
+    if (id) existing.add(id.toLowerCase().trim())
+  }
+  const cleanSource = (sourceId || 'remote').replace(/^remote:/, '').toLowerCase().trim()
+  const root = cleanSource.replace(/_copy(_\d+)?$/, '')
+  let candidate = `${root}_copy`
+  if (!existing.has(candidate)) return candidate
+  let index = 2
+  while (existing.has(`${root}_copy_${index}`)) {
+    index++
+  }
+  return `${root}_copy_${index}`
 }

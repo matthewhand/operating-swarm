@@ -4,7 +4,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { MessageSquareOff } from 'lucide-react'
+import { DisclosureChevron } from './DisclosureChevron'
 import {
   EMPTY_SECTION_HINT,
   NEW_SECTION_PLACEHOLDER,
@@ -17,10 +18,12 @@ export interface RailSectionHeaderProps {
   count: number
   collapsed: boolean
   custom: boolean
+  internalOnly?: boolean
   editing: boolean
   editValue: string
   dropActive?: boolean
   onToggle: () => void
+  onToggleTalkLock?: () => void
   onContextMenu?: (event: { clientX: number; clientY: number }) => void
   onEditChange: (value: string) => void
   onEditCommit: () => void
@@ -35,10 +38,12 @@ export default function RailSectionHeader({
   count,
   collapsed,
   custom,
+  internalOnly,
   editing,
   editValue,
   dropActive,
   onToggle,
+  onToggleTalkLock,
   onContextMenu,
   onEditChange,
   onEditCommit,
@@ -76,6 +81,7 @@ export default function RailSectionHeader({
       data-section-id={sectionId}
       data-custom={custom ? 'true' : 'false'}
       data-collapsed={collapsed ? 'true' : 'false'}
+      data-internal-only={internalOnly ? 'true' : 'false'}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onContextMenu={custom ? openMenu : undefined}
@@ -103,43 +109,58 @@ export default function RailSectionHeader({
           }}
         />
       ) : (
-        <button
-          type="button"
-          className="os-rail-section-header__btn"
-          aria-expanded={!collapsed}
-          aria-label={
-            collapsed
-              ? `Expand ${displayName} (${count})`
-              : `Collapse ${displayName} (${count})`
-          }
-          onClick={onToggle}
-          onKeyDown={(event) => {
-            if (custom && isRailMenuKey(event)) openMenu(event)
-          }}
-        >
-          <span className="os-rail-section-name" data-testid="rail-section-name">
-            {displayName}
-          </span>
-          <span className="os-rail-section-tail" data-testid="rail-section-tail">
-            <span
-              className="os-rail-section-count inline group-hover/section:hidden"
-              data-testid="rail-section-count"
-            >
-              {count}
+        <>
+          <button
+            type="button"
+            className="os-rail-section-header__btn"
+            aria-expanded={!collapsed}
+            aria-label={
+              collapsed
+                ? `Expand ${displayName} (${count})`
+                : `Collapse ${displayName} (${count})`
+            }
+            onClick={onToggle}
+            onKeyDown={(event) => {
+              if (custom && isRailMenuKey(event)) openMenu(event)
+            }}
+          >
+            <span className="os-rail-section-name" data-testid="rail-section-name">
+              {displayName}
             </span>
-            <span
-              className="os-rail-section-toggle hidden group-hover/section:inline"
-              aria-hidden="true"
-              data-testid="rail-section-toggle"
-            >
-              {collapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
+            <span className="os-rail-section-tail" data-testid="rail-section-tail">
+              {custom && internalOnly ? (
+                <button
+                  type="button"
+                  className="os-rail-section-lock"
+                  data-testid="rail-section-awareness-toggle"
+                  aria-pressed={true}
+                  aria-label="Inter-agent awareness off — members isolated"
+                  title="Awareness off — members operate in isolation, unaware of section peers"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onToggleTalkLock?.()
+                  }}
+                >
+                  <MessageSquareOff className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              ) : null}
+              <span
+                className="os-rail-section-count inline group-hover/section:hidden"
+                data-testid="rail-section-count"
+              >
+                {count}
+              </span>
+              <span
+                className="os-rail-section-toggle hidden group-hover/section:inline"
+                aria-hidden="true"
+                data-testid="rail-section-toggle"
+              >
+                <DisclosureChevron expanded={!collapsed} className="h-3.5 w-3.5" />
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+        </>
       )}
     </div>
   )
@@ -149,19 +170,25 @@ export function RailSectionEmpty({
   dropActive,
   onDragOver,
   onDrop,
+  unassigned,
 }: {
   dropActive?: boolean
   onDragOver?: (event: React.DragEvent) => void
   onDrop?: (event: React.DragEvent) => void
+  /** #781: the Unassigned pool is a distinct drop target — named, and never
+      styled like the destructive Delete bin. */
+  unassigned?: boolean
 }) {
   return (
     <div
-      className={`os-rail-section-empty ${dropActive ? 'os-rail-section-empty--drop' : ''}`}
+      className={`os-rail-section-empty ${dropActive ? 'os-rail-section-empty--drop' : ''} ${
+        unassigned ? 'os-rail-section-empty--unassigned' : ''
+      }`}
       data-testid="rail-section-empty"
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      {EMPTY_SECTION_HINT}
+      {unassigned ? 'Unassigned — drop to move here' : EMPTY_SECTION_HINT}
     </div>
   )
 }

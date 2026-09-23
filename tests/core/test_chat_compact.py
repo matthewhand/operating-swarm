@@ -7,6 +7,8 @@ No Neon, no secrets.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
@@ -21,6 +23,7 @@ from swarm.core.chat_compact import (
     llm_summarize_items,
     resolve_compact_model,
     summarize_items,
+    summary_to_dict,
 )
 from swarm.models import ChatConversation, ChatMessage, ConversationSummary
 
@@ -432,3 +435,267 @@ def test_resolve_compact_model_missing_is_honest(monkeypatch):
         resolve_compact_model("jeeves")
     assert "No default LLM" in str(exc.value)
     assert exc.value.status == 400
+
+
+# ------------------------------------------------------------ #214 include_in_context
+
+
+def _summary_row(cid: str, start: int, end: int, *, include: bool = True, parent=None, user=None):
+    ChatConversation.objects.get_or_create(conversation_id=cid, defaults={"student": user})
+    return ConversationSummary.objects.create(
+        conversation_id=cid,
+        span={"start": start, "end": end},
+        body=f"summary of {start}..{end}",
+        include_in_context=include,
+        parent_summary=parent,
+    )
+
+
+@pytest.mark.django_db
+def test_excluded_summary_is_omitted_and_span_stays_archived(user):
+    """#214 core contract: unticked summary drops out of context AND its
+    summarised raw turns do not silently reappear."""
+    cid = "conv-214-exclude"
+    messages = _turns(
+        ("user", "old question"),
+        ("assistant", "old answer"),
+        ("user", "new question"),
+    )
+    row = _summary_row(cid, 0, 1, include=False, user=user)
+
+    context = build_model_context(messages, [row])
+    rendered = [str(item.get("content", "")) for item in context]
+    assert not any("summary of 0..1" in text for text in rendered)
+    assert not any("old answer" in text for text in rendered)
+    assert any("new question" in text for text in rendered)
+
+
+@pytest.mark.django_db
+def test_included_summary_keeps_current_behavior(user):
+    cid = "conv-214-include"
+    messages = _turns(("user", "old question"), ("assistant", "old answer"))
+    row = _summary_row(cid, 0, 1, include=True, user=user)
+    context = build_model_context(messages, [row])
+    joined = "\n".join(str(item.get("content", "")) for item in context)
+    assert "summary of 0..1" in joined
+    assert "old answer" not in joined
+
+
+def test_rows_without_flag_default_to_included():
+    """Legacy fakes / rows lacking the attribute behave as today."""
+
+    class FakeRow:
+        id = 7
+        span = {"start": 0, "end": 1}
+        body = "legacy"
+        parent_summary_id = None
+
+    messages = _turns(("user", "old"), ("assistant", "old reply"))
+    context = build_model_context(messages, [FakeRow()])
+    joined = "\n".join(str(item.get("content", "")) for item in context)
+    assert "legacy" in joined
+    assert "old reply" not in joined
+
+
+@pytest.mark.django_db
+def test_excluded_parent_excludes_nested_child(user):
+    cid = "conv-214-nested"
+    parent = _summary_row(cid, 0, 3, include=False, user=user)
+    child = _summary_row(cid, 1, 2, include=True, parent=parent, user=user)
+    messages = _turns(("user", "a"), ("assistant", "b"), ("user", "c"), ("user", "later"))
+    context = build_model_context(messages, [parent, child])
+    joined = "\n".join(str(item.get("content", "")) for item in context)
+    assert "summary of 0..3" not in joined
+    assert "summary of 1..2" not in joined  # nested inside excluded parent
+    assert "later" in joined
+
+
+@pytest.mark.django_db
+def test_summary_to_dict_includes_flag(user):
+    row = _summary_row("conv-214-dict", 0, 1, include=False, user=user)
+    data = summary_to_dict(row)
+    assert data["include_in_context"] is False
+    row.include_in_context = True
+    assert summary_to_dict(row)["include_in_context"] is True
+
+
+@pytest.mark.django_db
+def test_toggle_endpoint_updates_flag(client, user):
+    row = _summary_row("conv-214-toggle", 0, 1, include=True, user=user)
+    response = client.post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": row.id, "include_in_context": False}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    row.refresh_from_db()
+    assert row.include_in_context is False
+    assert response.json()["summary"]["include_in_context"] is False
+
+
+@pytest.mark.django_db
+def test_toggle_endpoint_validates(client, user):
+    row = _summary_row("conv-214-validate", 0, 1, user=user)
+    # non-boolean
+    response = client.post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": row.id, "include_in_context": "yes"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    # unknown summary → honest 404
+    response = client.post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": 999999, "include_in_context": True}),
+        content_type="application/json",
+    )
+    assert response.status_code == 404
+    row.refresh_from_db()
+    assert row.include_in_context is True
+
+
+@pytest.mark.django_db
+def test_toggle_endpoint_requires_login():
+    from django.test import Client as DjangoClient
+
+    response = DjangoClient().post(
+        "/chat/summary/toggle-context/",
+        json.dumps({"summary_id": 1, "include_in_context": False}),
+        content_type="application/json",
+    )
+    assert response.status_code in (302, 401, 403)
+# --- #224: raw-context view (what the model actually sees) -------------------
+
+
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("stub_compact_llm")
+def test_raw_context_returns_honest_model_context(client, user):
+    cid = "conv-raw-ctx"
+    messages = _turns(
+        ("user", "alpha question"),
+        ("assistant", "alpha answer"),
+        ("user", "beta question"),
+    )
+    _seed_json(user, "jeeves", messages, cid)
+    row, raw = compact_backlog(
+        user=user,
+        conversation_id=cid,
+        agent_id="jeeves",
+        messages=messages,
+        span_end=1,
+    )
+    assert raw is not None
+
+    resp = client.get(f"/chat/raw-context/?agent=jeeves&conversation_id={cid}")
+    assert resp.status_code == 200
+    body = resp.json()
+    # Summarized span is spliced out; the uncovered turn stays raw.
+    assert any(
+        item["role"] == "system" and "alpha question" not in item["content"]
+        for item in body["context"]
+    )
+    assert any(item.get("content") == "beta question" for item in body["context"])
+    assert body["summaries_included"] == [row.id]
+    assert body["summaries_excluded"] == []
+    assert body["raw_turn_count"] == len(messages)
+    # Raw transcript untouched — the raw view is read-only.
+    loaded = chat_store.load(chat_store.user_key_for(user), "jeeves")
+    assert loaded is not None
+    assert [m["content"] for m in loaded["messages"]] == [m["content"] for m in messages]
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("stub_compact_llm")
+def test_raw_context_marks_excluded_summaries(client, user):
+    from swarm.models import ConversationSummary
+
+    cid = "conv-raw-ctx-excl"
+    messages = _turns(("user", "old stuff"), ("assistant", "old reply"))
+    _seed_json(user, "jeeves", messages, cid)
+    compact_backlog(user=user, conversation_id=cid, agent_id="jeeves", messages=messages)
+
+    summary_row = ConversationSummary.objects.get(conversation_id=cid)
+    summary_row.include_in_context = False
+    summary_row.save(update_fields=["include_in_context"])
+
+    resp = client.get(f"/chat/raw-context/?agent=jeeves&conversation_id={cid}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["summaries_excluded"] == [summary_row.id]
+    assert body["summaries_included"] == []
+    # #230 semantics: an excluded summary keeps its span ARCHIVED — the
+    # summary drops out AND its summarised raw turns do not reappear.
+    assert not any(item.get("content") == "old stuff" for item in body["context"])
+    assert not any(item.get("content") == "old reply" for item in body["context"])
+
+
+@pytest.mark.django_db
+def test_raw_context_requires_login():
+    resp = Client().get("/chat/raw-context/?agent=jeeves&conversation_id=x")
+    assert resp.status_code in (302, 403)
+
+
+@pytest.mark.django_db
+def test_raw_context_requires_conversation_id(client):
+    resp = client.get("/chat/raw-context/?agent=jeeves")
+    assert resp.status_code == 400
+
+
+def test_resolve_compact_model_uses_dedicated_compaction_override(monkeypatch):
+    monkeypatch.setattr(
+        "swarm.core.llm_task_routing.load_swarm_config",
+        lambda: {
+            "blueprints": {"jeeves": {"llm_profile": "jeeves-expensive"}},
+            "llm": {
+                "jeeves-expensive": {"model": "claude-3-7-sonnet"},
+                "compact-custom": {"model": "qwen2.5-72b-128k"},
+            },
+            "settings": {
+                "default_llm_profile": "jeeves-expensive",
+                "override_per_task": True,
+                "task_llm_profiles": {"compaction": "compact-custom"},
+            },
+        },
+    )
+    assert resolve_compact_model("jeeves") == "qwen2.5-72b-128k"
+
+
+def test_resolve_compact_model_uses_env_overrides(monkeypatch):
+    monkeypatch.setenv("SWARM_COMPACTION_MODEL", "swarm-compact-128k")
+    monkeypatch.setattr(
+        "swarm.core.llm_task_routing.load_swarm_config",
+        lambda: {
+            "blueprints": {"jeeves": {"llm_profile": "jeeves-expensive"}},
+            "llm": {"jeeves-expensive": {"model": "claude-3-7-sonnet"}},
+            "settings": {"default_llm_profile": "default"},
+        },
+    )
+    assert resolve_compact_model("jeeves") == "swarm-compact-128k"
+
+    monkeypatch.delenv("SWARM_COMPACTION_MODEL", raising=False)
+    monkeypatch.setenv("AUXILIARY_LLM_MODEL", "aux-compact-model")
+    assert resolve_compact_model("jeeves") == "aux-compact-model"
+
+
+def test_validate_compaction_context_window():
+    from swarm.core.chat_compact import validate_compaction_context_window
+
+    ok, warn = validate_compaction_context_window("unknown-model")
+    assert ok is True
+    assert warn is None
+
+    config = {
+        "llm": {
+            "tiny-window": {"model": "tiny-model", "context_length": 4096},
+            "large-window": {"model": "large-model", "context_length": 131072},
+        }
+    }
+    ok, warn = validate_compaction_context_window("tiny-window", config=config, min_tokens=32768)
+    assert ok is False
+    assert "is less than recommended minimum" in warn
+
+    ok, warn = validate_compaction_context_window("large-window", config=config, min_tokens=32768)
+    assert ok is True
+    assert warn is None

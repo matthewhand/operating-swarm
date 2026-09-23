@@ -11,7 +11,8 @@ AGENT_SIDEBAR_JS = REPO_ROOT / "src" / "swarm" / "static" / "js" / "agent_sideba
 
 def test_agent_sidebar_tsx_has_hidden_bots_row_and_swap():
     tsx = AGENT_SIDEBAR_TSX.read_text(encoding="utf-8")
-    assert "Hidden Bots" in tsx
+    # Terminology: the row reads 'Hidden Agents' (#873) — same chrome contract.
+    assert "Hidden Agents" in tsx
     assert "os-hidden-bots-row" in tsx
     assert "os-hidden-bots-label" in tsx
     assert "os-hidden-bots-tail" in tsx

@@ -25,6 +25,10 @@ export interface MailboxAclEditorProps {
 /**
  * Per-agent (or per-role) whitelist XOR blacklist for list_agents / send_message.
  * Support defaults to whitelist everything. DaisyUI 5 + React 18.
+ *
+ * #545: the stored mode values stay `whitelist`/`blacklist` (they are the wire and
+ * persisted contract), but the UI no longer uses that jargon. The user-facing
+ * question is "permitted or denied", so that is what the control says.
  */
 export default function MailboxAclEditor({ agentId, role }: MailboxAclEditorProps) {
   const modeToggleId = useId()
@@ -120,12 +124,12 @@ export default function MailboxAclEditor({ agentId, role }: MailboxAclEditorProp
       data-testid="mailbox-acl-editor"
     >
       <div>
-        <h3 className="text-sm font-semibold text-base-content/80">Mailbox visibility</h3>
+        <h3 className="text-sm font-semibold text-base-content/80">Who this seat may message</h3>
         <p className="text-xs text-base-content/60 mt-0.5">
-          Who this seat may <code>list_agents</code> / <code>send_message</code>. Toggle
-          whitelist or blacklist. Entries target an <strong>agent</strong> id, a{' '}
-          <strong>team</strong> roster, or a <strong>role</strong>. Support is whitelist
-          everything by default.
+          Controls <code>list_agents</code> and <code>send_message</code>. Choose whether the
+          filter <strong>permits</strong> the entries below or <strong>denies</strong> them.
+          Entries target an <strong>agent</strong> id, a <strong>team</strong> roster, or a{' '}
+          <strong>role</strong>. With no entries, everyone same-kind is permitted.
         </p>
       </div>
 
@@ -158,29 +162,32 @@ export default function MailboxAclEditor({ agentId, role }: MailboxAclEditorProp
         htmlFor={modeToggleId}
         className="label cursor-pointer items-center justify-between gap-4 rounded-box border border-base-300 bg-base-100/70 px-3 py-2"
       >
-        <span className="label-text text-sm font-semibold">
-          {acl.mode === 'whitelist' ? 'Whitelist' : 'Blacklist'}
-        </span>
+        <span className="label-text text-sm font-semibold">Filter</span>
         <span className="flex items-center gap-2 text-xs text-base-content/60">
-          White
+          <span className={acl.mode === 'whitelist' ? 'text-base-content font-semibold' : undefined}>
+            Permitted
+          </span>
           <input
             id={modeToggleId}
             type="checkbox"
             className="toggle toggle-primary toggle-sm"
             role="switch"
-            aria-label="Toggle whitelist or blacklist"
+            aria-label="Filter the entries below: permitted or denied"
             checked={acl.mode === 'blacklist'}
             disabled={!targetId || busy}
             onChange={(event) => toggleMode(event.target.checked ? 'blacklist' : 'whitelist')}
           />
-          Black
+          <span className={acl.mode === 'blacklist' ? 'text-base-content font-semibold' : undefined}>
+            Denied
+          </span>
         </span>
       </label>
 
       {supportDefault ? (
         <p className="text-xs text-base-content/70" data-testid="mailbox-acl-allow-all">
-          Support allow-all: every same-kind peer is visible until you add a
-          whitelist entry or switch to blacklist.
+          Open to everyone: every same-kind peer is visible until you add a
+          <strong>Permitted</strong> entry (which narrows it to those listed) or switch the
+          filter to <strong>Denied</strong>.
         </p>
       ) : null}
 

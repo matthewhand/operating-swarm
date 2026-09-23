@@ -4,11 +4,45 @@ import {
   RAIL_MENU_REASONS,
   copyableConversationId,
   duplicateName,
+  duplicateRemoteId,
   isRailMenuKey,
+  moveToMenuItem,
   railMenuItems,
   sectionMenuItems,
 } from '../railContextMenu'
 import { NEW_SECTION_TARGET, UNASSIGNED_SECTION_ID } from '../railSections'
+
+describe('#497 moveToMenuItem grouping', () => {
+  it('marks only New section as separated from the destinations', () => {
+    const item = moveToMenuItem({
+      sections: [
+        { id: 'sec_a', name: 'alpha' },
+        { id: 'sec_b', name: 'beta' },
+      ],
+      currentSectionId: 'sec_a',
+    })
+    const children = item.children ?? []
+
+    expect(children.map((child) => child.id)).toEqual([
+      'sec_a',
+      'sec_b',
+      UNASSIGNED_SECTION_ID,
+      NEW_SECTION_TARGET,
+    ])
+    // Destinations carry no rule; the action that follows them does.
+    expect(children.slice(0, 3).every((child) => !child.dividerBefore)).toBe(true)
+    expect(children[3].dividerBefore).toBe(true)
+  })
+
+  it('still separates New section when there are no custom sections', () => {
+    const children = moveToMenuItem()?.children ?? []
+    expect(children.map((child) => child.id)).toEqual([
+      UNASSIGNED_SECTION_ID,
+      NEW_SECTION_TARGET,
+    ])
+    expect(children[1].dividerBefore).toBe(true)
+  })
+})
 
 describe('railMenuItems (REQ-82)', () => {
   const base = {
@@ -22,6 +56,7 @@ describe('railMenuItems (REQ-82)', () => {
     expect(unpinned.map((item) => item.id)).toEqual([
       'pin',
       'move-to',
+      'bubble-theme',
       'unread',
       'edit',
       'duplicate',
@@ -44,6 +79,7 @@ describe('railMenuItems (REQ-82)', () => {
     expect(items.map((item) => item.id)).toEqual([
       'pin',
       'move-to',
+      'bubble-theme',
       'unread',
       'copy-id',
       'terminate',
@@ -152,6 +188,14 @@ describe('copyableConversationId / isRailMenuKey', () => {
   it('appends copy to a display name', () => {
     expect(duplicateName('Codey')).toBe('Codey copy')
   })
+
+  it('generates unique non-colliding remote IDs preserving kind prefix', () => {
+    expect(duplicateRemoteId('trueforge', ['trueforge'])).toBe('trueforge_copy')
+    expect(duplicateRemoteId('trueforge', ['trueforge', 'trueforge_copy'])).toBe('trueforge_copy_2')
+    expect(duplicateRemoteId('trueforge_copy', ['trueforge', 'trueforge_copy'])).toBe('trueforge_copy_2')
+    expect(duplicateRemoteId('trueforge_copy_2', ['trueforge', 'trueforge_copy', 'trueforge_copy_2'])).toBe('trueforge_copy_3')
+    expect(duplicateRemoteId('remote:omb', ['omb'])).toBe('omb_copy')
+  })
 })
 
 describe('railMenuItems Move to (REQ-209)', () => {
@@ -193,15 +237,22 @@ describe('railMenuItems Move to (REQ-209)', () => {
 })
 
 describe('sectionMenuItems (REQ-209)', () => {
-  it('lists New section, Rename, Move up/down, and danger Delete last', () => {
+  it('lists New section, Rename, talk lock, Move up/down, and danger Delete last', () => {
     const items = sectionMenuItems({ canMoveUp: false, canMoveDown: true })
     expect(items.map((item) => item.id)).toEqual([
       'section-create',
       'section-rename',
+      'section-talk-lock',
       'section-move-up',
       'section-move-down',
       'section-delete',
     ])
+    expect(items.find((item) => item.id === 'section-talk-lock')?.label).toBe(
+      'Isolate members (no peer awareness)',
+    )
+    expect(sectionMenuItems({ canMoveUp: true, canMoveDown: true, internalOnly: true }).find(
+      (item) => item.id === 'section-talk-lock',
+    )?.label).toBe('Enable inter-agent awareness')
     expect(items.find((item) => item.id === 'section-move-up')?.disabled).toBe(true)
     expect(items.at(-1)).toMatchObject({ id: 'section-delete', danger: true, label: 'Delete' })
   })

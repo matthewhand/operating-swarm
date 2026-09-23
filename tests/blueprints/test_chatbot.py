@@ -95,6 +95,29 @@ async def test_uses_latest_turn_in_multiturn():
     assert _final_content(chunks) == "You said: second"
 
 
+async def test_test_mode_echoes_multimodal_text_not_filename_only():
+    bp = ChatbotBlueprint(blueprint_id="chatbot")
+    chunks = await _collect(
+        bp.run(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "what colour is the square"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abc"},
+                        },
+                    ],
+                }
+            ]
+        )
+    )
+    final = _final_content(chunks)
+    assert final == "You said: what colour is the square"
+    assert "Attached" not in final
+
+
 async def test_does_not_leak_spinner_text():
     # Guards the regression the API smoke matrix protects against.
     bp = ChatbotBlueprint(blueprint_id="chatbot")
