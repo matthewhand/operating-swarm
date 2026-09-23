@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 
 def test_req192_chat_transcript_classes_and_tighter_margins():
     repo_root = Path(__file__).resolve().parents[2]
@@ -9,7 +11,8 @@ def test_req192_chat_transcript_classes_and_tighter_margins():
     assert chat_page_tsx.exists()
     assert index_css.exists()
 
-    tsx_content = chat_page_tsx.read_text(encoding="utf-8")
+    # #856 slice M: the os-chat-transcript container lives in ChatTranscriptShell.
+    tsx_content = chat_surface()
     css_content = index_css.read_text(encoding="utf-8")
 
     # Verifies transcript container uses tightened padding and os-chat-transcript class
