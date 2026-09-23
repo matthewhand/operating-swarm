@@ -114,9 +114,6 @@ import {
   FOCUS_AGENT_EVENT,
   NOTIFY_CHANGED_EVENT,
   chatHrefForRowId,
-  disableAgentNotify,
-  enableAgentNotifications,
-  isAgentNotifyEnabled,
   loadNotifyAgentIds,
   maybeNotifyAgentTurn,
 } from '../lib/agentNotifications'
@@ -153,8 +150,6 @@ import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
 import {
   agentBubbleThemeOverrides,
   loadBubbleTheme,
-  setAgentBubbleTheme,
-  type BubbleTheme,
 } from '../lib/bubbleTheme'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId,   } from '../lib/teamRosters'
@@ -213,18 +208,12 @@ import {
   type RailMenuKind,
 } from '../lib/railContextMenu'
 import {
-  NEW_SECTION_TARGET,
-  createSection,
-  createSectionWithAgent,
-  deleteSection,
   isUnassignedSection,
   loadRailSections,
   railSectionsHasContent,
   moveAgentToSection,
-  moveSection,
   partitionRowsBySection,
   removeSectionMembership,
-  renameSection,
   sectionIdForAgent,
   toggleSectionCollapsed,
   toggleSectionInternalOnly,
@@ -299,6 +288,7 @@ import {
   toSidebarDynamic,
   toSidebarHerdr,
 } from '../features/sidebar/rows'
+import { useRailMenuCommands } from '../features/sidebar/useRailMenuCommands'
 import { useRailSessionCommands } from '../features/sidebar/useRailSessionCommands'
 import { useRailResize } from './sidebar/useRailResize'
 import type { AgentKind } from './AddAgentWizard'
@@ -1111,197 +1101,51 @@ export default function AgentSidebar({
     return undefined
   }, [updateCanScroll, orderedRows.length, visiblePins.length])
 
-  const closeMenu = useCallback(() => {
-    setMenu(null)
-    setSectionMenu(null)
-    setPaneMenu(null)
-  }, [])
-
-  const commitSectionRename = useCallback(() => {
-    if (!editingSectionId) return
-    setSectionState((current) => renameSection(current, editingSectionId, editingSectionName))
-    setEditingSectionId(null)
-    setEditingSectionName('')
-  }, [editingSectionId, editingSectionName])
-
-  const cancelSectionRename = useCallback(() => {
-    setEditingSectionId(null)
-    setEditingSectionName('')
-  }, [])
-
-  const startSectionRename = useCallback((sectionId: string, name: string) => {
-    setEditingSectionId(sectionId)
-    setEditingSectionName(name)
-    setSectionMenu(null)
-  }, [])
-
-  const handleMoveTo = useCallback(
-    (agentId: string, target: string) => {
-      if (!agentId) return
-      // #801: a pinned agent moved to a section must LEAVE the pin grid —
-      // excludePinnedFromList strips pinned ids from the section lists, so
-      // keeping the pin would park the agent in limbo (membership set, row
-      // rendered nowhere). Unpinning matches drag-to-section behavior.
-      const wasPinned = isPinnedId(agentId)
-      if (wasPinned) {
-        setPins((current) =>
-          current.some((pin) => pin.id === agentId) ? unpinAgent(agentId, current) : current,
-        )
-      }
-      if (target === NEW_SECTION_TARGET) {
-        const created = createSectionWithAgent(sectionState, agentId)
-        setSectionState(created.state)
-        startSectionRename(created.section.id, created.section.name)
-        closeMenu()
-        return
-      }
-      setSectionState((current) => moveAgentToSection(current, agentId, target))
-      closeMenu()
-    },
-    [closeMenu, sectionState, startSectionRename],
-  )
-
-  /** #724: dispatch the per-agent bubble-theme override from the rail menu. */
-  const handleBubbleTheme = useCallback(
-    (agentId: string, theme: string) => {
-      if (!agentId) return
-      setAgentBubbleTheme(agentId, theme === '__default__' ? null : (theme as BubbleTheme))
-      closeMenu()
-    },
-    [closeMenu],
-  )
-
-  const openSectionMenuAt = useCallback(
-    (sectionId: string, sectionName: string, clientX: number, clientY: number) => {
-      if (isUnassignedSection(sectionId)) return
-      const pad = 8
-      const width = 200
-      const height = 220
-      const x = Math.min(clientX, window.innerWidth - width - pad)
-      const y = Math.min(clientY, window.innerHeight - height - pad)
-      setMenu(null)
-      setSectionMenu({
-        sectionId,
-        sectionName,
-        x: Math.max(pad, x),
-        y: Math.max(pad, y),
-      })
-    },
-    [],
-  )
-
-  const handleSectionMenuSelect = useCallback(
-    (id: RailMenuItemId) => {
-      if (!sectionMenu) return
-      const { sectionId, sectionName } = sectionMenu
-      if (id === 'section-create') {
-        const created = createSection(sectionState)
-        setSectionState(created.state)
-        closeMenu()
-        startSectionRename(created.section.id, created.section.name)
-        return
-      }
-      if (id === 'section-rename') {
-        startSectionRename(sectionId, sectionName)
-        return
-      }
-      if (id === 'section-talk-lock') {
-        setSectionState((current) => toggleSectionInternalOnly(current, sectionId))
-        closeMenu()
-        return
-      }
-      if (id === 'section-move-up') {
-        setSectionState((current) => moveSection(current, sectionId, 'up'))
-        closeMenu()
-        return
-      }
-      if (id === 'section-move-down') {
-        setSectionState((current) => moveSection(current, sectionId, 'down'))
-        closeMenu()
-        return
-      }
-      if (id === 'section-delete') {
-        setSectionState((current) => deleteSection(current, sectionId))
-        if (editingSectionId === sectionId) cancelSectionRename()
-        closeMenu()
-      }
-    },
-    [cancelSectionRename, closeMenu, editingSectionId, sectionMenu, sectionState, startSectionRename],
-  )
-
-  // #172: right-click the rail background to create a fresh empty section.
-  // Drag any agent/pin onto its header to move it in (dropOnSection accepts
-  // both rows and pinned ids), so sections can group a "locked comms" roster.
-  const openPaneMenuAt = useCallback((clientX: number, clientY: number) => {
-    const pad = 8
-    const width = 200
-    const height = 160
-    const x = Math.min(clientX, window.innerWidth - width - pad)
-    const y = Math.min(clientY, window.innerHeight - height - pad)
-    setMenu(null)
-    setSectionMenu(null)
-    setPaneMenu({ x: Math.max(pad, x), y: Math.max(pad, y) })
-  }, [])
-
-  const handlePaneMenuSelect = useCallback(
-    (id: RailMenuItemId) => {
-      if (id !== 'section-create') return
-      const created = createSection(sectionState)
-      setSectionState(created.state)
-      closeMenu()
-      startSectionRename(created.section.id, created.section.name)
-    },
-    [closeMenu, sectionState, startSectionRename],
-  )
-
-  const toggleNotify = useCallback(
-    async (agentId: string) => {
-      if (!agentId) {
-        closeMenu()
-        return
-      }
-      if (isAgentNotifyEnabled(agentId, notifyIds)) {
-        setNotifyIds(disableAgentNotify(agentId, notifyIds))
-        closeMenu()
-        return
-      }
-      const result = await enableAgentNotifications(agentId)
-      setNotifyIds(result.ids)
-      closeMenu()
-      if (result.outcome !== 'granted') {
-        setNotifyHint({
-          agentId,
-          outcome: result.outcome,
-          requestFailed: result.requestFailed,
-        })
-      }
-    },
-    [closeMenu, notifyIds],
-  )
-
-  /** #546: re-ask. `never-asked` means the prompt did not appear, so it is worth
-   *  another attempt rather than a dead-end sentence. */
-  const retryNotifyPermission = useCallback(async () => {
-    if (!notifyHint) return
-    const result = await enableAgentNotifications(notifyHint.agentId)
-    setNotifyIds(result.ids)
-    if (result.outcome === 'granted') {
-      setNotifyHint(null)
-      return
-    }
-    setNotifyHint({
-      agentId: notifyHint.agentId,
-      outcome: result.outcome,
-      requestFailed: result.requestFailed,
-    })
-  }, [notifyHint])
-
   const openPalette = useCallback(() => {
     onOpenSearch?.()
     // #549: keep the palette's hidden universe in sync with the badge even when
     // the palette is opened from search rather than the Hidden Agents row.
     openSearchPalette({ hiddenIds: resolvedHiddenIds, hiddenRows: hiddenRailRows })
   }, [onOpenSearch, resolvedHiddenIds, hiddenRailRows])
+
+  const isPinnedId = (id: string | null | undefined) =>
+    Boolean(id && pins.some((pin) => pin.id === id))
+
+  // #856 slice 11: menu/section/notify commands live in the hook below; the
+  // menu states stay page-owned so the overlay JSX below is unchanged.
+  const railMenu = useRailMenuCommands({
+    menu,
+    sectionMenu,
+    paneMenu,
+    sectionState,
+    editingSectionId,
+    editingSectionName,
+    notifyIds,
+    notifyHint,
+    isPinnedId,
+    setMenu,
+    setSectionMenu,
+    setPaneMenu,
+    setSectionState,
+    setEditingSectionId,
+    setEditingSectionName,
+    setPins,
+    setNotifyIds,
+    setNotifyHint,
+  })
+  const {
+    closeMenu,
+    commitSectionRename,
+    cancelSectionRename,
+    handleMoveTo,
+    handleBubbleTheme,
+    openSectionMenuAt,
+    handleSectionMenuSelect,
+    openPaneMenuAt,
+    handlePaneMenuSelect,
+    toggleNotify,
+    retryNotifyPermission,
+  } = railMenu
 
   // #856 slice 10: session-picker commands live in the hook below; the
   // picker states stay page-owned so the overlay JSX below is unchanged.
@@ -1637,8 +1481,6 @@ export default function AgentSidebar({
   }, [draggingId])
 
 
-  const isPinnedId = (id: string | null | undefined) =>
-    Boolean(id && pins.some((pin) => pin.id === id))
 
   /**
    * Hide conceals the id from the conversation list and the visible favourite
