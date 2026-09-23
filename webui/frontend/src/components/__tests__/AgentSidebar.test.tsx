@@ -316,7 +316,18 @@ function rememberEmptyFavourites() {
   localStorage.setItem(PINNED_AGENTS_STORAGE_KEY, '[]')
 }
 
-function renderSidebar(initialEntry = '/chat', onOpenSearch = () => undefined) {
+function renderSidebar(
+  initialEntry = '/chat',
+  onOpenSearch = () => undefined,
+  viewportWidth?: number,
+) {
+  if (viewportWidth !== undefined) {
+    window.innerWidth = viewportWidth
+  } else if (window.innerWidth === 1024) {
+    // jsdom defaults to 1024 (a laptop viewport <= 1440).
+    // Desktop integration suites test against the standard 1920px desktop view unless overridden.
+    window.innerWidth = 1920
+  }
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -2695,6 +2706,30 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
     const rail = await screen.findByTestId('os-agent-rail')
     expect(rail).toHaveAttribute('data-avatar-only', 'true')
     expect(rail).toHaveClass('os-agent-sidebar--avatar-only')
+  })
+
+  it('defaults to avatar-only mode on laptop viewports (<= 1440px) when not configured in localStorage (#1083)', async () => {
+    renderSidebar('/chat?narrow=false', undefined, 1280)
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-avatar-only', 'true')
+    expect(rail).toHaveClass('os-agent-sidebar--avatar-only')
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+  })
+
+  it('defaults to expanded mode on desktop viewports (> 1440px) when not configured in localStorage (#1083)', async () => {
+    renderSidebar('/chat?narrow=false', undefined, 1920)
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-avatar-only', 'false')
+    expect(rail).not.toHaveClass('os-agent-sidebar--avatar-only')
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
+  })
+
+  it('respects stored rail width on laptop viewports if previously persisted (#1083)', async () => {
+    localStorage.setItem('swarm_rail_width', '256')
+    renderSidebar('/chat?narrow=false', undefined, 1280)
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-avatar-only', 'false')
+    expect(rail).not.toHaveClass('os-agent-sidebar--avatar-only')
   })
 })
 

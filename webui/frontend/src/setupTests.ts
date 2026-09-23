@@ -26,6 +26,9 @@ afterEach(() => {
     resetExpectedSpaVersion();
     resetGithubReleaseCache();
     setBakedSpaVersionForTests(null);
+    if (typeof window !== 'undefined') {
+        window.innerWidth = 1024;
+    }
 });
 
 // Some Node + jsdom combinations (e.g. Node 26 with jsdom 29) do not expose

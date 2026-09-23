@@ -99,6 +99,7 @@ function mockFetch() {
 }
 
 function renderRail() {
+  window.innerWidth = 1920
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>

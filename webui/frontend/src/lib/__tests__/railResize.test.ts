@@ -6,6 +6,8 @@ import {
   isAvatarOnlyWidth,
   isFullyCollapsedWidth,
   snapRailWidth,
+  defaultRailWidth,
+  LAPTOP_MAX_WIDTH,
   MIN_RAIL_WIDTH,
   MAX_RAIL_WIDTH,
   DEFAULT_RAIL_WIDTH,
@@ -93,5 +95,50 @@ describe('#765 edge collapse (0px divider-only state)', () => {
     expect(loadRailWidth()).toBe(DEFAULT_RAIL_WIDTH)
     localStorage.setItem(RAIL_WIDTH_STORAGE_KEY, '-5')
     expect(loadRailWidth()).toBe(COLLAPSED_RAIL_WIDTH)
+  })
+})
+
+describe('#1083 laptop viewport default rail width', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('defaultRailWidth returns MIN_RAIL_WIDTH on laptop viewports (<= 1440px)', () => {
+    expect(LAPTOP_MAX_WIDTH).toBe(1440)
+    expect(defaultRailWidth(1440)).toBe(MIN_RAIL_WIDTH)
+    expect(defaultRailWidth(1280)).toBe(MIN_RAIL_WIDTH)
+    expect(defaultRailWidth(1024)).toBe(MIN_RAIL_WIDTH)
+    expect(defaultRailWidth(800)).toBe(MIN_RAIL_WIDTH)
+  })
+
+  it('defaultRailWidth returns DEFAULT_RAIL_WIDTH on desktop viewports (> 1440px)', () => {
+    expect(defaultRailWidth(1441)).toBe(DEFAULT_RAIL_WIDTH)
+    expect(defaultRailWidth(1920)).toBe(DEFAULT_RAIL_WIDTH)
+    expect(defaultRailWidth(2560)).toBe(DEFAULT_RAIL_WIDTH)
+    expect(defaultRailWidth(undefined)).toBe(DEFAULT_RAIL_WIDTH)
+  })
+
+  it('loadRailWidth returns MIN_RAIL_WIDTH on laptop viewports when nothing is stored', () => {
+    expect(loadRailWidth(1440)).toBe(MIN_RAIL_WIDTH)
+    expect(loadRailWidth(1280)).toBe(MIN_RAIL_WIDTH)
+  })
+
+  it('loadRailWidth returns DEFAULT_RAIL_WIDTH on desktop viewports when nothing is stored', () => {
+    expect(loadRailWidth(1920)).toBe(DEFAULT_RAIL_WIDTH)
+    expect(loadRailWidth()).toBe(DEFAULT_RAIL_WIDTH)
+  })
+
+  it('loadRailWidth respects valid stored width even on laptop viewports', () => {
+    saveRailWidth(200)
+    expect(loadRailWidth(1280)).toBe(200)
+
+    saveRailWidth(COLLAPSED_RAIL_WIDTH)
+    expect(loadRailWidth(1280)).toBe(COLLAPSED_RAIL_WIDTH)
+  })
+
+  it('loadRailWidth falls back to defaultRailWidth when stored value is invalid', () => {
+    localStorage.setItem(RAIL_WIDTH_STORAGE_KEY, 'invalid')
+    expect(loadRailWidth(1280)).toBe(MIN_RAIL_WIDTH)
+    expect(loadRailWidth(1920)).toBe(DEFAULT_RAIL_WIDTH)
   })
 })
