@@ -829,6 +829,14 @@ export default function AgentSidebar({
     }
   }, [blueprintsQuery.isPending, agents])
 
+  // #1041: content-addressed save guard. Two identities conspired into a
+  // PATCH write-loop (~2.4/s → anon 429s): reconcileHiddenAgentIds() hands
+  // this effect a fresh array every render, and each PATCH response is
+  // echoed back via applyPrefsToLocal() → state churn → effect refires.
+  // The signature is taken INSIDE the debounce so identity churn from
+  // re-renders never cancels a legitimate pending save, and an echoed bag
+  // (identical content) never re-saves.
+  const lastPrefsSignature = useRef('')
   useEffect(() => {
     if (!prefsReady) return
     if (skipPrefsSave.current) {
@@ -838,6 +846,9 @@ export default function AgentSidebar({
     const handle = window.setTimeout(() => {
       const override =
         hostname.trim() === defaultHostname() ? '' : hostname.trim()
+      const signature = JSON.stringify([pins, resolvedHiddenIds, override, sectionState])
+      if (signature === lastPrefsSignature.current) return
+      lastPrefsSignature.current = signature
       void saveUserPrefs({
         favourites: pins,
         hidden_agents: resolvedHiddenIds,
