@@ -13,7 +13,9 @@ MENU = REPO / "webui" / "frontend" / "src" / "lib" / "railContextMenu.ts"
 HEADER = REPO / "webui" / "frontend" / "src" / "components" / "RailSectionHeader.tsx"
 RAIL_MENU = REPO / "webui" / "frontend" / "src" / "components" / "RailContextMenu.tsx"
 SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
+SIDEBAR_ROWS = SIDEBAR.parent / "sidebar" / "RailSections.tsx"
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+CHAT_SEND = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "useChatSend.ts"
 MAILBOX = REPO / "src" / "swarm" / "core" / "agent_mailbox.py"
 TALK = REPO / "src" / "swarm" / "core" / "section_talk.py"
 DOCS = REPO / "docs" / "qa" / "ISSUE-163-section-internal-talk.md"
@@ -61,7 +63,7 @@ def test_section_chrome_has_lock_control():
     assert "Isolate members" in menu
     rail = RAIL_MENU.read_text(encoding="utf-8")
     assert "'section-talk-lock'" in rail
-    sidebar = SIDEBAR.read_text(encoding="utf-8")
+    sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR, SIDEBAR_ROWS))
     assert "toggleSectionInternalOnly" in sidebar
     assert "data-internal-only" in sidebar
     _no_secrets(header + menu + rail + sidebar)
@@ -75,7 +77,7 @@ def test_mailbox_enforces_section_lock_from_params():
     assert "rail_sections" in mailbox
     assert "ERROR_SECTION_LOCKED" in mailbox
     assert "filter_talk_targets" in mailbox
-    chat = CHAT.read_text(encoding="utf-8")
+    chat = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT, CHAT_SEND))
     assert "railSectionsParam" in chat
     _no_secrets(talk + mailbox + chat)
 

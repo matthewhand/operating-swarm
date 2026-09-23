@@ -14,11 +14,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
+SIDEBAR_TSX_ROWS = SIDEBAR_TSX.parent / "sidebar" / "RailSections.tsx"
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 
 
 def test_add_agent_button_in_search_row():
-    content = SIDEBAR_TSX.read_text(encoding="utf-8")
+    content = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TSX, SIDEBAR_TSX_ROWS))
 
     # Button is inside os-rail-search-row
     assert "os-rail-search-row" in content
@@ -40,7 +41,7 @@ def test_add_agent_button_in_search_row():
 
 
 def test_favourites_row_has_no_add_button():
-    content = SIDEBAR_TSX.read_text(encoding="utf-8")
+    content = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TSX, SIDEBAR_TSX_ROWS))
 
     # Old favourites button class and section wrapper are gone
     assert "os-fav-add-btn" not in content

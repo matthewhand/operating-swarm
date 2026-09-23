@@ -10,6 +10,7 @@ REPO = Path(__file__).resolve().parents[2]
 SECTIONS = REPO / "webui" / "frontend" / "src" / "lib" / "railSections.ts"
 MENU = REPO / "webui" / "frontend" / "src" / "lib" / "railContextMenu.ts"
 SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
+SIDEBAR_ROWS = SIDEBAR.parent / "sidebar" / "RailSections.tsx"
 RAIL_MENU = REPO / "webui" / "frontend" / "src" / "components" / "RailContextMenu.tsx"
 CI = REPO / ".github" / "workflows" / "req209-rail-sections.yml"
 
@@ -36,7 +37,7 @@ def test_rail_menu_has_move_to_and_section_items():
     # The menu builds per-item testids from the spec id — for 'move-to' this
     # renders data-testid="rail-menu-move-to" at runtime.
     assert "data-testid={`rail-menu-${spec.id}`}" in rail
-    sidebar = SIDEBAR.read_text(encoding="utf-8")
+    sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR, SIDEBAR_ROWS))
     assert "partitionRowsBySection" in sidebar
     assert "createSectionWithAgent" in sidebar
     assert "agent-fav-grid" in sidebar

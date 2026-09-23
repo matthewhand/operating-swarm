@@ -1,3 +1,4 @@
+import { RailSections } from './sidebar/RailSections'
 import { createRowRenderers } from './sidebar/rowsRender'
 import {
   useCallback,
@@ -5,10 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent as ReactDragEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-  type TouchEvent as ReactTouchEvent,
 } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -31,20 +28,12 @@ import {
   markAgentUnread,
 } from '../lib/unreadAgents'
 import {
-  createCustomBlueprint,
-  createRemote,
-  createTeamRoster,
-  deleteCustomBlueprint,
-  deleteRemote,
-  deleteTeamRoster,
   fetchBlueprints,
   fetchCliAgents,
-  fetchCliRunStatus,
   fetchDesignedAgents,
   fetchHerdrAgents,
   fetchRemotes,
   terminateCliRun,
-  type RemoteConnection,
   type RouterDesign,
 } from '../lib/api'
 import {
@@ -78,13 +67,10 @@ import {
 import { isNonCatalogRailPinId, railSeatAgents } from '../lib/railSeats'
 import {
   HIDDEN_AGENTS_CHANGED_EVENT,
-  canHideAgent,
   hasHiddenAgentsStorage,
-  hideAgentId,
   loadHiddenAgentIds,
   loadOrSeedHiddenAgentIds,
   reconcileHiddenAgentIds,
-  unhideAgentId,
 } from '../lib/hiddenAgents'
 import {
   defaultHostname,
@@ -96,17 +82,13 @@ import {
 import {
   GENERATION_COMPLETE_EVENT,
   applyRailOrder,
-  beginRailDrag,
   bumpRailIdToTop,
-  endRailDrag,
   generationCompleteAgentId,
   generationCompleteDetail,
-  insertRailIdAfter,
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
   moveRailIdAfter,
-  dropHalfFromClientY,
   peekRailDrag,
   saveRailOrder,
 } from '../lib/railOrder'
@@ -127,15 +109,10 @@ import {
 } from '../lib/settingsPrefs'
 import { computeRailHotkeyTargets } from '../lib/railHotkeys'
 import {
-  endAgentDrag,
   excludePinnedFromList,
   loadOrSeedPinnedAgents,
-  movePinnedAgent,
   parseAgentDragPayload,
-  pinAgent,
   type PinnedAgent,
-  unpinAgent,
-  writeAgentDragPayload,
 } from '../lib/pinnedAgents'
 import { hydrateRailPrefs, saveUserPrefs } from '../lib/userPrefs'
 import {
@@ -182,12 +159,10 @@ import {
   shouldShowSelectAgent,
   stackFacesForRemote,
   stackFacesForTeam,
-  type MemberSession,
 } from '../lib/sessionPicker'
 import {
   AGENT_SETTINGS_CHANGED_EVENT,
   loadLocalNewChatPerTask,
-  openAgentEditor,
 } from '../lib/agentSettings'
 import {
   AGENT_CONVERSATION_EVENT,
@@ -196,47 +171,34 @@ import {
   setConversationIdForAgent,
 } from '../lib/agentChat'
 import {
-  RAIL_LONG_PRESS_MS,
   copyableConversationId,
-  duplicateName,
-  duplicateRemoteId,
-  isRailMenuKey,
   paneMenuItems,
   railMenuItems,
   sectionMenuItems,
   type RailMenuItemId,
-  type RailMenuKind,
 } from '../lib/railContextMenu'
 import {
   isUnassignedSection,
   loadRailSections,
   railSectionsHasContent,
-  moveAgentToSection,
   partitionRowsBySection,
-  removeSectionMembership,
   sectionIdForAgent,
   toggleSectionCollapsed,
   toggleSectionInternalOnly,
   UNASSIGNED_SECTION_ID,
   type RailSectionsState,
 } from '../lib/railSections'
-import { copyTextToClipboard } from '../lib/clipboard'
 import {
   isRailIdDeleted,
   loadDeletedRailIds,
-  markRailIdDeleted,
 } from '../lib/deletedRailIds'
 import { openSearchPalette, type HiddenRailRow } from './SearchPalette'
 import { isMacPlatform, searchShortcutLabel } from '../lib/keybindingTips'
 import {
   AGENT_EDITS_CHANGED_EVENT,
-  assignedBlueprintId,
-  loadAgentEdit,
-  saveAgentEdit,
 } from '../lib/agentEdits'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { declaredRosterForTeam,   } from '../lib/declaredRoster'
-import { openTeamEditor } from './TeamEditor'
 import PersonaRoster from './PersonaRoster'
 import SessionPicker from './SessionPicker'
 import CliSessionPicker from './CliSessionPicker'
@@ -288,6 +250,9 @@ import {
   toSidebarDynamic,
   toSidebarHerdr,
 } from '../features/sidebar/rows'
+import { useRailRowOps } from '../features/sidebar/useRailRowOps'
+import { useRailMenuOpeners } from '../features/sidebar/useRailMenuOpeners'
+import { useRailDragCommands } from '../features/sidebar/useRailDragCommands'
 import { useRailMenuCommands } from '../features/sidebar/useRailMenuCommands'
 import { useRailSessionCommands } from '../features/sidebar/useRailSessionCommands'
 import { useRailResize } from './sidebar/useRailResize'
@@ -1179,6 +1144,46 @@ export default function AgentSidebar({
     [railOrder, visibleRowIds, persistVisibleOrder],
   )
 
+  // #856 slice 12: drag/pin/hide interactions live in the hook below; the
+  // drag states stay page-owned so the row render props are unchanged.
+  const railDrag = useRailDragCommands({
+    draggingId,
+    resolvedHiddenIds: resolvedHiddenIds ?? [],
+    sectionState,
+    isPinnedId,
+    reorderBefore,
+    reorderAfter,
+    closeMenu,
+    setDraggingId,
+    setDropTargetId,
+    setSectionDropId,
+    setDropActive,
+    setListDropActive,
+    setHideDropActive,
+    setBinDragOver,
+    setPins,
+    setHiddenIds,
+    setSectionState,
+    hideDropDepth,
+  })
+  const {
+    finishDrag,
+    hideAgent,
+    unhideAgent,
+    togglePin,
+    dropPin,
+    dropPinReorder,
+    dropUnfavourite,
+    allowListUnfavourite,
+    dropHide,
+    allowRowDrop,
+    dropReorder,
+    allowSectionDrop,
+    dropOnSection,
+    dropOnSelf,
+    beginRowDrag,
+  } = railDrag
+
   const handleAgentCreated = useCallback(
     (created: { id: string; name: string; kind: AgentKind }) => {
       setAddWizardOpen(false)
@@ -1330,76 +1335,6 @@ export default function AgentSidebar({
     return () => window.removeEventListener('keydown', onAltDigit)
   }, [visiblePins, hotkeyTargets, navigate, onClose])
 
-  const resolveMenuKind = (hideId: string, hinted?: RailMenuKind): RailMenuKind => {
-    if (hinted) return hinted
-    if (hideId.startsWith('team:')) return 'team'
-    if (hideId.startsWith('remote:')) return 'remote'
-    const agent = agents.find((row) => row.id === hideId)
-    if (agent && isCliRailAgent(agent)) return 'cli'
-    // #543: herdr rows get their own menu kind — no Edit/Duplicate (no
-    // swarm-owned profile), no swarm conversation id, matching 'remote'.
-    if (agent && isHerdrAgent(agent)) return 'herdr'
-    if ((agent as unknown as { kind?: string })?.kind === 'blueprint') return 'blueprint'
-    return 'api'
-  }
-
-  const openMenuAt = (
-    clientX: number,
-    clientY: number,
-    hideId: string,
-    label: string,
-    hidden: boolean,
-    kind?: RailMenuKind,
-    sessions?: MemberSession[],
-    entityId?: string,
-  ) => {
-    const pad = 8
-    const width = 220
-    const height = 320
-    const x = Math.min(clientX, window.innerWidth - width - pad)
-    const y = Math.min(clientY, window.innerHeight - height - pad)
-    const resolvedKind = resolveMenuKind(hideId, kind)
-    const row = agents.find((agent) => agent.id === hideId)
-    const isCli = resolvedKind === 'cli' || Boolean(row && isCliRailAgent(row))
-    const cliFromUrl = searchParams.get('cli') || ''
-    const cliName = (isCli && (cliFromUrl || row?.cli)) || ''
-    setSectionMenu(null)
-    setMenu({
-      agentId: hideId,
-      agentName: label,
-      hidden,
-      pinned: pins.some((pin) => pin.id === hideId),
-      x: Math.max(pad, x),
-      y: Math.max(pad, y),
-      kind: resolvedKind,
-      entityId: entityId || hideId,
-      sessions,
-      isCli,
-      cli: cliName,
-    })
-    if (isCli) {
-      void fetchCliRunStatus(hideId)
-        .then((status) => {
-          setCliRunningIds((current) => {
-            const next = new Set(current)
-            if (status.running) next.add(hideId)
-            else next.delete(hideId)
-            return next
-          })
-        })
-        .catch(() => {
-          /* keep event-sourced state */
-        })
-    }
-  }
-
-  const clearLongPress = () => {
-    if (longPressRef.current.timer != null) {
-      window.clearTimeout(longPressRef.current.timer)
-      longPressRef.current.timer = null
-    }
-  }
-
   const {
     openGroupPicker,
     closePicker,
@@ -1411,519 +1346,60 @@ export default function AgentSidebar({
     startNewAgentSession,
   } = railSession
 
-  const rowMenuHandlers = (
-    hideId: string,
-    label: string,
-    hidden: boolean,
-    kind?: RailMenuKind,
-    sessions?: MemberSession[],
-    entityId?: string,
-  ) => ({
-    onContextMenu: (event: ReactMouseEvent) => {
-      event.preventDefault()
-      openMenuAt(event.clientX, event.clientY, hideId, label, hidden, kind, sessions, entityId)
-    },
-    onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
-      if (!isRailMenuKey(event)) return
-      event.preventDefault()
-      const rect = event.currentTarget.getBoundingClientRect()
-      openMenuAt(rect.left + 12, rect.bottom, hideId, label, hidden, kind, sessions, entityId)
-    },
-    onTouchStart: (event: ReactTouchEvent<HTMLElement>) => {
-      const touch = event.touches[0]
-      if (!touch) return
-      longPressRef.current.opened = false
-      clearLongPress()
-      longPressRef.current.timer = window.setTimeout(() => {
-        longPressRef.current.opened = true
-        openMenuAt(touch.clientX, touch.clientY, hideId, label, hidden, kind, sessions, entityId)
-      }, RAIL_LONG_PRESS_MS)
-    },
-    onTouchEnd: (event: ReactTouchEvent<HTMLElement>) => {
-      clearLongPress()
-      if (longPressRef.current.opened) {
-        event.preventDefault()
-      }
-    },
-    onTouchMove: () => {
-      clearLongPress()
-    },
+  // #856 slice 13: menu-opener surface lives in the hook below; the menu
+  // state stays page-owned so handleMenuSelect and the overlays are unchanged.
+  const railOpeners = useRailMenuOpeners({
+    agents,
+    searchParams,
+    pins,
+    longPressRef,
+    setMenu,
+    setSectionMenu,
+    setCliRunningIds,
+    onClose,
+    closeMenu,
   })
+  const {
+    resolveMenuKind,
+    openAgentSettings,
+    openDefinition,
+    rowMenuHandlers,
+  } = railOpeners
 
-  const finishDrag = () => {
-    endAgentDrag()
-    endRailDrag()
-    setDraggingId(null)
-    setDropTargetId(null)
-    setSectionDropId(null)
-    setDropActive(false)
-    setListDropActive(false)
-    setHideDropActive(false)
-    setBinDragOver(false)
-    hideDropDepth.current = 0
-  }
-
-  // #725: global safety net — if the browser never delivers `onDragEnd` to the
-  // React element (pointer left the window, OS cancelled the drag, or a
-  // re-render during a 429 storm orphaned the handler) draggingId would stay
-  // set forever. The window-level listener catches it regardless of source.
-  useEffect(() => {
-    if (!draggingId) return
-    const onGlobalDragEnd = () => finishDrag()
-    const onVisibilityHide = () => { if (document.visibilityState === 'hidden') finishDrag() }
-    window.addEventListener('dragend', onGlobalDragEnd)
-    document.addEventListener('visibilitychange', onVisibilityHide)
-    return () => {
-      window.removeEventListener('dragend', onGlobalDragEnd)
-      document.removeEventListener('visibilitychange', onVisibilityHide)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draggingId])
-
-
-
-  /**
-   * Hide conceals the id from the conversation list and the visible favourite
-   * grid. The pin stays in swarm_pinned_agents so Unhide restores the same
-   * favourite slot. Role agents (support, gate, skeptic) are not exempt.
-   */
-  const hideFromRail = (id: string) => {
-    if (!id || !canHideAgent(id)) return
-    setHiddenIds((current) => hideAgentId(id, current ?? resolvedHiddenIds))
-  }
-
-  const hideAgent = (id: string) => {
-    hideFromRail(id)
-    closeMenu()
-  }
-
-  const unhideAgent = (id: string) => {
-    setHiddenIds((current) => unhideAgentId(id, current ?? resolvedHiddenIds))
-    closeMenu()
-  }
-
-  const togglePin = (agent: { id: string; name: string }) => {
-    setPins((current) =>
-      current.some((pin) => pin.id === agent.id)
-        ? unpinAgent(agent.id, current)
-        : pinAgent(agent, current),
-    )
-    closeMenu()
-  }
-
-  const dropPin = (event: ReactDragEvent) => {
-    event.preventDefault()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    setDropActive(false)
-    finishDrag()
-    if (!payload) return
-    // Already-pinned drops on empty grid space are a no-op; tile drops reorder.
-    setPins((current) =>
-      current.some((pin) => pin.id === payload.id) ? current : pinAgent(payload, current),
-    )
-  }
-
-  const dropPinReorder = (event: ReactDragEvent, beforeId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    finishDrag()
-    if (!payload?.id || payload.id === beforeId) return
-    setPins((current) => {
-      if (current.some((pin) => pin.id === payload.id)) {
-        return movePinnedAgent(payload.id, beforeId, current)
-      }
-      return pinAgent(payload, current)
-    })
-  }
-
-  const dropUnfavourite = (event: ReactDragEvent) => {
-    event.preventDefault()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    finishDrag()
-    if (!payload?.id) return
-    setPins((current) =>
-      current.some((pin) => pin.id === payload.id) ? unpinAgent(payload.id, current) : current,
-    )
-  }
-
-  const allowListUnfavourite = (event: ReactDragEvent) => {
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (!isPinnedId(fromId)) return
-    event.preventDefault()
-    try {
-      event.dataTransfer.dropEffect = 'move'
-    } catch {
-      /* synthetic events may omit dataTransfer */
-    }
-    setListDropActive(true)
-  }
-
-  const dropHide = (event: ReactDragEvent) => {
-    event.preventDefault()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    finishDrag()
-    if (!payload?.id) return
-    // Already hidden (or a drop that never left the source row) is a no-op.
-    if (resolvedHiddenIds.includes(payload.id)) return
-    hideFromRail(payload.id)
-  }
-
-  const allowRowDrop = (event: ReactDragEvent, targetId: string) => {
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (!fromId || fromId === targetId) {
-      try {
-        event.dataTransfer.dropEffect = 'none'
-      } catch {
-        /* synthetic events may omit dataTransfer */
-      }
-      return
-    }
-    event.preventDefault()
-    try {
-      event.dataTransfer.dropEffect = 'move'
-    } catch {
-      /* synthetic events may omit dataTransfer */
-    }
-    setDropTargetId(targetId)
-  }
-
-  const dropReorder = (event: ReactDragEvent, targetId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (fromId && fromId !== targetId) {
-      const targetSection = sectionIdForAgent(targetId, sectionState)
-      setSectionState((current) => moveAgentToSection(current, fromId, targetSection))
-      // #761: relative placement — the pointer's half of the target row
-      // decides above/below; dropping onto any row of a section also assigns
-      // into that section (above). Pinned drops unpin into place either way.
-      const half = dropHalfFromClientY(event.clientY, event.currentTarget.getBoundingClientRect())
-      if (isPinnedId(fromId)) {
-        setPins((current) => unpinAgent(fromId, current))
-      }
-      if (half === 'below') {
-        reorderAfter(fromId, targetId)
-      } else {
-        reorderBefore(fromId, targetId)
-      }
-    }
-    finishDrag()
-  }
-
-  const allowSectionDrop = (event: ReactDragEvent, sectionId: string) => {
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (!fromId) {
-      try {
-        event.dataTransfer.dropEffect = 'none'
-      } catch {
-        /* synthetic events may omit dataTransfer */
-      }
-      return
-    }
-    event.preventDefault()
-    try {
-      event.dataTransfer.dropEffect = 'move'
-    } catch {
-      /* synthetic events may omit dataTransfer */
-    }
-    setSectionDropId(sectionId)
-  }
-
-  const dropOnSection = (event: ReactDragEvent, sectionId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (fromId) {
-      if (isPinnedId(fromId)) {
-        setPins((current) => unpinAgent(fromId, current))
-      }
-      setSectionState((current) => moveAgentToSection(current, fromId, sectionId))
-    }
-    finishDrag()
-  }
-
-  const dropOnSelf = (event: ReactDragEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (isPinnedId(fromId)) {
-      setPins((current) => unpinAgent(fromId!, current))
-    }
-    finishDrag()
-  }
-
-  const beginRowDrag = (event: ReactDragEvent, agent: { id: string; name: string }) => {
-    try {
-      event.dataTransfer.clearData('text/uri-list')
-      event.dataTransfer.clearData('URL')
-      event.dataTransfer.clearData('text/html')
-    } catch {
-      /* jsdom DataTransfer may be a stub */
-    }
-    writeAgentDragPayload(event.dataTransfer, agent)
-    beginRailDrag(agent.id)
-    try {
-      event.dataTransfer.effectAllowed = 'copyMove'
-      event.dataTransfer.clearData('text/uri-list')
-      event.dataTransfer.clearData('URL')
-      event.dataTransfer.clearData('text/html')
-    } catch {
-      /* jsdom DataTransfer may be a stub */
-    }
-    setDraggingId(agent.id)
-  }
-
-  const openDefinition = (
-    kind: 'role' | 'blueprint' | 'team',
-    id: string,
-    extras?: { blueprintId?: string; teamId?: string },
-  ) => {
-    openSettingsSheet({
-      section: 'definition',
-      definitionKind: kind,
-      definitionId: id,
-      blueprintId: extras?.blueprintId,
-      teamId: extras?.teamId,
-    })
-    onClose?.()
-  }
-
-  const openAgentSettings = (agent: { id: string; name: string }) => {
-    openAgentEditor({ agentId: agent.id, agentName: agent.name })
-    closeMenu()
-    onClose?.()
-  }
-
-  const editMenuRow = (row: ContextMenuState) => {
-    if (row.kind === 'cli') return
-    if (row.kind === 'team') {
-      openTeamEditor({ teamId: row.entityId, teamName: row.agentName })
-      closeMenu()
-      return
-    }
-    if (row.kind === 'remote') {
-      openSettingsSheet({ section: 'remotes' })
-      closeMenu()
-      onClose?.()
-      return
-    }
-    openAgentSettings({ id: row.entityId, name: row.agentName })
-  }
-
-  const duplicateMenuRow = async (row: ContextMenuState) => {
-    const name = duplicateName(row.agentName)
-    try {
-      if (row.kind === 'cli') return
-
-      let sourceSectionId = sectionIdForAgent(row.agentId, sectionState)
-      if (isUnassignedSection(sourceSectionId) && row.entityId && row.entityId !== row.agentId) {
-        sourceSectionId = sectionIdForAgent(row.entityId, sectionState)
-      }
-
-      if (row.kind === 'team') {
-        const source = teams.find((team) => team.id === row.entityId)
-        const created = await createTeamRoster({
-          name,
-          members: (source?.members ?? []).map((member) => ({
-            id: member.id,
-            kind: member.kind || 'api',
-            role: member.role || 'default',
-            source: member.kind === 'team' ? `team:${member.team_id || member.id}` : `blueprint:${member.id}`,
-            team_id: member.team_id,
-          })),
-        })
-        await queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
-        const createdHide = teamHideId(created.id)
-        if (!isUnassignedSection(sourceSectionId)) {
-          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
-        }
-        const base = mergeRailOrder(railOrder, visibleRowIds)
-        // #793: the duplicate lands at the top of the Unassigned order so it
-        // is immediately visible (source section membership is preserved).
-        persistVisibleOrder(bumpRailIdToTop(base, createdHide))
-        closeMenu()
-        return
-      }
-      if (row.kind === 'remote') {
-        const source: Partial<RemoteConnection> | undefined =
-          configuredRemotesList.find((remote) => remote.id === row.entityId) ||
-          remotes.find((r) => r.id === row.entityId) ||
-          fullRemotesQuery.data?.data?.find((r) => r.id === row.entityId)
-
-        const existingRemoteIds = new Set<string>()
-        for (const r of configuredRemotesList) if (r.id) existingRemoteIds.add(r.id)
-        for (const r of remotes) if (r.id) existingRemoteIds.add(r.id)
-        for (const r of fullRemotesQuery.data?.data ?? []) if (r.id) existingRemoteIds.add(r.id)
-        for (const r of fullRemotesQuery.data?.configured ?? []) if (r.id) existingRemoteIds.add(r.id)
-
-        const newId = duplicateRemoteId(row.entityId, existingRemoteIds)
-        const created = await createRemote({
-          id: newId,
-          title: name,
-          kind: source?.kind || (row.entityId ? row.entityId.split('_')[0] : 'generic'),
-          base_url: source?.base_url,
-          api_key_env: source?.api_key_env,
-          ui_url: source?.ui_url,
-          herdr_mode: (source as any)?.herdr_mode,
-          ssh_host: (source as any)?.ssh_host,
-          ssh_user: (source as any)?.ssh_user,
-          ssh_port: (source as any)?.ssh_port,
-          ssh_identity_env: (source as any)?.ssh_identity_env,
-          ssh_agent: (source as any)?.ssh_agent,
-        })
-        await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-        await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-        await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-        const createdHide = remoteHideId(created.id)
-        if (!isUnassignedSection(sourceSectionId)) {
-          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
-        }
-        const base = mergeRailOrder(railOrder, visibleRowIds)
-        persistVisibleOrder(insertRailIdAfter(base, createdHide, row.agentId))
-        closeMenu()
-        return
-      }
-      const sourceEdit = loadAgentEdit(row.entityId)
-      const created = await createCustomBlueprint({
-        name,
-        description: `Copy of ${row.agentName}`,
-        category: 'ai_assistants',
-        tags: ['api'],
-        kind: 'api',
-        rail: true,
-        source: 'add-agent',
-        code: `# Copy of ${assignedBlueprintId(row.entityId)}\n`,
-      })
-      saveAgentEdit(created.id, {
-        name,
-        blueprintId: sourceEdit.blueprintId || assignedBlueprintId(row.entityId),
-        role: sourceEdit.role,
-        llmOverride: sourceEdit.llmOverride,
-      })
-      await queryClient.invalidateQueries({ queryKey: ['blueprints'] })
-      await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
-      if (!isUnassignedSection(sourceSectionId)) {
-        setSectionState((current) => moveAgentToSection(current, created.id, sourceSectionId))
-      }
-      const base = mergeRailOrder(railOrder, visibleRowIds)
-      persistVisibleOrder(insertRailIdAfter(base, created.id, row.agentId))
-    } catch {
-      /* caller / tests mock fetch; failures stay on the current row */
-    }
-    closeMenu()
-  }
-
-  const copyMenuConversationId = async (row: ContextMenuState) => {
-    const id = copyableConversationId(row.kind, row.agentId, row.entityId)
-    if (!id) {
-      closeMenu()
-      return
-    }
-    await copyTextToClipboard(id)
-    closeMenu()
-  }
-
-  const handleDropOnRecycleBin = (fromId: string) => {
-    const row = orderedRows.find((item) => item.id === fromId)
-    const pin = pins.find((p) => p.id === fromId)
-    const agent = agents.find((a) => a.id === fromId)
-    const remote = remotes.find((r) => remoteHideId(r.id) === fromId || r.id === fromId)
-    const team = teams.find((t) => teamHideId(t.id) === fromId || t.id === fromId)
-
-    let kind: RailMenuKind = resolveMenuKind(fromId)
-    let entityId = fromId
-    let agentName = fromId
-
-    if (row) {
-      if (row.kind === 'remote') {
-        kind = 'remote'
-        entityId = row.remote.id
-        agentName = row.remote.title
-      } else if (row.kind === 'team') {
-        kind = 'team'
-        entityId = row.team.id
-        agentName = row.team.name
-      } else {
-        kind = row.agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
-        entityId = row.agent.id
-        agentName = row.agent.name
-      }
-    } else if (remote) {
-      kind = 'remote'
-      entityId = remote.id
-      agentName = remote.title
-    } else if (team) {
-      kind = 'team'
-      entityId = team.id
-      agentName = team.name
-    } else if (agent) {
-      kind = agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
-      entityId = agent.id
-      agentName = agent.name
-    } else if (pin) {
-      agentName = pin.name
-      entityId = pin.id
-    }
-
-    setDeleteConfirm({
-      agentId: fromId,
-      agentName,
-      hidden: false,
-      pinned: isPinnedId(fromId),
-      x: 0,
-      y: 0,
-      kind,
-      entityId,
-    })
-  }
-
-  const requestDelete = (row: ContextMenuState) => {
-    closeMenu()
-    setDeleteConfirm(row)
-  }
-
-  const confirmDeleteRow = async () => {
-    const row = deleteConfirm
-    if (!row) return
-    const hideId = row.agentId
-    setPins((current) =>
-      current.some((pin) => pin.id === hideId) ? unpinAgent(hideId, current) : current,
-    )
-    if (row.kind === 'remote') {
-      try {
-        await deleteRemote(row.entityId)
-      } catch {
-        /* local remove still applies */
-      }
-      await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-      await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-      await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-    } else if (row.kind === 'team') {
-      try {
-        await deleteTeamRoster(row.entityId)
-      } catch {
-        /* local remove still applies */
-      }
-      await queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
-    } else if (row.kind === 'api') {
-      try {
-        await deleteCustomBlueprint(row.entityId)
-      } catch {
-        /* catalog seats are removed locally only */
-      }
-      await queryClient.invalidateQueries({ queryKey: ['blueprints'] })
-      await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
-    }
-    // CLI: hide-or-remove from rail only — do not uninstall the binary.
-    // #687 invariant: mark ONLY this row's rail id. The old double-mark of
-    // row.entityId leaked a bare agent id into the shared deleted list, which
-    // the (now namespaced-only) team/remote filters used to honor — deleting
-    // one agent could remove a same-id remote/team row with it.
-    setDeletedIds((current) => markRailIdDeleted(hideId, current))
-    setSectionState((current) => removeSectionMembership(current, hideId))
-    setDeleteConfirm(null)
-  }
+  // #856 slice 14: row edit/duplicate/copy/delete ops live in the hook
+  // below; deleteConfirm stays page-owned so the dialog JSX is unchanged.
+  const railRowOps = useRailRowOps({
+    agents,
+    orderedRows,
+    pins,
+    teams,
+    remotes,
+    configuredRemotesList,
+    fullRemotesData: fullRemotesQuery.data ?? {},
+    railOrder,
+    visibleRowIds,
+    sectionState,
+    deleteConfirm,
+    isPinnedId,
+    resolveMenuKind,
+    openAgentSettings,
+    closeMenu,
+    persistVisibleOrder,
+    queryClient,
+    setDeleteConfirm,
+    setDeletedIds,
+    setSectionState,
+    setPins,
+    onClose,
+  })
+  const {
+    editMenuRow,
+    duplicateMenuRow,
+    copyMenuConversationId,
+    handleDropOnRecycleBin,
+    requestDelete,
+    confirmDeleteRow,
+  } = railRowOps
 
   const handleMenuSelect = (id: RailMenuItemId) => {
     if (!menu) return
@@ -2084,6 +1560,7 @@ export default function AgentSidebar({
     : []
 
   // #856 slice G: row renderers moved verbatim to sidebar/rowsRender.tsx.
+
   const { renderAgentRow, renderRemoteRow, renderTeamRow } = createRowRenderers({
     AgentAvatar,
     Link,
@@ -2153,6 +1630,84 @@ export default function AgentSidebar({
     unreadIds,
     __ctx: null as unknown,
   })
+  const railSectionsProps = {
+    AgentAvatar,
+    Link,
+    NEEDS_APPROVAL_LABEL,
+    RailSectionEmpty,
+    RailSectionHeader,
+    UNASSIGNED_SECTION_ID,
+    activeRail,
+    agentChatHref,
+    agentLabel,
+    agentRole,
+    agents,
+    allowListUnfavourite,
+    allowRowDrop,
+    allowSectionDrop,
+    approvalWaitIds,
+    beginRowDrag,
+    cancelSectionRename,
+    cliRunningIds,
+    commitSectionRename,
+    defaultSessionForTeam,
+    draggingId,
+    dropActive,
+    dropOnSection,
+    dropPin,
+    dropPinReorder,
+    dropTargetId,
+    dropUnfavourite,
+    editingSectionId,
+    editingSectionName,
+    finishDrag,
+    isAvatarOnly,
+    isHerdrAgent,
+    isMac,
+    isPinnedId,
+    isUnassignedSection,
+    listDropActive,
+    loadFailed,
+    loadingList,
+    markStackWorking,
+    navScrollRef,
+    navigate,
+    openDefinition,
+    openPaneMenuAt,
+    openSectionMenuAt,
+    orderedRows,
+    peekApprovalWait,
+    peekCliRunning,
+    pickOrClose,
+    renderAgentRow,
+    renderRemoteRow,
+    renderTeamRow,
+    resolveMenuKind,
+    resolvedHiddenIds,
+    roleBadgeLabel,
+    roleCssClass,
+    rowMenuHandlers,
+    sectionBlocks,
+    sectionDropId,
+    setDropActive,
+    setEditingSectionName,
+    setListDropActive,
+    setSectionState,
+    setSubagentsCollapsed,
+    stackFacesForTeam,
+    teamChatFaceStack,
+    teamHideId,
+    teamSidepaneStack,
+    teams,
+    toggleSectionCollapsed,
+    toggleSectionInternalOnly,
+    unreadIds,
+    updateCanScroll,
+    visibleCount,
+    visiblePins,
+    __ctx: null as unknown,
+  }
+
   return (
     <>
       <button
@@ -2305,400 +1860,6 @@ export default function AgentSidebar({
           </button>
         </div>
 
-        <div
-          className={`os-fav-grid ${dropActive ? 'os-fav-grid--active' : ''} ${
-            visiblePins.length === 0 &&
-            !dropActive &&
-            !(draggingId && !isPinnedId(draggingId))
-              ? 'os-fav-grid--bare'
-              : ''
-          } ${visiblePins.length === 0 ? 'os-fav-grid--empty' : ''}`}
-            aria-label="Pinned agents"
-            data-fav-layout="2-up"
-            data-testid="agent-fav-grid"
-            data-fav-empty={visiblePins.length === 0 ? 'true' : 'false'}
-            onDragOver={(event) => {
-              event.preventDefault()
-              try {
-                event.dataTransfer.dropEffect = 'move'
-              } catch {
-                /* synthetic events may omit dataTransfer */
-              }
-              setDropActive(true)
-            }}
-            onDragLeave={() => setDropActive(false)}
-            onDrop={dropPin}
-          >
-            {visiblePins.length === 0 ? (
-              <div
-                className="os-fav-grid__hint"
-                data-testid="fav-empty-hint"
-              >
-                {dropActive || (draggingId && !isPinnedId(draggingId)) ? 'drop' : '+'}
-              </div>
-            ) : null}
-          {visiblePins.map((pin, pinIdx) => {
-            const live = agents.find((agent) => agent.id === pin.id)
-            const pinTeam = pin.id.startsWith('team:')
-              ? teams.find((item) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
-              : undefined
-            const pinName = live ? agentLabel(live) : pinTeam?.name || pin.name || pin.id
-            const role = live ? agentRole(live) : 'default'
-            const badge = live ? roleBadgeLabel(role) : ''
-            const pinActive = Boolean(activeRail && activeRail === pin.id)
-            const pinUnread = unreadIds.includes(pin.id)
-            const pinTeamPlan = pinTeam
-              ? (() => {
-                  const rawFaces = stackFacesForTeam(pinTeam)
-                  const marked = markStackWorking(
-                    rawFaces,
-                    (id) => cliRunningIds.has(id) || peekCliRunning(id),
-                  )
-                  const busy = Boolean(
-                    marked.anyWorking ||
-                      cliRunningIds.has(pin.id) ||
-                      peekCliRunning(pin.id),
-                  )
-                  // The remainder is the roster minus the one shown face — not
-                  // the capped stack length, which would under-report.
-                  const memberTotal = pinTeam.members ? pinTeam.members.length : marked.faces.length
-                  const face = teamChatFaceStack(
-                    teamSidepaneStack(marked.faces, busy).faces,
-                    defaultSessionForTeam(pinTeam)?.memberId ?? '',
-                  ).face
-                  return {
-                    ...marked,
-                    anyWorking: busy,
-                    remainder: memberTotal > 1 ? memberTotal - 1 : 0,
-                    face,
-                  }
-                })()
-              : null
-            const pinWorkerBusy = Boolean(
-              pinTeamPlan?.anyWorking ||
-                cliRunningIds.has(pin.id) ||
-                peekCliRunning(pin.id),
-            )
-            const pinNeedsApproval = Boolean(
-              approvalWaitIds.has(pin.id) ||
-                peekApprovalWait(pin.id) ||
-                Boolean(
-                  pinTeamPlan?.face &&
-                    (approvalWaitIds.has(pinTeamPlan.face.id) ||
-                      peekApprovalWait(pinTeamPlan.face.id)),
-                ),
-            )
-            const pinClass = `os-fav-tile group/tile ${
-              draggingId === pin.id ? 'os-fav-tile--dragging' : ''
-            } ${dropTargetId === pin.id ? 'os-fav-tile--drop' : ''} ${
-              pinActive ? 'os-fav-tile--active' : ''
-            } ${pinWorkerBusy ? 'os-fav-tile--working-stack' : ''}`
-            const pinFace = (
-              <>
-                {pinNeedsApproval ? (
-                  <span
-                    className="os-fav-tile__attention"
-                    data-testid="pin-needs-approval"
-                  >
-                    {NEEDS_APPROVAL_LABEL}
-                  </span>
-                ) : null}
-                {pinUnread && (
-                  <span
-                    className="os-rail-unread-dot absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-sky-500 z-10 group-hover/tile:hidden"
-                    aria-label="Unread"
-                    data-testid="rail-unread-dot"
-                  />
-                )}
-                {badge ? (
-                  <span
-                    className={`os-fav-tile__badge os-agent-role-badge ${roleCssClass(role)}`}
-                    data-role={role}
-                    data-definition-id={pin.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Open ${role} settings`}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      openDefinition('role', pin.id, { blueprintId: pin.id })
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        openDefinition('role', pin.id, { blueprintId: pin.id })
-                      }
-                    }}
-                  >
-                    {badge}
-                  </span>
-                ) : null}
-                {/* #438: one full-size face + a corner `+N` overlay.
-                    #689 (supersedes #523's graduated stack): exactly ONE
-                    avatar + the +N counter on pinned team seats — the second
-                    face read as a second agent at pin size. The face is
-                    still the most recently active member (#523 ordering),
-                    just no longer stacked. */}
-                <span
-                  className="os-fav-tile__face relative inline-flex shrink-0 items-center justify-center"
-                  data-testid="pin-team-face"
-                  data-remainder={String(pinTeamPlan?.remainder ?? 0)}
-                >
-                  <AgentAvatar
-                    src={pinTeamPlan?.face?.avatarSrc || pinTeamPlan?.face?.src || live?.avatar_path}
-                    agentId={pinTeamPlan?.face?.agentId || pinTeamPlan?.face?.id || pin.id}
-                    alt={pinTeamPlan?.face?.name || pinName}
-                    size="lg"
-                    className="os-fav-tile__avatar"
-                    status={pinWorkerBusy ? 'working' : 'idle'}
-                    active={pinWorkerBusy}
-                  />
-                  {pinTeamPlan && pinTeamPlan.remainder > 0 ? (
-                    <span
-                      className="os-fav-tile__remainder"
-                      data-testid="pin-team-remainder"
-                      aria-hidden="true"
-                    >
-                      +{pinTeamPlan.remainder}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="os-fav-tile__name">{pinName}</span>
-                {pinIdx < 9 && (
-                  <span
-                    className="os-fav-tile__shortcut"
-                    aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${pinIdx + 1}`}
-                  >
-                    {isMac ? `⌥${pinIdx + 1}` : `Alt+${pinIdx + 1}`}
-                  </span>
-                )}
-              </>
-            )
-            const pinKind = resolveMenuKind(pin.id)
-            const pinEntityId = pin.id.replace(/^(team|remote):/, '')
-            const pinHandlers = {
-              draggable: true as const,
-              onDragStart: (event: ReactDragEvent) => beginRowDrag(event, pin),
-              onDragEnd: finishDrag,
-              onDragOver: (event: ReactDragEvent) => allowRowDrop(event, pin.id),
-              onDrop: (event: ReactDragEvent) => dropPinReorder(event, pin.id),
-              onClick: (event: ReactMouseEvent<HTMLElement>) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
-                  pickOrClose?.()
-                  event.currentTarget.blur()
-                  return
-                }
-                event.preventDefault()
-                navigate(agentChatHref(pin.id))
-                pickOrClose?.()
-                event.currentTarget.blur()
-              },
-              onMouseLeave: (event: ReactMouseEvent<HTMLElement>) => {
-                event.currentTarget.blur()
-              },
-              ...rowMenuHandlers(
-                pin.id,
-                pinName,
-                resolvedHiddenIds.includes(pin.id),
-                pinKind,
-                undefined,
-                pinEntityId,
-              ),
-            }
-            if (isHerdrAgent(pin)) {
-              return (
-                <a
-                  key={pin.id}
-                  href="/teams/#herdr-members"
-                  className={pinClass}
-                  title={pinName}
-                  aria-label={pinName}
-                  data-agent-id={pin.id}
-                  {...pinHandlers}
-                >
-                  {pinFace}
-                </a>
-              )
-            }
-            return (
-              <Link
-                key={pin.id}
-                to={agentChatHref(pin.id)}
-                className={pinClass}
-                title={pinName}
-                aria-label={pinName}
-                data-agent-id={pin.id}
-                {...pinHandlers}
-              >
-                {pinFace}
-              </Link>
-            )
-          })}
-          </div>
-
-
-        <div className="relative min-h-0 flex-1 flex flex-col">
-          <nav
-            ref={navScrollRef}
-            onScroll={updateCanScroll}
-            className={`os-rail-scroller min-h-0 flex-1 overflow-y-auto px-2 ${
-              /* #729: the 4rem bottom pad exists to clear the drag ghost; it
-                 is dead space when idle — active rows get the height back. */
-              draggingId ? 'pb-16' : 'pb-4'
-            }`}
-            data-testid="rail-agent-scroller"
-            aria-label="Agent list"
-            onContextMenu={(event) => {
-              const target = event.target as HTMLElement
-              if (target.closest('[data-rail-id], .os-rail-section, .os-pin')) return
-              event.preventDefault()
-              openPaneMenuAt(event.clientX, event.clientY)
-            }}
-          >
-            {/* #685: a disabled provider kind is COMPLETELY absent — no notice,
-                no badge, no "enable in Settings" copy anywhere outside Settings.
-                The old #594 rail notice advertised the withheld surfaces and was
-                exactly the informative noise this ticket bans. Product modes are
-                still discoverable where they belong: Settings → Rail. */}
-            <div
-              className={`os-agent-list ${listDropActive ? 'os-agent-list--unfav' : ''} ${
-                /* #729: the 3rem floor is a drop affordance, not an idle
-                   requirement — reserve it only while a drag can use it. */
-                draggingId ? 'os-agent-list--dragging' : ''
-              }`}
-              data-testid="agent-list-drop"
-              data-unfavourite-target="true"
-              onDragOver={allowListUnfavourite}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-                  setListDropActive(false)
-                }
-              }}
-              onDrop={dropUnfavourite}
-            >
-              {loadingList ? (
-                <p className="px-2 py-3 text-sm text-base-content/45">Loading agents…</p>
-              ) : loadFailed ? (
-                <p className="px-2 py-3 text-sm text-base-content/45">Could not load agents.</p>
-              ) : visibleCount === 0 ? (
-                <p className="px-2 py-3 text-sm text-base-content/45">
-                  {isPinnedId(draggingId) ? 'drop here to unfavourite' : 'No agents yet.'}
-                </p>
-              ) : (
-                <ul className="os-rail-sections space-y-1">
-                  {sectionBlocks.map((block) => {
-                    // #688: an emptied Unassigned section is not a permanent
-                    // empty block. It hides until it has rows again — or until
-                    // a drag starts, when it reappears as a drop target (its
-                    // drop handler below is live the whole time). "Move to →
-                    // Unassigned" in the context menu works either way.
-                    if (
-                      isUnassignedSection(block.id) &&
-                      block.rows.length === 0 &&
-                      !draggingId
-                    ) {
-                      return null
-                    }
-                    const showMembers = isAvatarOnly || !block.collapsed
-                    return (
-                      <li
-                        key={block.id}
-                        className={`os-rail-section ${
-                          sectionDropId === block.id ? 'os-rail-section--drop' : ''
-                        }`}
-                        data-testid="rail-section"
-                        data-section-id={block.id}
-                        data-section-custom={block.custom ? 'true' : 'false'}
-                        data-collapsed={block.collapsed ? 'true' : 'false'}
-                        data-internal-only={block.internalOnly ? 'true' : 'false'}
-                        /* #564: the whole section block accepts a drop, not just
-                           its header and its empty hint. Without this, a drop
-                           on the padding or the gap between rows bubbled to the
-                           list container's `dropUnfavourite`, which unpins but
-                           never assigns — so a dragged pin landed in
-                           Unassigned however carefully you aimed. */
-                        onDragOver={(event) => allowSectionDrop(event, block.id)}
-                        onDrop={(event) => dropOnSection(event, block.id)}
-                      >
-                        {isAvatarOnly ? null : (
-                          <RailSectionHeader
-                            sectionId={block.id}
-                            name={block.name}
-                            count={block.rows.length}
-                            collapsed={block.collapsed}
-                            custom={block.custom}
-                            internalOnly={Boolean(block.internalOnly)}
-                            editing={editingSectionId === block.id}
-                            editValue={editingSectionId === block.id ? editingSectionName : block.name}
-                            dropActive={sectionDropId === block.id}
-                            onToggle={() => {
-                              if (block.id === 'subagents') {
-                                setSubagentsCollapsed((current) => !current)
-                              } else {
-                                setSectionState((current) => toggleSectionCollapsed(current, block.id))
-                              }
-                            }}
-                            onToggleTalkLock={
-                              block.custom
-                                ? () =>
-                                    setSectionState((current) =>
-                                      toggleSectionInternalOnly(current, block.id),
-                                    )
-                                : undefined
-                            }
-                            onContextMenu={
-                              block.custom
-                                ? ({ clientX, clientY }) =>
-                                    openSectionMenuAt(block.id, block.name, clientX, clientY)
-                                : undefined
-                            }
-                            onEditChange={setEditingSectionName}
-                            onEditCommit={commitSectionRename}
-                            onEditCancel={cancelSectionRename}
-                            onDragOver={(event) => allowSectionDrop(event, block.id)}
-                            onDrop={(event) => dropOnSection(event, block.id)}
-                          />
-                        )}
-                        {showMembers ? (
-                          <ul className="space-y-0.5">
-                            {block.rows.length === 0 && !isAvatarOnly ? (
-                              <li>
-                                <RailSectionEmpty
-                                  dropActive={sectionDropId === block.id}
-                                  onDragOver={(event) => allowSectionDrop(event, block.id)}
-                                  onDrop={(event) => dropOnSection(event, block.id)}
-                                  unassigned={block.id === UNASSIGNED_SECTION_ID}
-                                />
-                              </li>
-                            ) : (
-                              block.rows.map((row) => {
-                                const index = orderedRows.findIndex((item) => item.id === row.id)
-                                const spillSlot =
-                                  index >= 0 && index < 9 - visiblePins.length
-                                    ? visiblePins.length + index + 1
-                                    : undefined
-                                if (row.kind === 'team') {
-                                  return renderTeamRow(row.team, false, [], spillSlot, index)
-                                }
-                                return (
-                                  <li key={row.id} data-rail-id={row.id} data-rail-index={index}>
-                                    {row.kind === 'remote'
-                                      ? renderRemoteRow(row.remote, false, spillSlot)
-                                      : renderAgentRow(row.agent, false, spillSlot)}
-                                  </li>
-                                )
-                              })
-                            )}
-                          </ul>
-                        ) : null}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-          </nav>
           <div
             className={`os-rail-scroll-fade pointer-events-none transition-opacity duration-150 ${
               canScroll ? 'opacity-100' : 'opacity-0'
@@ -2707,7 +1868,8 @@ export default function AgentSidebar({
             data-can-scroll={canScroll ? 'true' : 'false'}
             aria-hidden="true"
           />
-        </div>
+
+          <RailSections {...railSectionsProps} />
 
         <div
           className={`os-hidden-bots ${hiddenCount === 0 ? 'os-hidden-bots--empty' : 'os-hide-drop--has-hidden'} ${

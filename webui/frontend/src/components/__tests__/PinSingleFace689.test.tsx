@@ -9,7 +9,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('#689 pinned team tile: single face + +N', () => {
-  const tsx = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8')
+  const tsx =
+    readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8') +
+    readFileSync(join(process.cwd(), 'src/components/sidebar/RailSections.tsx'), 'utf8') // #856 slice I: fav-grid + section markup moved verbatim into sidebar/RailSections.tsx
 
   it('no longer renders the graduated multi-face stack branch', () => {
     expect(tsx).not.toContain('pin-team-avatar-stack')
