@@ -1987,6 +1987,11 @@ button.os-agent-row {
 .os-agent-sidebar--avatar-only .os-rail-footer-btn {
   height: 2rem;
   padding-block: 0;
+  /* #1067: every footer icon shares the centred axis. The hostname button
+     kept its expanded-mode `flex w-full px-1` and stayed left-anchored at
+     20px while Teams/Plugins/Routines sat at 33.5px — a 13.5px drift. */
+  justify-content: center;
+  padding-inline: 0;
 }
 .os-agent-sidebar--avatar-only [data-testid="rail-update-chrome"] {
   display: none;
@@ -2320,7 +2325,8 @@ button.os-agent-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-top: 0.35rem;
+  /* #1068: the footer container owns the vertical rhythm — the old extra
+     margin-top made the bottom row sit unevenly against the nav rows. */
   color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
 }
 .os-rail-hostname-icon {
@@ -2341,7 +2347,9 @@ button.os-agent-row {
   border: 0;
   border-radius: 0.35rem;
   padding: 0.25rem 0.25rem;
-  font-size: 0.75rem;
+  /* #1068: text-sm (0.875rem) matches the Teams/Plugins/Routines labels —
+     the old 0.75rem was an abrupt font drop on the bottom row. */
+  font-size: 0.875rem;
   color: inherit;
   outline: none;
 }
@@ -2362,6 +2370,9 @@ button.os-agent-row {
   align-items: center;
   justify-content: center;
   margin-left: auto;
+  /* #1068: keep the icon's right edge off the rail boundary — the nav rows
+     above carry px-1 (0.25rem), the old rule hugged the border. */
+  margin-inline-end: 0.25rem;
   gap: 0.25rem;
 }
 .os-rail-update-chrome__label {

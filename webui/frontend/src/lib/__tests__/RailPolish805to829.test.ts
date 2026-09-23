@@ -202,3 +202,42 @@ describe('#1075 avatar-only search chrome stays inside the sidebar', () => {
     expect(row).toMatch(/min-height:\s*var\(--os-top-chrome-h\)/)
   })
 })
+
+describe('#1067 footer icons share one vertical axis', () => {
+  it('avatar-only: the server button centres like Teams/Plugins/Routines above it', () => {
+    const btn = ruleBlock(
+      css(),
+      '.os-agent-sidebar--avatar-only .os-rail-footer-btn {'
+    )
+    // The hostname icon button kept `flex w-full px-1` and stayed left-anchored
+    // (13.5px drift vs the centred column). It must centre too.
+    expect(btn).toMatch(/justify-content:\s*center/)
+    expect(btn).toMatch(/padding-inline:\s*0/)
+  })
+
+  it('expanded: the server icon matches the 16px icon column of the nav rows', () => {
+    const sidebarSrc = sidebar()
+    // the server button drops its bespoke h-5 w-5 / h-3.5 sizing
+    expect(sidebarSrc).not.toMatch(/os-rail-hostname-icon[^"']*btn-square h-5 w-5/)
+    expect(sidebarSrc).toMatch(/os-rail-hostname-icon[^"']*h-4 w-4/)
+  })
+})
+
+describe('#1068 hostname row shares the footer rhythm', () => {
+  it('hostname typography matches the footer nav rows (text-sm scale)', () => {
+    // line-anchored: the avatar-only `.os-rail-hostname {` (display:none)
+    // appears earlier and contains the same substring.
+    const host = ruleBlock(css(), '\n.os-rail-hostname {')
+    expect(host).toMatch(/font-size:\s*0\.875rem/)
+  })
+
+  it('no extra top margin — padding rhythm comes from the footer container', () => {
+    const row = ruleBlock(css(), '.os-rail-hostname-row {')
+    expect(row).not.toMatch(/margin-top/)
+  })
+
+  it('the update chrome aligns its right edge with the nav rows\' padding', () => {
+    const chrome = ruleBlock(css(), '.os-rail-update-chrome {')
+    expect(chrome).toMatch(/margin-inline-end:\s*0\.25rem/)
+  })
+})

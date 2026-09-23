@@ -2043,14 +2043,14 @@ export default function AgentSidebar({
               <div className="relative os-rail-hostname-row">
                 <button
                   type="button"
-                  className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0 text-base-content/60 hover:text-base-content relative"
+                  className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content relative"
                   aria-label="Remote sessions"
                   aria-expanded={remotesPopupOpen}
                   aria-haspopup="menu"
                   data-testid="rail-server-icon"
                   onClick={() => setRemotesPopupOpen((open) => !open)}
                 >
-                  <Server className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Server className="h-4 w-4" aria-hidden="true" />
                   {localWsDown && (
                     <span
                       data-testid="local-server-status-dot"
