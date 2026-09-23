@@ -2734,6 +2734,9 @@ const ChatPage = () => {
     isApiAgent,
     isSlashOpen,
     messages,
+    // #1070: Send-now mirrors the composer's Enter-on-empty contract —
+    // interrupt the running turn; the drain effect promotes the queued row.
+    onSendNow: interruptRunningTurn,
     pendingAttachments,
     pluginsPanelOpen,
     plusOpen,

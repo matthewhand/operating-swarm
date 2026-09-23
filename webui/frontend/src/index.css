@@ -3076,6 +3076,17 @@ pre:focus-within .os-code-copy {
 .os-composer__send:hover {
   opacity: 0.92;
 }
+/* #1070: the permanently mounted idle send is greyed and inert — same slot,
+   same geometry, no row re-flow across states. */
+.os-composer__send--idle,
+.os-composer__send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.os-composer__send--idle:hover {
+  opacity: 0.4;
+}
 /* #223: stop button — square stop icon, danger-tinted so it reads as interrupt. */
 .os-composer__stop {
   color: color-mix(in srgb, var(--color-error) 75%, var(--color-base-content));

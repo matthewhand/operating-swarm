@@ -16,7 +16,7 @@ export interface ChatBottomDockProps {
 }
 
 export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps) {
-    const { ArrowUp, ChatMessageInput, ComposerAttachChips, ComposerPluginsBadge, ComposerPluginsPanel, ComposerSlashPopup, ContextUsageBadge, Layers, Mic, Paperclip, Plug, Plus, QueuedSendPane, Reply, Square, SuggestionChips, addToast, authRejected, awaitingAssistant, bottomDockRef, chipsDisabled, chooseSuggestion, composerBusy, composerDragOver, composerMenu, composerPlaceholder, composerRef, composerWrapRef, contextUsage, conversationId, demoChips, describeSpeechPath, enqueueComposerFiles, fileInputRef, filesFromList, filteredSlashItems, generationIsInFlight, handleCompact, handleComposerDragEnter, handleComposerDragLeave, handleComposerDragOver, handleComposerDrop, handleComposerKeyDown, handleComposerPaste, handleInputChange, handleMic, handleSelectSlashItem, handleSend, hasSendableDraft, input, interruptRunningTurn, isApiAgent, isSlashOpen, messages, pendingAttachments, pluginsPanelOpen, plusOpen, plusRef, queued, queuedPaneMaxHeightPx, recentSlashIds, removeAttachment, renderRoutingPicker, replyTarget, selectedBlueprint, sendNowHint, setInput, setPluginsPanelOpen, setPlusOpen, setQueuedHoldIds, setReplyTarget, setSlashSelectedIndex, setTokenDiagOpen, showContextUsage, showDemoChips, showSuggestionChips, slashQuery, slashSelectedIndex, status, sttListening, sttPathUsed, suggestionChips, transcriptHeightPx } = props as any
+    const { ArrowUp, ChatMessageInput, ComposerAttachChips, ComposerPluginsBadge, ComposerPluginsPanel, ComposerSlashPopup, ContextUsageBadge, Layers, Mic, Paperclip, Plug, Plus, QueuedSendPane, Reply, Square, SuggestionChips, addToast, authRejected, awaitingAssistant, bottomDockRef, chipsDisabled, chooseSuggestion, composerBusy, composerDragOver, composerMenu, composerPlaceholder, composerRef, composerWrapRef, contextUsage, conversationId, demoChips, describeSpeechPath, enqueueComposerFiles, fileInputRef, filesFromList, filteredSlashItems, generationIsInFlight, handleCompact, handleComposerDragEnter, handleComposerDragLeave, handleComposerDragOver, handleComposerDrop, handleComposerKeyDown, handleComposerPaste, handleInputChange, handleMic, handleSelectSlashItem, handleSend, hasSendableDraft, input, interruptRunningTurn, isApiAgent, isSlashOpen, messages, onSendNow, pendingAttachments, pluginsPanelOpen, plusOpen, plusRef, queued, queuedPaneMaxHeightPx, recentSlashIds, removeAttachment, renderRoutingPicker, replyTarget, selectedBlueprint, sendNowHint, setInput, setPluginsPanelOpen, setPlusOpen, setQueuedHoldIds, setReplyTarget, setSlashSelectedIndex, setTokenDiagOpen, showContextUsage, showDemoChips, showSuggestionChips, slashQuery, slashSelectedIndex, status, sttListening, sttPathUsed, suggestionChips, transcriptHeightPx } = props as any
     const SparklesIcon = props.Sparkles || Sparkles
     const [enhancingLocal, setEnhancingLocal] = useState(false)
     const enhancing = props.enhancing ?? enhancingLocal
@@ -456,6 +456,12 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                     <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
                   </button>
                 ) : null}
+                {/* #1070: the primary action is permanently mounted. Idle →
+                    disabled send (greyed, in the DOM so the row's geometry
+                    never changes); queued send waiting → active Send-now
+                    (same contract as Enter-on-empty: interrupt the running
+                    turn, the drain effect promotes the row); a sendable draft
+                    → the real submit. The three states share one slot. */}
                 {hasSendableDraft ? (
                   <button
                     type="submit"
@@ -464,7 +470,28 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                   >
                     <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
                   </button>
-                ) : null}
+                ) : sendNowHint ? (
+                  <button
+                    type="button"
+                    className="os-composer__send"
+                    aria-label="Send now"
+                    data-testid="composer-send-now"
+                    onClick={onSendNow}
+                  >
+                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="os-composer__send os-composer__send--idle"
+                    aria-label="Send"
+                    aria-disabled="true"
+                    disabled
+                    tabIndex={-1}
+                  >
+                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                )}
               </div>{/* /os-composer-row */}
             </div>
           </form>

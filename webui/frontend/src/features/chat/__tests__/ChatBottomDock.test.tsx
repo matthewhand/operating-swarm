@@ -140,6 +140,41 @@ describe('#856 slice H — ChatBottomDock', () => {
     expect(screen.getByLabelText('Send')).toBeTruthy()
   })
 
+  // #1070: the primary action is permanently mounted. Idle → disabled send
+  // (greyed, not absent); queued+empty → active Send-now (same contract the
+  // composer's Enter path implements via interruptRunningTurn); busy → stop.
+  it('#1070 the send button is always mounted — disabled when idle', () => {
+    render(<ChatBottomDock {...baseProps({}) as React.ComponentProps<typeof ChatBottomDock>} />)
+    const send = screen.getByLabelText('Send') as HTMLButtonElement
+    expect(send).toBeTruthy()
+    expect(send.disabled).toBe(true)
+    expect(send.getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('#1070 empty composer with a queued send renders the active Send-now action', () => {
+    const onSendNow = vi.fn()
+    render(
+      <ChatBottomDock
+        {...baseProps({ sendNowHint: true, onSendNow }) as React.ComponentProps<typeof ChatBottomDock>}
+      />,
+    )
+    const sendNow = screen.getByTestId('composer-send-now') as HTMLButtonElement
+    expect(sendNow).toBeTruthy()
+    expect(sendNow.disabled).toBe(false)
+    fireEvent.click(sendNow)
+    expect(onSendNow).toHaveBeenCalledTimes(1)
+  })
+
+  it('#1070 busy keeps the stop button and the disabled/active send slots consistent', () => {
+    render(
+      <ChatBottomDock
+        {...baseProps({ composerBusy: true }) as React.ComponentProps<typeof ChatBottomDock>}
+      />,
+    )
+    expect(screen.getByTestId('composer-stop')).toBeTruthy()
+    expect((screen.getByLabelText('Send') as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('ChatPage consumes the module (no inline bottom-dock JSX)', () => {
     const fs = require('node:fs')
     const path = require('node:path')
