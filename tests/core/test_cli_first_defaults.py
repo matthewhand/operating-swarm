@@ -29,19 +29,14 @@ def _start_set(payload: dict) -> set[str]:
 
 
 def test_shipped_defaults_all_modes_on(monkeypatch):
-    """#736: gating is retired — starter configs no longer advertise the
-    product-modes key, and the catalog payload advertises all-on."""
+    """#736 Step 2: gating fully retired — no product-modes key in starter
+    configs, and the catalog payload no longer advertises ``modes`` at all
+    (legacy clients treat a missing key as all-on)."""
     monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
     cfg = cli_catalog.build_starter_config()
     assert "product_modes" not in cfg.get("settings", {})
     payload = cli_catalog.cli_agents_catalog_payload({})
-    assert payload["modes"] == {
-        "cli": True,
-        "api": True,
-        "blueprint": True,
-        "team": True,
-        "remote": True,
-    }
+    assert "modes" not in payload
     assert "mode_limitations" not in payload
     rail_ids = {row["id"] for row in payload["rail"]}
     assert "cli_agent" in rail_ids
@@ -97,8 +92,10 @@ def test_enabling_api_mode_adds_api_agent_rail_row(monkeypatch):
     rows = {row["id"]: row for row in cli_catalog.rail_cli_rows(cfg)}
     assert set(rows) == {"cli_agent", "api_agent"}
     assert rows["api_agent"]["kind"] == "api"
+    # #736 Step 2: the stored key is advisory — every seat ships regardless,
+    # and the payload carries no ``modes`` advertisement any more.
     payload = cli_catalog.cli_agents_catalog_payload(cfg)
-    assert payload["modes"]["api"] is True
+    assert "modes" not in payload
     assert {row["id"] for row in payload["rail"]} == {"cli_agent", "api_agent"}
 
 

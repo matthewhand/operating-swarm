@@ -1,0 +1,49 @@
+name: mirror-drift
+
+# #1034 — the public mirror (operating-swarm) must never silently drift
+# behind the private SoT again (#1028: ~620 commits / 1518 files stale).
+# Weekly tree-diff check; fails loudly past the threshold.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch the public mirror
+        run: |
+          if git remote get-url public >/dev/null 2>&1; then
+            git remote set-url public https://github.com/matthewhand/operating-swarm.git
+          else
+            git remote add public https://github.com/matthewhand/operating-swarm.git
+          fi
+          git fetch public main
+
+      - name: Tree-diff drift check (threshold ${{ vars.MIRROR_DRIFT_THRESHOLD || 50 }} files)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          changed="$(git diff --name-only public/main HEAD | wc -l)"
+          threshold="${MIRROR_DRIFT_THRESHOLD:-50}"
+          echo "files differing from public/main: $changed (threshold $threshold)"
+          if [ "$changed" -gt "$threshold" ]; then
+            echo "::error::Mirror drifted: $changed files differ from public/main (threshold $threshold). Run scripts/mirror_sync.sh to publish a sanitised sync."
+            exit 1
+          fi
+
+      - name: Drift summary
+        if: always()
+        run: |
+          echo "### Mirror drift" >> "$GITHUB_STEP_SUMMARY"
+          echo "files differing from public/main: $(git diff --name-only public/main HEAD | wc -l)" >> "$GITHUB_STEP_SUMMARY"
+          echo "public/main: $(git rev-parse --short public/main), HEAD: $(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"

@@ -26,9 +26,9 @@ def test_cli_agents_endpoint_empty_configured_with_path_suggestions(client, monk
     assert data["discovered"] == ["grok"]
     assert data["installed"] == ["grok"]
     assert {"cli_agent", "api_agent"} <= {row["id"] for row in data["rail"]}
-    assert data["modes"]["cli"] is True
-    # All-on defaults since the product-modes toggle workaround (2026-09-20).
-    assert data["modes"]["api"] is True
+    # #736 Step 2: the retired ``modes`` advertisement is gone entirely —
+    # surfaces are always on if configured.
+    assert "modes" not in data
     assert "grok" in data["suggestions"]
     assert data["suggestions"]["grok"]["cmd"][0] == "grok"
     assert "sk-" not in str(data)
