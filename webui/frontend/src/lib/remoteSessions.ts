@@ -4,6 +4,7 @@
  */
 
 import { operateRemote, type RemoteOperateResult } from './api'
+import { parseStartedAt } from './avatarStack'
 import { ombBotsFromOperate, ombNavbarOptions } from './ombBots'
 import type { RemoteEntry } from './remotesCatalog'
 import type { MemberSession } from './sessionPicker'
@@ -18,6 +19,7 @@ export interface RemoteThreadRow {
   title: string
   snippet: string
   updated_at?: string
+  created_at?: string
   channel?: string
 }
 
@@ -103,6 +105,7 @@ export function sessionsFromOperateResult(
       title: String(row.title || row.display || row.name || id).trim() || id,
       snippet: String(row.snippet || row.preview || '').trim(),
       updated_at: String(row.updated_at || row.updatedAt || '').trim() || undefined,
+      created_at: String(row.created_at || row.createdAt || '').trim() || undefined,
       channel: String(row.channel || '').trim() || undefined,
     })
   }
@@ -125,7 +128,7 @@ export function memberSessionsFromRemoteOperate(
   remote: Pick<RemoteEntry, 'id' | 'title' | 'kind'>,
   result: RemoteOperateResult | undefined,
 ): MemberSession[] {
-  return sessionsFromOperateResult(result).map((row, index) => ({
+  return sessionsFromOperateResult(result).map((row) => ({
     id: `${remote.id}:${row.id}`,
     groupId: remote.id,
     groupKind: 'remote',
@@ -133,7 +136,10 @@ export function memberSessionsFromRemoteOperate(
     title: row.title || row.id,
     snippet: row.snippet || row.channel || '',
     status: 'finished',
-    startedAt: index,
+    // #1099/#1100: real activity time when the harness exposes it (TrueForge
+    // sends updated_at, older harnesses only created_at). Zero otherwise —
+    // formatters render epoch-0 as *no stamp*, never a literal 0.
+    startedAt: parseStartedAt(row.updated_at || row.created_at, 0),
     href: `/chat?remote=${encodeURIComponent(remote.id)}&session=${encodeURIComponent(row.id)}`,
   }))
 }
