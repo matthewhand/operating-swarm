@@ -7,6 +7,7 @@ APP_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "App.tsx"
 FLAGS_TS = REPO_ROOT / "webui" / "frontend" / "src" / "experimental" / "flags.ts"
 CMD_PALETTE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "experimental" / "CommandPalette.tsx"
 SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
+SIDEBAR_TSX_ROWS = SIDEBAR_TSX.parent / "sidebar" / "RailSections.tsx"
 SEARCH_PALETTE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SearchPalette.tsx"
 CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 _DOCK = CHAT_PAGE_TSX.parent.parent / "features" / "chat" / "ChatBottomDock.tsx"
@@ -34,7 +35,7 @@ def test_command_palette_demoted_and_no_collision():
 
 
 def test_sidebar_alt_pins_and_tips():
-    sidebar = SIDEBAR_TSX.read_text(encoding="utf-8")
+    sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TSX, SIDEBAR_TSX_ROWS))
     # Alt/⌥+1…9 navigation
     assert "event.altKey" in sidebar
     assert "/^[1-9]$/.test(event.key)" in sidebar

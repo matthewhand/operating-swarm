@@ -13,7 +13,9 @@ import { describe, expect, it } from 'vitest'
  * do — the defects are in the stylesheet, so the regression guard has to be too.
  */
 const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
-const sidebar = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8')
+const sidebar =
+    readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8') +
+    readFileSync(join(process.cwd(), 'src/components/sidebar/RailSections.tsx'), 'utf8') // #856 slice I: fav-grid + section markup moved verbatim into sidebar/RailSections.tsx
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

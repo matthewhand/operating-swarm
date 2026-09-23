@@ -4,6 +4,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+CHAT_SEND = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "useChatSend.ts"
 SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 CONSUMERS = REPO / "src" / "swarm" / "consumers.py"
 # #855 slice 2: per-harness dispatch moved verbatim into the stubs mixin.
@@ -13,7 +14,7 @@ REMOTE_SESSIONS = REPO / "webui" / "frontend" / "src" / "lib" / "remoteSessions.
 
 
 def test_chat_sends_session_id_for_remote_resume():
-    src = CHAT.read_text(encoding="utf-8")
+    src = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT, CHAT_SEND))
     assert "remoteChatTurnParams" in src
     assert "sessionFromUrl" in src
     assert "fetchRemoteThreadSessions" in src
