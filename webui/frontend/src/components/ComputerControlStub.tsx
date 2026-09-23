@@ -7,6 +7,7 @@ import TestSchedulePane from './TestSchedulePane'
 import { notifyOverlayClosed, OPEN_COMPUTER_CONTROL_EVENT } from '../lib/chromeOverlay'
 import { fetchTestScheduleStatus } from '../lib/testSchedules'
 import { apiPatch, fetchLlmProfiles } from '../lib/api'
+import { openSettingsSheet } from './SettingsSheet' // #1077: Configure routes to sandbox settings
 
 /**
  * REQ-80 / #432 / #222 — computer-icon right pane.
@@ -142,6 +143,20 @@ export function ComputerControlStub({
 
         {seatId ? <SandboxDisplayPane agentId={seatId} agentName={agentName} /> : null}
 
+        {/* #1077: the screen viewport is a pane-level feature, not a Routines-
+            tab feature — it sits below the session row and above the tab
+            strip, persisting across every tab. */}
+        <figure className="mb-2 space-y-2" data-testid="agent-screen-thumbnail">
+          <div
+            className="flex aspect-video w-full items-center justify-center rounded-box border border-base-300 bg-base-200 text-sm text-base-content/60"
+            role="img"
+            aria-label={`${agentName}'s screen`}
+          >
+            {hasScreenSession ? 'Last frame' : 'No screen session'}
+          </div>
+          <figcaption className="text-sm text-base-content/70">{`${agentName}'s screen`}</figcaption>
+        </figure>
+
         <div role="tablist" className="tabs tabs-boxed mb-3" aria-label="Computer control panes">
           <button
             type="button"
@@ -222,16 +237,35 @@ export function SandboxDisplayPane({ agentId, agentName }: { agentId: string; ag
   }
   if (!display) {
     const reason = String(payload?.reason ?? displayQuery.error ?? 'unavailable')
-    const headline = reason === 'no_active_sandbox' ? 'Sandbox not active' : 'No sandbox configured'
+    // #1077: internal reason codes never reach the user. Unconfigured → a
+    // plain statement plus a Configure action into the sandbox settings;
+    // daytona-but-inactive keeps its honest headline (code stays in title).
+    const unconfigured = reason === 'provider_not_daytona' || payload?.provider === 'none'
+    const headline = unconfigured
+      ? 'No sandbox provider configured'
+      : reason === 'no_active_sandbox'
+        ? 'Sandbox not active'
+        : 'Sandbox display unavailable'
     return (
       <div
         className="mb-2 flex items-center justify-between gap-2 rounded-box border border-base-300 px-3 py-2 text-sm"
         data-testid="sandbox-display"
       >
         <span className="text-base-content/70">{headline}</span>
-        <span className="badge badge-sm badge-ghost" title={reason}>
-          {reason}
-        </span>
+        {unconfigured ? (
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs"
+            data-testid="sandbox-display-configure"
+            onClick={() => openSettingsSheet({ section: 'sandboxes' })}
+          >
+            Configure
+          </button>
+        ) : (
+          <span className="badge badge-sm badge-ghost" title={reason}>
+            {reason === 'provider_not_daytona' ? '' : reason}
+          </span>
+        )}
       </div>
     )
   }

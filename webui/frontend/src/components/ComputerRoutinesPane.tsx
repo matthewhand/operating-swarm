@@ -57,7 +57,9 @@ export function ComputerRoutinesPane({
   agentName,
   hasScreenSession = false,
   nowMs,
-  showThumbnail = true,
+  /* #1077: the screen viewport moved above the tab strip (ComputerControlStub);
+     the routines pane no longer renders a duplicate. */
+  showThumbnail = false,
 }: ComputerRoutinesPaneProps) {
   const [view, setView] = useState<PaneView>('list')
   const [editing, setEditing] = useState<Routine | null>(null)
