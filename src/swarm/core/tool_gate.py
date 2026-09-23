@@ -36,6 +36,7 @@ from swarm.core.classifier_verdict import (
 logger = logging.getLogger(__name__)
 
 GATE_ROLE = ROLE_GATE
+BELAY_ROLE = ROLE_GATE
 
 _DANGEROUS_TOKENS = frozenset({"YES", "Y", "DANGEROUS", "TRUE", "1"})
 _SAFE_TOKENS = frozenset({"NO", "N", "SAFE", "FALSE", "0"})
@@ -407,3 +408,6 @@ def wrap_tools_with_gate(
 
 def is_gate_role(role: Any) -> bool:
     return normalize_agent_role(role) == ROLE_GATE
+
+
+is_belay_role = is_gate_role

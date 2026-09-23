@@ -39,6 +39,7 @@ __all__ = [
     "DefaultRole",
     "EngineerRole",
     "GateRole",
+    "BelayRole",
     "SkepticRole",
     "SuggestionsRole",
     "SupportRole",
@@ -103,7 +104,7 @@ class SupportRole(WorkerRole):
 
 @register_role
 class GateRole(VerifierRole):
-    """Tool-call classifier intercepting execution requests before execution.
+    """Tool-call classifier intercepting execution requests before execution (Belay).
 
     Delegates to ``tool_gate.wrap_tools_with_gate`` (fail-open when unwired)
     and ``tool_gate.attach_gate_as_tool``. The veto path lives inside the
@@ -111,9 +112,16 @@ class GateRole(VerifierRole):
     """
 
     id: ClassVar[str] = "gate"
-    aliases: ClassVar[tuple[str, ...]] = ("gate", "tool_gate", "tool-gate", "toolgate")
-    label: ClassVar[str] = "Gate"
-    badge: ClassVar[str | None] = "Gate"
+    aliases: ClassVar[tuple[str, ...]] = (
+        "gate",
+        "belay",
+        "belayer",
+        "tool_gate",
+        "tool-gate",
+        "toolgate",
+    )
+    label: ClassVar[str] = "Belay"
+    badge: ClassVar[str | None] = "Belay"
     mechanism: ClassVar[str] = "intercept"
     mechanism_detail: ClassVar[str] = (
         "Tool-call classifier intercepting execution requests before execution."
@@ -168,6 +176,9 @@ class GateRole(VerifierRole):
         from swarm.core.tool_gate import attach_gate_as_tool
 
         return attach_gate_as_tool(coordinator, gate)
+
+
+BelayRole = GateRole
 
 
 @register_role

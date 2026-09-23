@@ -13,10 +13,15 @@ const ROLE_BRIEFS: Record<string, { title: string; explanation: string }> = {
     explanation:
       'Socratic helper: stays in conversation, asks clarifying questions, and routes work to other seats when a specialist is a better fit.',
   },
-  gate: {
-    title: 'Gate',
+  belay: {
+    title: 'Belay',
     explanation:
-      'YES/NO gate: finishes by calling submit_gate_verdict. yes = dangerous (elicit); no = proceed. Prose is never parsed as the verdict.',
+      'Safety belay (interceptor): catches unsafe or destructive tool calls before execution. Catches slips, elicits human confirmation, or vetoes before damage occurs.',
+  },
+  gate: {
+    title: 'Belay',
+    explanation:
+      'Safety belay (interceptor): catches unsafe or destructive tool calls before execution. Catches slips, elicits human confirmation, or vetoes before damage occurs.',
   },
   skeptic: {
     title: 'Skeptic',
