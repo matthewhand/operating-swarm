@@ -15,7 +15,11 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const src = readFileSync(join(process.cwd(), 'src/pages/ChatPage.tsx'), 'utf8')
+// #856 slice H: the composer markup moved verbatim into ChatBottomDock.tsx;
+// the composerBusy derivation stayed in ChatPage. Union read keeps both pins.
+const src =
+  readFileSync(join(process.cwd(), 'src/pages/ChatPage.tsx'), 'utf8') +
+  readFileSync(join(process.cwd(), 'src/features/chat/ChatBottomDock.tsx'), 'utf8')
 
 /** The JSX element carrying the given composer testid. */
 function elementFor(testid: string): string {

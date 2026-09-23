@@ -22,7 +22,13 @@ def test_req115_chatpage_token_meter_button_and_modal_wired():
     repo_root = Path(__file__).resolve().parents[2]
     chat_page = repo_root / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
     assert chat_page.exists()
-    content = chat_page.read_text(encoding="utf-8")
+    # #856 slice H: the composer markup (ContextUsageBadge slot) moved verbatim
+    # into ChatBottomDock.tsx; the modal wiring stayed in ChatPage.
+    dock = repo_root / "webui" / "frontend" / "src" / "features" / "chat" / "ChatBottomDock.tsx"
+    assert dock.exists()
+    content = "\n".join(
+        p.read_text(encoding="utf-8") for p in (chat_page, dock)
+    )
 
     # #773: the navbar token meter was removed — the composer's
     # ContextUsageBadge is the ONE canonical meter, and it opens the modal.
