@@ -16,6 +16,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type React from 'react'
 import { RailSections } from '../sidebar/RailSections'
 
 function baseProps(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -88,7 +89,7 @@ function baseProps(overrides: Record<string, unknown> = {}): Record<string, unkn
 
 describe('#856 slice I — RailSections', () => {
   it('renders the pinned grid and the section list', () => {
-    render(<RailSections {...(baseProps() as never)} />)
+    render(<RailSections {...baseProps() as React.ComponentProps<typeof RailSections>} />)
     expect(screen.getByTestId('agent-fav-grid')).toBeTruthy()
     expect(screen.getByTestId('agent-list-drop')).toBeTruthy()
     // sectionBlocks has 2 entries, but the emptied Unassigned block hides
@@ -97,13 +98,13 @@ describe('#856 slice I — RailSections', () => {
   })
 
   it('an emptied Unassigned section renders nothing while idle (#688)', () => {
-    render(<RailSections {...(baseProps() as never)} />)
+    render(<RailSections {...baseProps() as React.ComponentProps<typeof RailSections>} />)
     const sections = screen.getAllByTestId('rail-section')
     expect(sections.some((s) => s.getAttribute('data-section-id') === 'unassigned')).toBe(false)
   })
 
   it('section blocks carry collapsed/custom/internal-only data-attributes', () => {
-    render(<RailSections {...(baseProps() as never)} />)
+    render(<RailSections {...baseProps() as React.ComponentProps<typeof RailSections>} />)
     const alpha = screen
       .getAllByTestId('rail-section')
       .find((s) => s.getAttribute('data-section-id') === 'team-alpha')
@@ -112,7 +113,7 @@ describe('#856 slice I — RailSections', () => {
   })
 
   it('rows render through the passed-in row renderers', () => {
-    render(<RailSections {...(baseProps() as never)} />)
+    render(<RailSections {...baseProps() as React.ComponentProps<typeof RailSections>} />)
     expect(screen.getByTestId('agent-row')).toHaveTextContent('Charles')
   })
 
