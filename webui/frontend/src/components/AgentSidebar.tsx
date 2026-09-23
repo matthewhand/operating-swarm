@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Calendar,
   ChevronRight,
+  EyeOff,
   Plug,
   Plus,
   Search,
@@ -1874,9 +1875,10 @@ export default function AgentSidebar({
         <div
           className={`os-hidden-bots ${hiddenCount === 0 ? 'os-hidden-bots--empty' : 'os-hide-drop--has-hidden'} ${
             hideDropActive ? 'os-hidden-bots--active' : ''
-          }`}
+          } ${hiddenCount === 0 && !draggingId ? 'os-hidden-bots--collapsed' : ''}`}
           data-testid="hidden-bots-row"
           data-empty={hiddenCount === 0 ? 'true' : 'false'}
+          data-collapsed={hiddenCount === 0 && !draggingId ? 'true' : 'false'}
           data-drag-over={hideDropActive ? 'true' : undefined}
           role="region"
           aria-label="Hidden Agents"
@@ -1942,7 +1944,21 @@ export default function AgentSidebar({
                 </span>
               </span>
             </button>
-          ) : null}
+          ) : (
+            /* #1076: an empty Hidden Agents slot collapses away while idle —
+               but a drag in flight needs a reliable target, so the drop zone
+               (label + icon, fixed min-height) reveals while draggingId is
+               set. The container keeps its drag handlers either way. */
+            draggingId ? (
+              <div
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-dashed border-base-content/25 px-2 py-1 text-xs text-base-content/55"
+                data-testid="hidden-drop-zone"
+              >
+                <EyeOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="os-hidden-drop-label">Drop here to hide</span>
+              </div>
+            ) : null
+          )}
         </div>
 
         <div className="border-t border-base-300/70 px-3 py-3" data-testid="sidebar-footer-container">

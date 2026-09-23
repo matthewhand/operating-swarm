@@ -2082,6 +2082,18 @@ button.os-agent-row {
 .os-hidden-bots--empty {
   min-height: 2.15rem;
 }
+/* #1076: empty AND idle → the section takes no vertical space at all; a drag
+   in flight removes the collapsed modifier, revealing the labelled drop zone
+   (.os-hidden-bots--empty keeps its min-height while dragging). */
+.os-hidden-bots--collapsed {
+  min-height: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
 .os-hidden-bots--empty.os-hidden-bots--active,
 .os-hidden-bots--empty[data-drag-over] {
   background: color-mix(in srgb, var(--color-base-content) 6%, transparent);

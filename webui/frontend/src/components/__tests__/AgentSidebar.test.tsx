@@ -883,7 +883,10 @@ describe('AgentSidebar Grok rail', () => {
     fireEvent.dragOver(zone, { dataTransfer: mockDataTransfer() })
     expect(zone).toHaveAttribute('data-drag-over', 'true')
     expect(zone).toHaveClass('os-hidden-bots--active')
-    expect(screen.queryByText(/drop here to hide/i)).not.toBeInTheDocument()
+    // #1076: a drag in flight reveals the labelled drop zone (the idle empty
+    // state stays collapsed — see the 'leaves the Hidden Agents area blank' pin).
+    expect(screen.getByTestId('hidden-drop-zone')).toBeInTheDocument()
+    expect(screen.getByText(/drop here to hide/i)).toBeInTheDocument()
 
     dragTo(codey, zone)
 
