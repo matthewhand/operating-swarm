@@ -1,4 +1,5 @@
 from pathlib import Path
+from helpers.source_surface import sidebar_surface
 
 
 def test_req116_rail_resize_module_and_helpers_exist():
@@ -22,10 +23,7 @@ def test_req116_agent_sidebar_and_css_wired():
     rail_resize_hook = (
         repo_root / "webui" / "frontend" / "src" / "components" / "sidebar" / "useRailResize.ts"
     )
-    assert sidebar_tsx.exists()
-    sidebar_content = sidebar_tsx.read_text(encoding="utf-8") + rail_resize_hook.read_text(
-        encoding="utf-8"
-    )
+    sidebar_content = sidebar_surface()
 
     assert 'data-testid="rail-resize-handle"' in sidebar_content
     assert 'data-avatar-only=' in sidebar_content

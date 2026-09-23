@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
-CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 
 
 def test_index_css_fades_identity_label_and_protects_controls():
@@ -19,7 +20,8 @@ def test_index_css_fades_identity_label_and_protects_controls():
 
 
 def test_chat_page_navbar_priority_classes():
-    tsx = CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    # #1055: shared chat surface — the header markup lives in ChatHeader now.
+    tsx = chat_surface()
     # #445: the header clips nothing. Its `overflow: hidden` (class and CSS rule)
     # cropped the routing flyout — an absolutely-positioned child of the picker
     # inside this header — to its first row. The REQ-865 width behaviour is

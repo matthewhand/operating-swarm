@@ -37,7 +37,18 @@ def test_rail_menu_has_move_to_and_section_items():
     # The menu builds per-item testids from the spec id — for 'move-to' this
     # renders data-testid="rail-menu-move-to" at runtime.
     assert "data-testid={`rail-menu-${spec.id}`}" in rail
-    sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR, SIDEBAR_ROWS))
+    sidebar = "\n".join(
+        x.read_text(encoding="utf-8")
+        for x in (
+            SIDEBAR,
+            SIDEBAR_ROWS,
+            # #856 slices 11/I: the pinned grid, section list, and the section
+            # create commands each moved to their extraction homes — the pin
+            # reads the union of the doctrine's real homes.
+            SIDEBAR.parent / "sidebar" / "RailSections.tsx",
+            REPO / "webui" / "frontend" / "src" / "features" / "sidebar" / "useRailMenuCommands.ts",
+        )
+    )
     assert "partitionRowsBySection" in sidebar
     assert "createSectionWithAgent" in sidebar
     assert "agent-fav-grid" in sidebar

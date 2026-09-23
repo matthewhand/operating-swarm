@@ -1,5 +1,7 @@
 """REQ-94 favourite grid: 2-up named large tiles, move not copy."""
 
+from helpers.source_surface import sidebar_surface
+
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -14,7 +16,7 @@ DJANGO_SIDEBAR_JS = REPO / "src/swarm/static/js/agent_sidebar.js"
 
 def test_spa_fav_grid_is_two_up_named_large_avatar():
     css = SPA_CSS.read_text(encoding="utf-8")
-    sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SPA_SIDEBAR, SPA_SIDEBAR_ROWS))
+    sidebar = sidebar_surface()
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css
     assert "repeat(4," not in css.split(".os-fav-grid")[1].split(".os-fav-grid--active")[0]
     assert ".os-fav-tile__name" in css
@@ -38,7 +40,7 @@ def test_spa_fav_grid_is_two_up_named_large_avatar():
 
 def test_spa_pin_is_a_move_out_of_the_rail_list():
     pins = SPA_PINS.read_text(encoding="utf-8")
-    sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SPA_SIDEBAR, SPA_SIDEBAR_ROWS))
+    sidebar = sidebar_surface()
     assert "excludePinnedFromList" in pins
     assert "excludePinnedFromList" in sidebar
     assert "move, not a copy" in pins
