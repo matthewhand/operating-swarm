@@ -7,6 +7,8 @@ Does not cover in-flight PRs (344, 370, 383, 400, 403, …).
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO = Path(__file__).resolve().parents[2]
 SETTINGS_SHEET = REPO / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
 REMOTES_CATALOG_PANE = (
@@ -48,7 +50,7 @@ def test_search_palette_bot_rows_spa_navigate_chat():
 
 def test_chat_page_support_default_and_manage_teams():
     """#322 Support default URL; #331/#755 Manage Teams assigns /teams/#<id>."""
-    src = CHAT_PAGE.read_text(encoding="utf-8")
+    src = chat_surface()
     assert "next.set('blueprint', SUPPORT_AGENT_ID)" in src
     assert "${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}" in src
     assert "Nothing to compact yet" in src
