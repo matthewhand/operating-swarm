@@ -53,12 +53,6 @@ function emitChange(agentId?: string): void {
   }
 }
 
-function replaceMap(next: AvatarMap): void {
-  memory = { ...next }
-  writeLocal(memory)
-  emitChange()
-}
-
 export function resetGeneratedAvatars(): void {
   memory = {}
   hydrated = false

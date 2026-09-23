@@ -32,6 +32,7 @@ const BLUEPRINTS = {
 
 const CLI_AGENTS = {
   clis: ['claude', 'codex', 'gemini', 'grok', 'opencode'],
+  discovered: ['grok'],
   installed: ['grok'],
   configured: ['grok'],
   native_consensus: {},
@@ -55,7 +56,7 @@ async function stubChatApis(page: import('@playwright/test').Page) {
   })
 }
 
-test('CLI-agent chat lists discovered CLIs and Manage Cli, not blueprints', async ({
+test('CLI-agent chat lists discovered CLIs and Manage CLI, not blueprints', async ({
   page,
 }) => {
   await stubChatApis(page)
@@ -67,7 +68,8 @@ test('CLI-agent chat lists discovered CLIs and Manage Cli, not blueprints', asyn
   await page.getByTestId('routing-pill-agent').click()
   const menu = page.getByTestId('routing-menu-agent')
   await expect(menu.getByRole('menuitem', { name: 'grok' })).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: 'Manage Cli' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Manage CLI' })).toBeVisible()
+  await expect(menu.getByTestId('manage-surface-divider')).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Codey' })).toHaveCount(0)
 })
 
@@ -81,7 +83,7 @@ test('blueprint-mode chat keeps Grok-Bot chrome without a Blueprint dropdown', a
   await expect(page.getByRole('combobox', { name: 'Blueprint' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'CLI' })).toHaveCount(0)
   await expect(page.getByTestId('navbar-routing-picker')).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: 'Manage Cli' })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: 'Manage CLI' })).toHaveCount(0)
 })
 
 test('running PATH/config CLI outside the catalog is listed and selected', async ({

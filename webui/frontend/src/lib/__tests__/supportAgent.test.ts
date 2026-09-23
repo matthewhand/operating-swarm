@@ -9,6 +9,7 @@ import {
   SUPPORT_SKILL_FIXTURE,
   SUPPORT_SKILL_NAME,
   buildSupportTurnContext,
+  ADMIN_AGENT_ID,
   defaultBlueprintId,
   isGateAgent,
   isSkepticAgent,
@@ -35,8 +36,9 @@ const codey: Blueprint = {
 describe('supportAgent helpers', () => {
   it('injects Support first when the catalog has none', () => {
     const agents = supportFirstAgents([codey])
-    expect(agents[0]?.id).toBe(SUPPORT_AGENT_ID)
-    expect(isSupportAgent(agents[0]!)).toBe(true)
+    // #893 authority: the Admin onboarding seat is injected ahead of Support.
+    expect(agents[0]?.id).toBe(ADMIN_AGENT_ID)
+    expect(agents.some((agent) => agent.id === SUPPORT_AGENT_ID && isSupportAgent(agent))).toBe(true)
     expect(agents.some((agent) => agent.id === 'codey')).toBe(true)
   })
 
@@ -48,7 +50,9 @@ describe('supportAgent helpers', () => {
   it('injects gate and skeptic seats using catalog ids when present', () => {
     const toolGate: Blueprint = { ...codey, id: 'tool_gate', name: 'Safety' }
     const agents = supportFirstAgents([codey, toolGate])
-    expect(agents[0]?.id).toBe(SUPPORT_AGENT_ID)
+    // #893 authority: Admin leads, Support follows.
+    expect(agents[0]?.id).toBe(ADMIN_AGENT_ID)
+    expect(agents.some((agent) => agent.id === SUPPORT_AGENT_ID && isSupportAgent(agent))).toBe(true)
     expect(agents.some((agent) => agent.id === 'tool_gate' && isGateAgent(agent))).toBe(true)
     expect(agents.some((agent) => agent.id === SKEPTIC_AGENT_ID && isSkepticAgent(agent))).toBe(true)
     expect(agents.filter((agent) => isGateAgent(agent))).toHaveLength(1)

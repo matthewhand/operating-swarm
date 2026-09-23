@@ -188,10 +188,83 @@ describe('REQ-98: per-agent rail notifications', () => {
     await act(async () => {
       fireEvent.click(await screen.findByRole('menuitem', { name: /Notifications: Off/i }))
     })
-    expect(await screen.findByTestId('notify-permission-hint')).toHaveTextContent(
-      /browser site settings/i,
-    )
+    const hint = await screen.findByTestId('notify-permission-hint')
+    expect(hint).toHaveTextContent(/browser site settings/i)
+    expect(hint).toHaveAttribute('data-outcome', 'denied')
     expect(JSON.parse(localStorage.getItem(NOTIFY_AGENTS_STORAGE_KEY) || '[]')).toEqual(['codey'])
+  })
+
+  it('#546: a prompt that never appears says so, and offers to ask again', async () => {
+    // `default` in, `default` out: the browser never asked. The old copy sent the
+    // user to site settings for a prompt they had not yet been shown.
+    MockNotification.permission = 'default'
+    MockNotification.requestPermission.mockResolvedValue('default')
+    renderRail()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+    const list = screen.getByRole('navigation', { name: 'Agent list' })
+    fireEvent.contextMenu(within(list).getByRole('link', { name: /codey/i }))
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('menuitem', { name: /Notifications: Off/i }))
+    })
+
+    const hint = await screen.findByTestId('notify-permission-hint')
+    expect(hint).toHaveAttribute('data-outcome', 'never-asked')
+    expect(hint).not.toHaveTextContent(/blocked/i)
+    expect(hint).toHaveTextContent(/never asked/i)
+
+    // The action is reachable, and it re-asks rather than dead-ending.
+    const retry = within(hint).getByTestId('notify-permission-retry')
+    MockNotification.requestPermission.mockResolvedValueOnce('granted')
+    await act(async () => {
+      fireEvent.click(retry)
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('notify-permission-hint')).not.toBeInTheDocument()
+    })
+  })
+
+  it('#546: an unavailable Notification API names the real fix, not site settings', async () => {
+    // A plain-HTTP LAN address: Chrome does not expose the API at all, so no
+    // site setting can enable it — the old copy claimed "blocked", which is the
+    // wrong fix for this row of the table.
+    vi.stubGlobal('Notification', undefined)
+    renderRail()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+    const list = screen.getByRole('navigation', { name: 'Agent list' })
+    fireEvent.contextMenu(within(list).getByRole('link', { name: /codey/i }))
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('menuitem', { name: /Notifications: Off/i }))
+    })
+
+    const hint = await screen.findByTestId('notify-permission-hint')
+    expect(hint).toHaveAttribute('data-outcome', 'unsupported')
+    expect(hint).toHaveTextContent(/secure context/i)
+    expect(hint).toHaveTextContent(/HTTPS or localhost/i)
+    expect(hint).not.toHaveTextContent(/site settings/i)
+  })
+
+  it('#546: a request that throws is not reported as a denial', async () => {
+    MockNotification.permission = 'default'
+    MockNotification.requestPermission.mockRejectedValueOnce(new Error('no user gesture'))
+    renderRail()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+    const list = screen.getByRole('navigation', { name: 'Agent list' })
+    fireEvent.contextMenu(within(list).getByRole('link', { name: /codey/i }))
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('menuitem', { name: /Notifications: Off/i }))
+    })
+
+    const hint = await screen.findByTestId('notify-permission-hint')
+    // Previously the catch returned the current permission, making a failed
+    // prompt indistinguishable from a denial — and the reason was discarded.
+    expect(hint).not.toHaveTextContent(/browser site settings/i)
+    expect(hint).toHaveTextContent(/blocked the permission request/i)
   })
 
   it('fires Notification for an unselected agent when On + granted', async () => {

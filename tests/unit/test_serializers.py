@@ -75,11 +75,16 @@ def test_validate_messages_multiple_errors():
     assert not serializer.is_valid()
     assert "messages" in serializer.errors
     errors = serializer.errors["messages"]
-    # DRF reports errors positionally: one entry per message, empty for valid ones.
     assert "Expected a dictionary" in str(errors[0]["non_field_errors"][0])
     # Note: int content is coerced to str by DRF CharField, so message 1 is
     # accepted under current rules; only the non-dict item errors.
-    assert len(errors) == 3 and not errors[1] and not errors[2]
+    # DRF <=3.15 emitted a positional entry per message; DRF 3.16 reports
+    # only the failing indexes (#890 lock uplift). Either way: message 0
+    # failed, messages 1–2 produced no errors.
+    if len(errors) == 3:
+        assert not errors[1] and not errors[2]
+    else:
+        assert set(errors) == {0}
 
 def test_validate_messages_null_content_is_allowed():
     data = {
@@ -94,6 +99,29 @@ def test_validate_messages_null_content_is_allowed():
     # but it only raises if content is NOT None.
     # if 'content' in raw_msg and content is not None and not isinstance(content, str):
     assert serializer.is_valid(), serializer.errors
+
+def test_validate_messages_accepts_image_url_parts():
+    data = {
+        "model": "api_agent",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "what is in this image?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,abc"},
+                    },
+                ],
+            }
+        ],
+    }
+    serializer = ChatCompletionRequestSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    content = serializer.validated_data["messages"][0]["content"]
+    assert isinstance(content, list)
+    assert content[1]["type"] == "image_url"
+
 
 def test_validate_model_must_be_string():
     data = {

@@ -25,18 +25,30 @@ _VALID_KINDS = frozenset({"api", "cli", "remote", "blueprint"})
 API_AGENT_RAIL_ID = "api_agent"
 API_AGENT_BLUEPRINT_ID = "chatbot"
 
+# The builtin Support seat is exposed on the rail as ``starter-support`` but the
+# blueprint that actually runs a turn is ``support``. Same alias recipe as
+# ``api_agent`` -> ``chatbot`` above, so ``POST /v1/chat/completions`` and the
+# websocket resolve the rail id instead of 404ing it (#426).
+STARTER_SUPPORT_RAIL_ID = "starter-support"
+STARTER_SUPPORT_BLUEPRINT_ID = "support"
+
 
 def resolve_chat_blueprint_id(model_or_agent_id: str | None) -> str:
     """Blueprint id that actually runs a chat turn for ``model_or_agent_id``.
 
-    ``api_agent`` (rail / starter API seat) → ``chatbot``. Fleet seats ending
-    in a catalog CLI name (e.g. ``litellm-pi``) remap to ``cli_agent``. Every
-    other id is returned stripped as-is (including ``cli_agent``, ``support``,
+    ``api_agent`` (rail / starter API seat) → ``chatbot``; ``starter-support``
+    (builtin Support seat) → ``support``. Fleet seats ending in a catalog CLI
+    name (e.g. ``litellm-pi``) remap to ``cli_agent``. Every other id is
+    returned stripped as-is (including ``cli_agent``, ``support``,
     ``software_dev``).
     """
     raw = (model_or_agent_id or "").strip()
     if raw.lower() == API_AGENT_RAIL_ID:
         return API_AGENT_BLUEPRINT_ID
+    if raw.lower() == STARTER_SUPPORT_RAIL_ID:
+        return STARTER_SUPPORT_BLUEPRINT_ID
+    if raw.lower().startswith("remote:") or is_remote_impl_id(raw):
+        return "remote_harness"
     from swarm.core.cli_catalog import cli_from_rail_id
     if cli_from_rail_id(raw):
         return "cli_agent"
@@ -77,6 +89,17 @@ def classify_agent_kind(
         or is_remote_impl_id(text)
     ):
         return "remote"
+    # #534: recipe blueprints run a turn for their payload kind. The SPA sends
+    # ``blueprint: remote_harness`` (+ ``params.remote``) when a remote seat
+    # chats, so the recipe id is what every send-path gate sees — classifying
+    # it ``api`` let the REQ-87 compression hook run (and emit 'Auto-compress
+    # skipped' notices) on remote seats. ``cli_agent`` is the CLI-fleet recipe
+    # for the same reason. Explicit kinds still win; plain API seats
+    # (``api_agent``, ``chatbot``, named blueprints) are unchanged.
+    if text == "remote_harness":
+        return "remote"
+    if text == "cli_agent":
+        return "cli"
     return "api"
 
 

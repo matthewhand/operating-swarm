@@ -210,6 +210,8 @@ def test_patch_api_message_persists_and_marks_edited(client, user):
 
 @pytest.mark.django_db
 def test_patch_cli_and_remote_threads_are_forbidden(client, user):
+    # REQ-808: CLI edits restart the provider session (200 + session_reset);
+    # remote threads stay read-only (REQ-49).
     _seed_thread(user, "cli-grok", "cli-owned")
     _seed_thread(user, "remote-acp", "remote-owned")
     cli = client.patch(
@@ -217,11 +219,16 @@ def test_patch_cli_and_remote_threads_are_forbidden(client, user):
         data=json.dumps({"index": 0, "content": "nope"}),
         content_type="application/json",
     )
-    assert cli.status_code == 403
+    assert cli.status_code == 200
+    assert cli.json()["session_reset"] is True
     cli_get = client.get("/chat/thread/?agent=cli:grok")
     assert cli_get.status_code == 200
     assert cli_get.json()["kind"] == "cli"
-    assert cli_get.json()["editable"] is False
+    assert cli_get.json()["editable"] is True
+    assert (
+        chat_store.load(chat_store.user_key_for(user), "cli-grok")["messages"][0]["content"]
+        == "nope"
+    )
     remote = client.patch(
         "/chat/thread/?agent=remote:acp",
         data=json.dumps({"index": 0, "content": "nope"}),
@@ -231,7 +238,8 @@ def test_patch_cli_and_remote_threads_are_forbidden(client, user):
     remote_get = client.get("/chat/thread/?agent=remote:acp")
     assert remote_get.json()["kind"] == "remote"
     assert remote_get.json()["editable"] is False
-    assert chat_store.load(chat_store.user_key_for(user), "cli-grok")["messages"][0]["content"] == "cli-owned"
+    # CLI edit applied (REQ-808); remote thread stays untouched.
+    assert chat_store.load(chat_store.user_key_for(user), "cli-grok")["messages"][0]["content"] == "nope"
     assert chat_store.load(chat_store.user_key_for(user), "remote-acp")["messages"][0]["content"] == "remote-owned"
 
 
@@ -313,7 +321,7 @@ def test_consumer_save_writes_json(user):
     consumer = DjangoChatConsumer()
     consumer.user = user
     consumer.active_agent = "jeeves"
-    save_sync = DjangoChatConsumer.__dict__["save_conversation"].func
+    save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
     save_sync(
         consumer,
         chat_store.conversation_id_for(user, "jeeves"),
@@ -364,4 +372,42 @@ def test_chat_thread_post_requires_valid_message(client, user):
         content_type="application/json",
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_chat_thread_passes_through_fatal_config_error(client, user):
+    chat_store.save(
+        chat_store.user_key_for(user),
+        "cli_agent",
+        [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": "No CLI agents are configured.",
+                "fatal_config_error": True,
+            },
+        ],
+        conversation_id=chat_store.conversation_id_for(user, "cli_agent"),
+    )
+    resp = client.get("/chat/thread/?agent=cli_agent")
+    assert resp.status_code == 200
+    assistant = next(row for row in resp.json()["messages"] if row["role"] == "assistant")
+    assert assistant["fatal_config_error"] is True
+
+
+@pytest.mark.django_db
+def test_chat_thread_clear_wipes_poisoned_history(client, user):
+    _seed_thread(user, "cli_agent", "poisoned")
+    resp = client.post(
+        "/chat/thread/?agent=cli_agent",
+        data=json.dumps({"action": "clear"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["messages"] == []
+    loaded = chat_store.load(chat_store.user_key_for(user), "cli_agent")
+    assert loaded is not None
+    assert loaded["messages"] == []
+    assert loaded.get("ui_events") == []
 

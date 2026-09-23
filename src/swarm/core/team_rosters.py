@@ -1,7 +1,8 @@
 """Team roster composition store (REQ-20 / REQ-28).
 
 A **team roster** is a composition contract: a named roster of members
-plus per-team openai-agents wire toggles (handoff / as_tool).
+plus Tools pane slots (handoff / as_tool / MCP). ``wires.handoff`` /
+``wires.as_tool`` stay derived booleans for old readers.
 
 Member shape (``team_rosters`` / ``agent_team`` members)::
 
@@ -24,13 +25,28 @@ from pathlib import Path
 from typing import Any
 
 from swarm.core.agent_roles import CANONICAL_ROLES, normalize_agent_role
-from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
+from swarm.core.paths import (
+    ensure_swarm_directories_exist,
+    get_user_config_dir_for_swarm,
+)
 from swarm.core.team_cos import apply_cos_fields, find_member
 
 logger = logging.getLogger(__name__)
 
 MEMBER_KINDS = ("api", "cli", "remote", "blueprint", "team", "herdr")
 DEFAULT_WIRES = {"handoff": True, "as_tool": True}
+TOOL_TYPES = ("handoff", "as_tool", "mcp")
+SECRET_MCP_TOOL_KEYS = (
+    "env",
+    "headers",
+    "token",
+    "api_key",
+    "secret",
+    "authorization",
+    "password",
+    "credentials",
+    "key",
+)
 
 # In-memory cache. Isolated from swarm.views.utils._dynamic_registry (teams.json).
 _roster_registry: dict[str, dict[str, Any]] | None = None
@@ -113,6 +129,76 @@ def normalize_wires(raw: Any) -> dict[str, bool]:
     return wires
 
 
+def derive_wires_from_tools(tools: list[dict[str, Any]]) -> dict[str, bool]:
+    """Old readers still consume booleans: true if any matching tool slot exists."""
+    return {
+        "handoff": any(row.get("type") == "handoff" for row in tools),
+        "as_tool": any(row.get("type") == "as_tool" for row in tools),
+    }
+
+
+def normalize_tool(raw: Any) -> dict[str, Any]:
+    """Validate one Tools pane slot. Raises ValueError on unknown types or secrets."""
+    if not isinstance(raw, dict):
+        raise ValueError("Each tool must be an object.")
+    tool_type = str(raw.get("type") or "").strip()
+    if tool_type not in TOOL_TYPES:
+        raise ValueError(f"Unknown tool type {tool_type!r}.")
+    if tool_type == "handoff":
+        target = str(raw.get("to") or "").strip()
+        if not target:
+            raise ValueError("handoff tool requires a target agent.")
+        if len(target) > 64:
+            raise ValueError("handoff target too long (max 64).")
+        out: dict[str, Any] = {"type": "handoff", "to": target}
+        source = str(raw.get("from") or "").strip()
+        if source:
+            if len(source) > 64:
+                raise ValueError("handoff source too long (max 64).")
+            out["from"] = source
+        return out
+    if tool_type == "as_tool":
+        agent = str(raw.get("agent") or "").strip()
+        if not agent:
+            raise ValueError("as_tool requires an agent.")
+        if len(agent) > 64:
+            raise ValueError("as_tool agent too long (max 64).")
+        return {"type": "as_tool", "agent": agent}
+
+    secret_keys = [key for key in SECRET_MCP_TOOL_KEYS if key in raw]
+    if secret_keys:
+        raise ValueError("MCP tool rows cannot include secret-shaped fields.")
+    server = str(raw.get("server") or "").strip()
+    if not server:
+        raise ValueError("MCP tool server is required.")
+    if len(server) > 80:
+        raise ValueError("MCP tool server too long (max 80).")
+    agents_in = raw.get("agents", [])
+    if agents_in is None:
+        agents_in = []
+    if not isinstance(agents_in, list):
+        raise ValueError("MCP tool agents must be an array.")
+    agents: list[str] = []
+    for item in agents_in:
+        agent_id = str(item or "").strip()
+        if not agent_id:
+            continue
+        if len(agent_id) > 64:
+            raise ValueError("MCP tool agent id too long (max 64).")
+        if agent_id not in agents:
+            agents.append(agent_id)
+    return {"type": "mcp", "server": server, "agents": agents}
+
+
+def normalize_tools(raw: Any) -> list[dict[str, Any]]:
+    """Normalize Tools pane slots. Missing tools is an empty list."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("tools must be an array.")
+    return [normalize_tool(row) for row in raw]
+
+
 def normalize_roster(raw: dict[str, Any], *, roster_id: str | None = None) -> dict[str, Any]:
     """Normalize a roster document. Raises ValueError on bad input."""
     rid = (roster_id or raw.get("id") or "").strip()
@@ -127,12 +213,17 @@ def normalize_roster(raw: dict[str, Any], *, roster_id: str | None = None) -> di
         if member.get("kind") == "team" and member.get("team_id") == rid:
             raise ValueError("A team cannot nest itself as a member.")
     blueprint_id = str(raw.get("blueprint_id") or raw.get("blueprint") or "").strip()
+    has_tools_field = "tools" in raw
+    tools = normalize_tools(raw.get("tools") if has_tools_field else None)
+    wires = derive_wires_from_tools(tools) if has_tools_field else normalize_wires(raw.get("wires"))
     out = {
         "id": rid,
         "name": name,
         "members": members,
-        "wires": normalize_wires(raw.get("wires")),
+        "wires": wires,
     }
+    if has_tools_field or tools:
+        out["tools"] = tools
     if blueprint_id:
         if len(blueprint_id) > 64:
             raise ValueError("blueprint_id too long (max 64).")
@@ -148,6 +239,7 @@ def serialize_roster(entry: dict[str, Any]) -> dict[str, Any]:
         "object": "team_roster",
         "name": normalized["name"],
         "members": normalized["members"],
+        "tools": normalized.get("tools") or [],
         "wires": normalized["wires"],
         "chief_of_staff_id": normalized.get("chief_of_staff_id"),
         "chief_of_staff_instructions": normalized.get("chief_of_staff_instructions") or "",
@@ -218,6 +310,8 @@ def upsert_roster(roster: dict[str, Any]) -> dict[str, Any]:
             "chief_of_staff_id": normalized.get("chief_of_staff_id"),
             "chief_of_staff_instructions": normalized.get("chief_of_staff_instructions") or "",
         }
+        if "tools" in normalized:
+            stored["tools"] = normalized["tools"]
         if normalized.get("blueprint_id"):
             stored["blueprint_id"] = normalized["blueprint_id"]
         reg[normalized["id"]] = stored
@@ -293,6 +387,94 @@ def blueprint_id_from_source(source: Any) -> str | None:
         return None
     blueprint_id = text.split(":", 1)[1].strip()
     return blueprint_id or None
+
+
+def advisor_blueprint_for_agent(
+    roster_id: Any, agent_blueprint_id: Any
+) -> str | None:
+    """#181: blueprint id of the one advisor wired to ``agent_blueprint_id``.
+
+    A team wire (handoff / as_tool — the per-roster ``wires`` toggles) to a
+    member with ``role == 'advisor'`` marks the source agent as advised.
+    When several advisors exist, the first in roster order wins (no
+    double-fire). Returns None when the agent has no wired advisor or the
+    member is not a blueprint-backed seat.
+    """
+    roster = resolve_roster(str(roster_id or "").strip())
+    if not isinstance(roster, dict):
+        return None
+    wires = roster.get("wires")
+    wired = isinstance(wires, dict) and (wires.get("handoff") or wires.get("as_tool"))
+    if isinstance(wires, dict) and not wired:
+        return None
+    wanted = str(agent_blueprint_id or "").strip()
+    if not wanted:
+        return None
+    members = roster.get("members")
+    if not isinstance(members, list):
+        return None
+    for row in members:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("role") or "") != "advisor":
+            continue
+        source = row.get("source")
+        bid = blueprint_id_from_source(source)
+        if bid and bid != wanted:
+            return bid
+    return None
+
+
+def skeptic_blueprint_for_agent(
+    roster_id: Any, agent_blueprint_id: Any
+) -> str | None:
+    """#199: blueprint id of the one skeptic wired to ``agent_blueprint_id``.
+
+    Mirror of :func:`advisor_blueprint_for_agent` for the adversarial review
+    loop: a team wire (handoff / as_tool) to a member with
+    ``role == 'skeptic'`` marks the source agent as skeptic-reviewed. When
+    several skeptics exist, the first in roster order wins (no double-fire).
+    Returns None when the agent has no wired skeptic or the roster disables
+    its wires.
+    """
+    roster = resolve_roster(str(roster_id or "").strip())
+    if not isinstance(roster, dict):
+        return None
+    wires = roster.get("wires")
+    wired = isinstance(wires, dict) and (wires.get("handoff") or wires.get("as_tool"))
+    if isinstance(wires, dict) and not wired:
+        return None
+    wanted = str(agent_blueprint_id or "").strip()
+    if not wanted:
+        return None
+    members = roster.get("members")
+    if not isinstance(members, list):
+        return None
+    # #199: the audited agent must be a roster member (by seat id or by the
+    # blueprint its source points at). Stricter than the advisor resolver:
+    # the rework loop re-prompts a specific worker, so misfires onto
+    # non-member agents that merely share a blueprint id would be wrong.
+    member_blueprints = {
+        bid
+        for row in members
+        if isinstance(row, dict)
+        and (bid := blueprint_id_from_source(row.get("source")))
+    }
+    if wanted not in member_blueprints and not any(
+        isinstance(row, dict) and str(row.get("id") or "") == wanted
+        for row in members
+    ):
+        return None
+    for row in members:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("role") or "") != "skeptic":
+            continue
+        source = row.get("source")
+        bid = blueprint_id_from_source(source)
+        if bid and bid != wanted:
+            return bid
+    return None
 
 
 def blueprint_id_for_team_target(team_id: Any, target: Any = None) -> str | None:

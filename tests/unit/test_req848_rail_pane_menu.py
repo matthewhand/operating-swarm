@@ -14,6 +14,13 @@ SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx
 RAIL_MENU = REPO / "webui" / "frontend" / "src" / "components" / "RailContextMenu.tsx"
 
 
+def _sidebar_surface() -> str:
+    """#1030 helper: AgentSidebar + components/sidebar/* + features/sidebar/*."""
+    from helpers.source_surface import sidebar_surface
+
+    return sidebar_surface()
+
+
 def test_req848_pane_menu_creates_empty_section():
     menu = MENU.read_text(encoding="utf-8")
     assert "export function paneMenuItems" in menu
@@ -27,7 +34,7 @@ def test_req848_section_menu_also_creates():
 
 
 def test_req848_sidebar_wires_context_menu():
-    sidebar = SIDEBAR.read_text(encoding="utf-8")
+    sidebar = _sidebar_surface()
     assert "openPaneMenuAt" in sidebar
     assert "handlePaneMenuSelect" in sidebar
     assert "[data-rail-id], .os-rail-section, .os-pin" in sidebar

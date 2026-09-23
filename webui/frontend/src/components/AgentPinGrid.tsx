@@ -14,10 +14,11 @@ import {
   type PinnedAgent,
 } from '../lib/pinnedAgents'
 import { chatHrefForRowId } from '../lib/agentNotifications'
-import { isHerdrAgent } from '../lib/railHotkeys'
+import { isHerdrAgent, herdrChatHref } from '../lib/railHotkeys'
 
 function pinHref(id: string): string {
-  if (isHerdrAgent({ id })) return '/teams/#herdr-members'
+  // #543: a herdr pin opens that agent's chat, like every other kind.
+  if (isHerdrAgent({ id })) return herdrChatHref(id)
   return chatHrefForRowId(id)
 }
 

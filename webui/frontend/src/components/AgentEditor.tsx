@@ -1,9 +1,11 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Select, Textarea, useToast } from './DaisyUI'
+import LlmProfileAddForm from './LlmProfileAddForm'
 import InferenceOrderList, { type InferenceCatalogOption } from './InferenceOrderList'
 import {
   fetchBlueprints,
+  fetchBlueprintPersonas,
   fetchSkills,
   fetchCliAgents,
   fetchCliModels,
@@ -14,6 +16,7 @@ import {
   type AgentRole,
   type Blueprint,
 } from '../lib/api'
+import PersonaAvatarThemePicker from './PersonaAvatarThemePicker'
 import { RemoteSelect } from './RemoteSelect'
 import { configuredRemotes } from '../lib/remotes'
 import {
@@ -47,6 +50,21 @@ import {
   saveAgentSettings,
 } from '../lib/agentSettings'
 import {
+  EMPTY_VOICE_BIND,
+  parseSpeechMode,
+  parseVoiceBind,
+  type AgentVoiceBind,
+  type SpeechMode,
+} from '../lib/agentVoiceBind'
+import {
+  STREAM_REPLIES_SEAT_LABEL,
+  STREAM_REPLIES_SEAT_TOOLTIP,
+  loadSeatStreamReplies,
+  parseSeatStreamReplies,
+  saveSeatStreamReplies,
+  type SeatStreamReplies,
+} from '../lib/streamReplies'
+import {
   agentRole,
   applyBlueprintAssignment,
   assignableBlueprints,
@@ -62,6 +80,19 @@ import { defaultAvatarPrompt, isImageGenConfigured, parseImageGenSettings } from
 import AgentAvatar from './AgentAvatar'
 import { openSettingsSheet } from './SettingsSheet'
 import MailboxAclEditor from './MailboxAclEditor'
+import {
+  ROLE_CONSUMERS_CHANGED_EVENT,
+  loadRoleConsumers,
+  saveRoleConsumers,
+} from '../lib/roleConsumers'
+import { ContextUsageDetail } from './ContextUsageDetail'
+import { peekConversationIdForAgent } from '../lib/agentChat'
+import CreateRoleModal from './CreateRoleModal'
+import {
+  CUSTOM_ROLES_UPDATED_EVENT,
+  findCustomRole,
+  loadCustomRoles,
+} from '../lib/customRoles'
 
 /** Window event so the rail hover-edit and tests can open the agent editor. */
 export const OPEN_AGENT_EDITOR_EVENT = 'swarm:open-agent-editor'
@@ -77,7 +108,8 @@ export function openAgentEditor(detail: OpenAgentEditorDetail): void {
 }
 
 const ROLE_OPTIONS: { value: AgentRole; label: string }[] = [
-  { value: 'default', label: 'none' },
+  // #532: the default role is a Worker — 'none' read like a misconfiguration.
+  { value: 'default', label: 'Worker (default)' },
   { value: 'support', label: 'support' },
   { value: 'gate', label: 'gate' },
   { value: 'skeptic', label: 'skeptic' },
@@ -105,16 +137,26 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const id = agentId || ''
   const toggleId = useId()
   const suggestionsToggleId = useId()
+  const autoSpeakId = useId()
   const { success, error: toastError } = useToast()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [role, setRole] = useState<AgentRole>('default')
+  // #532: agents wired to *use* this seat for its role (wire-up UI + diagram).
+  const [wiredConsumers, setWiredConsumers] = useState<string[]>([])
   const [blueprintId, setBlueprintId] = useState('')
   const [llmOverride, setLlmOverride] = useState('')
   const [cliOverride, setCliOverride] = useState('')
   const [profileOverride, setProfileOverride] = useState('')
   const [newChatPerTask, setNewChatPerTask] = useState(false)
   const [useSuggestions, setUseSuggestions] = useState(false)
+  const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
+  // #592: set the moment the user edits one of these fields; hydration skips
+  // touched groups so a late settings fetch cannot overwrite in-progress edits.
+  const seatTogglesTouchedRef = useRef(false)
+  const voiceTouchedRef = useRef(false)
+  const [streamReplies, setStreamReplies] = useState<SeatStreamReplies>(null)
+  const streamRepliesId = useId()
   const [savingSettings, setSavingSettings] = useState(false)
   const [boundRemoteId, setBoundRemoteId] = useState('')
   const [inferenceSeats, setInferenceSeats] = useState<InferenceSeat[]>([])
@@ -124,6 +166,32 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [githubRepo, setGithubRepo] = useState('')
   const [repoError, setRepoError] = useState<string | null>(null)
   const [attachedSkills, setAttachedSkills] = useState<string[]>([])
+  const [addingProfile, setAddingProfile] = useState(false)
+  const [customRoles, setCustomRoles] = useState(() => loadCustomRoles())
+  const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false)
+
+  useEffect(() => {
+    const handleCustomRoles = () => setCustomRoles(loadCustomRoles())
+    window.addEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
+    return () => window.removeEventListener(CUSTOM_ROLES_UPDATED_EVENT, handleCustomRoles)
+  }, [])
+
+  // #532: wire-ups may change from another editor instance / ChatPage pills.
+  useEffect(() => {
+    const sync = () => {
+      if (id && isOpen) setWiredConsumers(loadRoleConsumers(id, role))
+    }
+    window.addEventListener(ROLE_CONSUMERS_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(ROLE_CONSUMERS_CHANGED_EVENT, sync)
+  }, [id, isOpen, role])
+
+const handleRoleSelect = (val: string) => {
+    if (val === '__new_role__') {
+      setIsCreateRoleModalOpen(true)
+      return
+    }
+    persistRole(val as AgentRole)
+  }
 
   const blueprintsQuery = useQuery({
     queryKey: ['blueprints'],
@@ -136,6 +204,27 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     () => assignableBlueprints(exampleRoleAgents(blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS)),
     [blueprintsQuery.data],
   )
+  // #532: friendly seat label for the role diagram / checkbox rows.
+  const labelFor = (seatId: string): string => {
+    if (!seatId) return ''
+    const edited = loadAgentEdit(seatId).name
+    if (edited) return edited
+    const row = catalog.find((item) => item.id === seatId)
+    return row?.name || seatId
+  }
+  // #527: a blueprint that declares ≥2 openai-agents personas gets one
+  // avatar picker per persona (single-persona seats have nothing to switch).
+  const editorRecipeId = blueprintId || id
+  const personasQuery = useQuery({
+    queryKey: ['blueprint-personas', editorRecipeId],
+    queryFn: () => fetchBlueprintPersonas(editorRecipeId),
+    enabled: Boolean(editorRecipeId) && isOpen,
+    retry: 1,
+  })
+  const declaredPersonas = useMemo(() => {
+    const list = personasQuery.data?.personas ?? []
+    return list.length >= 2 ? list : []
+  }, [personasQuery.data])
   const agent = catalog.find((item) => item.id === id)
   const catalogName = agent ? agentLabel({ id: agent.id, name: agent.name }) : id
   const title = id ? `Edit ${catalogName}` : 'Edit agent'
@@ -156,6 +245,23 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     }
     return sessionKindForAgent({ id, tags: agent?.tags })
   }, [id, agent])
+
+  const allRoleOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [
+      ...ROLE_OPTIONS,
+      { value: 'advisor', label: 'advisor' },
+    ]
+    for (const cr of customRoles) {
+      if (!options.some((o) => o.value === cr.name)) {
+        options.push({ value: cr.name, label: cr.label || cr.name })
+      }
+    }
+    // #853: the support option only renders for API-kind seats — hide rather
+    // than disable so the picker never advertises a broken configuration.
+    const filtered =
+      agentKind === 'api' ? options : options.filter((o) => o.value !== 'support')
+    return filtered
+  }, [customRoles, agentKind])
 
   const cliQuery = useQuery({
     queryKey: ['cli-agents'],
@@ -235,7 +341,9 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
       (item) => item.id === id,
     )
     setName(edit.name || catalogAgent?.name || id)
-    setRole(edit.role || agentRole({ id, name: catalogAgent?.name, role: catalogAgent?.role }))
+    const resolvedRole = edit.role || agentRole({ id, name: catalogAgent?.name, role: catalogAgent?.role })
+    setRole(resolvedRole)
+    setWiredConsumers(loadRoleConsumers(id, resolvedRole))
     setBlueprintId(edit.blueprintId || id)
     setLlmOverride(edit.llmOverride || '')
     setCliOverride(edit.cliOverride || '')
@@ -255,8 +363,17 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
     ;(async () => {
       const settings = await fetchAgentSettings(id)
       if (!cancelled) {
-        setNewChatPerTask(settings.new_chat_per_task)
-        setUseSuggestions(settings.use_suggestions)
+        // #592: hydration never clobbers an edit the user already made. The
+        // fetch (and a late `blueprintsQuery.data`) can resolve *after* the
+        // user toggled/typed — server defaults must not win over them.
+        if (!seatTogglesTouchedRef.current) {
+          setNewChatPerTask(settings.new_chat_per_task)
+          setUseSuggestions(settings.use_suggestions)
+        }
+        if (!voiceTouchedRef.current) {
+          setVoiceBind(parseVoiceBind(settings))
+        }
+        setStreamReplies(loadSeatStreamReplies(id))
         if (!edit.folder && settings.folder) {
           setFolder(settings.folder)
         }
@@ -268,6 +385,7 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   }, [isOpen, id, blueprintsQuery.data])
 
   const handleToggleNewChat = async (next: boolean) => {
+    seatTogglesTouchedRef.current = true
     setNewChatPerTask(next)
     if (!id) return
     setSavingSettings(true)
@@ -279,11 +397,24 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   }
 
   const handleToggleSuggestions = async (next: boolean) => {
+    seatTogglesTouchedRef.current = true
     setUseSuggestions(next)
     if (!id) return
     setSavingSettings(true)
     try {
       await saveAgentSettings(id, { use_suggestions: next })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const persistVoicePatch = async (patch: Partial<AgentVoiceBind>) => {
+    voiceTouchedRef.current = true
+    setVoiceBind((prev) => ({ ...prev, ...patch }))
+    if (!id) return
+    setSavingSettings(true)
+    try {
+      await saveAgentSettings(id, patch)
     } finally {
       setSavingSettings(false)
     }
@@ -308,8 +439,15 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   }
 
   const persistRole = (next: AgentRole) => {
+    // #853: 'support' is exclusive to API-kind seats — its capabilities lean
+    // on structured function-calling hooks CLI/remote/team seats lack.
+    if (next === 'support' && agentKind !== 'api') {
+      toastError('Support role unavailable', 'Support role is exclusively available to API agents')
+      return
+    }
     setRole(next)
     saveAgentEdit(id, { role: next, roleOverridden: true })
+    if (id) setWiredConsumers(loadRoleConsumers(id, next))
     setAvatarPrompt((current) => {
       const derived = defaultAvatarPrompt(name || catalogName, next)
       if (!current.trim() || current === defaultAvatarPrompt(name || catalogName, role)) {
@@ -422,16 +560,17 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             label="Role"
             name="agent-role"
             value={role}
-            onChange={(event) => persistRole(event.target.value as AgentRole)}
+            onChange={(event) => handleRoleSelect(event.target.value)}
           >
-            {ROLE_OPTIONS.map((option) => (
+            {allRoleOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
+            <option value="__new_role__">+ Create new role…</option>
           </Select>
           <p className="text-xs text-base-content/70 mt-1" data-testid="role-explanation">
-            {ROLE_BRIEFS[role] || ROLE_BRIEFS.default}
+            {ROLE_BRIEFS[role] || findCustomRole(role)?.mechanism_detail || ROLE_BRIEFS.default}
           </p>
           <p className="text-xs text-base-content/55 mt-1" data-testid="role-override-rule">
             Changing Role here wins over the blueprint default. Re-picking a
@@ -439,6 +578,62 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             it.
           </p>
         </div>
+
+        {id && role !== 'default' ? (
+          <div
+            className="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-2"
+            data-testid="role-consumer-wireup"
+          >
+            <p className="text-xs font-semibold">
+              {catalogName || name || id} is the{' '}
+              <span className="uppercase tracking-wide">{role}</span> provider
+            </p>
+            {wiredConsumers.length === 0 ? (
+              <p className="text-xs text-base-content/60" data-testid="role-unused-hint">
+                This role is unused until it has been linked to another agent.
+              </p>
+            ) : (
+              <p className="text-xs text-base-content/80" data-testid="role-verb-diagram">
+                {wiredConsumers.map((cid) => labelFor(cid) || cid).join(', ')}{' '}
+                {wiredConsumers.length === 1 ? 'consults' : 'consult'}{' '}
+                {catalogName || name || id} as its {role} provider.
+              </p>
+            )}
+            <div className="space-y-1">
+              <span className="text-xs text-base-content/70">Wired agents:</span>
+              {catalog.length === 0 ? (
+                <p className="text-xs text-base-content/50">Catalog unavailable.</p>
+              ) : (
+                catalog
+                  .filter((item) => item.id !== id)
+                  .map((item) => {
+                    const checked = wiredConsumers.includes(item.id)
+                    return (
+                      <label
+                        key={item.id}
+                        className="flex cursor-pointer items-center gap-2 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-xs"
+                          checked={checked}
+                          onChange={() => {
+                            if (!id) return
+                            const next = checked
+                              ? wiredConsumers.filter((c) => c !== item.id)
+                              : [...wiredConsumers, item.id]
+                            setWiredConsumers(saveRoleConsumers(id, role, next))
+                          }}
+                          data-testid={`wire-consumer-${item.id}`}
+                        />
+                        <span>{catalogPickerLabel(item)}</span>
+                      </label>
+                    )
+                  })
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {id ? <MailboxAclEditor agentId={id} role={role} /> : null}
 
@@ -524,6 +719,28 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
           </div>
         ) : null}
 
+        {declaredPersonas.length >= 2 ? (
+          <div
+            className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+            data-testid="agent-editor-persona-avatars"
+          >
+            <span className="text-sm font-semibold text-base-content/80">
+              Persona avatars
+            </span>
+            <p className="text-xs text-base-content/60 mt-0.5">
+              One face per openai-agents persona — messages from each mode show
+              its own avatar in the transcript.
+            </p>
+            {declaredPersonas.map((persona) => (
+              <PersonaAvatarThemePicker
+                key={persona.name}
+                agentId={editorRecipeId}
+                persona={persona.name}
+              />
+            ))}
+          </div>
+        ) : null}
+
         <div
           className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
           data-testid="agent-editor-avatar"
@@ -579,6 +796,178 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
               </p>
             </div>
           )}
+        </div>
+
+        <div
+          className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+          data-testid="agent-editor-voice"
+        >
+          <div>
+            <span className="text-sm font-semibold text-base-content/80">Voice</span>
+            <p className="text-xs text-base-content/60 mt-0.5">
+              This robot&apos;s voice chat. Inherit uses Settings → Speech. Empty bind
+              stays on the global path.
+            </p>
+          </div>
+          <Select
+            label="Speech mode"
+            name="agent-speech-mode"
+            size="sm"
+            aria-label="Speech mode"
+            value={voiceBind.speech_mode}
+            disabled={!id || savingSettings}
+            onChange={(event) => {
+              const next = parseSpeechMode(event.target.value)
+              void persistVoicePatch({ speech_mode: next as SpeechMode })
+            }}
+          >
+            <option value="inherit">Inherit global speech</option>
+            <option value="voice">Voice (this agent)</option>
+            <option value="endpoint">This robot&apos;s audio endpoint</option>
+          </Select>
+          {voiceBind.speech_mode !== 'inherit' ? (
+            <>
+              <Input
+                label="TTS voice"
+                name="agent-tts-voice"
+                size="sm"
+                value={voiceBind.tts_voice}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_voice: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_voice: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Textarea
+                label="Voice instruction"
+                name="agent-tts-voice-instruction"
+                value={voiceBind.tts_voice_instruction}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({
+                    ...prev,
+                    tts_voice_instruction: event.target.value,
+                  }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_voice_instruction: event.target.value.trim() })
+                }}
+                rows={3}
+                spellCheck={false}
+              />
+            </>
+          ) : null}
+          {voiceBind.speech_mode === 'endpoint' ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input
+                label="STT base URL"
+                name="agent-stt-base-url"
+                size="sm"
+                value={voiceBind.stt_base_url}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_base_url: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_base_url: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="STT model"
+                name="agent-stt-model"
+                size="sm"
+                value={voiceBind.stt_model}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_model: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_model: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="STT API key env"
+                name="agent-stt-api-key-env"
+                size="sm"
+                value={voiceBind.stt_api_key_env}
+                disabled={!id || savingSettings}
+                placeholder="STT_API_KEY"
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, stt_api_key_env: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ stt_api_key_env: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS base URL"
+                name="agent-tts-base-url"
+                size="sm"
+                value={voiceBind.tts_base_url}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_base_url: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_base_url: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS model"
+                name="agent-tts-model"
+                size="sm"
+                value={voiceBind.tts_model}
+                disabled={!id || savingSettings}
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_model: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_model: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+              <Input
+                label="TTS API key env"
+                name="agent-tts-api-key-env"
+                size="sm"
+                value={voiceBind.tts_api_key_env}
+                disabled={!id || savingSettings}
+                placeholder="TTS_API_KEY"
+                onChange={(event) =>
+                  setVoiceBind((prev) => ({ ...prev, tts_api_key_env: event.target.value }))
+                }
+                onBlur={(event) => {
+                  void persistVoicePatch({ tts_api_key_env: event.target.value.trim() })
+                }}
+                spellCheck={false}
+              />
+            </div>
+          ) : null}
+          <label
+            htmlFor={autoSpeakId}
+            className="label cursor-pointer items-center justify-between gap-4 px-0 py-1"
+          >
+            <span className="label-text text-sm">Auto-speak replies</span>
+            <input
+              id={autoSpeakId}
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              role="switch"
+              aria-label="Auto-speak replies"
+              checked={voiceBind.auto_speak_replies}
+              disabled={!id || savingSettings}
+              onChange={(event) => {
+                void persistVoicePatch({ auto_speak_replies: event.target.checked })
+              }}
+            />
+          </label>
         </div>
 
         {/* LLM Override Picker by Kind (REQ-124) */}
@@ -747,6 +1136,25 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
                 </select>
               </div>
             </div>
+            {addingProfile ? (
+              <LlmProfileAddForm
+                className="space-y-3 rounded-box border border-base-300 bg-base-100 p-3"
+                onCancel={() => setAddingProfile(false)}
+                onSaved={async () => {
+                  setAddingProfile(false)
+                  await llmProfilesQuery.refetch()
+                }}
+              />
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAddingProfile(true)}
+              >
+                Add LLM profile
+              </Button>
+            )}
           </div>
         )}
 
@@ -782,6 +1190,13 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
             void saveAgentSettings(id, { folder: next.folder.trim() })
           }}
         />
+
+        {id ? (
+          <ContextUsageDetail
+            agentId={id}
+            conversationId={peekConversationIdForAgent(id)}
+          />
+        ) : null}
 
         <div
           className="tooltip tooltip-bottom w-full text-left"
@@ -827,6 +1242,34 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
           </label>
         </div>
 
+        <div
+          className="tooltip tooltip-bottom w-full text-left"
+          data-tip={STREAM_REPLIES_SEAT_TOOLTIP}
+        >
+          <label htmlFor={streamRepliesId} className="label py-0">
+            <span className="label-text text-base font-semibold">{STREAM_REPLIES_SEAT_LABEL}</span>
+          </label>
+          <select
+            id={streamRepliesId}
+            className="select select-bordered w-full"
+            aria-label={STREAM_REPLIES_SEAT_LABEL}
+            data-testid="seat-stream-replies"
+            value={streamReplies === null ? 'inherit' : streamReplies ? 'on' : 'off'}
+            disabled={!id}
+            onChange={(event) => {
+              const next = parseSeatStreamReplies(
+                event.target.value === 'inherit' ? 'inherit' : event.target.value,
+              )
+              setStreamReplies(next)
+              if (id) saveSeatStreamReplies(id, next)
+            }}
+          >
+            <option value="inherit">Inherit user preference</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -845,6 +1288,14 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
           Close
         </Button>
       </div>
+
+      <CreateRoleModal
+        isOpen={isCreateRoleModalOpen}
+        onClose={() => setIsCreateRoleModalOpen(false)}
+        onCreated={(newRoleName) => {
+          persistRole(newRoleName as AgentRole)
+        }}
+      />
     </Modal>
   )
 }

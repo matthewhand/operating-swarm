@@ -1,4 +1,3 @@
-import React from 'react'
 import { X, Activity, MessageSquare, Wrench, Layers, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
 import { Modal } from './DaisyUI/Modal'
 import { CONTEXT_METER_TOKENS, formatMeterLabel, formatTokenCount } from '../lib/chatMeter'

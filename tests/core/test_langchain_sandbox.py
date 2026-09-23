@@ -256,13 +256,16 @@ class TestSandboxManagerAndTools:
     def test_as_function_tools_schema(self):
         manager = SandboxManager(config=SandboxConfig(backend_type="mock"))
         tools = manager.as_function_tools()
-        assert len(tools) == 4
+        # #719: the toolset grew to six — upload/download round-trip added.
+        assert len(tools) == 6
 
         tool_names = [getattr(t, "name", getattr(t, "__name__", None)) for t in tools]
         assert "sandbox_run_python" in tool_names
         assert "sandbox_run_bash" in tool_names
         assert "sandbox_read_file" in tool_names
         assert "sandbox_write_file" in tool_names
+        assert "sandbox_upload_file" in tool_names
+        assert "sandbox_download_file" in tool_names
 
         # Each tool has a valid description
         for t in tools:
@@ -290,9 +293,17 @@ class TestSandboxManagerAndTools:
             tools=tools,
         )
         assert agent.name == "SandboxWorker"
-        assert len(agent.tools) == 4
+        # #719: six sandbox tools (run python/bash, read/write, upload/download).
+        assert len(agent.tools) == 6
 
-    def test_blueprint_base_make_agent_sandbox(self):
+    def test_blueprint_base_make_agent_sandbox(self, monkeypatch):
+        # The sandbox tool count contract assumes a real (non-TEST_MODE) run path.
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        # Building the agent builds a model instance, which needs a credential:
+        # this module's autouse fixture clears the ambient ones, and an unset
+        # ``${...}`` placeholder in the developer's swarm_config.json is ignored
+        # rather than passed through as a literal key.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-sandbox")
         try:
             from agents import Agent
         except ImportError:
@@ -312,6 +323,7 @@ class TestSandboxManagerAndTools:
             tools=[],
             sandbox=SandboxManager(config=SandboxConfig(backend_type="mock")),
         )
-        assert len(agent.tools) == 4
+        # #719: six sandbox tools (run python/bash, read/write, upload/download).
+        assert len(agent.tools) == 6
         tool_names = [getattr(t, "name", "") for t in agent.tools]
         assert "sandbox_run_bash" in tool_names

@@ -5,6 +5,7 @@ Handles blueprint browsing, library management, and custom blueprint creation.
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from django.conf import settings as dj_settings
@@ -12,6 +13,8 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
+
+from swarm.core.kind_bases import base_class_for_kind
 
 from swarm.core.blueprint_discovery import discover_blueprints
 from swarm.core.paths import get_user_blueprints_dir, get_user_config_dir_for_swarm
@@ -198,6 +201,24 @@ def blueprint_source_page(request, blueprint_name):
         **payload,
         "prism_lang": prism_language(payload.get("selected")),
     })
+
+
+@login_required
+@require_GET
+def sdk_docs(request):
+    """Serve the Blueprint SDK reference (REQ-921 / #540).
+
+    Browsable at /sdk-docs/ and linked from the agent Definition pane. The
+    markdown source is rendered as pre-wrapped text (no markdown dependency
+    in the venv) — headings and tables stay readable, and the on-disk file
+    remains the single source of truth that the docs-rot test pins.
+    """
+    doc_path = Path(__file__).resolve().parents[2] / "docs" / "sdk" / "BLUEPRINT_SDK.md"
+    try:
+        content = doc_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        content = "Blueprint SDK reference is unavailable on this install."
+    return render(request, "sdk_docs.html", {"doc": content})
 
 
 @login_required
@@ -394,7 +415,8 @@ def blueprint_creator(request):
 
             assist = bool(requirements) and not os.environ.get("PYTEST_CURRENT_TEST")
             blueprint_code = generate_blueprint_code(
-                blueprint_name, description, category, tags, requirements, assist=assist
+                blueprint_name, description, category, tags, requirements, assist=assist,
+                kind=(request.POST.get("kind") or "api").strip() or None,
             )
 
             # Generate avatar if requested and ComfyUI is available
@@ -520,8 +542,13 @@ def generate_blueprint_code(
     tags: list[str] | str,
     _requirements: str,
     assist: bool = False,
+    kind: str | None = "api",
 ) -> str:
-    """Emit a BlueprintBase module. Optionally draft `run()` via the default LLM."""
+    """Emit a blueprint module. Optionally draft `run()` via the default LLM.
+
+    The static template subclasses a kind base resolved via
+    ``base_class_for_kind`` (ADR-005 §4: emit a kind base by default).
+    """
     if isinstance(tags, str):
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     else:
@@ -547,6 +574,7 @@ def generate_blueprint_code(
     req_literal = repr(
         ("\nRequirements:\n" + req_note) if req_note else ""
     ).replace("{", "{{").replace("}", "}}")
+    base_class = base_class_for_kind(kind)
 
     return f'''#!/usr/bin/env python3
 """
@@ -564,10 +592,10 @@ from typing import Any, ClassVar
 
 from openai import AsyncOpenAI
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import {base_class}
 
 
-class {class_name}(BlueprintBase):
+class {class_name}({base_class}):
     """{description}"""
 
     metadata: ClassVar[dict[str, Any]] = {{

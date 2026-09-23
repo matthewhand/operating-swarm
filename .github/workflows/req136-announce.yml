@@ -1,31 +1,11 @@
 name: REQ-136 announce spiel + GIF
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "README.md"
-      - "docs/ANNOUNCE.md"
-      - "docs/assets/readme/**"
-      - "docs/SHOWOFF_DEMO_AGENTS.md"
-      - "docs/SCREENSHOTS.md"
-      - "docs/requirements/REQ-136.md"
-      - "docs/requirements/README.md"
-      - "scripts/render_announce_gif.py"
-      - "tests/unit/test_req136_announce.py"
-      - ".github/workflows/req136-announce.yml"
-  push:
-    branches: [main]
-    paths:
-      - "README.md"
-      - "docs/ANNOUNCE.md"
-      - "docs/assets/readme/**"
-      - "docs/SHOWOFF_DEMO_AGENTS.md"
-      - "docs/SCREENSHOTS.md"
-      - "docs/requirements/REQ-136.md"
-      - "docs/requirements/README.md"
-      - "scripts/render_announce_gif.py"
-      - "tests/unit/test_req136_announce.py"
-      - ".github/workflows/req136-announce.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

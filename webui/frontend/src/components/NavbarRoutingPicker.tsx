@@ -1,26 +1,28 @@
 /**
- * Single cascading navbar picker (REQ-200 / #676).
+ * Universal routing picker (REQ-906 / #504, supersedes the REQ-200 flyouts).
  *
- * One control group: agent → nested models → nested effort when discovery
- * exposes it. Closed face is pills (not sibling selects). Hidden labels stay out.
+ * One surface for every seat kind: the routing pills open the shared search
+ * palette — scoped by default to the seat kind and current selection (visible
+ * chip), with the scope removable to reveal all configured options. CLI models
+ * and remote nested agents render as a second palette group instead of a
+ * nested flyout; the desktop flyout/sheet menus are retired.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { fetchCliModels } from '../lib/api'
 import {
-  isNarrowViewport,
-  subscribeNarrowViewport,
-} from '../lib/narrowViewport'
+  clampPillWidth,
+  COMPOSER_PILL_AUTO_MAX,
+  loadPillWidth,
+  pillWidthFromDrag,
+  savePillWidth,
+} from '../lib/composerPillResize'
+
+const COMPOSER_PILL_FULL_TEXT_FALLBACK = COMPOSER_PILL_AUTO_MAX
+import ModelSearchPalette, { type ModelSearchOption } from './ModelSearchPalette'
+import ComposerPickerDialog from './ComposerPickerDialog'
+import type { ComposerProviderOption } from '../lib/composerPicker'
+import { getProviderIcon } from '../lib/providerIcons'
 import {
   displayableModels,
   familyHasEffort,
@@ -31,7 +33,6 @@ import {
   routingFaceParts,
   routingPathFromSelection,
   type EffortToken,
-  type ModelFamily,
   type RoutingDimension,
   type RoutingPath,
   type RoutingSeatKind,
@@ -40,6 +41,8 @@ import {
 export interface RoutingAgentOption {
   id: string
   label: string
+  /** #504: declared seat kind of the option — cross-kind picks navigate. */
+  kind?: RoutingSeatKind | 'team'
 }
 
 export interface RoutingFooterAction {
@@ -63,37 +66,64 @@ export interface NavbarRoutingPickerProps {
   selectedAgent: string
   models: string[]
   selectedModel: string
+  /** Nested options with labels (OpenMousBot bots, etc.). Ids feed `models`. */
+  modelOptions?: RoutingAgentOption[]
   modelWarning?: string | null
+  /** #494: machine-readable remedy stamped by the backend (REQ-890 taxonomy).
+   * When present, the warning renders with a "Fix in Settings" link. */
+  modelWarningAction?: {
+    kind: 'settings'
+    section: 'remotes'
+    remote?: string
+    field?: string
+  } | null
   preferredEffort?: string
   onChange: (next: RoutingPathChange) => void
   footerAction?: RoutingFooterAction
   placeholder?: string
-  'aria-label'?: string
-}
-
-type OpenState = RoutingDimension | 'sheet' | null
-
-function directionOf(el: HTMLElement | null): 'ltr' | 'rtl' {
-  const fromAttr =
-    el?.closest('[dir]')?.getAttribute('dir') ||
-    (typeof document !== 'undefined' ? document.documentElement.getAttribute('dir') : null)
-  if (fromAttr === 'rtl' || fromAttr === 'ltr') return fromAttr
-  if (!el || typeof window === 'undefined') return 'ltr'
-  return window.getComputedStyle(el).direction === 'rtl' ? 'rtl' : 'ltr'
-}
-
-function modelsForAgent(
-  seatKind: RoutingSeatKind,
-  agentId: string,
-  selectedAgent: string,
-  parentModels: string[],
-  fetched: string[] | undefined,
-): string[] {
-  if (seatKind !== 'cli') return displayableModels(parentModels)
-  if (agentId === selectedAgent && parentModels.length > 0) {
-    return displayableModels(parentModels)
+  /** Highlight this id as the default profile in the API model palette (#281). */
+  defaultAgent?: string
+  /** #504: every configured option across kinds — what "show all" reveals. */
+  allAgents?: RoutingAgentOption[]
+  /** #504: cross-kind navigation (agent ≠ navigation doctrine, #502). */
+  /** #804: `detail.apiModel` carries a gateway-profile pick so the api_agent
+   * landing can apply it as the profile (model dimension). */
+  onNavigateAgent?: (
+    agentId: string,
+    kind?: RoutingSeatKind | 'team',
+    detail?: { apiModel?: string },
+  ) => void
+  /** REQ-870: the CLI model probe is in flight (palette Loading state). */
+  loading?: boolean
+  /**
+   * #681: opt-in two-stage workflow — the pill opens the ComposerPickerDialog
+   * (stage 1 providers, stage 2 accept-default/choose) instead of the flat
+   * palette. Picks resolve through the same pickAgent/pickModel semantics.
+   */
+  twoStage?: {
+    providers: readonly ComposerProviderOption[]
+    getProviderOptions: (
+      provider: ComposerProviderOption,
+    ) => readonly ModelSearchOption[]
+    /**
+     * #711: resuming a CLI conversation is a third dimension — neither an
+     * agent pick nor a model pick. Session-tagged rows route here.
+     */
+    onResumeSession?: (sessionId: string) => void
   }
-  return displayableModels(fetched ?? [])
+  /**
+   * #711: fired once when the two-stage dialog opens (not on descend), so
+   * callers can defer-fetch the payloads stage 2 needs (cli-sessions).
+   */
+  onTwoStageOpen?: () => void
+  /**
+   * #899: a cross-kind API-profile pick is a PROVIDER reconfiguration for the
+   * current seat, not a seat jump. When provided, the pick routes here (the
+   * seat keeps its identity); the legacy seat-jump fallback only fires when
+   * this callback is absent.
+   */
+  onProviderReconfigure?: (profile: string) => void
+  'aria-label'?: string
 }
 
 export function NavbarRoutingPicker({
@@ -102,22 +132,87 @@ export function NavbarRoutingPicker({
   selectedAgent,
   models,
   selectedModel,
+  modelOptions,
   modelWarning,
+  modelWarningAction,
   preferredEffort,
   onChange,
   footerAction,
   placeholder,
+  defaultAgent,
+  allAgents,
+  twoStage,
+  onTwoStageOpen,
+  onNavigateAgent,
+  onProviderReconfigure,
+  loading = false,
   'aria-label': ariaLabel,
 }: NavbarRoutingPickerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const labelId = useId()
-  const [open, setOpen] = useState<OpenState>(null)
-  const [previewAgent, setPreviewAgent] = useState(selectedAgent)
-  const [previewModel, setPreviewModel] = useState(selectedModel)
-  const [narrow, setNarrow] = useState(() => isNarrowViewport())
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [hoverPill, setHoverPill] = useState<RoutingDimension | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  // #770: hover-revealed double-slit drag handle resizes the pill's visible
+  // width. `pillWidth === null` means auto (pre-#770 sizing, capped by CSS).
+  const [pillWidth, setPillWidth] = useState<number | null>(() => loadPillWidth())
+  const dragStateRef = useRef<{ startX: number; startWidth: number; fullText: number } | null>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
+
+  const measureFullTextWidth = useCallback((): number => {
+    const label = labelRef.current
+    if (!label) return COMPOSER_PILL_FULL_TEXT_FALLBACK
+    // scrollWidth of an ellipsed nowrap span IS the unclipped text width.
+    const text = label.scrollWidth
+    return text > 0 ? text + 24 : COMPOSER_PILL_FULL_TEXT_FALLBACK // + paddings/chevron
+  }, [])
+
+  const onHandlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => {
+      event.stopPropagation()
+      event.preventDefault()
+      const full = measureFullTextWidth()
+      dragStateRef.current = {
+        startX: event.clientX,
+        startWidth: pillWidth ?? COMPOSER_PILL_AUTO_MAX,
+        fullText: full,
+      }
+      const handle = event.currentTarget
+      handle.setPointerCapture?.(event.pointerId)
+      document.body.style.cursor = 'col-resize'
+    },
+    [measureFullTextWidth, pillWidth],
+  )
+
+  const onHandlePointerMove = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const state = dragStateRef.current
+    if (!state) return
+    const next = pillWidthFromDrag(state.startWidth, event.clientX - state.startX, state.fullText)
+    setPillWidth(next)
+  }, [])
+
+  const onHandlePointerUp = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const state = dragStateRef.current
+    dragStateRef.current = null
+    document.body.style.cursor = ''
+    const handle = event.currentTarget
+    if (handle.hasPointerCapture?.(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+    if (state) {
+      setPillWidth((current) => {
+        savePillWidth(current)
+        return current
+      })
+    }
+  }, [])
+
+  const resolvedModels = useMemo(() => {
+    if (models.length > 0) return models
+    return (modelOptions ?? []).map((row) => row.id)
+  }, [models, modelOptions])
+  const modelLabelById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const row of modelOptions ?? []) {
+      if (row.id) map.set(row.id, row.label || row.id)
+    }
+    return map
+  }, [modelOptions])
 
   const path = useMemo(() => {
     const raw = routingPathFromSelection({
@@ -125,12 +220,17 @@ export function NavbarRoutingPicker({
       model: selectedModel,
       effort: preferredEffort,
     })
+    // Remote nested agents (OMB bots) must not default to the first listed
+    // specialist — empty selection stays empty (#102).
+    if (seatKind === 'remote' || (modelOptions && modelOptions.length > 0)) {
+      return raw
+    }
     if (
       !raw.model ||
       isHiddenRoutingLabel(raw.model) ||
       isHiddenRoutingLabel(raw.modelBase)
     ) {
-      const resolved = resolveComposedModel(models, '', preferredEffort)
+      const resolved = resolveComposedModel(resolvedModels, '', preferredEffort)
       if (!resolved) return { ...raw, model: '', modelBase: '', effort: null }
       return {
         ...raw,
@@ -140,34 +240,9 @@ export function NavbarRoutingPicker({
       }
     }
     return raw
-  }, [selectedAgent, selectedModel, preferredEffort, models])
+  }, [selectedAgent, selectedModel, preferredEffort, resolvedModels, seatKind, modelOptions])
 
-  const previewModelsQuery = useQuery({
-    queryKey: ['cli-models', previewAgent],
-    queryFn: () => fetchCliModels(previewAgent),
-    enabled: seatKind === 'cli' && Boolean(previewAgent) && open !== null,
-    retry: 1,
-  })
-
-  const previewModels = useMemo(
-    () =>
-      modelsForAgent(
-        seatKind,
-        previewAgent,
-        selectedAgent,
-        models,
-        previewModelsQuery.data?.models,
-      ),
-    [
-      seatKind,
-      previewAgent,
-      selectedAgent,
-      models,
-      previewModelsQuery.data?.models,
-    ],
-  )
-  const selectedModels = useMemo(() => displayableModels(models), [models])
-  const families = useMemo(() => groupModelsByFamily(previewModels), [previewModels])
+  const selectedModels = useMemo(() => displayableModels(resolvedModels), [resolvedModels])
   const selectedFamilies = useMemo(
     () => groupModelsByFamily(selectedModels),
     [selectedModels],
@@ -176,58 +251,57 @@ export function NavbarRoutingPicker({
     () => routingFaceParts(path, selectedModels),
     [path, selectedModels],
   )
-  const joined = useMemo(() => joinRoutingPath(faceParts), [faceParts])
-  const showModel = selectedFamilies.length > 0 || Boolean(modelWarning)
+  const joined = useMemo(() => {
+    // #743: specific-first — the pill truncates on the right, so the exact
+    // model/agent must lead and the generic provider clips, never vice versa.
+    // routingFaceParts returns [agent, model?, effort?]; display it inverted.
+    if (faceParts.length >= 2) {
+      return joinRoutingPath([faceParts[1], faceParts[0], ...faceParts.slice(2)])
+    }
+    return joinRoutingPath(faceParts)
+  }, [faceParts])
+  // CLI seats always expose the model pill so its label can show the probed
+  // model even before anything is chosen (REQ-870).
+  const showModel =
+    seatKind === 'cli' ||
+    seatKind === 'remote' ||
+    selectedFamilies.length > 0
   const selectedFamily = selectedFamilies.find((row) => row.base === path.modelBase)
   const showEffort = Boolean(selectedFamily && familyHasEffort(selectedFamily))
   const agentLabel =
     agents.find((row) => row.id === selectedAgent)?.label ||
     selectedAgent ||
     placeholder ||
-    (seatKind === 'remote' ? 'Remote' : 'Agent')
+    (seatKind === 'remote' ? 'Remote' : seatKind === 'team' ? 'Team' : 'Agent')
   const modelLabel = showModel
-    ? path.modelBase || selectedModel || (modelWarning ? '—' : '')
+    ? modelLabelById.get(selectedModel) ||
+      modelLabelById.get(path.model) ||
+      path.modelBase ||
+      selectedModel ||
+      (seatKind === 'remote' && !modelWarning ? 'Agents' : '—')
     : ''
   const effortLabel = showEffort ? path.effort || '' : ''
-  const groupLabel = ariaLabel || (seatKind === 'cli' ? 'CLI' : seatKind === 'remote' ? 'Remote' : 'Routing')
-
-  useEffect(() => subscribeNarrowViewport(setNarrow), [])
-
-  useEffect(() => {
-    if (open === null) {
-      setPreviewAgent(selectedAgent)
-      setPreviewModel(selectedModel)
-    }
-  }, [open, selectedAgent, selectedModel])
-
-  const close = useCallback(() => {
-    setOpen(null)
-    setHoverPill(null)
-    setActiveIndex(0)
-  }, [])
+  const groupLabel =
+    ariaLabel ||
+    (seatKind === 'cli'
+      ? 'CLI'
+      : seatKind === 'remote'
+        ? 'Remote'
+        : seatKind === 'team'
+          ? 'Team members'
+          : 'Routing')
 
   useEffect(() => {
-    if (open === null) return
-    const onDoc = (event: MouseEvent) => {
-      const root = rootRef.current
-      if (!root || root.contains(event.target as Node)) return
-      close()
-    }
+    if (!paletteOpen) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        event.preventDefault()
-        close()
         const pill = rootRef.current?.querySelector<HTMLButtonElement>('[data-routing-pill]')
         pill?.focus()
       }
     }
-    document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open, close])
+    return () => document.removeEventListener('keydown', onKey)
+  }, [paletteOpen])
 
   const emit = useCallback(
     (changed: RoutingDimension, next: Partial<RoutingPath> & { agent: string }) => {
@@ -247,466 +321,352 @@ export function NavbarRoutingPicker({
   )
 
   const pickAgent = useCallback(
-    (agentId: string, cascade: boolean) => {
+    (agentId: string, kind?: RoutingSeatKind | 'team') => {
       if (footerAction && agentId === footerAction.id) {
         footerAction.onSelect()
-        close()
         return
       }
-      const nextModels =
-        agentId === selectedAgent
-          ? selectedModels
-          : modelsForAgent(
-              seatKind,
-              agentId,
-              selectedAgent,
-              models,
-              agentId === previewAgent ? previewModelsQuery.data?.models : undefined,
-            )
-      const nextFamilies = groupModelsByFamily(nextModels)
+      // #504 + #502: picking an option from another kind navigates to that
+      // agent — it never rewrites the current seat's binding. #804: the
+      // destination kind rides along so ChatPage can set the seat param that
+      // kind actually reads (?cli= for cli, ?blueprint= for api, …) instead
+      // of writing a dead ?agent=.
+      if (kind && kind !== seatKind && onNavigateAgent) {
+        onNavigateAgent(agentId, kind)
+        return
+      }
       emit('agent', { agent: agentId, model: '', modelBase: '', effort: null })
-      if (cascade && nextFamilies.length > 0) {
-        setPreviewAgent(agentId)
-        setOpen(narrow ? 'sheet' : 'model')
-        setActiveIndex(0)
-        return
-      }
-      close()
     },
-    [
-      close,
-      emit,
-      footerAction,
-      models,
-      narrow,
-      previewAgent,
-      previewModelsQuery.data?.models,
-      seatKind,
-      selectedAgent,
-      selectedModels,
-    ],
+    [emit, footerAction, onNavigateAgent, seatKind],
   )
 
   const pickModel = useCallback(
-    (family: ModelFamily, cascade: boolean) => {
-      const preferred = path.effort || preferredEffort || null
-      const effort = familyHasEffort(family)
-        ? (preferred && family.efforts.includes(preferred as EffortToken)
-            ? (preferred as EffortToken)
-            : family.efforts.includes('medium')
-              ? 'medium'
-              : family.efforts[0])
-        : null
-      const model = effort
-        ? family.ids.find((id) => id.endsWith(`-${effort}`)) || family.ids[0]
-        : family.ids[0]
+    (modelId: string) => {
       const parsed = routingPathFromSelection({
-        agent: previewAgent || selectedAgent,
-        model,
-        effort,
+        agent: selectedAgent,
+        model: modelId,
       })
-      emit('model', parsed)
-      setPreviewModel(model)
-      if (cascade && effort) {
-        setOpen(narrow ? 'sheet' : 'effort')
-        setActiveIndex(Math.max(0, family.efforts.indexOf(effort)))
+      // Picking a variant of the current base (…-medium → …-high) is an effort
+      // change — keep the consolidated REQ-866 status semantics intact.
+      if (parsed.modelBase && parsed.modelBase === path.modelBase && parsed.effort !== path.effort) {
+        emit('effort', {
+          agent: selectedAgent,
+          model: parsed.model,
+          modelBase: parsed.modelBase,
+          effort: parsed.effort,
+        })
         return
       }
-      close()
-    },
-    [
-      close,
-      emit,
-      narrow,
-      path.effort,
-      preferredEffort,
-      previewAgent,
-      selectedAgent,
-    ],
-  )
-
-  const pickEffort = useCallback(
-    (effort: EffortToken) => {
-      const base = routingPathFromSelection({
-        agent: previewAgent || selectedAgent,
-        model: previewModel || selectedModel,
-        effort,
-      }).modelBase
-      const family = families.find((row) => row.base === base) || selectedFamily
-      const model =
-        family?.ids.find((id) => id.endsWith(`-${effort}`)) ||
-        (base ? `${base}-${effort}` : selectedModel)
-      emit('effort', {
-        agent: previewAgent || selectedAgent,
-        model,
-        modelBase: base,
-        effort,
+      emit('model', {
+        agent: selectedAgent,
+        model: parsed.model,
+        modelBase: parsed.modelBase,
+        effort: parsed.effort,
       })
-      close()
     },
-    [
-      close,
-      emit,
-      families,
-      previewAgent,
-      previewModel,
-      selectedAgent,
-      selectedFamily,
-      selectedModel,
-    ],
+    [emit, path.effort, path.modelBase, selectedAgent],
   )
 
-  const openDimension = useCallback(
-    (dim: RoutingDimension) => {
-      setPreviewAgent(selectedAgent)
-      setPreviewModel(selectedModel)
-      setOpen(narrow ? 'sheet' : dim)
-      setActiveIndex(0)
-    },
-    [narrow, selectedAgent, selectedModel],
+  // #504: palette rows. Group 1 = the seat's own catalog (kind-scoped scope),
+  // group 2 = models / nested agents for the current selection, group 3 = the
+  // cross-kind union (only visible once the scope chip is cleared).
+  const kindGroup = groupLabel
+  const modelsGroup = resolvedModels.length > 0 ? `${kindGroup} · ${agentLabel} models` : ''
+  const ownRows: ModelSearchOption[] = useMemo(
+    () =>
+      agents.map((row) => ({
+        id: row.id,
+        label: row.label,
+        description: 'Agent',
+        provider: kindGroup,
+        kind: row.kind ?? seatKind,
+      })) as ModelSearchOption[],
+    [agents, kindGroup, seatKind],
   )
+  const modelRows: ModelSearchOption[] = useMemo(
+    () =>
+      resolvedModels.map((id) => ({
+        id,
+        label: modelLabelById.get(id) || id,
+        description: seatKind === 'remote' ? 'Remote agent' : 'Model',
+        provider: modelsGroup,
+        tag: 'model',
+      })),
+    [resolvedModels, modelLabelById, modelsGroup, seatKind],
+  )
+  const scopedRows = useMemo(
+    () => (modelsGroup ? [...ownRows, ...modelRows] : ownRows),
+    [ownRows, modelRows, modelsGroup],
+  )
+  const allRows: ModelSearchOption[] = useMemo(() => {
+    const union = [...scopedRows]
+    for (const row of allAgents ?? []) {
+      if (union.some((u) => u.id === row.id)) continue
+      union.push({
+        id: row.id,
+        label: row.label,
+        description: 'Agent',
+        provider: 'All agents',
+        kind: row.kind,
+      } as ModelSearchOption)
+    }
+    return union
+  }, [scopedRows, allAgents])
 
-  const agentItems = useMemo(() => {
-    const rows = agents.map((row) => ({ id: row.id, label: row.label, kind: 'agent' as const }))
-    if (footerAction) {
-      rows.push({ id: footerAction.id, label: footerAction.label, kind: 'agent' })
-    }
-    return rows
-  }, [agents, footerAction])
+  const scopeLabel = modelsGroup
+    ? modelsGroup
+    : seatKind === 'api'
+      ? 'API profiles'
+      : kindGroup
 
-  const currentMenuItems = useMemo(() => {
-    const dim = open === 'sheet' ? (showEffort && previewModel ? 'effort' : showModel && previewAgent ? 'model' : 'agent') : open
-    if (dim === 'effort') {
-      const family =
-        families.find(
-          (row) =>
-            row.base ===
-            routingPathFromSelection({
-              agent: previewAgent,
-              model: previewModel || selectedModel,
-            }).modelBase,
-        ) || selectedFamily
-      return (family?.efforts ?? []).map((effort) => ({
-        id: effort,
-        label: effort,
-        kind: 'effort' as const,
-      }))
-    }
-    if (dim === 'model') {
-      return families.map((family) => ({
-        id: family.base,
-        label: family.base,
-        kind: 'model' as const,
-        hasChildren: familyHasEffort(family),
-      }))
-    }
-    return agentItems.map((row) => ({
-      ...row,
-      hasChildren: seatKind === 'cli',
-    }))
-  }, [
-    agentItems,
-    families,
-    open,
-    previewAgent,
-    previewModel,
-    seatKind,
-    selectedFamily,
-    selectedModel,
-    showEffort,
-    showModel,
-  ])
-
-  useEffect(() => {
-    if (open === null) return
-    const node = itemRefs.current[activeIndex]
-    node?.focus()
-  }, [activeIndex, open, currentMenuItems.length])
-
-  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const rtl = directionOf(rootRef.current) === 'rtl'
-    const openSub = rtl ? 'ArrowLeft' : 'ArrowRight'
-    const closeSub = rtl ? 'ArrowRight' : 'ArrowLeft'
-    const items = currentMenuItems
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      setActiveIndex((i) => (i + 1) % Math.max(items.length, 1))
-      return
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      setActiveIndex((i) => (i - 1 + items.length) % Math.max(items.length, 1))
-      return
-    }
-    if (event.key === 'Home') {
-      event.preventDefault()
-      setActiveIndex(0)
-      return
-    }
-    if (event.key === 'End') {
-      event.preventDefault()
-      setActiveIndex(Math.max(items.length - 1, 0))
-      return
-    }
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      const item = items[activeIndex]
-      if (!item) return
-      activateItem(item.id, item.kind, true)
-      return
-    }
-    if (event.key === openSub) {
-      event.preventDefault()
-      const item = items[activeIndex]
-      if (!item) return
-      if (item.kind === 'agent') {
-        setPreviewAgent(item.id)
-        setOpen(narrow ? 'sheet' : 'model')
-        setActiveIndex(0)
-      } else if (item.kind === 'model') {
-        const family = families.find((row) => row.base === item.id)
-        if (family && familyHasEffort(family)) pickModel(family, true)
-      }
-      return
-    }
-    if (event.key === closeSub) {
-      event.preventDefault()
-      if (open === 'effort') {
-        setOpen(narrow ? 'sheet' : 'model')
-        setActiveIndex(0)
+  const onSelectRow = useCallback(
+    (row: ModelSearchOption) => {
+      if (row.tag === 'model') {
+        pickModel(row.id)
         return
       }
-      if (open === 'model') {
-        setOpen(narrow ? 'sheet' : 'agent')
-        setActiveIndex(0)
+      const kind = row.kind
+      pickAgent(row.id, kind)
+    },
+    [pickAgent, pickModel],
+  )
+
+  // #681: two-stage pick resolution. The dialog hands back (provider, option);
+  // both map onto the flat palette's existing semantics. Same kind: api and
+  // cli options are agent-dimension picks (profile / configured CLI agent),
+  // remote options are model-dimension picks (nested bot) — exactly the rows
+  // the flat palette offers today. Cross kind (#502/#504): navigate to that
+  // seat; "use default" (option = null) applies the provider's declared
+  // default, falling back to the provider itself.
+  const onTwoStagePick = useCallback(
+    (provider: ComposerProviderOption, option: ModelSearchOption | null) => {
+      const bare = provider.id.replace(/^(cli|remote|team):/, '')
+      // #711: a session resume is seat-orthogonal — it changes the conversation
+      // on the session's own CLI, not the current seat's agent/model — so it
+      // routes before the cross-kind guard can swallow it as inert.
+      if (option?.tag === 'session') {
+        twoStage?.onResumeSession?.(option.id)
         return
       }
-      close()
-    }
-  }
-
-  function activateItem(id: string, kind: RoutingDimension, cascade: boolean) {
-    if (kind === 'agent') {
-      pickAgent(id, cascade)
-      return
-    }
-    if (kind === 'model') {
-      const family = families.find((row) => row.base === id)
-      if (family) pickModel(family, cascade)
-      return
-    }
-    pickEffort(id as EffortToken)
-  }
-
-  const sheetLevel: RoutingDimension =
-    open === 'effort' || (open === 'sheet' && showEffort && Boolean(previewModel) && families.some(familyHasEffort))
-      ? previewModels.length && groupModelsByFamily(previewModels).some((row) =>
-          row.base ===
-            routingPathFromSelection({ agent: previewAgent, model: previewModel || selectedModel }).modelBase &&
-          familyHasEffort(row),
-        )
-        ? 'effort'
-        : 'model'
-      : open === 'model' || (open === 'sheet' && families.length > 0 && previewAgent !== '')
-        ? 'model'
-        : 'agent'
-
-  const renderMenu = (dim: RoutingDimension, nested = false) => {
-    const isAgent = dim === 'agent'
-    const isModel = dim === 'model'
-    const isEffort = dim === 'effort'
-    const items = isEffort
-      ? (families.find(
-          (row) =>
-            row.base ===
-            routingPathFromSelection({
-              agent: previewAgent,
-              model: previewModel || selectedModel,
-            }).modelBase,
-        ) || selectedFamily)?.efforts.map((effort) => ({
-          id: effort,
-          label: effort,
-          kind: 'effort' as const,
-          current: path.effort === effort,
-        })) ?? []
-      : isModel
-        ? families.map((family) => ({
-            id: family.base,
-            label: family.base,
-            kind: 'model' as const,
-            current: path.modelBase === family.base,
-            hasChildren: familyHasEffort(family),
-          }))
-        : agentItems.map((row) => ({
-            ...row,
-            kind: 'agent' as const,
-            current: selectedAgent === row.id,
-            hasChildren: seatKind === 'cli' && row.id !== footerAction?.id,
-          }))
-    const heading = isEffort ? 'Effort' : isModel ? 'Model' : groupLabel
-    return (
-      <div
-        className={`os-routing-menu ${nested ? 'os-routing-menu--nested' : ''}`}
-        role="menu"
-        aria-labelledby={labelId}
-        data-testid={isEffort ? 'routing-menu-effort' : isModel ? 'routing-menu-model' : 'routing-menu-agent'}
-        data-level={dim}
-      >
-        <div className="os-routing-menu__heading">{heading}</div>
-        {narrow && dim !== 'agent' ? (
-          <button
-            type="button"
-            className="os-routing-menu__back"
-            onClick={() => setOpen(dim === 'effort' ? 'model' : 'agent')}
-          >
-            Back
-          </button>
-        ) : null}
-        {isModel && previewModelsQuery.isFetching && families.length === 0 ? (
-          <div className="os-routing-menu__empty">Loading models…</div>
-        ) : null}
-        {isModel && modelWarning && families.length === 0 ? (
-          <div className="os-routing-menu__warning" data-testid="routing-model-warning" role="status">
-            {modelWarning}
-          </div>
-        ) : null}
-        {items.length === 0 &&
-        !(isModel && previewModelsQuery.isFetching) &&
-        !(isModel && modelWarning) ? (
-          <div className="os-routing-menu__empty">No options</div>
-        ) : null}
-        {items.map((item, index) => (
-          <button
-            key={item.id}
-            type="button"
-            role="menuitem"
-            ref={(el) => {
-              if (!nested) itemRefs.current[index] = el
-            }}
-            data-testid={`routing-option-${dim}-${item.id}`}
-            className={`os-routing-option ${item.current ? 'os-routing-option--current' : ''}`}
-            aria-haspopup={item.hasChildren ? 'menu' : undefined}
-            data-active={index === activeIndex && !nested ? 'true' : 'false'}
-            onMouseEnter={() => {
-              setActiveIndex(index)
-              if (!narrow && item.hasChildren && isAgent) {
-                setPreviewAgent(item.id)
-              }
-              if (!narrow && item.hasChildren && isModel) {
-                const family = families.find((row) => row.base === item.id)
-                if (family) setPreviewModel(family.ids[0])
-              }
-            }}
-            onClick={() => activateItem(item.id, item.kind, !narrow)}
-          >
-            <span>{item.label}</span>
-            {item.hasChildren ? (
-              <span className="os-routing-option__more" aria-hidden="true">
-                ›
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
-    )
-  }
-
-  const desktopOpen = open !== null && !narrow
-  const previewFamily = families.find(
-    (row) =>
-      row.base ===
-      routingPathFromSelection({
-        agent: previewAgent,
-        model: previewModel || selectedModel,
-      }).modelBase,
+      if (provider.kind === 'blueprint' || option?.tag === 'blueprint' || option?.tag === 'team') {
+        if (!onNavigateAgent) return
+        const rawId = option?.id ?? provider.defaultOptionId ?? ''
+        const isTeam = option?.tag === 'team' || rawId.startsWith('team:')
+        const targetId = rawId.replace(/^(team|blueprint):/, '')
+        onNavigateAgent(targetId, isTeam ? 'team' : 'api')
+        return
+      }
+      if (provider.kind !== seatKind) {
+        // #804: cross-kind picks are never inert. The destination kind rides
+        // in the callback so ChatPage can land the pick on the seat param
+        // that kind actually reads — an API pick (previously dropped here)
+        // resolves to ?blueprint= (the api_agent gateway for a default pick,
+        // or a named api blueprint); a CLI pick resolves to ?cli=.
+        if (!onNavigateAgent) return
+        const dest = option?.id ?? provider.defaultOptionId ?? bare
+        const destKind = provider.kind === 'team' ? 'team' : provider.kind
+        // #804: stage-2 options under API are LLM PROFILES, not blueprint ids
+        // — land on the api_agent gateway (empty id) with the profile applied
+        // as its model (?model= is what the gateway's routing consumes).
+        if (provider.kind === 'api' && option) {
+          // #899: reconfigure the CURRENT seat's provider backend — switching
+          // the user to api_agent here dropped their CLI/remote context.
+          if (onProviderReconfigure) {
+            onProviderReconfigure(option.id)
+            setPaletteOpen(false)
+            return
+          }
+          onNavigateAgent('', 'api', { apiModel: option.id })
+        } else {
+          onNavigateAgent(dest, destKind)
+        }
+        return
+      }
+      if (option) {
+        // Stage-2 option rows: model-tagged rows (CLI probed models) and
+        // remote bots are model-dimension; api profiles are agent-dimension.
+        if (option.tag === 'model' || provider.kind === 'remote') {
+          pickModel(option.id)
+          return
+        }
+        pickAgent(option.id, seatKind)
+        return
+      }
+      // Use default (stage-2 accept): the PROVIDER dimension applies — e.g. a
+      // herdr seat accepting TrueForge's default switches to that remote
+      // (binding/navigation per #502), it never picks a bot id as a model.
+      const chosen = provider.kind === 'remote' ? bare : (provider.defaultOptionId ?? bare)
+      if (provider.kind === 'api' && !provider.defaultOptionId) return
+      pickAgent(chosen || selectedAgent, seatKind)
+    },
+    [seatKind, onNavigateAgent, pickAgent, pickModel, selectedAgent, twoStage],
   )
-  const showAgentFlyout = desktopOpen && open === 'agent'
-  const showModelFlyout =
-    desktopOpen &&
-    (open === 'model' || (open === 'agent' && seatKind === 'cli' && Boolean(previewAgent)))
-  const showEffortFlyout =
-    desktopOpen &&
-    (open === 'effort' ||
-      (open === 'model' && Boolean(previewFamily && familyHasEffort(previewFamily))) ||
-      (open === 'agent' && Boolean(previewFamily && familyHasEffort(previewFamily))))
+
+  // #711: both open affordances (pill, face) funnel through one opener so the
+  // deferred-fetch hook fires exactly once per open, never on stage descent.
+  const openTwoStage = useCallback(() => {
+    setPaletteOpen((open) => {
+      if (!open) onTwoStageOpen?.()
+      return true
+    })
+  }, [onTwoStageOpen])
+
+  const twoStageDialog = twoStage ? (
+    <ComposerPickerDialog
+      open={paletteOpen}
+      providers={twoStage.providers}
+      getProviderOptions={twoStage.getProviderOptions}
+      onPick={(provider, option) => {
+        onTwoStagePick(provider, option)
+        setPaletteOpen(false)
+      }}
+      onClose={() => setPaletteOpen(false)}
+      currentOptionId={selectedAgent}
+      manageLabel={footerAction ? `${footerAction.label} in Settings` : undefined}
+      onManage={footerAction?.onSelect}
+      warning={
+        modelWarning
+          ? {
+              text: modelWarning,
+              onAction: modelWarningAction
+                ? () =>
+                    import('./SettingsSheet').then(({ openSettingsSheet }) =>
+                      openSettingsSheet({
+                        section: modelWarningAction.section,
+                        remoteId: modelWarningAction.remote,
+                      }),
+                    )
+                : undefined,
+            }
+          : null
+      }
+    />
+  ) : null
 
   const pill = (
-    dim: RoutingDimension,
     label: string,
-    extraTestId?: string,
   ) => (
     <button
       type="button"
-      className={`os-routing-pill join-item ${hoverPill === dim || open === dim || open === 'sheet' ? 'os-routing-pill--hot' : ''}`}
-      data-routing-pill={dim}
-      data-testid={dim === 'agent' ? 'routing-pill-agent' : dim === 'model' ? 'routing-pill-model' : 'routing-pill-effort'}
-      data-legacy-testid={extraTestId}
-      data-value={dim === 'agent' ? selectedAgent : dim === 'model' ? path.modelBase : path.effort || ''}
-      aria-label={dim === 'agent' ? groupLabel : dim === 'model' ? 'Model' : 'Effort'}
-      aria-haspopup="menu"
-      aria-expanded={open === dim || (open === 'sheet' && sheetLevel === dim)}
+      className={`os-routing-pill join-item ${paletteOpen ? 'os-routing-pill--hot' : ''}`}
+      style={
+        pillWidth !== null
+          ? { width: `${clampPillWidth(pillWidth, measureFullTextWidth())}px` }
+          : undefined
+      }
+      data-routing-pill="agent"
+      data-testid="routing-pill-agent"
+      data-pill-resized={pillWidth !== null ? 'true' : undefined}
+      data-value={joined}
+      aria-label={groupLabel}
+      aria-haspopup="dialog"
+      aria-expanded={paletteOpen}
       title={joined}
-      onMouseEnter={() => {
-        setHoverPill(dim)
-        if (!narrow) openDimension(dim)
-      }}
-      onMouseLeave={() => setHoverPill((cur) => (cur === dim ? null : cur))}
       onClick={(event) => {
         event.stopPropagation()
-        openDimension(dim)
+        openTwoStage()
       }}
     >
-      <span className="os-routing-pill__label">{label}</span>
+      {/* #795: provider glyph — hidden on desktop (the label names it),
+          shown on mobile where it replaces the text in an icon circle. */}
+      <span className="os-routing-pill__icon" aria-hidden="true">
+        {getProviderIcon({
+          seatKind,
+          providerId: selectedAgent,
+          modelId: selectedModel,
+        })}
+      </span>
+      <span ref={labelRef} className="os-routing-pill__label">{label}</span>
       <ChevronDown className="os-routing-pill__chevron" aria-hidden="true" />
+      {/* #770: double-slit grab handle — hover-reveal, col-resize cursor,
+          pointer-captured drag, click-through suppressed so the dialog
+          never opens mid-resize. */}
+      <span
+        className="os-routing-pill__grip"
+        aria-hidden="true"
+        data-testid="routing-pill-grip"
+        onPointerDown={onHandlePointerDown}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerUp}
+        onPointerCancel={onHandlePointerUp}
+        onClick={(event) => event.stopPropagation()}
+      />
     </button>
   )
 
   if (agents.length === 0 && !placeholder) return null
 
+  // #629: one combined trigger. #757: the closed pill displays ONLY the
+  // most specific entity — the model for direct providers, the sub-agent
+  // for multi-agent remotes, the remote name for single-agent remotes.
+  // The full inverted path (#743) stays on title/data-value and inside the
+  // two-stage dialog. "—" never appears on the closed pill: the label falls
+  // back through model → agent → placeholder.
+  const modelPart = showModel ? modelLabel : ''
+  // '—' and 'Agents' are group placeholders, not a bound entity — the closed
+  // pill must show the most specific BOUND thing (model → agent → placeholder).
+  const modelLeaf =
+    modelPart && modelPart !== '—' && modelPart !== 'Agents' ? modelPart : ''
+  const leafLabel = modelLeaf || agentLabel || placeholder || '—'
+  void showEffort
+  void effortLabel
+
   return (
     <div
       ref={rootRef}
-      className={`os-routing-picker ${narrow ? 'os-routing-picker--narrow' : ''}`}
+      className="os-routing-picker"
       data-testid="navbar-routing-picker"
       data-seat-kind={seatKind}
-      data-open={open || ''}
-      onKeyDown={open ? onMenuKeyDown : undefined}
-      onMouseLeave={() => {
-        if (!narrow && open && document.activeElement && rootRef.current?.contains(document.activeElement)) {
-          return
-        }
-        if (!narrow) {
-          setHoverPill(null)
-        }
-      }}
+      data-open={paletteOpen ? 'palette' : ''}
     >
       <div
-        className="join os-routing-face"
+        className={`join os-routing-face ${paletteOpen ? 'os-routing-face--hot' : ''}`}
         role="group"
         aria-label={groupLabel}
-        id={labelId}
         title={joined}
         data-testid="routing-face"
-        onClick={() => {
-          if (open === null) openDimension('agent')
+        onClick={(event) => {
+          if (paletteOpen) return
+          const target = event.target as HTMLElement | null
+          if (target?.closest('[data-routing-pill]')) return
+          openTwoStage()
         }}
       >
-        {pill('agent', agentLabel, seatKind === 'cli' ? 'cli-select' : seatKind === 'remote' ? 'remote-select' : undefined)}
-        {showModel ? pill('model', modelLabel, seatKind === 'cli' ? 'cli-model-select' : undefined) : null}
-        {showEffort && effortLabel ? pill('effort', effortLabel, seatKind === 'cli' ? 'cli-effort-select' : undefined) : null}
+        {pill(leafLabel)}
       </div>
-      {desktopOpen ? (
-        <div className="os-routing-flyout" data-testid="routing-flyout">
-          {showAgentFlyout ? renderMenu('agent') : null}
-          {showModelFlyout ? renderMenu('model', open === 'agent') : null}
-          {showEffortFlyout ? renderMenu('effort', open !== 'effort') : null}
-        </div>
-      ) : null}
-      {narrow && open === 'sheet' ? (
-        <div className="os-routing-sheet" data-testid="routing-sheet" role="dialog" aria-label={groupLabel}>
-          {renderMenu(sheetLevel)}
-        </div>
-      ) : null}
+      {twoStage ? (
+        twoStageDialog
+      ) : (
+        <ModelSearchPalette
+          open={paletteOpen}
+        models={scopedRows}
+        allModels={allRows}
+        scopeLabel={scopeLabel}
+        manageLabel={footerAction ? `${footerAction.label} in Settings` : undefined}
+        onManageSettings={footerAction?.onSelect}
+        loading={loading}
+        warning={
+          modelWarning
+            ? {
+                text: modelWarning,
+                onAction: modelWarningAction
+                  ? () =>
+                      import('./SettingsSheet').then(({ openSettingsSheet }) =>
+                        openSettingsSheet({
+                          section: modelWarningAction.section,
+                          remoteId: modelWarningAction.remote,
+                        }),
+                      )
+                  : undefined,
+              }
+            : undefined
+        }
+        selectedId={selectedAgent}
+        defaultId={defaultAgent}
+        onClose={() => setPaletteOpen(false)}
+        onSelect={onSelectRow}
+        />
+      )}
     </div>
   )
 }

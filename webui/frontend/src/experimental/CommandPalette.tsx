@@ -11,6 +11,7 @@ import {
   Settings,
   Users,
 } from 'lucide-react'
+import { OverlayFocusTrap } from '../components/OverlayFocusTrap'
 
 /**
  * EXPERIMENTAL: ⌘K / Ctrl+K command palette.
@@ -168,6 +169,7 @@ export default function CommandPalette() {
   if (!open) return null
 
   return (
+    <OverlayFocusTrap onClose={() => setOpen(false)} initialFocus={() => inputRef.current}>
     <div
       className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 pt-[12vh]"
       onMouseDown={(e) => {
@@ -235,5 +237,6 @@ export default function CommandPalette() {
         </ul>
       </div>
     </div>
+    </OverlayFocusTrap>
   )
 }

@@ -78,7 +78,7 @@ flowchart TB
 
 **Teams** compose members across kinds (REQ-156 Demo Bridge). Support NL
 create (REQ-158 / #567) persists an `ApiKindBase` seat from plain language;
-the user does not write that class unless they **View / edit code**. Support and NL
+the user does not write that class unless they **View code**. Support and NL
 builders (#567) know `BlueprintBase` **and** the three kind bases; they
 **default to a kind template**.
 
@@ -108,6 +108,11 @@ workflow). The **code it writes for users** subclasses a kind base.
 - Incremental migrate of in-tree recipes (`sdlc_handoff` → `ApiKindBase`,
   `cli_*` → `CliKindBase`, `remote_harness` → `RemoteKindBase`).
 - NL builder (#567) consumes the same brief.
+
+> **Addendum (2026-09-14, REQ-851 / #203):** §4 landed. Emitters share
+> `base_class_for_kind()` in `swarm.core.kind_bases` and default to a kind
+> base; the listed in-tree recipes were migrated (API seats with custom
+> non-graph `run()` overrides deferred). Discovery unchanged.
 
 ---
 

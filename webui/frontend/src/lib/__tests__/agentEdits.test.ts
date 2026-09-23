@@ -46,6 +46,17 @@ describe('agentEdits', () => {
     expect(loadAgentEdit('cli_agent')).toEqual({})
   })
 
+  it('persists git branch for the navbar subtitle and clears it when folder changes', () => {
+    saveAgentEdit('cli_agent', { folder: '/home/dev/tool', gitBranch: 'main' })
+    expect(loadAgentEdit('cli_agent')).toEqual({ folder: '/home/dev/tool', gitBranch: 'main' })
+    saveAgentEdit('cli_agent', { folder: '/home/dev/other' })
+    expect(loadAgentEdit('cli_agent')).toEqual({ folder: '/home/dev/other' })
+    saveAgentEdit('cli_agent', { folder: '/home/dev/other', gitBranch: 'feat/x' })
+    expect(loadAgentEdit('cli_agent')).toEqual({ folder: '/home/dev/other', gitBranch: 'feat/x' })
+    saveAgentEdit('cli_agent', { folder: '', gitBranch: '' })
+    expect(loadAgentEdit('cli_agent')).toEqual({})
+  })
+
   it('persists GitHub repo bind chrome on the agent record', () => {
     saveAgentEdit('cli_agent', { githubRepo: '  acme/app  ', workspacesEnabled: true })
     expect(loadAgentEdit('cli_agent')).toEqual({

@@ -5,15 +5,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+MSG_LIST_TSX = (
+    REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "ChatMessageList.tsx"
+)
 BLOB_AVATAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "BlobAvatar.tsx"
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 
 
 def test_chat_page_blob_eyes_active_when_streaming():
-    content = CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    content = CHAT_PAGE_TSX.read_text(
+        encoding="utf-8"
+    ) + MSG_LIST_TSX.read_text(encoding="utf-8")
 
-    # Header passes active only when streaming, not merely because ws status is open
-    assert "active={Boolean(streamingMessage)}" in content
+    # Header passes active from the working state (stream OR queued await),
+    # not merely because the ws status is open.
+    assert "const isWorking = Boolean(streamingMessage) || awaitingAssistant" in content
+    assert "active={isWorking}" in content
     assert "active={Boolean(streamingMessage || status === 'open')}" not in content
 
     # Composer / footer working indicator renders working avatar with active={true}

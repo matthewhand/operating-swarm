@@ -57,3 +57,26 @@ def test_docs_and_own_diff_ci():
     assert "req138" in ci.lower() or "REQ-138" in ci
     assert "pytest" in ci
     assert "vitest" in ci
+
+
+def test_cross_kind_hop_plumbing_is_wired():
+    """#900: cross-kind hops carry from_kind/to_kind/to_agent/from_agent."""
+    lib = HOP_TS.read_text(encoding="utf-8")
+    core = CORE.read_text(encoding="utf-8")
+    api = API.read_text(encoding="utf-8")
+    chat = CHAT.read_text(encoding="utf-8")
+    consumers = (REPO / "src" / "swarm" / "consumers.py").read_text(encoding="utf-8")
+    # #855: the turn-assembly helper moved to swarm/chat/helpers.py; the
+    # doctrine spans both files now.
+    chat_helpers = (REPO / "src" / "swarm" / "chat" / "helpers.py").read_text(encoding="utf-8")
+    # Backend: destination-kind aware hop + consumption helper
+    assert "to_kind" in core and "apply_cross_kind_hop_messages" in core
+    assert "from_agent" in core and "to_label" in core
+    # API: passes the cross-kind fields through
+    assert "to_kind" in api and "to_agent" in api and "from_agent" in api
+    # Consumer: turn assembly consumes api/remote pending hops by agent id
+    assert "_apply_pending_api_hop" in consumers
+    assert "apply_cross_kind_hop_messages" in consumers + chat_helpers
+    # Frontend: the reconfigure path fires a cross-kind hop (not just a notice)
+    assert "crossKindHopForReconfigure" in chat
+    assert "toKind" in lib and "toAgent" in lib

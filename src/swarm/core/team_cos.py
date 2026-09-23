@@ -124,7 +124,12 @@ def normalize_cos_instructions(raw: Any, *, has_cos: bool) -> str:
 
 
 def restore_cos_id_from_roles(members: list[dict[str, Any]]) -> str | None:
-    """Restore a previously tagged CoS role. Not an auto-pick of the first agent."""
+    """Legacy-tag fallback: recover a CoS id from a pre-#739 stamped member.
+
+    #739 retired the member-level CoS tag — new rosters carry ``chief_of_staff_id``
+    only. This stays as a read-only migration path so an unstamped payload never
+    silently loses its leader; it never stamps anything back.
+    """
     tagged = [
         m
         for m in members
@@ -136,20 +141,18 @@ def restore_cos_id_from_roles(members: list[dict[str, Any]]) -> str | None:
 
 
 def stamp_cos_role(members: list[dict[str, Any]], cos_id: str | None) -> list[dict[str, Any]]:
-    """Exactly one CoS role when selected; demote leftover CoS roles on this roster."""
-    want = str(cos_id or "").strip()
-    stamped: list[dict[str, Any]] = []
-    for member in members:
-        row = dict(member)
-        mid = _member_id(row)
-        if want and mid == want:
-            row["role"] = ROLE_CHIEF_OF_STAFF
-        elif is_chief_of_staff(row.get("role")):
-            row["role"] = ROLE_DEFAULT
-        else:
-            row["role"] = normalize_agent_role(row.get("role"))
-        stamped.append(row)
-    return stamped
+    """Demote leftover CoS role tags (#739): leadership lives on ``chief_of_staff_id``.
+
+    The member-level ``role: chief_of_staff`` stamp is retired — CoS is a
+    roster-level designation, not a composable member role. New selections
+    never write the tag; any legacy stamp is demoted to ``default`` (or the
+    member's other assigned role) so old payloads converge to the new
+    doctrine instead of carrying a second source of truth forever.
+    """
+    return [
+        {**member, "role": ROLE_DEFAULT} if is_chief_of_staff(member.get("role")) else member
+        for member in members
+    ]
 
 
 def apply_cos_fields(roster: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:

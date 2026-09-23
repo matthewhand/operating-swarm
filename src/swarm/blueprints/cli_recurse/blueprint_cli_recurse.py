@@ -34,7 +34,7 @@ from types import SimpleNamespace
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -95,7 +95,7 @@ class _Budget:
         self._remaining -= n
 
 
-class CliRecurseBlueprint(BlueprintBase):
+class CliRecurseBlueprint(CliKindBase):
     """Recursively break a problem down to any depth, then synthesize back up."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -215,8 +215,7 @@ class CliRecurseBlueprint(BlueprintBase):
         synthesizer = self._pick("synthesizer", params, registry)
         if not (decomposer and solver and synthesizer):
             yield support.message_chunk(
-                "No CLI is configured for cli_recurse. Add a 'cli_recurse' block (or a "
-                "'cli_fusion' default) to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No CLI is configured for cli_recurse"),
                 final=True,
             )
             return

@@ -2,8 +2,10 @@
  * REQ-209: Sidepane agent sections (membership + names + collapse).
  *
  * Custom sections are ordered headers. Agents with no membership sit in the
- * implicit Unassigned bucket. Persistence is localStorage for v1
- * (`swarm_rail_sections`); Django prefs (#540) later. Pinned favourites are
+ * implicit Unassigned bucket. Persistence is local-first
+ * (`swarm_rail_sections`) with debounced server sync through
+ * /v1/preferences/ (`rail_sections`, #786) — the server bag wins on
+ * hydrate; localStorage is the immediate cache. Pinned favourites are
  * not a section — the pin grid stays above this list.
  */
 
@@ -18,6 +20,8 @@ export interface RailSection {
   id: string
   name: string
   collapsed?: boolean
+  /** Issue #163: members may only message each other. Unassigned is never lockable. */
+  internalOnly?: boolean
 }
 
 export interface RailSectionsState {
@@ -43,11 +47,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-export function parseRailSections(raw: string | null): RailSectionsState {
-  if (!raw) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed)) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
+export function parseRailSectionsValue(parsed: unknown): RailSectionsState {
+  if (!isRecord(parsed)) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
     const sections: RailSection[] = []
     if (Array.isArray(parsed.sections)) {
       for (const item of parsed.sections) {
@@ -59,6 +60,7 @@ export function parseRailSections(raw: string | null): RailSectionsState {
           id: item.id,
           name,
           collapsed: Boolean(item.collapsed),
+          internalOnly: Boolean(item.internalOnly),
         })
       }
     }
@@ -75,6 +77,12 @@ export function parseRailSections(raw: string | null): RailSectionsState {
       membership,
       unassignedCollapsed: Boolean(parsed.unassignedCollapsed),
     }
+}
+
+export function parseRailSections(raw: string | null): RailSectionsState {
+  if (!raw) return { ...EMPTY_RAIL_SECTIONS, membership: {} }
+  try {
+    return parseRailSectionsValue(JSON.parse(raw))
   } catch {
     return { ...EMPTY_RAIL_SECTIONS, membership: {} }
   }
@@ -85,6 +93,21 @@ export function loadRailSections(): RailSectionsState {
     return parseRailSections(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY))
   } catch {
     return { ...EMPTY_RAIL_SECTIONS, membership: {} }
+  }
+}
+
+/** True when the bag defines anything — used to avoid clobbering local state with an empty server default (#786). */
+export function railSectionsHasContent(state: RailSectionsState | null | undefined): boolean {
+  if (!state) return false
+  return state.sections.length > 0 || Object.keys(state.membership).length > 0
+}
+
+/** True when this browser has ever persisted a sections bag (#786 import guard). */
+export function hasRailSectionsStorage(): boolean {
+  try {
+    return localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) !== null
+  } catch {
+    return false
   }
 }
 
@@ -143,7 +166,7 @@ export function createSection(
   state: RailSectionsState,
   name = '',
 ): { state: RailSectionsState; section: RailSection } {
-  const section: RailSection = { id: newSectionId(), name, collapsed: false }
+  const section: RailSection = { id: newSectionId(), name, collapsed: false, internalOnly: false }
   const next = saveRailSections({
     ...state,
     sections: [...state.sections, section],
@@ -248,12 +271,127 @@ export function isSectionCollapsed(state: RailSectionsState, sectionId: string):
   return Boolean(customSectionById(state, sectionId)?.collapsed)
 }
 
+export function isSectionInternalOnly(state: RailSectionsState, sectionId: string): boolean {
+  if (isUnassignedSection(sectionId)) return false
+  return Boolean(customSectionById(state, sectionId)?.internalOnly)
+}
+
+export function setSectionInternalOnly(
+  state: RailSectionsState,
+  sectionId: string,
+  internalOnly: boolean,
+): RailSectionsState {
+  if (isUnassignedSection(sectionId)) return state
+  return saveRailSections({
+    ...state,
+    sections: state.sections.map((section) =>
+      section.id === sectionId ? { ...section, internalOnly: Boolean(internalOnly) } : section,
+    ),
+  })
+}
+
+export function toggleSectionInternalOnly(
+  state: RailSectionsState,
+  sectionId: string,
+): RailSectionsState {
+  return setSectionInternalOnly(state, sectionId, !isSectionInternalOnly(state, sectionId))
+}
+
+export type SectionTalkReason =
+  | 'self'
+  | 'same_section'
+  | 'section_unlocked'
+  | 'section_internal_only'
+  | 'target_section_internal_only'
+  | 'missing_id'
+
+export interface SectionTalkDecision {
+  allowed: boolean
+  reason: SectionTalkReason
+  callerId: string
+  targetId: string
+  sectionId: string
+}
+
+export const SECTION_TALK_HINT = {
+  internalOnly: 'Members of this section may only message each other.',
+  targetLocked: 'That agent is in an internal-only section.',
+} as const
+
+export function sectionMemberIds(state: RailSectionsState, sectionId: string): string[] {
+  if (isUnassignedSection(sectionId)) return []
+  return Object.entries(state.membership)
+    .filter(([, assigned]) => assigned === sectionId)
+    .map(([agentId]) => agentId)
+}
+
+export function canSectionTalk(
+  callerId: string,
+  targetId: string,
+  state: RailSectionsState,
+): SectionTalkDecision {
+  const caller = callerId.trim()
+  const target = targetId.trim()
+  if (!caller || !target) {
+    return { allowed: false, reason: 'missing_id', callerId: caller, targetId: target, sectionId: '' }
+  }
+  if (caller === target) {
+    return { allowed: true, reason: 'self', callerId: caller, targetId: target, sectionId: '' }
+  }
+  const callerSection = sectionIdForAgent(caller, state)
+  const targetSection = sectionIdForAgent(target, state)
+  if (isSectionInternalOnly(state, callerSection)) {
+    if (callerSection === targetSection) {
+      return {
+        allowed: true,
+        reason: 'same_section',
+        callerId: caller,
+        targetId: target,
+        sectionId: callerSection,
+      }
+    }
+    return {
+      allowed: false,
+      reason: 'section_internal_only',
+      callerId: caller,
+      targetId: target,
+      sectionId: callerSection,
+    }
+  }
+  if (isSectionInternalOnly(state, targetSection)) {
+    return {
+      allowed: false,
+      reason: 'target_section_internal_only',
+      callerId: caller,
+      targetId: target,
+      sectionId: targetSection,
+    }
+  }
+  return { allowed: true, reason: 'section_unlocked', callerId: caller, targetId: target, sectionId: '' }
+}
+
+export function filterTalkTargets(
+  callerId: string,
+  targetIds: Iterable<string>,
+  state: RailSectionsState,
+): string[] {
+  return [...targetIds].filter((id) => canSectionTalk(callerId, id, state).allowed)
+}
+
+/** Snapshot locked sections onto a chat turn so mailbox tools can enforce the lock. */
+export function railSectionsParam(): { rail_sections?: RailSectionsState } {
+  const state = loadRailSections()
+  if (!state.sections.some((section) => section.internalOnly)) return {}
+  return { rail_sections: state }
+}
+
 export interface SectionBlock<T extends { id: string }> {
   id: string
   name: string
   collapsed: boolean
   rows: T[]
   custom: boolean
+  internalOnly?: boolean
 }
 
 export function partitionRowsBySection<T extends { id: string }>(
@@ -277,6 +415,7 @@ export function partitionRowsBySection<T extends { id: string }>(
     collapsed: Boolean(section.collapsed),
     rows: buckets.get(section.id) ?? [],
     custom: true,
+    internalOnly: Boolean(section.internalOnly),
   }))
   return [
     ...custom,
@@ -286,6 +425,7 @@ export function partitionRowsBySection<T extends { id: string }>(
       collapsed: Boolean(state.unassignedCollapsed),
       rows: unassigned,
       custom: false,
+      internalOnly: false,
     },
   ]
 }

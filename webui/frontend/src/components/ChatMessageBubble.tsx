@@ -1,22 +1,38 @@
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
-  type MouseEvent,
   type ReactNode,
 } from 'react'
-import { FoldVertical, Pencil } from 'lucide-react'
 import { Textarea, LoadingDots } from './DaisyUI'
 import { renderSafeMarkdown } from '../lib/markdown'
+import { renderMarkdownSafe } from '../lib/markdownSafe'
 import { setupCodeFenceControls } from '../lib/codeFences'
+import { handleSettingsLinkClick } from '../lib/settingsLinks'
 import { parseSupportNlBlueprintFence } from '../lib/supportNlBlueprint'
+import { parseProviderSetupFence } from '../lib/providerSetupCard'
 import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
 import SupportCreatedBlueprintCard from './SupportCreatedBlueprintCard'
+import ProviderSetupCard from './ProviderSetupCard'
 import { splitSkillRefs, type SkillInfo } from '../lib/skills'
-import { formatBubbleTime } from '../lib/bubbleTheme'
+import { isFlagrantErrorText } from '../lib/flagrantErrors'
+import {
+  getBubbleTheme,
+  loadBubbleTheme,
+  renderStreamingAffordance,
+  streamingAffordanceClass,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
+import { Brain, ChevronRight } from 'lucide-react'
+import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/streamReplies'
+import { splitLeadingQuote } from '../lib/replyQuote'
+import { extractThinkingBlock } from '../lib/messageArtifacts'
+import { QuotedReply } from './QuotedReply'
+import { SpecialStatusCard } from './SpecialCards'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -24,38 +40,33 @@ export interface ChatMessageBubbleProps {
   text: string
   streaming: boolean
   edited?: boolean
-  canEdit: boolean
   editing: boolean
-  onStartEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: (text: string) => void
-  onCompressToHere?: () => void
-  canCompress?: boolean
-  contextStrategy?: 'compress' | 'cull'
   children?: ReactNode
   isSystemPreload?: boolean
   skillCatalog?: SkillInfo[]
   onOpenSkill?: (name: string) => void
   /** REQ-213: view-only hide for compacted system pills. */
   onRemoveCard?: () => void
-  /** ISO timestamp for feed-theme meta; omitted when unknown. */
+  /** ISO timestamp for theme-owned chrome; omitted when unknown. */
   ts?: string
+  /** Active bubble theme; defaults to speech so isolated renders stay pixel-parity. */
+  theme?: BubbleTheme
   avatar?: ReactNode
-}
-
-function selectionIsActive(): boolean {
-  try {
-    const sel = window.getSelection()
-    return Boolean(sel && !sel.isCollapsed)
-  } catch {
-    return false
-  }
+  /** Seat id for the per-seat stream-replies override (#220). */
+  seatId?: string
+  /** Whether the collapsible thinking block is open (REQ-thinking-reaction). */
+  thinkingOpen?: boolean
+  /** Toggle thinking block callback (REQ-thinking-reaction). */
+  onToggleThinking?: (open?: boolean) => void
+  /** #850: Whether this message is from a Herdr agent. */
+  isHerdr?: boolean
 }
 
 /**
- * One chat bubble. On API-agent threads, hover reveals Edit and clicking
- * the bubble (or the control) enters in-place edit. CLI/remote pass
- * ``canEdit={false}`` so neither control nor click-to-edit is offered.
+ * One chat bubble. Inline edit is entered from MessageRowActions (REQ-869);
+ * the bubble itself never starts edit on click (REQ-867).
  */
 export const ChatBubbleBody = memo(
   function ChatBubbleBody({
@@ -63,25 +74,62 @@ export const ChatBubbleBody = memo(
     streaming,
     skillCatalog,
     onOpenSkill,
+    theme,
+    seatId,
+    thinkingOpen,
+    onToggleThinking,
+    isHerdr,
   }: {
     text: string
     streaming: boolean
     skillCatalog?: SkillInfo[]
     onOpenSkill?: (name: string) => void
+    theme?: BubbleTheme
+    seatId?: string
+    thinkingOpen?: boolean
+    onToggleThinking?: (open?: boolean) => void
+    isHerdr?: boolean
   }) {
     const mdRef = useRef<HTMLDivElement | null>(null)
     const expandedIndicesRef = useRef<Set<number>>(new Set())
-    const { prose, card } = parseSupportNlBlueprintFence(text)
-    const segments = splitSkillRefs(prose)
+    const [, setStreamEpoch] = useState(0)
+    useEffect(() => {
+      const onChange = () => setStreamEpoch((n) => n + 1)
+      window.addEventListener(STREAM_REPLIES_CHANGED_EVENT, onChange)
+      return () => window.removeEventListener(STREAM_REPLIES_CHANGED_EVENT, onChange)
+    }, [])
+    const activeTheme = theme ?? loadBubbleTheme()
+    const allowPartial = streamingPartialEnabled({ theme: activeTheme, seatId })
+    const displayText =
+      streaming && !allowPartial ? '' : streaming ? renderMarkdownSafe(text) : text
+    const affordanceClass =
+      streaming && allowPartial && renderStreamingAffordance(activeTheme) !== 'none'
+        ? streamingAffordanceClass(activeTheme)
+        : ''
+    // #565: a reply is only markdown — the quote is the blockquote the send
+    // path prepends. Split it off so it can be clamped/expanded on screen while
+    // the bytes that went on the wire stay whole.
+    const quoted = splitLeadingQuote(displayText)
+    const contentText = quoted ? quoted.body : displayText
+    const { body: cleanedText, thinking } = extractThinkingBlock(contentText)
+    const { prose, card } = parseSupportNlBlueprintFence(cleanedText)
+    // #894: the bootstrap seat may attach an in-chat provider setup card.
+    const { prose: proseAfterSetup, card: setupCard } = parseProviderSetupFence(prose)
+    const segments = splitSkillRefs(proseAfterSetup)
 
     useEffect(() => {
       const root = mdRef.current
       if (!root) return
       // Set up code-copy and collapsible code fence controls (REQ-127, REQ-117)
       setupCodeFenceControls(root, expandedIndicesRef.current)
-    }, [text])
+      const onClick = (event: globalThis.MouseEvent) => {
+        handleSettingsLinkClick(event)
+      }
+      root.addEventListener('click', onClick)
+      return () => root.removeEventListener('click', onClick)
+    }, [displayText])
 
-    if (text.length === 0) {
+    if (displayText.length === 0 || (prose.length === 0 && !thinking)) {
       return streaming ? (
         <LoadingDots size="sm" />
       ) : (
@@ -97,11 +145,17 @@ export const ChatBubbleBody = memo(
         <div
           ref={mdRef}
           data-testid="chat-md"
+          data-streaming-partial={streaming && allowPartial ? 'true' : undefined}
           className={mdClass}
           dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(prose) }}
         />
       ) : (
-        <div ref={mdRef} data-testid="chat-md" className={mdClass}>
+        <div
+          ref={mdRef}
+          data-testid="chat-md"
+          data-streaming-partial={streaming && allowPartial ? 'true' : undefined}
+          className={mdClass}
+        >
           {segments.map((segment, index) => {
             if (segment.type === 'text') {
               return (
@@ -127,14 +181,51 @@ export const ChatBubbleBody = memo(
         </div>
       )
 
-    if (!card) {
-      return markdown
+    const thinkingEl = !isHerdr && thinking ? (
+      <details
+        className="group/thinking my-1.5 rounded border border-base-content/15 bg-base-300/30 text-xs transition-colors open:bg-base-300/50"
+        open={thinkingOpen}
+        onToggle={(e) => onToggleThinking?.((e.target as HTMLDetailsElement).open)}
+        data-testid="chat-thinking-block"
+      >
+        <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 font-medium opacity-80 hover:opacity-100 focus:outline-none">
+          <Brain className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          <span>Thinking</span>
+          <ChevronRight className="h-3.5 w-3.5 opacity-60 transition-transform group-open/thinking:rotate-90 ml-auto" />
+        </summary>
+        <div
+          className="border-t border-base-content/10 px-3 py-2 text-xs leading-relaxed opacity-85 font-mono whitespace-pre-wrap select-text"
+          data-testid="chat-thinking-content"
+        >
+          {thinking}
+        </div>
+      </details>
+    ) : null
+
+    const body = (
+      <>
+        {quoted ? <QuotedReply quote={quoted.quote} /> : null}
+        {thinkingEl}
+        {prose.length > 0 ? markdown : null}
+        {affordanceClass ? (
+          <span
+            className={affordanceClass}
+            data-testid="stream-affordance"
+            aria-hidden="true"
+          />
+        ) : null}
+      </>
+    )
+
+    if (!card && !setupCard) {
+      return body
     }
 
     return (
       <div data-testid="chat-md-with-nl-card">
-        {markdown}
-        <SupportCreatedBlueprintCard card={card} />
+        {body}
+        {card ? <SupportCreatedBlueprintCard card={card} /> : null}
+        {setupCard ? <ProviderSetupCard spec={setupCard} /> : null}
       </div>
     )
   },
@@ -142,7 +233,12 @@ export const ChatBubbleBody = memo(
     prev.text === next.text &&
     prev.streaming === next.streaming &&
     prev.skillCatalog === next.skillCatalog &&
-    prev.onOpenSkill === next.onOpenSkill,
+    prev.onOpenSkill === next.onOpenSkill &&
+    prev.theme === next.theme &&
+    prev.seatId === next.seatId &&
+    prev.thinkingOpen === next.thinkingOpen &&
+    prev.onToggleThinking === next.onToggleThinking &&
+    prev.isHerdr === next.isHerdr,
 )
 
 export function ChatMessageBubble({
@@ -151,14 +247,9 @@ export function ChatMessageBubble({
   text,
   streaming,
   edited,
-  canEdit,
   editing,
-  onStartEdit,
   onCancelEdit,
   onSaveEdit,
-  onCompressToHere,
-  canCompress,
-  contextStrategy = 'compress',
   children,
   isSystemPreload,
   skillCatalog,
@@ -166,11 +257,17 @@ export function ChatMessageBubble({
   onRemoveCard,
   ts,
   avatar,
+  theme,
+  seatId,
+  thinkingOpen,
+  onToggleThinking,
+  isHerdr,
 }: ChatMessageBubbleProps) {
-  const startFromHere = contextStrategy === 'cull'
-  const contextActionLabel = startFromHere ? 'Start context from here' : 'Compress to here'
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  /** #521: last measured height of the rendered bubble, in px. */
+  const bubbleRef = useRef<HTMLDivElement | null>(null)
+  const bubbleHeightRef = useRef(0)
 
   useEffect(() => {
     if (editing) {
@@ -181,20 +278,24 @@ export function ChatMessageBubble({
     return undefined
   }, [editing, text])
 
+  // #521: record the bubble's height while it is on screen, so entering edit
+  // mode starts from the size of the message being edited rather than from a
+  // fixed `min-h-24`, which is what made long messages shrink.
+  useLayoutEffect(() => {
+    if (editing) return
+    const height = bubbleRef.current?.getBoundingClientRect().height ?? 0
+    if (height > 0) bubbleHeightRef.current = height
+  })
+
+  // #721 (supersedes the per-row #675/#774 presentation): the divider is ONE
+  // transcript-level rail — rows only own the fixed-width gutter, so the
+  // line cannot re-flow when messages append.
   if (role === 'system' || isSystemPreload) {
     return (
       <div className="flex justify-start w-full my-1" data-testid="chat-system-preload">
         <SystemPreloadPill text={text} onRemove={onRemoveCard} />
       </div>
     )
-  }
-
-  const handleBubbleClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!canEdit || streaming || editing) return
-    const target = event.target as HTMLElement | null
-    if (target?.closest('a, button, textarea, input')) return
-    if (selectionIsActive()) return
-    onStartEdit()
   }
 
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -211,7 +312,14 @@ export function ChatMessageBubble({
   }
 
   const speaker = role === 'user' ? 'You' : agentName
-  const timeLabel = formatBubbleTime(ts)
+  const themeDef = getBubbleTheme(theme)
+  const timeLabel = themeDef.formatTimestamp(ts)
+  const timeEl = timeLabel ? (
+    <time className="os-bubble-time" dateTime={ts} data-testid="bubble-time">
+      {timeLabel}
+    </time>
+  ) : null
+  const placement = themeDef.timestampPlacement
 
   return (
     <div
@@ -219,19 +327,32 @@ export function ChatMessageBubble({
       data-message-role={role}
       data-speaker={speaker}
       data-ts={ts || undefined}
+      data-message-theme={themeDef.id}
+      data-message-layout={themeDef.messageLayout}
+      data-timestamp-placement={placement}
+      data-action-row-placement={themeDef.actionRowPlacement}
       aria-label={`${speaker} message`}
     >
-      {avatar ? (
-        <div className="chat-image avatar shrink-0" data-testid="chat-avatar">
+      {avatar && themeDef.showAvatar ? (
+        <div
+          className="chat-image avatar shrink-0"
+          data-testid="chat-avatar"
+          data-avatar-anchor="bottom"
+        >
           {avatar}
         </div>
       ) : null}
-      <div className="chat-header os-bubble-meta text-xs opacity-60" data-speaker={speaker}>
-        {timeLabel ? (
-          <time className="os-bubble-time" dateTime={ts} data-testid="bubble-time">
-            {timeLabel}
-          </time>
-        ) : null}
+      {placement === 'inline' && timeEl ? (
+        <span className="os-bubble-time-inline" data-testid="bubble-time-slot">
+          {timeEl}
+        </span>
+      ) : null}
+      <div
+        className="chat-header os-bubble-meta text-xs opacity-60"
+        data-speaker={speaker}
+        data-testid={placement === 'above' ? 'bubble-time-slot' : undefined}
+      >
+        {placement === 'above' ? timeEl : null}
         {edited ? (
           <span className="font-normal opacity-70" data-testid="edited-hint">
             edited
@@ -239,12 +360,27 @@ export function ChatMessageBubble({
         ) : null}
       </div>
       {editing ? (
-        <div className="chat-bubble bg-base-200 text-base-content w-full max-w-xl">
+        // #521: the editor is the same bubble — same `chat-bubble` box, same
+        // role colours, same width contract — so it cannot be narrower than
+        // what it replaces. Height floors at the measured message height and
+        // scrolls beyond it.
+        <div
+          className={`chat-bubble w-full max-w-xl select-text ${
+            role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
+          }`}
+          data-testid="chat-bubble"
+          data-editing="true"
+        >
           <Textarea
             ref={textareaRef}
             aria-label="Edit message"
             size="sm"
-            className="w-full min-h-24"
+            className="os-bubble-editor w-full"
+            style={
+              bubbleHeightRef.current > 0
+                ? { minHeight: `${Math.round(bubbleHeightRef.current)}px` }
+                : undefined
+            }
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleEditorKeyDown}
@@ -264,47 +400,46 @@ export function ChatMessageBubble({
         </div>
       ) : (
         <div
+          ref={bubbleRef}
           className={`chat-bubble select-text ${
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
           }`}
-          data-testid="chat-bubble"
-          onClick={handleBubbleClick}
-        >
-          <ChatBubbleBody
-            text={text}
-            streaming={streaming}
-            skillCatalog={skillCatalog}
-            onOpenSkill={onOpenSkill}
-          />
+          data-testid="chat-bubble"          >          {role === 'status' && isFlagrantErrorText(text) ? (
+            // #746: flagrant transport/runtime failures render out-of-band —
+            // a dedicated error element, not a chat-card lookalike, so the
+            // conversation history is never contaminated by a dead turn.
+            <div
+              className="os-flagrant-error"
+              role="alert"
+              data-testid="flagrant-error"
+            >
+              <span className="os-flagrant-error__label">Error</span>
+              <span className="os-flagrant-error__text">{text}</span>
+            </div>
+          ) : role === 'status' ? (
+            // #533: status notices (context culls, session restores, hop
+            // chatter) collapse to a one-line card instead of raw text — one
+            // implementation, carried by every bubble theme.
+            <SpecialStatusCard summary={text} />
+          ) : (
+            <ChatBubbleBody
+              text={text}
+              streaming={streaming}
+              skillCatalog={skillCatalog}
+              onOpenSkill={onOpenSkill}
+              theme={theme}
+              seatId={seatId}
+              thinkingOpen={thinkingOpen}
+              onToggleThinking={onToggleThinking}
+              isHerdr={isHerdr}
+            />
+          )}
           {children}
         </div>
       )}
-      {(!streaming && !editing && (canEdit || (canCompress && onCompressToHere))) ? (
-        <div className="mt-0.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-          {canEdit ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs gap-1"
-              aria-label="Edit message"
-              onClick={onStartEdit}
-            >
-              <Pencil className="h-3 w-3" aria-hidden="true" />
-              Edit
-            </button>
-          ) : null}
-          {canCompress && onCompressToHere ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs gap-1"
-              aria-label={contextActionLabel}
-              title={startFromHere ? 'Start context from here.' : 'Compress to here'}
-              data-testid={startFromHere ? 'start-context-from-here' : 'compress-to-here'}
-              onClick={onCompressToHere}
-            >
-              <FoldVertical className="h-3 w-3" aria-hidden="true" />
-              {contextActionLabel}
-            </button>
-          ) : null}
+      {placement === 'below' && timeEl ? (
+        <div className="chat-footer os-bubble-time-below" data-testid="bubble-time-slot">
+          {timeEl}
         </div>
       ) : null}
     </div>

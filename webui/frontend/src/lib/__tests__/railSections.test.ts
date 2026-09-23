@@ -7,16 +7,22 @@ import {
   createSection,
   createSectionWithAgent,
   deleteSection,
+  canSectionTalk,
+  filterTalkTargets,
   isSectionCollapsed,
+  isSectionInternalOnly,
   loadRailSections,
   moveAgentToSection,
   moveSection,
   parseRailSections,
   partitionRowsBySection,
+  railSectionsParam,
   renameSection,
   sectionIdForAgent,
   setSectionCollapsed,
+  setSectionInternalOnly,
   toggleSectionCollapsed,
+  toggleSectionInternalOnly,
 } from '../railSections'
 
 describe('railSections (REQ-209)', () => {
@@ -120,5 +126,43 @@ describe('railSections (REQ-209)', () => {
     const unassigned = setSectionCollapsed(collapsed, UNASSIGNED_SECTION_ID, true)
     expect(unassigned.unassignedCollapsed).toBe(true)
     expect(loadRailSections().unassignedCollapsed).toBe(true)
+  })
+
+  it('Issue #163: persists internal-only lock and restricts talk to section members', () => {
+    const created = createSectionWithAgent(
+      { sections: [], membership: {}, unassignedCollapsed: false },
+      'pat',
+      'office',
+    )
+    const withCos = moveAgentToSection(created.state, 'cos', created.section.id)
+    expect(isSectionInternalOnly(withCos, created.section.id)).toBe(false)
+    expect(railSectionsParam()).toEqual({})
+    const locked = toggleSectionInternalOnly(withCos, created.section.id)
+    expect(isSectionInternalOnly(locked, created.section.id)).toBe(true)
+    expect(JSON.parse(localStorage.getItem(RAIL_SECTIONS_STORAGE_KEY) || '{}').sections[0].internalOnly).toBe(
+      true,
+    )
+    expect(canSectionTalk('pat', 'cos', locked).reason).toBe('same_section')
+    expect(canSectionTalk('pat', 'ada', locked).allowed).toBe(false)
+    expect(canSectionTalk('ada', 'pat', locked).reason).toBe('target_section_internal_only')
+    expect(filterTalkTargets('pat', ['cos', 'ada', 'pat'], locked)).toEqual(['cos', 'pat'])
+    expect(railSectionsParam().rail_sections?.sections[0]?.internalOnly).toBe(true)
+    const unlocked = setSectionInternalOnly(locked, created.section.id, false)
+    expect(canSectionTalk('pat', 'ada', unlocked).allowed).toBe(true)
+    expect(isSectionInternalOnly(unlocked, UNASSIGNED_SECTION_ID)).toBe(false)
+  })
+
+  it('Issue #163: a locked team of one cannot talk outside until unlock', () => {
+    const created = createSectionWithAgent(
+      { sections: [], membership: {}, unassignedCollapsed: false },
+      'pat',
+      'solo',
+    )
+    const locked = toggleSectionInternalOnly(created.state, created.section.id)
+    expect(canSectionTalk('pat', 'cos', locked).reason).toBe('section_internal_only')
+    expect(canSectionTalk('cos', 'pat', locked).allowed).toBe(false)
+    expect(partitionRowsBySection([{ id: 'pat' }], locked)[0].internalOnly).toBe(true)
+    const unlocked = toggleSectionInternalOnly(locked, created.section.id)
+    expect(canSectionTalk('pat', 'cos', unlocked).reason).toBe('section_unlocked')
   })
 })

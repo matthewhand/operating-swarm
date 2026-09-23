@@ -204,17 +204,29 @@ def _seats_from_cli_agents(payload: dict[str, Any]) -> list[RailSeat]:
     return seats
 
 
+def _remote_seat_id(catalog_id: str) -> str:
+    """SPA rail id ``remote:<catalog-id>`` (``remoteHideId`` / GET /chat/thread/)."""
+    raw = catalog_id
+    if raw.startswith("remote:"):
+        raw = raw[len("remote:") :]
+    elif raw.startswith("remote-"):
+        raw = raw[len("remote-") :]
+    return f"remote:{raw}"
+
+
 def _seats_from_remotes(payload: dict[str, Any]) -> list[RailSeat]:
     seats: list[RailSeat] = []
     # SPA Settings / rail use ``configured`` (opt-in). ``data`` includes defaults.
     for row in payload.get("configured") or []:
         if not isinstance(row, dict):
             continue
-        seat_id = str(row.get("id") or "").strip()
-        if not seat_id:
+        catalog_id = str(row.get("id") or "").strip()
+        if not catalog_id:
             continue
-        name = str(row.get("title") or row.get("label") or seat_id).strip() or seat_id
-        seats.append(RailSeat(id=seat_id, name=name, kind="remote", source="remotes"))
+        name = str(row.get("title") or row.get("label") or catalog_id).strip() or catalog_id
+        seats.append(
+            RailSeat(id=_remote_seat_id(catalog_id), name=name, kind="remote", source="remotes")
+        )
     return seats
 
 
@@ -274,6 +286,43 @@ def _dedupe(seats: list[RailSeat]) -> list[RailSeat]:
     return out
 
 
+def _modes_from_cli_payload(payload: dict[str, Any] | None) -> dict[str, bool] | None:
+    """CLI-first modes from GET /v1/cli-agents/. None = legacy payload, do not filter."""
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("modes")
+    if not isinstance(raw, dict):
+        return None
+    from swarm.core.cli_catalog import PRODUCT_MODE_KEYS, default_product_modes
+
+    modes = default_product_modes()
+    for key in PRODUCT_MODE_KEYS:
+        if key in raw:
+            modes[key] = bool(raw[key])
+    return modes
+
+
+def _seat_allowed_for_modes(seat: RailSeat, modes: dict[str, bool] | None) -> bool:
+    """Keep Support; hide disabled manage surfaces (#151)."""
+    if modes is None:
+        return True
+    sid = (seat.id or "").strip().lower()
+    if sid == "support":
+        return True
+    kind = (seat.kind or "").strip().lower()
+    if kind == "cli" or sid == "cli_agent":
+        return bool(modes.get("cli", True))
+    if kind == "api" or sid == "api_agent":
+        return bool(modes.get("api", False))
+    if kind == "team" or sid.startswith("team:"):
+        return bool(modes.get("team", False))
+    if kind in {"remote", "herdr"} or sid.startswith("herdr:"):
+        return bool(modes.get("remote", False))
+    if kind == "blueprint":
+        return bool(modes.get("blueprint", False))
+    return True
+
+
 # --- Wave 2a: hydrate one seat's real transcript (GET /chat/thread/) --------
 
 
@@ -299,9 +348,12 @@ class AgentThread:
     session_missing: bool = False
 
 
-# ``GET /chat/thread/`` is ``@login_required`` (session cookie), so a Bearer
-# client sees a redirect or an auth failure — never a fake empty thread.
-_SESSION_GATED_STATUSES = frozenset({301, 302, 303, 307, 401, 403})
+# ``GET /chat/thread/`` is ``@login_required`` (session cookie). Redirects and
+# HTML login pages are login-gated; 401/403 JSON are Bearer auth failures.
+# Never invent an empty thread for either.
+_LOGIN_REDIRECT_STATUSES = frozenset({301, 302, 303, 307})
+_AUTH_STATUSES = frozenset({401, 403})
+_SESSION_GATED_STATUSES = _LOGIN_REDIRECT_STATUSES | _AUTH_STATUSES
 
 
 def _login_page(response: httpx.Response) -> bool:
@@ -351,7 +403,7 @@ def fetch_thread(
     transport failure, an HTTP error, or a session-gated status is
     an explicit ``SwarmApiError`` — a first miss never falls open to a fake
     empty thread. ``GET /chat/thread/`` is ``@login_required``: a Bearer token
-    does not authenticate it (the TUI cookie jar lands in Wave 3b).
+    does not authenticate it; TUI v1 has no cookie jar (Wave 3b skipped).
     """
     base = resolve_base_url(base_url)
     auth = token if token is not None else resolve_token()
@@ -369,12 +421,19 @@ def fetch_thread(
         response = fetch(url, headers)
     except httpx.HTTPError as exc:
         raise SwarmApiError(_transport_error_message(url, exc)) from exc
-    if response.status_code in _SESSION_GATED_STATUSES or _login_page(response):
+    login_gated = response.status_code in _LOGIN_REDIRECT_STATUSES or (
+        _login_page(response) and response.status_code in _AUTH_STATUSES
+    )
+    if login_gated:
         raise SwarmApiError(
             "Chat hydrate is login-gated: GET /chat/thread/ needs a browser "
             f"session cookie (status {response.status_code} at {url}). Bearer "
-            "sends (Wave 2b) but does not authenticate this endpoint; the TUI "
-            "cookie jar lands in Wave 3b. No fake empty thread is shown."
+            "sends (Wave 2b) but does not authenticate this endpoint; TUI v1 "
+            "has no cookie jar (Wave 3b skipped). No fake empty thread is shown."
+        )
+    if response.status_code in _AUTH_STATUSES:
+        raise SwarmApiError(
+            f"{_auth_failure_message(response.status_code, auth is not None)} at {url}"
         )
     if response.status_code >= 400:
         raise SwarmApiError(f"API error {response.status_code} at {url}")
@@ -395,8 +454,9 @@ def sendable_model(seat: RailSeat) -> str | None:
 
     ``/v1/chat/completions`` runs **blueprint** seats (the same recipe id the
     WebUI / curl use). CLI-tool, team and remote/Herder rows are not blueprint
-    models over REST v1 — those seats send over the SPA websocket (Wave 3b),
-    so the TUI reports them as unsupported instead of inventing a model.
+    models over REST v1 — those seats send over the SPA websocket
+    (Wave 3b skipped), so the TUI reports them as unsupported instead of
+    inventing a model.
     """
     if seat.source == "blueprints" and seat.id:
         return seat.id
@@ -514,8 +574,9 @@ def list_rail_agents(
     ``GET /v1/blueprints/`` (rail filter) is required. ``/v1/cli-agents/``
     ``.rail``, ``/v1/remotes/`` ``.configured``, ``/v1/team-rosters/`` and
     ``/v1/herdr-agents/`` merge when present (Wave 1b parity with the SPA
-    AgentSidebar). Seats dedupe by id; teams keep their ``team:`` / ``herdr:``
-    rail ids so a roster never collides with a catalog seat of the same name.
+    AgentSidebar). Seats dedupe by id; remotes / teams / Herdr keep their
+    ``remote:`` / ``team:`` / ``herdr:`` rail ids so a roster never collides
+    with a catalog seat of the same name.
 
     Auth matches the WebUI REST contract (Wave 1c): ``API_AUTH_TOKEN`` or
     ``SWARM_API_KEY`` from the shell becomes ``Authorization: Bearer``. A
@@ -564,4 +625,5 @@ def list_rail_agents(
     if herdr_payload is not None:
         seats.extend(_seats_from_herdr_agents(herdr_payload))
 
-    return _dedupe(seats)
+    # #736: product-modes gating is retired — every seat ships.
+    return [seat for seat in _dedupe(seats)]

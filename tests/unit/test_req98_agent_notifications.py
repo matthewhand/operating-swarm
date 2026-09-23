@@ -7,7 +7,24 @@ NOTIFY_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "agentNotificatio
 RAIL_MENU_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "railContextMenu.ts"
 SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+CHAT_WS_HOOK = (
+    REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "useChatWebSocket.ts"
+)
 RAIL_ORDER_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "railOrder.ts"
+
+
+def _sidebar_surface() -> str:
+    """#1030 helper: AgentSidebar + sidebar packages."""
+    from helpers.source_surface import sidebar_surface
+
+    return sidebar_surface()
+
+
+def _chat_surface() -> str:
+    """#1030 helper: ChatPage + features/chat/*."""
+    from helpers.source_surface import chat_surface
+
+    return chat_surface()
 
 
 def test_notify_store_is_local_swarm_key_not_neon():
@@ -27,7 +44,7 @@ def test_sidebar_menu_has_notifications_toggle():
     assert "id: 'notify'" in menu
     assert "Notifications: On" in menu
     assert "Notifications: Off" in menu
-    content = SIDEBAR_TSX.read_text(encoding="utf-8")
+    content = _sidebar_surface()
     assert "maybeNotifyAgentTurn" in content
     assert "enableAgentNotifications" in content
     assert "notify-permission-hint" in content
@@ -36,7 +53,7 @@ def test_sidebar_menu_has_notifications_toggle():
 
 
 def test_chat_page_notifies_on_assistant_final_and_failed_interrupt():
-    content = CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    content = _chat_surface()
     assert "maybeNotifyAgentTurn" in content
     assert "notifyGenerationComplete" in content
     assert "failed: true" in content

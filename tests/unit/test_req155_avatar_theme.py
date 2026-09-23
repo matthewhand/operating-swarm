@@ -13,6 +13,8 @@ def test_req155_settings_dashboard_template_avatar_options():
     assert '<option value="bee">Bee</option>' in content
     assert '<option value="robot3d">3D robot</option>' in content
     assert "docs/adr/008-3d-robot-avatar-theme.md" in content
+    assert "not selectable yet" not in content
+    assert "never auto-applied" in content
 
 
 def test_req155_chrome_avatar_theme_script_defaults_to_blobs():

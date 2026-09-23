@@ -83,8 +83,11 @@ export function isAvatarThemeFamily(value: unknown): value is AvatarThemeFamily 
 
 export function familyForAvatarTheme(theme: AvatarTheme): AvatarThemeFamily {
   if (isRobotPackTheme(theme)) return 'robots'
-  if (theme === 'default') return 'bland'
-  return theme
+  if (theme === 'default' || theme === 'bland') return 'bland'
+  if (theme === 'blobs') return 'blobs'
+  if (theme === 'bee') return 'bee'
+  if (theme === 'robot3d') return 'robot3d'
+  return 'robots'
 }
 
 export function avatarsForFamily(
@@ -257,6 +260,42 @@ export function toggleEnabledAvatarTheme(id: string, on?: boolean): AvatarTheme[
     return saveEnabledAvatarThemes(families.filter((item) => item !== family))
   }
   return expandAvatarFamilies(families)
+}
+
+/**
+ * #563: what an agent gets when it has no explicit look — a specific family,
+ * or `mixed` (deal unique looks from the installed set, REQ-842). `mixed` is
+ * the default so an upgrade keeps every existing distribution.
+ */
+export const AVATAR_DEFAULT_THEME_KEY = 'swarm_avatar_theme_default'
+export type AvatarThemeChoice = AvatarThemeFamily | 'mixed'
+export const DEFAULT_AVATAR_THEME_CHOICE: AvatarThemeChoice = 'mixed'
+
+export function loadAvatarThemeChoice(): AvatarThemeChoice {
+  try {
+    const stored = localStorage.getItem(AVATAR_DEFAULT_THEME_KEY)
+    if (stored === 'mixed') return 'mixed'
+    const family = normalizeAvatarFamily(stored)
+    if (family) return family
+  } catch {
+    /* storage unavailable */
+  }
+  return DEFAULT_AVATAR_THEME_CHOICE
+}
+
+export function saveAvatarThemeChoice(
+  choice: AvatarThemeChoice,
+): { choice: AvatarThemeChoice } {
+  try {
+    if (choice === DEFAULT_AVATAR_THEME_CHOICE) {
+      localStorage.removeItem(AVATAR_DEFAULT_THEME_KEY)
+    } else {
+      localStorage.setItem(AVATAR_DEFAULT_THEME_KEY, choice)
+    }
+  } catch {
+    /* persistence is best-effort */
+  }
+  return { choice: loadAvatarThemeChoice() }
 }
 
 /** Per-agent (if still installed) → the sole enabled theme → global if installed → first enabled. */

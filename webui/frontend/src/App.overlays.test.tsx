@@ -130,7 +130,8 @@ describe('REQ-48 chat stays mounted under overlays', () => {
     // #182: the Teams affordance lives in the rail footer, not the navbar.
     fireEvent.click(screen.getByRole('button', { name: 'Teams' }))
 
-    const teams = await screen.findByRole('dialog', { name: 'New team', hidden: true })
+    // The #892 redesign retitled the composer dialog 'Manage Teams'.
+    const teams = await screen.findByRole('dialog', { name: 'Manage Teams', hidden: true })
     expect(teams).toHaveClass('modal-open')
     expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
     expect(screen.getByText(/Compose a roster/i)).toBeInTheDocument()

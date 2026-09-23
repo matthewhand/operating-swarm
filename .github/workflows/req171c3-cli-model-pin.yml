@@ -1,57 +1,11 @@
 name: REQ-171C-3 CLI/API model pin
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/cli_catalog.py"
-      - "src/swarm/core/cli_models.py"
-      - "src/swarm/core/cli_mcp.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "src/swarm/views/api_views.py"
-      - "tests/core/test_req171c3_cli_model_pin.py"
-      - "tests/core/test_cli_models.py"
-      - "tests/core/test_cli_catalog.py"
-      - "tests/core/test_cli_catalog_model_pinning.py"
-      - "tests/core/test_cli_mcp.py"
-      - "tests/api/test_cli_agents_opt_in.py"
-      - "tests/core/test_req157_cli_agents.py"
-      - "webui/frontend/src/lib/cliAgentContext.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/__tests__/cliAgentContext.test.ts"
-      - "webui/frontend/src/index.css"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.cliModelPin.test.tsx"
-      - "webui/frontend/src/components/NavbarRoutingPicker.tsx"
-      - "webui/frontend/src/components/__tests__/NavbarRoutingPicker.test.tsx"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/components/__tests__/AgentEditor.test.tsx"
-      - ".github/workflows/req171c3-cli-model-pin.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/cli_catalog.py"
-      - "src/swarm/core/cli_models.py"
-      - "src/swarm/core/cli_mcp.py"
-      - "src/swarm/blueprints/common/cli_fusion_support.py"
-      - "src/swarm/views/api_views.py"
-      - "tests/core/test_req171c3_cli_model_pin.py"
-      - "tests/core/test_cli_models.py"
-      - "tests/core/test_cli_catalog.py"
-      - "tests/core/test_cli_catalog_model_pinning.py"
-      - "tests/core/test_cli_mcp.py"
-      - "tests/api/test_cli_agents_opt_in.py"
-      - "tests/core/test_req157_cli_agents.py"
-      - "webui/frontend/src/lib/cliAgentContext.ts"
-      - "webui/frontend/src/lib/api.ts"
-      - "webui/frontend/src/lib/__tests__/cliAgentContext.test.ts"
-      - "webui/frontend/src/index.css"
-      - "webui/frontend/src/pages/ChatPage.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.cliModelPin.test.tsx"
-      - "webui/frontend/src/components/NavbarRoutingPicker.tsx"
-      - "webui/frontend/src/components/__tests__/NavbarRoutingPicker.test.tsx"
-      - "webui/frontend/src/components/AgentEditor.tsx"
-      - "webui/frontend/src/components/__tests__/AgentEditor.test.tsx"
-      - ".github/workflows/req171c3-cli-model-pin.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:
@@ -85,7 +39,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: webui/frontend/package-lock.json
 

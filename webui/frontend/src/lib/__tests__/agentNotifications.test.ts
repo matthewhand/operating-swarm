@@ -214,7 +214,7 @@ describe('agentNotifications permission + popup (REQ-98)', () => {
       agentName: 'Codey',
       snippet: 'Use api_key=super-secret-value please',
     })
-    expect(popped?.options?.body).not.toContain('super-secret-value')
+    expect((popped as unknown as { options?: { body?: string } }).options?.body).not.toContain('super-secret-value')
 
     const focused: string[] = []
     const onFocus = (event: Event) => {
@@ -239,7 +239,7 @@ describe('agentNotifications permission + popup (REQ-98)', () => {
       ],
     })
     const popped = maybeNotifyAgentTurn({ agentId: 'codey', agentName: 'Codey' })
-    expect(popped?.options?.body).toBe('Stored reply')
+    expect((popped as unknown as { options?: { body?: string } }).options?.body).toBe('Stored reply')
   })
 
   it('focusAgentChat is a no-op for an empty id', () => {

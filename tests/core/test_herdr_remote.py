@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -164,7 +165,7 @@ def test_herdr_health_and_list_stub_http(http_router, monkeypatch):
     assert listed.data["members"][0]["kind"] == "herdr"
 
 
-def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
+def test_operate_send_uses_per_spec_client_exact_argv(monkeypatch):
     """C-H4: operate send is HerdrClient.from_remote_config, not a stub / 'prompt' in argv."""
     import subprocess
     from unittest.mock import patch
@@ -175,40 +176,168 @@ def test_operate_send_uses_from_remote_config_exact_argv(monkeypatch):
     def runner(argv, timeout=None):
         del timeout
         calls.append(list(argv))
+        if "get" in argv:
+            return subprocess.CompletedProcess(argv, 0, '{"result":{"state":"idle"}}', "")
+        if "read" in argv:
+            return subprocess.CompletedProcess(argv, 0, "HERDR_PONG", "")
         return subprocess.CompletedProcess(argv, 0, '{"type":"agent_prompted"}', "")
 
-    real = HerdrClient.from_remote_config
+    from swarm.herdr.remote import herdr_client_from_spec as real_factory
 
-    def spy(config=None, **kwargs):
-        from_remote_calls.append(config)
+    def spy(spec=None, **kwargs):
         kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
+        return real_factory(spec, **kwargs)
 
     cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
     monkeypatch.delenv("HERDR_BASE_URL", raising=False)
     monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
-    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+    with patch("swarm.herdr.remote.herdr_client_from_spec", side_effect=spy):
         sent = remotes_core.operate(
             "herdr",
             "send",
             prompt="HERDR_PING_OK",
             target="w3:p1",
             config=cfg,
+            timeout=1.0,
         )
     assert sent.ok is True
-    assert from_remote_calls == [cfg]
-    assert calls == [["herdr", "agent", "prompt", "w3:p1", "HERDR_PING_OK"]]
-    assert "--remote" not in calls[0]
+    assert sent.data["text"] == "HERDR_PONG"
+    # #849: construction is per-spec; argv flows through the injected runner.
+    assert calls
+    assert calls == [
+        ["herdr", "agent", "get", "w3:p1"],
+        [
+            "herdr",
+            "agent",
+            "prompt",
+            "w3:p1",
+            "HERDR_PING_OK",
+            "--wait",
+            # #470: idle | done | blocked — a turn that finishes settles in
+            # ``done``, so ``--until idle`` alone could only expire.
+            "--until",
+            "idle",
+            "--until",
+            "done",
+            "--until",
+            "blocked",
+            "--timeout",
+            "1000",
+        ],
+        ["herdr", "agent", "read", "w3:p1", "--source", "recent", "--format", "text"],
+    ]
+    assert "--remote" not in calls[1]
     assert "gap" not in (sent.detail or "").lower()
     assert getattr(sent, "gap", None) in (None, "")
 
 
-def test_operate_list_uses_from_remote_config_exact_argv(monkeypatch):
+def _timed_out_prompt_runner(state: dict, *, moved_by: int, text: str):
+    """Runner where ``agent prompt --wait`` expires but the pane may have moved.
+
+    Live shape (#470): ``{"error":{"code":"timeout","message":"timed out
+    waiting for agent status"}}`` on the prompt, while ``agent get`` later
+    reports an advanced ``state_change_seq``.
+    """
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "prompt" in argv:
+            state["seq"] += moved_by
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                '{"error":{"code":"timeout","message":"timed out waiting for agent status"}}',
+                "timed out waiting for agent status",
+            )
+        if "get" in argv:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                json.dumps(
+                    {"result": {"agent": {"agent_status": "done", "state_change_seq": state["seq"]}}}
+                ),
+                "",
+            )
+        if "read" in argv:
+            return subprocess.CompletedProcess(argv, 0, text, "")
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    return runner
+
+
+def _run_herdr_send_with_runner(runner):
+    from unittest.mock import patch
+
+    from swarm.herdr.remote import herdr_client_from_spec as real_factory
+
+    def spy(spec=None, **kwargs):
+        kwargs.setdefault("runner", runner)
+        return real_factory(spec, **kwargs)
+
+    cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
+    with patch("swarm.herdr.remote.herdr_client_from_spec", side_effect=spy):
+        return remotes_core.operate(
+            "herdr",
+            "send",
+            prompt="HERDR_PING_OK",
+            target="w3:p5",
+            config=cfg,
+            timeout=1.0,
+        )
+
+
+def test_herdr_send_recovers_the_reply_when_the_stopped_wait_expires(monkeypatch):
+    """#470: a completed turn was reported as a timeout and its reply discarded."""
+    monkeypatch.delenv("HERDR_BASE_URL", raising=False)
+    monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
+    state = {"seq": 100}
+    sent = _run_herdr_send_with_runner(
+        _timed_out_prompt_runner(state, moved_by=900, text="HERDR-PROOF-OK")
+    )
+    assert sent.ok is True
+    assert sent.data["text"] == "HERDR-PROOF-OK"
+    assert sent.data["target"] == "w3:p5"
+    assert "recovered" in sent.detail
+    assert getattr(sent, "gap", None) in (None, "")
+
+
+def test_herdr_send_timeout_without_state_movement_stays_an_honest_gap(monkeypatch):
+    """No state movement means nothing ran — never present stale pane text."""
+    monkeypatch.delenv("HERDR_BASE_URL", raising=False)
+    monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
+    state = {"seq": 100}
+    sent = _run_herdr_send_with_runner(
+        _timed_out_prompt_runner(state, moved_by=0, text="STALE PREVIOUS REPLY")
+    )
+    assert sent.ok is False
+    assert sent.gap == "herdr_reply_timeout"
+    assert "text" not in (sent.data or {})
+    assert "timed out" in sent.detail
+
+
+def test_herdr_send_still_refuses_a_blocked_pane(monkeypatch):
+    """The blocked guard moved out of ``check_blocked`` into the shared agent get."""
+    monkeypatch.delenv("HERDR_BASE_URL", raising=False)
+    monkeypatch.delenv("HERDR_SSH_HOST", raising=False)
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "get" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, '{"result":{"agent":{"agent_status":"blocked"}}}', ""
+            )
+        raise AssertionError(f"must not submit to a blocked pane: {argv}")
+
+    sent = _run_herdr_send_with_runner(runner)
+    assert sent.ok is False
+    assert "blocked" in sent.detail
+
+
+def test_operate_list_uses_per_spec_client_exact_argv(monkeypatch):
     import subprocess
     from unittest.mock import patch
 
     calls: list[list[str]] = []
-    from_remote_calls: list[object] = []
 
     def runner(argv, timeout=None):
         del timeout
@@ -221,22 +350,21 @@ def test_operate_list_uses_from_remote_config_exact_argv(monkeypatch):
             return subprocess.CompletedProcess(argv, 0, '{"workspaces":[]}', "")
         return subprocess.CompletedProcess(argv, 0, "{}", "")
 
-    real = HerdrClient.from_remote_config
+    from swarm.herdr.remote import herdr_client_from_spec as real_factory
 
-    def spy(config=None, **kwargs):
-        from_remote_calls.append(config)
+    def spy(spec=None, **kwargs):
         kwargs.setdefault("runner", runner)
-        return real(config, **kwargs)
+        return real_factory(spec, **kwargs)
 
     cfg = {"remotes": {"herdr": {"herdr_mode": "local"}}}
     monkeypatch.delenv("HERDR_BASE_URL", raising=False)
-    with patch.object(HerdrClient, "from_remote_config", side_effect=spy):
+    with patch("swarm.herdr.remote.herdr_client_from_spec", side_effect=spy):
         listed = remotes_core.operate("herdr", "list", config=cfg)
     assert listed.ok is True
-    assert from_remote_calls == [cfg]
+    # #849: construction is per-spec; argv flows through the injected runner.
     assert calls == [
-        ["herdr", "agent", "list"],
         ["herdr", "workspace", "list"],
+        ["herdr", "agent", "list"],
     ]
 
 
@@ -276,3 +404,92 @@ def test_herdr_not_configured_constant_mentions_settings():
     assert "SSH" in HERDR_NOT_CONFIGURED
     assert "10.0.0." not in HERDR_NOT_CONFIGURED
     assert "OpenMousBot" in HERDR_NOT_CONFIGURED
+
+
+def test_sanitize_herdr_response_strips_box_drawing_and_status_footers():
+    """#850: Strip box-drawing status lines and trailing shortcut footers while preserving code and tables."""
+    raw = (
+        "| | summary of conversation |\n"
+        "|---|---|\n"
+        "Here is the deployment overview:\n\n"
+        "| Service | Status | Version |\n"
+        "|---|---|---|\n"
+        "| auth | active | v1.0.0 |\n"
+        "| api | active | v2.1.0 |\n\n"
+        "```python\n"
+        "# Inside code block, box and ctrl+p must be preserved\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀ 35.3K (4%) ctrl+p commands\n"
+        "```\n\n"
+        "Deployment finished successfully.\n\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 35.3K (4%) ctrl+p commands\n"
+        "ctrl+c to exit"
+    )
+    cleaned = remotes_core.sanitize_herdr_response(raw)
+    assert "| | summary of conversation |" not in cleaned
+    assert "| Service | Status | Version |" in cleaned
+    assert "| auth | active | v1.0.0 |" in cleaned
+    assert "```python" in cleaned
+    assert "Inside code block, box and ctrl+p must be preserved" in cleaned
+    assert "Deployment finished successfully." in cleaned
+    assert not cleaned.endswith("ctrl+p commands")
+    assert not cleaned.endswith("ctrl+c to exit")
+    assert "35.3K (4%)" not in cleaned.splitlines()[-1]
+
+
+def test_herdr_send_includes_raw_response_in_data():
+    """#850: Herdr send captures raw unstripped pane text in data['raw_response']."""
+    from unittest.mock import patch
+
+    raw_output = (
+        "Hello from Herdr Grok!\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀ 35.3K (4%) ctrl+p commands"
+    )
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "get" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, '{"result":{"agent":{"agent_status":"idle","last_seq":10}}}', ""
+            )
+        if "read" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps({"text": raw_output}), ""
+            )
+        return subprocess.CompletedProcess(
+            argv, 0, '{"type":"agent_prompted"}', ""
+        )
+
+    res = _run_herdr_send_with_runner(runner)
+    assert res.ok is True
+    assert res.data["text"] == "Hello from Herdr Grok!"
+    assert "ctrl+p commands" not in res.data["text"]
+    assert res.data["raw_response"] == raw_output
+
+
+def test_read_herdr_recent_raw_and_sanitized():
+    """#850: read_herdr_recent_raw returns unstripped pane text, read_herdr_recent sanitizes."""
+    from unittest.mock import patch
+
+    raw_pane = (
+        "| | summary of conversation |\n"
+        "Recent terminal status\n"
+        "┃ ┃ ┃ ┃ Build GLM-5.3-Flash Nvidia ╹▀▀▀▀ 35.3K (4%) ctrl+p commands"
+    )
+
+    def runner(argv, timeout=None):
+        del timeout
+        if "read" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps({"text": raw_pane}), ""
+            )
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    client = HerdrClient(runner=runner)
+    with patch("swarm.core.remote_teams.herdr_client_from_settings", return_value=client):
+        raw = remotes_core.read_herdr_recent_raw("grok")
+        assert raw == raw_pane
+
+        sanitized = remotes_core.read_herdr_recent("grok")
+        assert sanitized == "Recent terminal status"
+        assert "| | summary of conversation |" not in sanitized
+        assert "ctrl+p" not in sanitized

@@ -1,0 +1,35 @@
+[Unit]
+Description=Open Swarm — DEV stack (docker compose, host :8002)
+Documentation=file:///home/YOURUSER/open-swarm/docs/DEPLOYMENT.md
+# Needs the daemon and a routed network before compose can publish :8002.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/YOURUSER/open-swarm
+
+# Same file list as `make dev`, minus --build and the foreground `up`: a boot
+# unit must not sit in a build. Image changes are picked up by running
+# `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d`
+# or `systemctl restart open-swarm-dev` after a manual build.
+#
+# Deliberately NOT re-declaring DJANGO_* here: docker-compose.dev.yml sets
+# DJANGO_DEBUG=true and the base file injects .env via env_file, so the compose
+# project stays the single source of truth for the runtime environment.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.dev.yml down
+TimeoutStartSec=300
+
+# Per-container recovery stays with Docker, not systemd: the base compose caps
+# `swarm` at `restart: on-failure:5` (deliberate fail-fast on an unusable
+# DATABASE_URL), while `docker-compose.dev.yml` — part of the file list above —
+# overrides it to `restart: unless-stopped` so this dev stack self-heals. This
+# unit only guarantees the stack is *up* after a reboot or after an admin stops
+# it. See docs/RUNBOOK_NEON_QUOTA_CRASH_LOOP.md.
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

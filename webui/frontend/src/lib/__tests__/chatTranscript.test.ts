@@ -56,6 +56,19 @@ describe('CLI session notice transcript order (REQ-92)', () => {
     expect(resumed.filter((row) => row.text?.startsWith('Started a new')).length).toBe(1)
   })
 
+  it('treats a hop notice as covering the short new-session line (REQ-866)', () => {
+    const hop =
+      'Started a new grok session (antigravity → grok). No prior context to carry from antigravity.'
+    const afterSend = [
+      { role: 'user', text: 'hello' },
+      { role: 'assistant', text: 'hi' },
+      { role: 'status', text: hop },
+      { role: 'user', text: 'next' },
+    ]
+    expect(transcriptAlreadyHasNotice(afterSend, 'Started a new grok session.')).toBe(true)
+    expect(transcriptAlreadyHasNotice(afterSend, 'Started a new omp session.')).toBe(false)
+  })
+
   it('appends dropdown status after the assistant (REQ-46)', () => {
     const next = insertCliSessionNotice(
       [

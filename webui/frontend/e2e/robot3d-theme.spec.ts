@@ -16,12 +16,13 @@ test('Rail avatar theme offers an enabled 3D robot option (REQ-194 Phase 1)', as
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Rail' }).click()
 
-  const picker = page.getByLabel('Avatar theme')
-  await expect(picker).toBeVisible()
-  await expect(picker).toHaveValue('blobs')
+  // Settings installs theme families as checkboxes now (REQ-828): the old
+  // single `select#os-avatar-theme` no longer exists.
+  const themes = dialog.getByTestId('installed-avatar-themes')
+  await expect(themes).toBeVisible()
 
-  const robot3d = page.locator('#os-avatar-theme option[value="robot3d"]')
-  await expect(robot3d).toHaveText('3D robot')
+  const robot3d = themes.getByRole('checkbox', { name: '3D robot' })
+  await expect(robot3d).toBeVisible()
   await expect(robot3d).not.toBeDisabled()
   const adr = page.getByRole('link', { name: 'ADR-008' })
   await expect(adr).toBeVisible()
@@ -30,13 +31,13 @@ test('Rail avatar theme offers an enabled 3D robot option (REQ-194 Phase 1)', as
     'https://github.com/matthewhand/open-swarm/blob/main/docs/adr/008-3d-robot-avatar-theme.md',
   )
 
-  // Selecting robot3d persists the theme (no longer a reserved non-value).
-  await picker.selectOption('robot3d')
+  // Installing 3D robot alone puts it in force (no longer a reserved non-value).
+  await robot3d.check()
+  await themes.getByRole('checkbox', { name: 'Blobs' }).uncheck()
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('swarm_avatar_theme')))
     .toBe('robot3d')
 
   // The combo sub-picker appears only while robot3d is active.
   await expect(page.getByTestId('robot3d-combo-picker')).toBeVisible()
-
 })

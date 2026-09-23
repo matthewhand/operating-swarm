@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// E2E config for the Open Swarm web UI. Serves the production build via
+// E2E config for the Operating Swarm web UI. Serves the production build via
 // `vite preview` on :4173 and runs headless Chromium. The cached browsers live
 // under ~/.cache/ms-playwright (PLAYWRIGHT_BROWSERS_PATH default).
 // Chat Send (REQ-13) uses e2e/helpers/mockInference.ts — no live LLM.

@@ -38,7 +38,7 @@ import logging
 import os
 import shutil
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from swarm.services.secure_subprocess import execute_command_safe
@@ -46,6 +46,11 @@ from swarm.services.secure_subprocess import execute_command_safe
 logger = logging.getLogger(__name__)
 
 WAIT_UNTIL_STATES = frozenset({"idle", "working", "blocked", "done"})
+
+# Herdr's own default match set (`herdr agent wait --help`): "Without --until,
+# matches idle, done, or blocked." A turn that finishes settles in ``done`` — it
+# never returns to ``idle`` — so waiting on ``idle`` alone can only expire (#470).
+WAIT_UNTIL_STOPPED: tuple[str, ...] = ("idle", "done", "blocked")
 _KNOWN_STATES = WAIT_UNTIL_STATES | {"unknown"}
 MEMBER_KIND = "herdr"
 AGENT_PROMPTED = "agent_prompted"
@@ -149,8 +154,20 @@ def _record_target(record: Mapping[str, Any], *, pane_first: bool) -> str:
     return ""
 
 
-def members_from_agent_list(payload: Any, *, remote: str = "") -> list[dict[str, Any]]:
-    """Turn ``herdr agent list`` JSON into addable members (kind=herdr)."""
+def members_from_agent_list(
+    payload: Any,
+    *,
+    remote: str = "",
+    workspace_labels: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Turn ``herdr agent list`` JSON into addable members (kind=herdr).
+
+    ``name`` stays the routing target (pane id like ``w3:p5``) that
+    ``herdr agent prompt`` needs; ``display`` becomes the friendly
+    ``Agent (Workspace)`` label for the UI (#787). ``workspace_labels`` maps
+    workspace ids to their human labels from ``herdr workspace list``.
+    """
+    labels = workspace_labels or {}
     members: list[dict[str, Any]] = []
     seen: set[str] = set()
     for record in _as_records(payload, "agents", "items"):
@@ -161,10 +178,23 @@ def members_from_agent_list(payload: Any, *, remote: str = "") -> list[dict[str,
             continue
         seen.add(target)
         state = extract_agent_state(record)
+        raw_name = record.get("agent") or record.get("name")
+        agent_name = raw_name.strip() if isinstance(raw_name, str) else ""
+        workspace = str(labels.get(str(record.get("workspace_id", ""))) or "")
+        if agent_name and workspace:
+            display = f"{agent_name.capitalize()} ({workspace})"
+        else:
+            display = agent_name.capitalize() if agent_name else ""
+        # #728: keep the human label when the CLI id is a pane id, so
+        # ambiguity errors can say "w3:p1 (grok)" instead of two ids.
+        # Case-insensitive compare: display 'Grok' for target 'grok' adds nothing.
         members.append(
             {
                 "kind": MEMBER_KIND,
                 "name": target,
+                "display": display if display and display.lower() != target.lower() else "",
+                "agent": agent_name,
+                "workspace": workspace,
                 "remote": (remote or "").strip(),
                 "source": "agent",
                 "state": state,
@@ -185,10 +215,13 @@ def members_from_workspace_list(payload: Any, *, remote: str = "") -> list[dict[
         if not target or target in seen:
             continue
         seen.add(target)
+        raw_label = record.get("name") or record.get("label")
+        display = raw_label.strip() if isinstance(raw_label, str) else ""
         members.append(
             {
                 "kind": MEMBER_KIND,
                 "name": target,
+                "display": display if display and display != target else "",
                 "remote": (remote or "").strip(),
                 "source": "workspace",
                 "state": None,
@@ -196,6 +229,38 @@ def members_from_workspace_list(payload: Any, *, remote: str = "") -> list[dict[
             }
         )
     return members
+
+
+def extract_state_change_seq(payload: Any) -> int | None:
+    """Best-effort ``state_change_seq`` from ``herdr agent get`` JSON.
+
+    Used as a turn-progress marker (#470): the counter advances when a pane
+    changes state, so comparing it across a send distinguishes "the agent ran"
+    from "nothing happened" without trusting stale pane text.
+    """
+    if payload is None:
+        return None
+    if isinstance(payload, list):
+        for item in payload:
+            found = extract_state_change_seq(item)
+            if found is not None:
+                return found
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    raw = payload.get("state_change_seq")
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.strip().lstrip("-").isdigit():
+        return int(raw.strip())
+    for key in ("result", "agent", "data", "pane"):
+        if key in payload:
+            found = extract_state_change_seq(payload[key])
+            if found is not None:
+                return found
+    return None
 
 
 def extract_agent_state(payload: Any) -> str | None:
@@ -366,7 +431,7 @@ class HerdrClient:
         text: str,
         *,
         wait: bool = False,
-        until: str | None = None,
+        until: str | Sequence[str] | None = None,
         timeout_ms: int | None = None,
         check_blocked: bool = False,
     ) -> Any:
@@ -382,14 +447,25 @@ class HerdrClient:
 
         ``wait=True`` maps to ``--wait``. If the agent is already working, that
         wait may observe the current turn finishing rather than a new turn.
+
+        ``until`` accepts one state or several; prefer :data:`WAIT_UNTIL_STOPPED`
+        so a turn that settles in ``done`` is matched instead of expiring (#470).
         """
         if not (target or "").strip():
             raise ValueError("agent target is required")
         if text is None:
             raise ValueError("prompt text is required")
-        if until and until not in WAIT_UNTIL_STATES:
-            raise ValueError(f"until must be one of {sorted(WAIT_UNTIL_STATES)}")
-        if until and not wait:
+        # A single state or several (herdr accepts repeated --until). Pass the
+        # stopped set to match a turn that ends in ``done`` as well (#470).
+        until_states: tuple[str, ...] = ()
+        if isinstance(until, str):
+            until_states = (until,) if until else ()
+        elif until is not None:
+            until_states = tuple(str(item) for item in until if item)
+        for state in until_states:
+            if state not in WAIT_UNTIL_STATES:
+                raise ValueError(f"until must be one of {sorted(WAIT_UNTIL_STATES)}")
+        if until_states and not wait:
             raise ValueError("--until requires --wait (herdr rejects until without wait)")
 
         if check_blocked:
@@ -400,8 +476,8 @@ class HerdrClient:
         parts: list[str] = ["agent", "prompt", target, text]
         if wait:
             parts.append("--wait")
-        if until:
-            parts.extend(["--until", until])
+        for state in until_states:
+            parts.extend(["--until", state])
         if timeout_ms is not None:
             parts.extend(["--timeout", str(int(timeout_ms))])
 
@@ -421,8 +497,17 @@ class HerdrClient:
         localhost (no ``--remote``). Teams/sidepane persist chosen rows via
         ``POST /v1/herdr-agents/``.
         """
-        agents = members_from_agent_list(self.agent_list(), remote=self.remote)
         workspaces = members_from_workspace_list(self.workspace_list(), remote=self.remote)
+        labels = {
+            item["name"]: item.get("display") or item["name"]
+            for item in workspaces
+            if item.get("name")
+        }
+        agents = members_from_agent_list(
+            self.agent_list(),
+            remote=self.remote,
+            workspace_labels=labels,
+        )
         seen = {item["name"] for item in agents}
         merged = list(agents)
         for item in workspaces:

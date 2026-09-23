@@ -39,12 +39,12 @@ describe('agentRemote binding (Issue #745)', () => {
     expect(loadAgentRemoteBinding('starter-remote')).toBeNull()
   })
 
-  it('resolves URL remotes as already bound', () => {
+  it('resolves URL remotes as the view when no binding exists (#502: binding wins first)', () => {
     expect(
       resolveBoundRemoteId({
         remoteFromUrl: 'omb',
         persisted: null,
-        configuredIds: [],
+        configuredIds: ['omb'],
       }),
     ).toBe('omb')
   })

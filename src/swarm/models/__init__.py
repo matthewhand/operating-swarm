@@ -107,6 +107,9 @@ class ConversationSummary(models.Model):
         null=True,
     )
     body = models.TextField()
+    # #214: unticked = transcript stays for humans, but the summary (and its
+    # span) stops feeding model context — a lightweight "new chat".
+    include_in_context = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

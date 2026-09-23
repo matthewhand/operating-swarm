@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import ast
 import json
+import sys
+import time
 from pathlib import Path
 
-from swarm.core import llm_list_models
+from swarm.core import cli_catalog, llm_list_models
 from swarm.core.llm_task_routing import (
     TASK_CLASS_AUXILIARY,
     TASK_CLASS_DELEGATION,
@@ -21,7 +23,13 @@ FIXTURES = Path(__file__).parent / "fixtures" / "llm_list_models"
 V1_MODELS = FIXTURES / "v1_models.json"
 OPENCODE = FIXTURES / "opencode.json"
 GEMINI = FIXTURES / "gemini.json"
-CONSUMER = Path(__file__).resolve().parents[2] / "src" / "swarm" / "core" / "llm_list_models.py"
+CONSUMER = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "swarm"
+    / "core"
+    / "llm_list_models.py"
+)
 
 
 def test_consumer_does_not_scrape_help_or_spawn_clis():
@@ -169,6 +177,84 @@ def test_sanitize_ui_warning_strips_req_and_issue_numbers():
         llm_list_models.sanitize_ui_warning(raw),
         "status",
     ]
+
+
+def test_discover_uses_shipped_probe_path(monkeypatch, tmp_path: Path):
+    script = tmp_path / "probe.py"
+    script.write_text("print('shipped-model')\n")
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [sys.executable, str(script)])
+    llm_list_models.clear_discovery_cache()
+    rows, source, warnings = llm_list_models.discover_cli_model_lists(
+        {"cli_agents": {"grok": {}}},
+        probe=True,
+    )
+    assert source == llm_list_models.SOURCE_REQ44
+    assert rows[0]["cli"] == "grok"
+    assert rows[0]["models"] == ["shipped-model"]
+    assert not any("sk-" in (w or "") for w in warnings)
+
+
+def test_discover_second_call_does_not_reprobe(monkeypatch, tmp_path: Path):
+    count = tmp_path / "count"
+    count.write_text("0")
+    script = tmp_path / "probe.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        f"p = Path({str(count)!r})\n"
+        "p.write_text(str(int(p.read_text() or '0') + 1))\n"
+        "print('once-model')\n"
+    )
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [sys.executable, str(script)])
+    llm_list_models.clear_discovery_cache()
+    first, source, _ = llm_list_models.discover_cli_model_lists(
+        {"cli_agents": {"grok": {}}},
+        probe=True,
+    )
+    second, _, _ = llm_list_models.discover_cli_model_lists(
+        {"cli_agents": {"grok": {}}},
+        probe=True,
+    )
+    assert source == llm_list_models.SOURCE_REQ44
+    assert first[0]["models"] == ["once-model"]
+    assert second[0]["models"] == ["once-model"]
+    assert count.read_text().strip() == "1"
+
+
+def test_discover_probes_configured_clis_concurrently(monkeypatch):
+    sleeper = [sys.executable, "-c", "import time; time.sleep(0.55); print('m')"]
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", sleeper)
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "claude", list(sleeper))
+    llm_list_models.clear_discovery_cache()
+    t0 = time.monotonic()
+    rows, source, _ = llm_list_models.discover_cli_model_lists(
+        {"cli_agents": {"grok": {}, "claude": {}}},
+        probe=True,
+    )
+    elapsed = time.monotonic() - t0
+    assert source == llm_list_models.SOURCE_REQ44
+    assert {row["cli"] for row in rows} == {"grok", "claude"}
+    assert all(row["models"] == ["m"] for row in rows)
+    # Sequential would be ~1.1s+; concurrent stays under one sleep plus overhead.
+    assert elapsed < 1.0
+
+
+def test_discover_hanging_cli_is_bounded(monkeypatch):
+    monkeypatch.setitem(
+        cli_catalog.LIST_MODELS,
+        "grok",
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+    )
+    llm_list_models.clear_discovery_cache()
+    t0 = time.monotonic()
+    rows, source, warnings = llm_list_models.discover_cli_model_lists(
+        {"cli_agents": {"grok": {}}},
+        probe=True,
+    )
+    elapsed = time.monotonic() - t0
+    assert source == llm_list_models.SOURCE_REQ44
+    assert rows[0]["models"] == []
+    assert any("timed out" in (w or "").lower() for w in warnings)
+    assert elapsed < 3.0
 
 
 def test_settings_payload_records_stub_source(tmp_path: Path):

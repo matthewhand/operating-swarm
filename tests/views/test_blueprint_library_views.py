@@ -142,7 +142,9 @@ class TestBlueprintLibraryView:
         assert response.status_code == 200
         content = response.content.decode()
         assert "Blueprint Library" in content          # page actually rendered
-        assert "Codey" in content                       # a discovered blueprint's name is shown
+        # Card titles render the blueprint id since the #400-#409 redesign
+        # ({{ blueprint.id|default:blueprint.name }}).
+        assert "codey" in content.lower()               # a discovered blueprint's card is shown
 
     @patch("swarm.views.blueprint_library_views.discover_blueprints")
     @patch("swarm.views.blueprint_library_views.get_user_blueprint_library")
@@ -1124,7 +1126,9 @@ class TestGenerateBlueprintCode:
         assert "TestAgent" in code
         assert "A test agent" in code
         assert "ai_assistants" in code
-        assert "BlueprintBase" in code
+        # REQ-851: emitters default to a kind base (ApiKindBase for the
+        # OpenAI-streaming template).
+        assert "ApiKindBase" in code
         assert "AsyncGenerator" in code
         assert "yield" in code
         assert "async def run(" in code
@@ -1194,7 +1198,7 @@ class TestGenerateBlueprintCode:
             _requirements="must handle JSON",
             assist=True,
         )
-        assert "class FallbackTeamBlueprint(BlueprintBase)" in code
+        assert "class FallbackTeamBlueprint(ApiKindBase)" in code
         assert "AsyncOpenAI" in code
         assert "must handle JSON" in code
         assert "chat_completion_stream" not in code

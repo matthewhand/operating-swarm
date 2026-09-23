@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, within, act, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import ChatPage from '../ChatPage'
@@ -72,6 +72,7 @@ function finishStreaming(ws: MockWebSocket, id = 'message-response-abc123', repl
   )
 }
 
+
 async function openSocket() {
   await act(async () => {
     MockWebSocket.instances[0]?.open()
@@ -85,13 +86,43 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     Element.prototype.scrollIntoView = vi.fn()
     clearAllQueuedSends()
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    // #561: the gate is deliberately conservative — an unknown id (codey, with
+    // this empty catalog) is NOT proven API, so it queues mid-generation. That
+    // fallback is what the CLI queue assertions below ride on; the api_agent
+    // concurrency test is proven by id alone and needs no catalog.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [] }),
-      } as Response),
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/blueprints')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [{ id: 'support', name: 'Support', description: 'Support agent' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+        } as Response
+      }),
     )
   })
 
@@ -140,6 +171,42 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     expect(row).toHaveAttribute('data-status', 'queued')
     expect(row).toHaveTextContent('queued while working')
     expect(row).toHaveTextContent('Queued')
+  })
+
+  it('#885: the queued pane renders inside the bottom dock (no negative-margin occlusion)', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'visible above dock' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    // Structural occlusion pin: the pane must live INSIDE the dock element
+    // that carries the negative top margin, never as its previous sibling.
+    const dock = screen.getByTestId('chat-bottom-dock')
+    expect(within(dock).getByTestId('queued-send-pane')).toBeTruthy()
+  })
+
+  it('#885: queueing on a remote seat renders the pane (inside the dock) while the harness turn runs', async () => {
+    renderChat('/chat?remote=letta')
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'queued on remote' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    const row = screen.getByTestId('queued-row')
+    expect(row).toHaveTextContent('queued on remote')
+    const dock = screen.getByTestId('chat-bottom-dock')
+    expect(within(dock).getByTestId('queued-send-pane')).toBeTruthy()
   })
 
   it('keeps the in-flight assistant above the queued block', async () => {
@@ -283,3 +350,357 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     expect(screen.getByTestId('queued-row')).toHaveTextContent('survives refresh')
   })
 })
+
+// #198 — enter-to-interrupt on a queued send
+describe('ChatPage queued sends (#198 enter-to-interrupt)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    clearAllQueuedSends()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    // #561: the gate is deliberately conservative — an unknown id (codey, with
+    // this empty catalog) is NOT proven API, so it queues mid-generation. That
+    // fallback is what the CLI queue assertions below ride on; the api_agent
+    // concurrency test is proven by id alone and needs no catalog.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearAllQueuedSends()
+    resetConversationThreads()
+  })
+
+  it('shows the enter-to-interrupt hint while a send is queued mid-generation', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'queued item' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    expect(screen.getByTestId('queued-interrupt-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('queued-interrupt-hint')).toHaveTextContent('interrupt')
+  })
+
+  it('interrupts the running turn and promotes the queued send on Enter over an empty input', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'jump the queue' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(ws.send).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Chat message' }), {
+      key: 'Enter',
+      code: 'Enter',
+    })
+
+    expect(ws.send).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+      type: 'cancel_turn',
+    })
+
+    // Server closes the interrupted turn with a final partial; the drain
+    // effect then promotes the queued message.
+    await act(async () => {
+      finishStreaming(ws, 'message-response-abc123', 'Interrupted.')
+    })
+    await waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(2)
+    })
+    expect(JSON.parse(String(ws.send.mock.calls[1][0]))).toMatchObject({
+      message: 'jump the queue',
+    })
+  })
+})
+
+describe('ChatPage stop button (#223)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    clearAllQueuedSends()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    // #561: the gate is deliberately conservative — an unknown id (codey, with
+    // this empty catalog) is NOT proven API, so it queues mid-generation. That
+    // fallback is what the CLI queue assertions below ride on; the api_agent
+    // concurrency test is proven by id alone and needs no catalog.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearAllQueuedSends()
+    resetConversationThreads()
+  })
+
+  it('shows a stop button while generating and sends cancel_turn on click', async () => {
+    renderChat()
+    const ws = await openSocket()
+
+    // Idle: no stop affordance.
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
+
+    await act(async () => {
+      startStreaming(ws)
+    })
+
+    const stop = screen.getByTestId('composer-stop')
+    fireEvent.click(stop)
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+      type: 'cancel_turn',
+    })
+  })
+
+  it('keeps the stop button until the generation finishes, then hides it', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    expect(screen.getByTestId('composer-stop')).toBeTruthy()
+
+    await act(async () => {
+      finishStreaming(ws)
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('composer-stop')).toBeNull()
+    })
+  })
+
+  it('stop leaves queued sends intact (stop ≠ clear)', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'still queued' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(screen.getByTestId('queued-row')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('composer-stop'))
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+      type: 'cancel_turn',
+    })
+    expect(screen.getByTestId('queued-row')).toHaveTextContent('still queued')
+  })
+
+  // #631: the ↵ hint exists ONLY to announce the interrupt-send action while
+  // a queued send waits — labelled "Send Now! ↵". No queue → no hint at all.
+  it('shows the Send Now! hint only while a queued send waits', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    // No queue yet → the ↵ kbd is absent entirely (not "Enter to send").
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'send me now' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
+      'title',
+      'Send Now! ↵',
+    )
+  })
+
+  it('removes the hint once the queue drains', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'drain me' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
+      'title',
+      'Send Now! ↵',
+    )
+
+    await act(async () => {
+      finishStreaming(ws)
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps the Esc-to-clear hint for a non-empty draft alongside the queue', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'hold this' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'a fresh draft' },
+    })
+
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+    expect(screen.getByTestId('composer-clear-hint')).toHaveAttribute(
+      'title',
+      'Esc to clear',
+    )
+  })
+
+  // #561 ask 3: queueing mid-generation is a non-API affordance. API seats
+  // take concurrent sends; only the closed-socket transport queue (#167)
+  // applies to every kind.
+  it('sends concurrently on an API seat mid-generation instead of queueing', async () => {
+    renderChat('/chat?blueprint=api_agent')
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'concurrent api send' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    expect(ws.send).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+      message: 'concurrent api send',
+    })
+    expect(screen.queryByTestId('queued-row')).not.toBeInTheDocument()
+  })
+
+  it('still queues mid-generation on a CLI seat', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'cli queue' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(screen.getByTestId('queued-row')).toHaveTextContent('cli queue')
+  })
+
+  describe('#925 queued sends inside composer', () => {
+    it('renders queued sends inside .os-composer extending out of the input card', async () => {
+      renderChat()
+      const ws = await openSocket()
+      await act(async () => {
+        startStreaming(ws)
+      })
+      fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+        target: { value: 'queued inside composer' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+      const composer = document.querySelector('.os-composer')!
+      expect(composer).toBeTruthy()
+      expect(within(composer as HTMLElement).getByTestId('queued-send-pane')).toBeTruthy()
+      expect(composer).toHaveClass('os-composer--queued')
+    })
+
+    it('renders queued sends directly above the reply strip when both exist', async () => {
+      renderChat()
+      const ws = await openSocket()
+      await act(async () => {
+        startStreaming(ws, 'message-response-1')
+      })
+      await act(async () => {
+        finishStreaming(ws, 'message-response-1', 'Hello there')
+      })
+
+      await act(async () => {
+        startStreaming(ws, 'message-response-2')
+      })
+
+      // Queue a message while turn 2 is in flight
+      fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+        target: { value: 'queued message' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+      // Arm reply on the prior message
+      const bubble = await screen.findByText('Hello there')
+      fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+      const replyBtn = await screen.findByTestId('context-menu-reply')
+      fireEvent.click(replyBtn)
+
+      const composer = document.querySelector('.os-composer')!
+      expect(composer).toBeTruthy()
+      const queuedPane = within(composer as HTMLElement).getByTestId('queued-send-pane')
+      const replyStrip = within(composer as HTMLElement).getByTestId('composer-reply-strip')
+      expect(queuedPane).toBeInTheDocument()
+      expect(replyStrip).toBeInTheDocument()
+
+      // Queued pane must sit directly above the reply strip
+      expect(queuedPane.compareDocumentPosition(replyStrip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+  })
+})
+
+
+

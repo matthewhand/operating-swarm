@@ -5,6 +5,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHAT_TIME_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "chatTime.ts"
 SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
+RAIL_ROW_SLOT = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "RailRowSlot.tsx"
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 
 
@@ -20,10 +21,12 @@ def test_chat_time_exports_format_rail_timestamp():
 
 def test_sidebar_name_row_has_timestamp_and_no_badge():
     content = SIDEBAR_TSX.read_text(encoding="utf-8")
+    slot = RAIL_ROW_SLOT.read_text(encoding="utf-8")
     assert "formatRailTimestamp" in content
     assert "getRowLastMessage" in content
-    assert "os-rail-timestamp" in content
-    assert 'data-testid="rail-row-timestamp"' in content
+    # #500 moved the name-line right slot into RailRowSlot.
+    assert "os-rail-timestamp" in slot
+    assert 'data-testid="rail-row-timestamp"' in slot
 
 
 def test_sidebar_second_row_has_snippet_and_role_badge():

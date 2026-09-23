@@ -93,6 +93,43 @@ export function loadBumpCompleted(): boolean {
   }
 }
 
+export type BumpScope = 'unassigned' | 'all'
+
+export const BUMP_SCOPE_KEY = 'swarm_bump_completed_scope'
+export const BUMP_SCOPE_EVENT = 'swarm:bump-completed-scope-changed'
+
+/**
+ * #552: where the activity bump is allowed to act.
+ *
+ * `unassigned` (default) — only rows in Unassigned move on completion. An agent
+ * the operator placed in a section keeps the position they gave it.
+ * `all` — the pre-#552 behaviour: any finished agent moves to the top.
+ *
+ * This is a scope on the existing preference, not a second switch: the master
+ * toggle still turns the bump off entirely.
+ */
+export function loadBumpScope(): BumpScope {
+  try {
+    const raw = localStorage.getItem(BUMP_SCOPE_KEY)
+    return raw === 'all' ? 'all' : 'unassigned'
+  } catch {
+    return 'unassigned'
+  }
+}
+
+export function saveBumpScope(scope: BumpScope): BumpScope {
+  const next: BumpScope = scope === 'all' ? 'all' : 'unassigned'
+  try {
+    localStorage.setItem(BUMP_SCOPE_KEY, next)
+    window.dispatchEvent(
+      new CustomEvent(BUMP_SCOPE_EVENT, { detail: { scope: next } }),
+    )
+  } catch {
+    /* persistence is best-effort */
+  }
+  return next
+}
+
 export function saveBumpCompleted(enabled: boolean): boolean {
   try {
     localStorage.setItem(BUMP_COMPLETED_KEY, enabled ? '1' : '0')

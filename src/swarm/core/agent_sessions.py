@@ -6,6 +6,8 @@ index/binding of CLI sessions). Provider browse/import stays in #468.
 
 from __future__ import annotations
 
+import logging
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -22,6 +24,8 @@ from swarm.core.chat_store import (
 )
 from swarm.core.cli_sessions import sanitize_cli_session_id
 from swarm.models import ChatConversation, ChatMessage
+
+logger = logging.getLogger("swarm.agent_sessions")
 
 TITLE_MAX = 80
 SNIPPET_MAX = 160
@@ -126,6 +130,99 @@ def title_and_snippet(messages: list[dict[str, Any]] | None) -> tuple[str, str]:
         if not title and role == "user":
             title = _clip(content, TITLE_MAX)
     return title, snippet
+
+
+def _schedule_background_task(fn) -> None:
+    """Run ``fn`` on a daemon thread — retitling must never block a chat turn."""
+    threading.Thread(target=fn, daemon=True, name="swarm-session-retitle").start()
+
+
+def _needs_generated_title(row: ChatConversation, messages: list[dict[str, Any]] | None = None) -> bool:
+    """Only sessions still carrying a placeholder/raw title qualify.
+
+    "Raw" includes the first-line truncation ``touch_session`` stamps — a
+    session whose title is exactly the clipped opener has not been curated
+    by anyone yet. Anything else (user rename, prior LLM pass) is respected.
+    """
+    title = (row.title or "").strip()
+    if not title or title in {DEFAULT_TITLE, NEW_TITLE}:
+        return True
+    if messages:
+        raw_title, _ = title_and_snippet(messages)
+        if raw_title and title == raw_title:
+            return True
+    return False
+
+
+def schedule_session_retitle(row: ChatConversation, messages: list[dict[str, Any]] | None = None) -> None:
+    """#731: queue a background semantic retitle when the title is still raw.
+
+    Called after a session receives its first turns; ``messages`` is the turn
+    snapshot already in hand (avoids racing the transcript write). Curated
+    titles (anything the user or an earlier pass set) are never touched.
+    """
+    try:
+        if not _needs_generated_title(row, messages=messages):
+            return
+        conversation_id = row.conversation_id
+        snapshot = list(messages or [])
+
+        def _job() -> None:
+            try:
+                perform_session_retitle(conversation_id, messages=snapshot)
+            except Exception:
+                logger.exception("Background session retitle failed for %s", conversation_id)
+
+        _schedule_background_task(_job)
+    except Exception:
+        logger.exception("Scheduling session retitle failed for %s", getattr(row, "conversation_id", "?"))
+
+
+def perform_session_retitle(
+    conversation_id: str,
+    messages: list[dict[str, Any]] | None = None,
+) -> None:
+    """#731: generate title via the tiny/auxiliary override chain and persist.
+
+    Resolution order (mirrors #858/#859): ``tiny`` task override, then
+    ``auxiliary``, then the API default — ``generate_session_title`` already
+    encapsulates the tiny chain with deterministic fallback under pytest.
+    Writes back only if the title is still un-curated at completion time.
+    """
+    from swarm.core.llm_assist import generate_session_title
+
+    row = ChatConversation.objects.filter(conversation_id=conversation_id).first()
+    if row is None or not _needs_generated_title(row, messages=messages):
+        return
+
+    if messages is None:
+        messages = [
+            {"role": msg.sender, "content": msg.content}
+            for msg in row.chat_messages.all()
+            if msg.content
+        ]
+    else:
+        messages = [
+            {"role": str(m.get("role") or m.get("sender") or ""), "content": str(m.get("content") or m.get("text") or "")}
+            for m in messages
+        ]
+    messages = [m for m in messages if m["content"].strip() and m["role"] not in {"status", "system", "info"}]
+    if not messages:
+        return
+
+    title = generate_session_title(messages).strip()
+    if not title:
+        return
+    # Clip to the same bound the truncation path uses so UIs stay consistent.
+    title = title[:TITLE_MAX]
+
+    # A curated title may land while the pass was in flight — re-check
+    # (without the snapshot; a deliberate rename would differ from raw).
+    fresh = ChatConversation.objects.filter(conversation_id=conversation_id).first()
+    if fresh is None or not _needs_generated_title(fresh):
+        return
+    fresh.title = title
+    fresh.save(update_fields=["title", "updated_at"])
 
 
 def mint_user_session_id(user, agent_id: str) -> str:
@@ -370,3 +467,30 @@ def persist_allocated_session(
         row.title = title or NEW_TITLE
         row.save(update_fields=["title"])
     return row
+
+
+def mirror_thread_to_db(
+    user,
+    conversation_id: str,
+    turns: list[dict[str, Any]] | None,
+    *,
+    agent_id: str = "",
+) -> int:
+    """Idempotent DB mirror of one thread's display turns (#901).
+
+    Replaces the conversation's ``ChatMessage`` rows with the current turns
+    (chrome excluded). Called on turn completion (WS save path), on
+    switch-away flush, and on hop so the Django snapshot is always the
+    instant, subprocess-free context-handoff source.
+    """
+    from swarm.core.transcript_roles import is_ui_only_role
+
+    chat = get_or_create_session(user, conversation_id, agent_id=agent_id)
+    rows = [
+        ChatMessage(conversation=chat, sender=item.get("role", "user"), content=item.get("content", ""))
+        for item in turns or []
+        if isinstance(item, dict) and not is_ui_only_role(item.get("role"))
+    ]
+    ChatMessage.objects.filter(conversation=chat).delete()
+    ChatMessage.objects.bulk_create(rows)
+    return len(rows)

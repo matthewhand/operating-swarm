@@ -5,12 +5,12 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import TeamKindBase
 
 logger = logging.getLogger(__name__)
 
 
-class DynamicTeamBlueprint(BlueprintBase):
+class DynamicTeamBlueprint(TeamKindBase):
     """
     Minimal dynamic team blueprint that proxies user messages to the configured
     LLM profile via OpenAI-compatible Chat Completions and yields a single final
@@ -27,6 +27,14 @@ class DynamicTeamBlueprint(BlueprintBase):
     }
 
     async def run(self, messages: list[dict[str, Any]], **kwargs: Any) -> AsyncGenerator[dict[str, Any], None]:
+        # Deterministic path for tests / SWARM_TEST_MODE — no LLM profile or
+        # network required (smoke-matrix hermeticity; matches chatbot/moa).
+        if os.environ.get("SWARM_TEST_MODE"):
+            raw = messages[-1].get("content", "") if messages else ""
+            user_text = raw if isinstance(raw, str) else str(raw)
+            yield {"messages": [{"role": "assistant", "content": f"You said: {user_text}"}]}
+            return
+
         profile_name = self.llm_profile_name
         profile = self.get_llm_profile(profile_name)
 

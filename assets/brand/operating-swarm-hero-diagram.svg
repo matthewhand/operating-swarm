@@ -1,0 +1,74 @@
+<svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .line {
+      stroke: #6b7280;
+      stroke-width: 2;
+      fill: none;
+    }
+    .os {
+      fill: #f6c344;
+      stroke: #6b4f00;
+      stroke-width: 4;
+    }
+    .node {
+      fill: #eef2f7;
+      stroke: #687789;
+      stroke-width: 2;
+    }
+    .title {
+      font: 700 24px sans-serif;
+      fill: #111827;
+      text-anchor: middle;
+    }
+    .label {
+      font: 600 15px sans-serif;
+      fill: #374151;
+      text-anchor: middle;
+    }
+    .small {
+      font: 12px sans-serif;
+      fill: #6b7280;
+      text-anchor: middle;
+    }
+  </style>
+
+  <!-- Connections -->
+  <path class="line" d="M450 350 L450 105"/>
+  <path class="line" d="M450 350 L730 190"/>
+  <path class="line" d="M450 350 L730 510"/>
+  <path class="line" d="M450 350 L170 510"/>
+  <path class="line" d="M450 350 L170 190"/>
+
+  <!-- Connection labels -->
+  <text class="label" x="475" y="225">API</text>
+  <text class="label" x="585" y="205">remote</text>
+  <text class="label" x="585" y="475">embedded</text>
+  <text class="label" x="315" y="475">WebSocket</text>
+  <text class="label" x="315" y="205">CLI</text>
+
+  <!-- Participants -->
+  <rect class="node" x="350" y="35" width="200" height="70" rx="14"/>
+  <text class="title" x="450" y="63">API</text>
+  <text class="small" x="450" y="84">OpenAI · MCP · A2A</text>
+
+  <rect class="node" x="630" y="150" width="210" height="70" rx="14"/>
+  <text class="title" x="735" y="178">Remote</text>
+  <text class="small" x="735" y="199">Other OS · hosted agents</text>
+
+  <rect class="node" x="630" y="480" width="210" height="70" rx="14"/>
+  <text class="title" x="735" y="508">Embedded</text>
+  <text class="small" x="735" y="529">SDKs · plugins · adapters</text>
+
+  <rect class="node" x="60" y="480" width="210" height="70" rx="14"/>
+  <text class="title" x="165" y="508">WebUI</text>
+  <text class="small" x="165" y="529">Browser · local UI</text>
+
+  <rect class="node" x="60" y="150" width="210" height="70" rx="14"/>
+  <text class="title" x="165" y="178">CLI</text>
+  <text class="small" x="165" y="199">Hermes · TruForge · OpenCode</text>
+
+  <!-- Centre -->
+  <circle class="os" cx="450" cy="350" r="90"/>
+  <text class="title" x="450" y="345">OS</text>
+  <text class="small" x="450" y="368">Operating Swarm</text>
+</svg>

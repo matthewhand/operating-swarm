@@ -129,6 +129,20 @@ describe('AgentMessageBubble', () => {
     expect(onRegen).toHaveBeenCalledWith('keep API names')
   })
 
+  it('lets the operator edit a summary like a regular chat message (#57)', () => {
+    const onSaveEdit = vi.fn()
+    renderBubble(
+      <AgentMessageBubble message={summaryMsg} onSaveEdit={onSaveEdit} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    expect(editor).toHaveValue('We agreed to ship a demo.')
+    fireEvent.change(editor, { target: { value: 'We shipped a demo.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSaveEdit).toHaveBeenCalledWith('We shipped a demo.')
+    expect(screen.getByText('We shipped a demo.')).toBeInTheDocument()
+  })
+
   it('renders Python fenced blocks with pretty-print tokens', () => {
     const msg: ChatMessage = {
       key: 'py1',
@@ -190,6 +204,7 @@ describe('AgentMessageBubble', () => {
       key: 'r-msg',
       role: 'assistant',
       text: 'Great idea!',
+      timestamp: new Date('2024-01-01T00:00:00Z'),
       reactions: [
         { emoji: '👍', count: 3, userReacted: true },
         { emoji: '🎉', count: 1, userReacted: false },
@@ -294,6 +309,86 @@ describe('AgentMessageBubble', () => {
       />,
     )
     expect(screen.getByRole('button', { name: /Message from Codey/i })).toBeInTheDocument()
+  })
+
+  it('summary card shows Edit on hover and save updates text with edited hint', () => {
+    const onSaveEdit = vi.fn()
+    renderBubble(<AgentMessageBubble message={summaryMsg} onSaveEdit={onSaveEdit} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
+    expect(editor).toHaveValue('We agreed to ship a demo.')
+    fireEvent.change(editor, { target: { value: 'Revised summary' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onSaveEdit).toHaveBeenCalledWith('Revised summary')
+    expect(screen.getByText('Revised summary')).toBeInTheDocument()
+    expect(screen.getByTestId('edited-hint')).toHaveTextContent('edited')
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument()
+  })
+
+  it('summary card cancel discards the draft', () => {
+    const onSaveEdit = vi.fn()
+    renderBubble(<AgentMessageBubble message={summaryMsg} onSaveEdit={onSaveEdit} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit message' }), {
+      target: { value: 'should not keep' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onSaveEdit).not.toHaveBeenCalled()
+    expect(screen.getByText('We agreed to ship a demo.')).toBeInTheDocument()
+    expect(screen.queryByText('should not keep')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('edited-hint')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument()
+  })
+
+  it('summary Escape cancels and Ctrl+Enter saves like regular messages', () => {
+    const onSaveEdit = vi.fn()
+    renderBubble(<AgentMessageBubble message={summaryMsg} onSaveEdit={onSaveEdit} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit message' }), {
+      target: { value: 'escaped draft' },
+    })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Edit message' }), { key: 'Escape' })
+    expect(screen.getByText('We agreed to ship a demo.')).toBeInTheDocument()
+    expect(onSaveEdit).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit message' }), {
+      target: { value: 'keyboard save' },
+    })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Edit message' }), {
+      key: 'Enter',
+      ctrlKey: true,
+    })
+    expect(onSaveEdit).toHaveBeenCalledWith('keyboard save')
+    expect(screen.getByText('keyboard save')).toBeInTheDocument()
+    expect(screen.getByTestId('edited-hint')).toBeInTheDocument()
+  })
+
+  it('summary copy, expand, and compacted-card menu still work with Edit present', async () => {
+    renderBubble(<AgentMessageBubble message={summaryMsg} />)
+
+    expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy summary' }))
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('We agreed to ship a demo.')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation summary' }))
+    expect(screen.queryByText('We agreed to ship a demo.')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation summary' }))
+    expect(screen.getByText('We agreed to ship a demo.')).toBeInTheDocument()
+
+    fireEvent.contextMenu(screen.getByTestId('conversation-summary-card'))
+    expect(screen.getByTestId('compacted-card-context-menu')).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Collapse' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Remove from view' })).toBeInTheDocument()
   })
 })
 

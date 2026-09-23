@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '../../components/DaisyUI'
+import * as clipboard from '../../lib/clipboard'
 import ChatPage from '../ChatPage'
 
 class MockWebSocket {
@@ -141,6 +142,86 @@ describe('REQ-198: Chat right-click Reply — quote strip in composer, sent with
     expect(input).toHaveAttribute('placeholder', 'Message …')
   })
 
+  it('#846: right-click Reply quotes ONLY the highlighted snippet even when the browser collapses the selection', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'alpha bravo charlie delta echo')
+    })
+
+    const bubble = await screen.findByText(/alpha bravo charlie delta echo/i)
+
+    // Chromium collapses the selection on right-click mousedown BEFORE the
+    // contextmenu event. Simulate: live selection during the row's mouseup
+    // cache, collapsed by the time contextmenu reads it.
+    let selectionReads = 0
+    const live = {
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: bubble }),
+      toString: () => 'charlie delta',
+    }
+    const collapsed = { isCollapsed: true, rangeCount: 0 }
+    const spy = vi.spyOn(window, 'getSelection').mockImplementation(() => {
+      selectionReads += 1
+      return (selectionReads <= 1 ? live : collapsed) as unknown as Selection
+    })
+
+    // The user finishes highlighting (mouseup caches it)…
+    fireEvent.mouseUp(bubble)
+    // …then right-clicks: the live selection is gone, the cache must supply it.
+    fireEvent.contextMenu(bubble, { clientX: 150, clientY: 150 })
+    spy.mockRestore()
+
+    const menu = await screen.findByTestId('message-context-menu')
+    expect(menu).toBeInTheDocument()
+    // Label names the target: a partial selection is a quote.
+    expect(screen.getByTestId('context-menu-reply')).toHaveTextContent('Reply to quote')
+
+    fireEvent.click(screen.getByTestId('context-menu-reply'))
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toHaveTextContent('charlie delta')
+    expect(replyStrip).not.toHaveTextContent('alpha bravo')
+  })
+
+  it('#846: right-click with no highlight still replies to the whole message', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'whole message body here')
+    })
+
+    const bubble = await screen.findByText(/whole message body here/i)
+    vi.spyOn(window, 'getSelection').mockReturnValue({ isCollapsed: true, rangeCount: 0 } as unknown as Selection)
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+
+    const replyBtn = await screen.findByTestId('context-menu-reply')
+    expect(replyBtn).toHaveTextContent(/^Reply$/)
+    fireEvent.click(replyBtn)
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toHaveTextContent('whole message body here')
+  })
+
   it('sending a message while reply is armed sends structured quote block on the wire', async () => {
     render(
       <QueryClientProvider client={queryClient}>
@@ -181,4 +262,247 @@ describe('REQ-198: Chat right-click Reply — quote strip in composer, sent with
     expect(screen.queryByTestId('composer-reply-strip')).not.toBeInTheDocument()
     expect(input).toHaveAttribute('placeholder', 'Message …')
   })
+
+  it('#565: the full multi-line quote goes on the wire, even though the bubble clamps it', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+
+    const lines = ['line one', 'line two', 'line three', 'line four', 'line five', 'line six']
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, lines.join('\n'))
+    })
+
+    const bubble = await screen.findByText(/line six/i)
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+    fireEvent.click(await screen.findByTestId('context-menu-reply'))
+
+    const input = screen.getByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(input, { target: { value: 'clamped on screen only' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
+
+    const lastSent = JSON.parse(ws.sentFrames[ws.sentFrames.length - 1])
+    // Every quoted line reaches the wire, prefixed — the bubble's 4-line clamp
+    // must never reach the payload.
+    expect(lastSent.message).toContain('> **Support**: line one')
+    for (const line of lines.slice(1)) {
+      expect(lastSent.message).toContain(`> ${line}`)
+    }
+    expect(lastSent.message).toContain('clamped on screen only')
+  })
+
+  it('clicking Reply button on message row arms reply strip (#578)', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'Assistant message with row action')
+    })
+
+    const replyAction = await screen.findByTestId('message-reply-action')
+    expect(replyAction).toBeInTheDocument()
+    fireEvent.click(replyAction)
+
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toBeInTheDocument()
+    expect(replyStrip).toHaveTextContent(/Assistant message with row action/)
+  })
+
+  it('right-clicking a selection in a message bubble quotes only the selection (#578)', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'Checking the compact/compress Issues — sounds like it is ready')
+    })
+
+    const bubble = await screen.findByText(/Checking the compact\/compress Issues/i)
+
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: bubble }),
+      toString: () => 'compact/compress Issues',
+    } as any)
+
+    fireEvent.contextMenu(bubble, { clientX: 200, clientY: 300 })
+
+    const replyBtn = await screen.findByTestId('context-menu-reply')
+    fireEvent.click(replyBtn)
+
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toBeInTheDocument()
+    expect(replyStrip).toHaveTextContent('compact/compress Issues')
+    expect(replyStrip).not.toHaveTextContent('sounds like it is ready')
+
+    const input = screen.getByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(input, { target: { value: 'Quoting a slice only' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
+
+    const lastSent = JSON.parse(ws.sentFrames[ws.sentFrames.length - 1])
+    expect(lastSent.message).toContain('> **Support**: compact/compress Issues')
+    expect(lastSent.message).toContain('Quoting a slice only')
+  })
+
+  it('context menu Copy copies the selected text if present, or whole message (#578)', async () => {
+    const copySpy = vi.spyOn(clipboard, 'copyTextToClipboard').mockResolvedValue('copied')
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'Whole assistant response to copy')
+    })
+
+    const bubble = await screen.findByText(/Whole assistant response to copy/i)
+
+    // With selection:
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: bubble }),
+      toString: () => 'assistant response',
+    } as any)
+
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+    const copyItem = await screen.findByTestId('context-menu-copy')
+    expect(copyItem).toHaveTextContent('Copy selection')
+    fireEvent.click(copyItem)
+    expect(copySpy).toHaveBeenCalledWith('assistant response')
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('message-context-menu')).not.toBeInTheDocument()
+    })
+
+    // Without selection:
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: true,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: bubble }),
+      toString: () => '',
+    } as any)
+
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+    const copyItemFull = await screen.findByTestId('context-menu-copy')
+    expect(copyItemFull).toHaveTextContent('Copy')
+    fireEvent.click(copyItemFull)
+    expect(copySpy).toHaveBeenCalledWith('Whole assistant response to copy')
+  })
+
+  it('selection spanning outside bubble falls back to quoting the whole message (#578)', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'First message text')
+    })
+
+    const bubble = await screen.findByText(/First message text/i)
+
+    // Selection ancestor is outside bubble (e.g. document body)
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: document.body }),
+      toString: () => 'spans across bubbles',
+    } as any)
+
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+    const replyBtn = await screen.findByTestId('context-menu-reply')
+    fireEvent.click(replyBtn)
+
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toHaveTextContent('First message text')
+  })
+
+  it('whitespace-only selection falls back to quoting the whole message (#578)', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/chat?blueprint=support']}>
+            <ChatPage />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+
+    await act(async () => {
+      ws.open()
+      deliverMockMessage(ws, 'Message with whitespace selection')
+    })
+
+    const bubble = await screen.findByText(/Message with whitespace selection/i)
+
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: bubble }),
+      toString: () => '    \n  ',
+    } as any)
+
+    fireEvent.contextMenu(bubble, { clientX: 100, clientY: 100 })
+    const replyBtn = await screen.findByTestId('context-menu-reply')
+    fireEvent.click(replyBtn)
+
+    const replyStrip = await screen.findByTestId('composer-reply-strip')
+    expect(replyStrip).toHaveTextContent('Message with whitespace selection')
+  })
 })
+

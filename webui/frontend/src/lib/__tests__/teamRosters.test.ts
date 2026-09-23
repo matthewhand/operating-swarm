@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
+  ALL_MEMBERS_PARAM,
   ALL_MEMBERS_TARGET,
   DEMO_TEAM_ROSTER,
   MANAGE_TEAMS_HREF,
   applyTeamMemberSessionParam,
   fetchTeamRosters,
+  isAllMembersChoice,
   memberOptionLabel,
   memberTargetLabel,
   parseTeamRosters,
@@ -200,7 +202,29 @@ describe('labels and ids', () => {
     const all = applyTeamMemberSessionParam(member, 'demo-team', ALL_MEMBERS_TARGET)
     expect(all.get('team')).toBe('demo-team')
     expect(all.get('session')).toBeNull()
-    expect(all.toString()).toBe('team=demo-team')
+    // #288: All members is marked explicitly so a reload does not re-default to
+    // the team's nominated seat (#169).
+    expect(all.get(ALL_MEMBERS_PARAM)).toBe(ALL_MEMBERS_TARGET)
+    expect(all.toString()).toBe('team=demo-team&members=all')
+  })
+
+  it('marks All members explicitly and drops the marker when a member is picked (#288)', () => {
+    const all = applyTeamMemberSessionParam(
+      new URLSearchParams('team=demo-team&session=codey'),
+      'demo-team',
+      ALL_MEMBERS_TARGET,
+    )
+    expect(isAllMembersChoice(all.get(ALL_MEMBERS_PARAM))).toBe(true)
+    expect(all.get('session')).toBeNull()
+
+    const member = applyTeamMemberSessionParam(all, 'demo-team', 'stewie')
+    expect(member.get('session')).toBe('stewie')
+    expect(member.get(ALL_MEMBERS_PARAM)).toBeNull()
+    expect(isAllMembersChoice(member.get(ALL_MEMBERS_PARAM))).toBe(false)
+
+    // A bare team link carries no member choice at all.
+    expect(isAllMembersChoice(null)).toBe(false)
+    expect(isAllMembersChoice('stewie')).toBe(false)
   })
 })
 

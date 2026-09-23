@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, type Mock } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import CliSessionPicker, { type CliSessionPickerProps } from '../CliSessionPicker'
 import type { CliProviderSession } from '../../lib/cliSessions'
@@ -72,7 +72,7 @@ describe('CliSessionPicker', () => {
     expect(paste).toBeInTheDocument()
     fireEvent.click(paste)
     expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(onSelect.mock.calls[0][0].id).toBe('pasted-session-99')
+    expect((onSelect as Mock<(s: CliProviderSession) => void>).mock.calls[0][0].id).toBe('pasted-session-99')
   })
 
   it('navigates with the keyboard and selects on Enter', () => {
@@ -80,7 +80,7 @@ describe('CliSessionPicker', () => {
     fireEvent.keyDown(window, { key: 'ArrowDown' })
     fireEvent.keyDown(window, { key: 'Enter' })
     expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(onSelect.mock.calls[0][0].id).toBe('sid-2')
+    expect((onSelect as Mock<(s: CliProviderSession) => void>).mock.calls[0][0].id).toBe('sid-2')
   })
 
   it('shows honest empty copy when the CLI cannot list', () => {
@@ -93,6 +93,18 @@ describe('CliSessionPicker', () => {
   it('shows No sessions found when listable but empty', () => {
     renderPicker({ sessions: [], canList: true })
     expect(screen.getByTestId('cli-session-empty')).toHaveTextContent('No sessions found')
+  })
+
+  it('ends with a divider then Manage Session', () => {
+    const onManageSession = vi.fn()
+    const { onClose } = renderPicker({ onManageSession })
+    const divider = screen.getByTestId('manage-surface-divider')
+    expect(divider).toHaveAttribute('role', 'separator')
+    const manage = screen.getByRole('button', { name: 'Manage Session' })
+    expect(manage.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    fireEvent.click(manage)
+    expect(onManageSession).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('Start new session fires onStartNew', () => {
@@ -114,5 +126,14 @@ describe('CliSessionPicker', () => {
     expect(onContinueOn.mock.calls[0][0].id).toBe('sid-1')
     expect(onContinueOn.mock.calls[0][1]).toBe('agy')
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('#569: the Continue-on select has a real surface, not the transparent ghost variant', () => {
+    renderPicker({ continueTargets: ['agy'], onContinueOn: vi.fn() })
+    const select = screen.getByRole('combobox', { name: 'Continue on CLI' })
+    // `select-ghost` is transparent by design, which reads as an unstyled/broken
+    // control inside the dialog.
+    expect(select).not.toHaveClass('select-ghost')
+    expect(select).toHaveClass('select-bordered')
   })
 })

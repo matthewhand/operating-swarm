@@ -30,7 +30,7 @@ export const OPEN_IN_KIND_LABELS: Record<string, string> = {
   omb: 'OpenMousBot',
   rakazo: 'Rakazo',
   herdr: 'Herdr',
-  swarm: 'Open Swarm',
+  swarm: 'Operating Swarm',
 }
 
 const KIND_ALIASES: Record<string, string> = {

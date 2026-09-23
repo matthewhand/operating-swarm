@@ -138,26 +138,24 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     vi.unstubAllGlobals()
   })
 
-  it('writes ?team=&session= for a member and restores combobox + WS target after remount', async () => {
+  it('writes ?team=&session= for a member and restores picker + WS target after remount', async () => {
     const first = renderTeamChat('/chat?team=demo-team')
     await openSocket()
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(select).toHaveValue('codey') // #169: seat default = first member
-    fireEvent.change(select, { target: { value: 'stewie' } })
+    // #755: the member pick now rides the composer routing picker.
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-stewie'))
 
     await waitFor(() => {
       expect(screen.getByTestId('search-probe')).toHaveTextContent('team=demo-team')
       expect(screen.getByTestId('search-probe')).toHaveTextContent('session=stewie')
     })
-    expect(screen.getByRole('combobox', { name: 'Team members' })).toHaveValue('stewie')
+    expect(screen.getByTestId('navbar-routing-picker')).toHaveAttribute('data-seat-kind', 'team')
 
     first.unmount()
     renderTeamChat('/chat?team=demo-team&session=stewie')
     const ws = await openSocket()
 
-    const restored = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(restored).toHaveValue('stewie')
     expect(screen.getByTestId('search-probe')).toHaveTextContent('session=stewie')
 
     fireEvent.change(await screen.findByRole('textbox', { name: 'Chat message' }), {
@@ -177,15 +175,13 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     const first = renderTeamChat('/chat?team=demo-team&session=codey')
     await openSocket()
 
-    const select = await screen.findByRole('combobox', { name: 'Team members' })
-    expect(select).toHaveValue('codey')
-    fireEvent.change(select, { target: { value: 'all' } })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-all'))
 
     await waitFor(() => {
       expect(screen.getByTestId('search-probe')).toHaveTextContent('team=demo-team')
       expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
     })
-    expect(screen.getByRole('combobox', { name: 'Team members' })).toHaveValue('all')
 
     first.unmount()
     renderTeamChat('/chat?team=demo-team')
@@ -193,10 +189,8 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
 
     // #169: a fresh team chat re-defaults to the seat (first member); the
     // explicit "All members" pick is what sends to everyone.
-    expect(await screen.findByRole('combobox', { name: 'Team members' })).toHaveValue('codey')
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'all' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-all'))
     expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Chat message' }), {
       target: { value: 'everyone' },
@@ -218,9 +212,8 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     renderTeamChat('/chat?team=demo-team')
     await openSocket()
 
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
-      target: { value: '__manage__' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-manage-api'))
 
     expect(assign).toHaveBeenCalledWith('/teams/#demo-team')
     expect(screen.getByTestId('search-probe')).toHaveTextContent('team=demo-team')
@@ -247,17 +240,15 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     // #169: the default seat is the first member; an explicit "All members"
     // clears the session without refetching, then picking Codey writes
     // ?session=codey — still no thread refetch.
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'all' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-all'))
     await waitFor(() => {
       expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
     })
     expect(threadGets).toBe(getsAfterHydrate)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Team members' }), {
-      target: { value: 'codey' },
-    })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-codey'))
 
     await waitFor(() => {
       expect(screen.getByTestId('search-probe')).toHaveTextContent('session=codey')
@@ -267,7 +258,7 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     expect(threadGets).toBe(getsAfterHydrate)
   })
 
-  it('defaults the member dropdown to the Chief of Staff, else the first member (#169)', async () => {
+  it('defaults the member picker to the Chief of Staff, else the first member (#169)', async () => {
     stubTeamFetch({
       roster: {
         object: 'list',
@@ -287,9 +278,9 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     })
     renderTeamChat('/chat?team=demo-team')
     await openSocket()
-    expect(await screen.findByRole('combobox', { name: 'Team members' })).toHaveValue('cosmo')
-
-    // The seat default is a send-target default; no ?session= is written.
+    // The seat default resolves before any pick; no ?session= is written.
+    await screen.findByTestId('navbar-routing-picker')
     expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
+    expect(screen.getByTestId('search-probe')).toHaveTextContent('team=demo-team')
   })
 })

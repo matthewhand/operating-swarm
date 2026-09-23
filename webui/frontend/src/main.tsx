@@ -2,17 +2,32 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App.tsx'
+import { installDemoRuntime } from './lib/demo/demoMockInference'
+import { isDemoMode } from './lib/demo/mode'
+import { isThrottleError } from './lib/api'
 import './index.css'
+
+if (isDemoMode()) {
+  installDemoRuntime()
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      // #726: never retry a 429 — it just burns the throttle budget faster.
+      // Retry other errors once, after a 1s pause.
+      retry: (failureCount, error) => {
+        if (isThrottleError(error)) return false
+        return failureCount < 1
+      },
+      retryDelay: (_, error) =>
+        isThrottleError(error) ? Math.max((error as { retryAfter?: number }).retryAfter ?? 0, 5) * 1000 : 1000,
       refetchOnWindowFocus: false,
       staleTime: 30_000,
     },
   },
 })
+
 
 /** Last-resort error boundary: a render crash shows a recoverable panel
  * instead of a blank page. */

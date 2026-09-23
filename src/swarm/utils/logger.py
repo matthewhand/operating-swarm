@@ -21,11 +21,12 @@ def setup_logger(name: str) -> logging.Logger:
         logging.Logger: Configured logger instance.
     """
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)  # Set to DEBUG for detailed logs
+    log_level = logging.DEBUG if DEBUG else logging.INFO
+    logger.setLevel(log_level)
 
     # Create console handler
     ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
+    ch.setLevel(log_level)
 
     # Determine log file path
     try:
@@ -47,7 +48,7 @@ def setup_logger(name: str) -> logging.Logger:
         maxBytes=5 * 1024 * 1024,  # 5 MB
         backupCount=5,
     )
-    fh.setLevel(logging.DEBUG)
+    fh.setLevel(log_level)
 
     # Create formatter and add it to the handlers
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s")

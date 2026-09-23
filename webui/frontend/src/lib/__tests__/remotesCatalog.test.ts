@@ -38,10 +38,18 @@ describe('remotesCatalog (REQ-68)', () => {
         },
       ],
     })
-    expect(rail.map((row) => row.id)).toEqual(['hermes', 'omb', 'omb', 'lab-swarm'])
-    expect(rail.map((row) => row.title)).toContain('Hermes')
+    expect(rail.map((row) => row.id)).toEqual(['omb', 'lab-swarm'])
+    expect(rail.map((row) => row.title)).not.toContain('Hermes')
     expect(rail.map((row) => row.title)).toContain(OPENMOUSBOT_LABEL)
     expect(JSON.stringify(rail)).not.toMatch(/\bOMB\b/)
+  })
+
+  it('does not pin unconfigured Hermes (catalog placeholder, issue #430)', () => {
+    const rail = parseRailRemotes({
+      object: 'list',
+      data: [{ id: 'hermes', object: 'remote', title: 'Hermes', source: 'default' }],
+    })
+    expect(rail).toEqual([])
   })
 
   it('parses a configured-only list payload used by Settings / RemoteSelect', () => {
@@ -77,10 +85,19 @@ describe('remotesCatalog (REQ-68)', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     await expect(fetchConfiguredRemotes()).resolves.toEqual([])
-    expect(fetchMock).toHaveBeenCalledWith('/remotes_catalog.json', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(fetchMock).toHaveBeenCalledWith('/v1/remotes/', { headers: { Accept: 'application/json' } })
+    // #800: requests may carry caller-provenance headers alongside Accept.
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/remotes_catalog.json',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Accept: 'application/json' }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/v1/remotes/',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Accept: 'application/json' }),
+      }),
+    )
     expect(fetchMock.mock.calls.map((call) => String(call[0])).join(' ')).not.toMatch(
       /health|operate/,
     )

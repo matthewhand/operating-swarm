@@ -10,6 +10,8 @@ from swarm.blueprints.dynamic_team.blueprint_dynamic_team import DynamicTeamBlue
 from swarm.core.agent_kind import (
     API_AGENT_BLUEPRINT_ID,
     API_AGENT_RAIL_ID,
+    STARTER_SUPPORT_BLUEPRINT_ID,
+    STARTER_SUPPORT_RAIL_ID,
     resolve_chat_blueprint_id,
 )
 from swarm.core.blueprint_discovery import (
@@ -147,6 +149,19 @@ def _load_all_blueprint_metadata_sync():
         info["metadata"] = meta
         blueprint_classes[API_AGENT_RAIL_ID] = info
 
+    # Same recipe for the builtin Support seat: the rail calls it
+    # ``starter-support``, the blueprint is ``support`` (#426). Without this the
+    # roster advertised the seat as an ``api`` row and every completion 404ed.
+    if (
+        STARTER_SUPPORT_BLUEPRINT_ID in blueprint_classes
+        and STARTER_SUPPORT_RAIL_ID not in blueprint_classes
+    ):
+        info = dict(blueprint_classes[STARTER_SUPPORT_BLUEPRINT_ID])
+        meta = dict(info.get("metadata") or {})
+        meta = {**meta, "name": STARTER_SUPPORT_RAIL_ID}
+        info["metadata"] = meta
+        blueprint_classes[STARTER_SUPPORT_RAIL_ID] = info
+
     # Merge dynamic teams as blueprints
     dyn = load_dynamic_registry()
     for team_id, meta in dyn.items():
@@ -184,12 +199,25 @@ def _load_all_blueprint_metadata_sync():
                 ns = {}
                 exec(code, ns)
                 from swarm.core.blueprint_base import BlueprintBase
-                from swarm.core.kind_bases import ApiKindBase, CliKindBase, KindBase, RemoteKindBase
+                from swarm.core.kind_bases import (
+                    ApiKindBase,
+                    CliKindBase,
+                    KindBase,
+                    RemoteKindBase,
+                    TeamKindBase,
+                )
                 for val in ns.values():
                     if (
                         isinstance(val, type)
                         and issubclass(val, BlueprintBase)
-                        and val not in (BlueprintBase, KindBase, ApiKindBase, CliKindBase, RemoteKindBase)
+                        and val not in (
+                            BlueprintBase,
+                            KindBase,
+                            ApiKindBase,
+                            CliKindBase,
+                            RemoteKindBase,
+                            TeamKindBase,
+                        )
                     ):
                         class_type = val
                         break
@@ -220,6 +248,19 @@ def _load_all_blueprint_metadata_sync():
     _blueprint_meta_cache = blueprint_classes
     return blueprint_classes
 
+
+def invalidate_blueprint_meta_cache() -> None:
+    """Drop the cached blueprint metadata map (#723).
+
+    Every writer of custom blueprint seats must call this after a successful
+    persist — otherwise a long-running server keeps serving the map built
+    before the seat existed and chat 404s ("was not found or could not be
+    initialized"). Cheap and idempotent: the next reader rebuilds.
+    """
+    global _blueprint_meta_cache
+    _blueprint_meta_cache = None
+
+
 def get_available_blueprints_sync():
     """Sync blueprint metadata map — safe inside an already-running event loop.
 
@@ -240,6 +281,21 @@ def get_available_blueprints():
 
 # --- Blueprint Instance Loading ---
 # Removed _load_blueprint_class_sync
+
+
+def _persisted_sandbox_param(blueprint_id: str) -> dict | None:
+    """#719: the custom seat's persisted sandbox opt-in, when it has one."""
+    try:
+        from swarm.views.blueprint_library_views import get_user_blueprint_library
+
+        for item in get_user_blueprint_library().get("custom", []) or []:
+            if isinstance(item, dict) and item.get("id") == blueprint_id:
+                sandbox = item.get("sandbox")
+                return dict(sandbox) if isinstance(sandbox, dict) and sandbox else None
+    except Exception:
+        pass
+    return None
+
 
 async def get_blueprint_instance(blueprint_id: str, params: dict = None):
     """Asynchronously gets a fresh instance of a specific blueprint.
@@ -282,6 +338,21 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
              tags = blueprint_info.get("metadata", {}).get("tags") or []
              if "variant" not in effective_params and "skeptic" in tags:
                  effective_params["variant"] = "skeptic_loop"
+             from swarm.core.remote_harness import is_remote_impl_id, normalize_impl_id
+
+             if blueprint_id == "remote_harness" and is_remote_impl_id(original_id):
+                 remote_name = normalize_impl_id(original_id) or original_id
+                 effective_params.setdefault("name", remote_name)
+                 effective_params.setdefault("remote", remote_name)
+                 effective_params.setdefault("op", "send")
+             # #719: the seat's persisted sandbox opt-in rides set_params so
+             # make_agent can honour it for this agent alone.
+             try:
+                 seat_sandbox = _persisted_sandbox_param(original_id)
+                 if seat_sandbox:
+                     effective_params.setdefault("sandbox", seat_sandbox)
+             except Exception:
+                 pass
              instance.set_params(effective_params)
 
         return instance

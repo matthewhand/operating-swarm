@@ -20,6 +20,9 @@ from swarm.models import ChatConversation, ChatMessage
 REPO = Path(__file__).resolve().parents[2]
 THREAD_LOAD = REPO / "src" / "swarm" / "core" / "thread_load.py"
 CONSUMERS = REPO / "src" / "swarm" / "consumers.py"
+# #855 slice 2: fetch_conversation's body moved verbatim to the persistence
+# mixin; the import itself stays kernel-side and resolves through R.
+CONVERSATIONS_MIXIN = REPO / "src" / "swarm" / "chat" / "conversations_mixin.py"
 CHAT_VIEWS = REPO / "src" / "swarm" / "views" / "chat_persist_views.py"
 WS_DOC = REPO / "docs" / "websocket_chat.md"
 CI = REPO / ".github" / "workflows" / "req171a5-thread-load.yml"
@@ -37,8 +40,11 @@ def test_source_lock_shared_json_first_load_order():
     assert "def load_thread" in helper
 
     ws = CONSUMERS.read_text(encoding="utf-8")
-    assert "from swarm.core.thread_load import load_thread" in ws
-    fetch = ws.split("def fetch_conversation", 1)[1].split("def save_conversation", 1)[0]
+    mixin = CONVERSATIONS_MIXIN.read_text(encoding="utf-8")
+    # #855 slice 2: the import is function-local inside fetch_conversation,
+    # so it lives in the mixin file that carries the moved body.
+    assert "from swarm.core.thread_load import load_thread" in mixin
+    fetch = mixin.split("def fetch_conversation", 1)[1].split("def save_conversation", 1)[0]
     assert "load_thread(" in fetch
     assert "JSON disk (source of truth)" in fetch
     assert 'raw = [{\'role\': m[\'sender\'], \'content\': m[\'content\']}' not in fetch
@@ -134,7 +140,7 @@ def _fetch_sync(user, conversation_id, agent="codey"):
     consumer.conversation_id = conversation_id
     consumer.messages = []
     consumer.ui_events = []
-    fetch_sync = DjangoChatConsumer.__dict__["fetch_conversation"].func
+    fetch_sync = next(c for c in DjangoChatConsumer.__mro__ if "fetch_conversation" in c.__dict__).__dict__["fetch_conversation"].func
     return fetch_sync(consumer, conversation_id)
 
 

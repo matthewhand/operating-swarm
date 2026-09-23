@@ -64,14 +64,12 @@ describe('REQ-201: Token counter in top navbar beside agent/model picker', () =>
       MockWebSocket.instances[0]?.open()
     })
 
-    const tokenButton = screen.getByTestId('token-meter-button')
-    expect(tokenButton).toBeInTheDocument()
+    const tokenButton = screen.queryByTestId('token-meter-button')
+    // #773: the navbar meter is gone — the composer badge is the ONE meter.
+    expect(tokenButton).toBeNull()
 
-    // Token button is inside the top header (navbar)
-    const header = screen.getByRole('banner')
-    expect(header).toContainElement(tokenButton)
-
-    // No token meter button exists inside the bottom dock footer
+    // No token meter button exists inside the bottom dock footer; the badge
+    // lives in the composer area.
     const bottomDock = screen.getByTestId('chat-bottom-dock')
     expect(bottomDock.querySelector('[data-testid="token-meter-button"]')).toBeNull()
   })

@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Open Swarm">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Operating Swarm">
   <!--
     option1-geometric-bee : WebUI navbar / splash / settings brand.
     Angled honeybee, honeycomb abdomen, geometric wings. Gold #EFAB22 on
     charcoal #1D2226. Project-owned recreation of the #537 taster.
   -->
-  <title>Open Swarm</title>
+  <title>Operating Swarm</title>
   <defs>
     <pattern id="os-honey" width="6" height="5.2" patternUnits="userSpaceOnUse">
       <path d="M3 0.35 L5.7 1.9 V4.3 L3 5.85 L0.3 4.3 V1.9 Z" fill="none" stroke="#C48A1C" stroke-width="0.45"/>

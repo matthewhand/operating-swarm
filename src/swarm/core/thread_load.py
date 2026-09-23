@@ -59,6 +59,8 @@ def public_message(item: Any) -> dict[str, Any]:
     seq = item.get("seq")
     if isinstance(seq, int) and not isinstance(seq, bool):
         row["seq"] = seq
+    if item.get("fatal_config_error") is True:
+        row["fatal_config_error"] = True
     return row
 
 

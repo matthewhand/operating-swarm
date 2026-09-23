@@ -11,6 +11,7 @@ from swarm.core import chat_store
 from swarm.core.cli_session_hop import (
     DEFAULT_HOP_MODE,
     apply_api_hop_messages,
+    apply_cross_kind_hop_messages,
     apply_injection_to_prompt,
     build_injection_payload,
     hop_backend,
@@ -84,12 +85,26 @@ def test_build_injection_respects_budget_and_header():
 
 def test_hop_notice_is_distinct_from_dropdown_change():
     line = hop_notice_text("grok", "agy", mode="summary", tokens=42)
-    assert line == "Carried summary context from grok → agy (42 tokens)."
+    assert line == (
+        "Started a new agy session (grok → agy). Carried summary context (42 tokens)."
+    )
     assert is_context_carried_notice(line)
     assert "CLI: grok → agy" not in line
     empty = hop_notice_text("grok", "agy", mode="summary", tokens=0, empty=True)
-    assert "Started a new agy session" in empty
-    assert "No prior context" in empty
+    assert empty == (
+        "Started a new agy session (grok → agy). No prior context to carry from grok."
+    )
+    warned = hop_notice_text(
+        "grok",
+        "agy",
+        mode="summary",
+        tokens=0,
+        empty=True,
+        export_warning="Export failed.",
+    )
+    assert warned == (
+        "Started a new agy session (grok → agy). Export failed. Nothing to carry."
+    )
 
 
 def test_capability_matrix_is_honest_summary_inject():
@@ -303,3 +318,145 @@ def test_parse_exported_messages_skips_junk():
     rows = parse_exported_messages(raw)
     assert [r["role"] for r in rows] == ["user", "assistant"]
     assert "sk-testfixturebbb" not in rows[1]["content"]
+
+
+@pytest.mark.django_db
+def test_hop_empty_json_uses_db_mirror_without_export(tmp_path):
+    """#901: with an empty JSON thread, hop reads the Django mirror instantly."""
+    from django.contrib.auth import get_user_model as _gum
+
+    from swarm.core.agent_sessions import mirror_thread_to_db
+
+    user = _gum().objects.create_user(username="hop-db-fallback-user", password="pw")
+    uk = chat_store.user_key_for(user)
+    mirror_thread_to_db(
+        user,
+        "thread-mirror",
+        [
+            {"role": "user", "content": "Mirrored question"},
+            {"role": "assistant", "content": "Mirrored answer"},
+        ],
+        agent_id="cli_agent",
+    )
+    result = hop_backend(
+        uk,
+        "cli_agent",
+        from_cli="grok",
+        to_cli="agy",
+        conversation_id="thread-mirror",
+        base_dir=tmp_path,
+        user=user,
+    )
+    # #900: the mirror-sourced import is labelled honestly (the frontend
+    # union already carries "db_mirror").
+    assert result["import"] == "db_mirror"
+    assert result["export_warning"] is None  # no export attempted at all
+    assert "Mirrored question" in result["injection"]["text"]
+    assert "Mirrored answer" in result["injection"]["text"]
+
+
+# ---------------------------------------------------------------------------
+# #900 — cross-kind context handoff: cli ↔ api ↔ remote
+# ---------------------------------------------------------------------------
+
+
+def test_hop_accepts_cross_kind_destination(tmp_path):
+    chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1", base_dir=tmp_path)
+    result = hop_backend(
+        "u1",
+        "cli_agent",
+        from_cli="grok",
+        to_cli="auxiliary",
+        to_kind="api",
+        conversation_id="thread-1",
+        base_dir=tmp_path,
+    )
+    assert result["kind"] == "api"
+    assert result["to_cli"] == "auxiliary"
+    assert "token bucket" in result["injection"]["text"].lower()
+
+
+def test_hop_accepts_remote_destination(tmp_path):
+    chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1", base_dir=tmp_path)
+    result = hop_backend(
+        "u1",
+        "cli_agent",
+        from_cli="grok",
+        to_cli="omb",
+        to_kind="remote",
+        conversation_id="thread-1",
+        base_dir=tmp_path,
+    )
+    assert result["kind"] == "remote"
+    assert result["injection"]["empty"] is False
+
+
+def test_apply_cross_kind_hop_injects_seed_for_api_destination(tmp_path):
+    chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1", base_dir=tmp_path)
+    hop_backend(
+        "u1",
+        "cli_agent",
+        from_cli="grok",
+        to_cli="auxiliary",
+        to_kind="api",
+        conversation_id="thread-1",
+        base_dir=tmp_path,
+    )
+    messages = [{"role": "user", "content": "next question"}]
+    out = apply_cross_kind_hop_messages(
+        "u1",
+        "cli_agent",
+        messages,
+        to_kind="api",
+        to_id="auxiliary",
+        base_dir=tmp_path,
+    )
+    assert out[0]["role"] == "system"
+    assert "token bucket" in out[0]["content"].lower()
+    assert out[-1] == {"role": "user", "content": "next question"}
+
+
+def test_apply_cross_kind_hop_injects_seed_for_remote_destination(tmp_path):
+    chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1", base_dir=tmp_path)
+    hop_backend(
+        "u1",
+        "cli_agent",
+        from_cli="grok",
+        to_cli="omb",
+        to_kind="remote",
+        conversation_id="thread-1",
+        base_dir=tmp_path,
+    )
+    # Remote destination: the seed merges into the latest user turn (the
+    # remote analogue of apply_injection_to_prompt), because server-managed
+    # remotes only see the last user turn.
+    out = apply_cross_kind_hop_messages(
+        "u1",
+        "cli_agent",
+        [{"role": "user", "content": "hello remote"}],
+        to_kind="remote",
+        to_id="omb",
+        base_dir=tmp_path,
+    )
+    assert len(out) == 1
+    assert out[0]["role"] == "user"
+    assert "token bucket" in out[0]["content"].lower()
+    assert out[0]["content"].endswith("hello remote")
+
+
+def test_apply_cross_kind_hop_noop_without_pending_hop(tmp_path):
+    messages = [{"role": "user", "content": "plain turn"}]
+    out = apply_cross_kind_hop_messages(
+        "u1",
+        "cli_agent",
+        messages,
+        to_kind="api",
+        to_id="auxiliary",
+        base_dir=tmp_path,
+    )
+    assert out == messages
+
+
+def test_hop_defaults_declare_cross_kinds():
+    defaults = hop_defaults()
+    assert set(defaults["kinds"]) == {"cli", "api", "remote"}

@@ -12,6 +12,7 @@ on:
       - "tests/api/test_issue136_kind_chat_e2e.py"
       - "tests/core/test_agent_kind.py"
       - "tests/unit/test_issue136_csrf_bearer.py"
+      - "tests/unit/test_issue238_ci_honesty.py"
       - "docs/qa/ISSUE-136-kind-chat-e2e.md"
       - "docs/AUTH.md"
       - ".github/workflows/issue136-kind-chat-e2e.yml"
@@ -27,12 +28,21 @@ on:
       - "tests/api/test_issue136_kind_chat_e2e.py"
       - "tests/core/test_agent_kind.py"
       - "tests/unit/test_issue136_csrf_bearer.py"
+      - "tests/unit/test_issue238_ci_honesty.py"
       - "docs/qa/ISSUE-136-kind-chat-e2e.md"
       - "docs/AUTH.md"
       - ".github/workflows/issue136-kind-chat-e2e.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   own-diff:
+    # Job-level note (#250 / #238): Actions currently fails this job before
+    # step 1 with no logs (billing/spend). Local SWARM_TEST_MODE=1 pytest is
+    # the gate. Re-enable when #250 is resolved. Do not delete this workflow.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -53,6 +63,7 @@ jobs:
             tests/api/test_issue136_kind_chat_e2e.py \
             tests/core/test_agent_kind.py \
             tests/unit/test_issue136_csrf_bearer.py \
+            tests/unit/test_issue238_ci_honesty.py \
             -q
         env:
           DJANGO_ALLOW_ASYNC_UNSAFE: "true"

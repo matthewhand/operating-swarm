@@ -13,7 +13,10 @@ import {
   type OversightRole,
   type RoleAssignments,
 } from './agent-roles'
-import { assignUniqueLooks } from './agent-utils'
+import {
+  assignUniqueLooks,
+  applyAvatarThemeChoice,
+} from './agent-utils'
 import {
   agentsForTeam,
   captureTeam,
@@ -29,16 +32,24 @@ import {
 import {
   STARTER_SUPPORT_ID,
   STARTER_IDS,
-  STARTER_LAYOUT,
   hideAllExceptStarters,
   mergeStarters,
 } from './starter-agents'
 import { cycleSessionMode as nextSessionMode, normalizeSessionMode, type SessionMode } from './session-modes'
 import {
+  HIDDEN_AGENTS_CHANGED_EVENT,
+  HIDDEN_AGENTS_STORAGE_KEY,
+  loadHiddenAgentIds,
+  migrateLegacyHiddenAgentIds,
+  saveHiddenAgentIds,
+} from './hiddenAgents'
+import {
   AVATAR_THEME_STORAGE_KEY,
   AVATAR_THEME_SET_EVENT,
   AVATAR_THEMES_ENABLED_EVENT,
   dispatchAvatarTheme,
+  loadAvatarThemeChoice,
+  loadEnabledAvatarThemes,
   stripDisabledAvatarThemes,
 } from './avatarTheme'
 
@@ -147,8 +158,37 @@ interface AgentStoreState {
   unpinFavourite: (agentId: string) => void
   setAgentRole: (subjectId: string, role: OversightRole, assigneeId: string | null) => void
   shuffleLooks: () => void
+  /** #563: stamp every agent with the persisted default-theme choice. */
+  applyDefaultThemeChoice: () => void
   saveAsTeam: (name: string) => string | null
   loadTeam: (teamId: string) => void
+}
+
+/**
+ * #507: the canonical `swarm_hidden_agents` store is the one truth. It also
+ * notifies same-tab listeners, which the DOM `storage` event never does in the
+ * writing tab, so the Chat rail and the Agent Router rail cannot disagree.
+ *
+ * #548: the legacy `agent_hidden_ids` key is **no longer written**. A bridge
+ * that keeps writing both keys is exactly the condition that let them drift —
+ * migrate once, then have one store. `migrateLegacyHiddenAgentIds()` retires the
+ * old key on first load.
+ */
+function bridgeHiddenAgentIds(ids: string[]): string[] {
+  const unique = Array.from(new Set(ids.filter((id) => id.length > 0)))
+  saveHiddenAgentIds(unique)
+  return unique
+}
+
+/**
+ * #507 / #548: the canonical key wins when present; otherwise adopt the legacy
+ * list and retire it. Never read the legacy key directly — see
+ * `migrateLegacyHiddenAgentIds`. The fallback is for the case where the
+ * migration could not write (storage unavailable), so the caller still sees a
+ * value instead of an empty list.
+ */
+function loadInitialHiddenAgentIds(): string[] {
+  return migrateLegacyHiddenAgentIds() ?? loadHiddenAgentIds()
 }
 
 function loadStored<T>(key: string, fallback: T): T {
@@ -228,7 +268,9 @@ function persistOverlayKeys(state: {
   saveStored('agent_remote_members', state.remoteMemberByAgent)
   saveStored('agent_frameworks', state.frameworkByAgent)
   saveStored('agent_blueprints', state.blueprintByAgent)
-  saveStored('agent_hidden_ids', state.hiddenAgentIds)
+  // #548: canonical only — the legacy `agent_hidden_ids` key is retired by
+  // `migrateLegacyHiddenAgentIds()` and must not be resurrected here.
+  saveHiddenAgentIds(state.hiddenAgentIds)
   saveStored('agent_quickstarts', state.quickstartsByAgent)
 }
 
@@ -304,7 +346,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
   customSections: loadStored<Record<string, string>>('agent_custom_sections', {}),
   customOrder: loadStored<string[]>('agent_custom_order', []),
   favouriteIds: loadStored<string[]>('agent_favourite_ids', []),
-  hiddenAgentIds: loadStored<string[]>('agent_hidden_ids', []),
+  hiddenAgentIds: loadInitialHiddenAgentIds(),
   roleAssignments: loadStored<RoleAssignments>('agent_role_assignments', {}),
 
   sidebarOpen: loadStored<boolean>('agent_sidebar_open', true),
@@ -342,6 +384,8 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         updated.map((a) => a.agent_id),
         state.avatarThemeByAgent,
         state.avatarEyesByAgent,
+        // #128: the deck is the installed set × eye styles, never a disabled pack.
+        { themes: loadEnabledAvatarThemes() },
       )
       saveStored('agent_avatar_theme_by_agent', looks.themes)
       saveStored('agent_avatar_eyes_by_agent', looks.eyes)
@@ -349,20 +393,15 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
       let favouriteIds = state.favouriteIds
       const selectedAgentId = state.selectedAgentId
       try {
-        // Clean up legacy abandoned starter layout auto-hiding
+        // Clean up legacy abandoned starter layout auto-hiding.
+        // #548: this used to read the legacy `agent_hidden_ids` list, which is
+        // now migrated into the canonical store and retired at init — so the
+        // >50-id signature is read from the migrated list instead.
         if (localStorage.getItem('agent_sidebar_starters')) {
           localStorage.removeItem('agent_sidebar_starters')
-          const storedHidden = localStorage.getItem('agent_hidden_ids')
-          if (storedHidden) {
-            try {
-              const parsed = JSON.parse(storedHidden)
-              if (Array.isArray(parsed) && parsed.length > 50) {
-                localStorage.removeItem('agent_hidden_ids')
-                hiddenAgentIds = []
-              }
-            } catch {
-              /* ignore */
-            }
+          if (hiddenAgentIds.length > 50) {
+            hiddenAgentIds = []
+            saveHiddenAgentIds([])
           }
           const storedFavs = localStorage.getItem('agent_favourite_ids')
           if (storedFavs) {
@@ -587,15 +626,15 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
   hideAgent: (agentId) =>
     set((state) => {
       if (!agentId || state.hiddenAgentIds.includes(agentId)) return state
-      const hiddenAgentIds = [...state.hiddenAgentIds, agentId]
-      saveStored('agent_hidden_ids', hiddenAgentIds)
+      const hiddenAgentIds = bridgeHiddenAgentIds([...state.hiddenAgentIds, agentId])
       return { hiddenAgentIds }
     }),
 
   unhideAgent: (agentId) =>
     set((state) => {
-      const hiddenAgentIds = state.hiddenAgentIds.filter((id) => id !== agentId)
-      saveStored('agent_hidden_ids', hiddenAgentIds)
+      const hiddenAgentIds = bridgeHiddenAgentIds(
+        state.hiddenAgentIds.filter((id) => id !== agentId),
+      )
       return { hiddenAgentIds }
     }),
 
@@ -603,7 +642,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
     set((state) => {
       const hiddenAgentIds = hideAllExceptStarters(state.agents.map((a) => a.agent_id))
       const favouriteIds = state.favouriteIds.filter((id) => !hiddenAgentIds.includes(id))
-      saveStored('agent_hidden_ids', hiddenAgentIds)
+      bridgeHiddenAgentIds(hiddenAgentIds)
       saveStored('agent_favourite_ids', favouriteIds)
       const selectedHidden = state.selectedAgentId
         ? hiddenAgentIds.includes(state.selectedAgentId)
@@ -617,7 +656,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
 
   unhideAllAgents: () =>
     set(() => {
-      saveStored('agent_hidden_ids', [])
+      bridgeHiddenAgentIds([])
       return { hiddenAgentIds: [] }
     }),
 
@@ -743,7 +782,8 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         state.agents.map((a) => a.agent_id),
         state.avatarThemeByAgent,
         state.avatarEyesByAgent,
-        { reassignAll: true },
+        // #128: restamp from the installed set only.
+        { reassignAll: true, themes: loadEnabledAvatarThemes() },
       )
       saveStored('agent_avatar_theme_by_agent', looks.themes)
       saveStored('agent_avatar_eyes_by_agent', looks.eyes)
@@ -751,6 +791,31 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         avatarThemeByAgent: looks.themes,
         avatarEyesByAgent: looks.eyes,
       }
+    }),
+
+  /** #563: stamp every agent with the persisted default-theme choice. */
+  applyDefaultThemeChoice: () =>
+    set((state) => {
+      const choice = loadAvatarThemeChoice()
+      if (choice === 'mixed') {
+        const looks = assignUniqueLooks(
+          state.agents.map((a) => a.agent_id),
+          state.avatarThemeByAgent,
+          state.avatarEyesByAgent,
+          { reassignAll: true, themes: loadEnabledAvatarThemes() },
+        )
+        saveStored('agent_avatar_theme_by_agent', looks.themes)
+        saveStored('agent_avatar_eyes_by_agent', looks.eyes)
+        return { avatarThemeByAgent: looks.themes, avatarEyesByAgent: looks.eyes }
+      }
+      const looks = applyAvatarThemeChoice(
+        state.agents.map((a) => a.agent_id),
+        choice,
+        loadEnabledAvatarThemes(),
+      )
+      saveStored('agent_avatar_theme_by_agent', looks.themes)
+      saveStored('agent_avatar_eyes_by_agent', looks.eyes)
+      return { avatarThemeByAgent: looks.themes, avatarEyesByAgent: looks.eyes }
     }),
 
   saveAsTeam: (name) => {
@@ -807,6 +872,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
         updated.map((a) => a.agent_id),
         next.avatarThemeByAgent,
         next.avatarEyesByAgent,
+        { themes: loadEnabledAvatarThemes() },
       )
       saveStored('agent_avatar_theme_by_agent', looks.themes)
       saveStored('agent_avatar_eyes_by_agent', looks.eyes)
@@ -886,5 +952,21 @@ if (typeof window !== 'undefined') {
   window.addEventListener(AVATAR_THEME_SET_EVENT, onAvatarThemeSet)
   window.addEventListener(AVATAR_THEMES_ENABLED_EVENT, onEnabledThemesSet)
   window.addEventListener('storage', onStorage)
+
+  // #507: adopt canonical-store writes made by other surfaces (rail, search
+  // palette). Equality guard keeps our own mirrored dispatch from echoing.
+  const onHiddenAgentsChanged = () => {
+    const canonical = loadHiddenAgentIds()
+    if (
+      JSON.stringify(canonical) === JSON.stringify(useAgentStore.getState().hiddenAgentIds)
+    ) {
+      return
+    }
+    useAgentStore.setState({ hiddenAgentIds: canonical })
+  }
+  window.addEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onHiddenAgentsChanged)
+  window.addEventListener('storage', (event) => {
+    if (event.key === HIDDEN_AGENTS_STORAGE_KEY) onHiddenAgentsChanged()
+  })
 }
 

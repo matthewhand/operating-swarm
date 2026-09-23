@@ -11,7 +11,11 @@ from swarm.core.cli_adapter import CliAdapter
 
 
 def test_cli_agents_payload_exposes_spa_host_discovery():
-    payload = cli_catalog.cli_agents_catalog_payload({"cli_agents": {}})
+    # #151: the rail is product-modes gated — the api seat only exists when the
+    # api mode is enabled, so the fixture turns it on explicitly.
+    payload = cli_catalog.cli_agents_catalog_payload(
+        {"cli_agents": {}, "settings": {"product_modes": {"api": True, "cli": True}}}
+    )
     for key in ("installed", "configured", "discovered", "rail", "clis"):
         assert key in payload
     assert isinstance(payload["installed"], list)
@@ -74,6 +78,22 @@ def test_default_model_param_is_ignored():
     base = support.build_registry(config)
     pinned = support.apply_overrides(base, {"cli": "grok", "model": "default"})
     assert pinned.get("grok").config.cmd == base.get("grok").config.cmd
+
+
+def test_params_model_reaches_apply_model_for_pi():
+    config = {"cli_agents": {"pi": cli_catalog.catalog_entry("pi")}}
+    registry = support.apply_overrides(
+        support.build_registry(config),
+        {"cli": "pi", "model": "openai/gpt-4o"},
+    )
+    cmd = registry.get("pi").config.cmd
+    assert cmd[cmd.index("--model") + 1] == "openai/gpt-4o"
+    assert cmd.index("--model") < cmd.index("--")
+    argv, _stdin = CliAdapter.from_config("pi", {"cmd": cmd})._build_invocation(
+        "hello", "/tmp/workdir"
+    )
+    assert argv[argv.index("--model") + 1] == "openai/gpt-4o"
+    assert argv.index("--model") < argv.index("--")
 
 
 def test_model_pin_skips_cli_without_model_flag():

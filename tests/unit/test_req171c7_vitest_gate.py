@@ -36,12 +36,13 @@ def test_vitest_job_runs_npm_test_after_npm_ci():
     data = _load_workflow(PYTEST_WORKFLOW)
     jobs = data["jobs"]
     assert "test" in jobs
-    assert "frontend" in jobs
+    assert "vitest" in jobs
 
     candidates = []
     if "vitest" in jobs:
         candidates.append(("vitest", jobs["vitest"]))
-    candidates.append(("frontend", jobs["frontend"]))
+    if "frontend" in jobs:
+        candidates.append(("frontend", jobs["frontend"]))
 
     gated = False
     for name, job in candidates:
@@ -53,7 +54,7 @@ def test_vitest_job_runs_npm_test_after_npm_ci():
         )
         if ci_idx is not None and test_idx is not None and test_idx > ci_idx:
             gated = True
-            assert name in {"vitest", "frontend"}
+            assert name == "vitest" or name == "frontend"
             break
 
     assert gated, (
@@ -63,10 +64,10 @@ def test_vitest_job_runs_npm_test_after_npm_ci():
 
 
 def test_python_matrix_stays_off_browsers():
-    """3.12/3.13 pytest stays keyless/SQLite — no Playwright, no npm test."""
+    """3.12 pytest stays keyless/SQLite — no Playwright, no npm test."""
     job = _load_workflow(PYTEST_WORKFLOW)["jobs"]["test"]
     matrix = job["strategy"]["matrix"]["python-version"]
-    assert matrix == ["3.12", "3.13"]
+    assert matrix == ["3.12"]
     blob = "\n".join(_job_step_runs(job)).lower()
     assert "playwright" not in blob
     assert "npm test" not in blob

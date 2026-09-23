@@ -18,6 +18,37 @@ def isolate_swarm_chat_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_xdg_config(tmp_path, monkeypatch):
+    """Keep the host's real swarm_config.json out of the test suite.
+
+    The config resolver (and blueprint_base's global-config fallback) reads
+    cwd/swarm_config.json then the XDG path (~/.config/swarm). A developer's
+    real config (settings.default_llm_profile=orchestration, LAN remote URLs)
+    leaked into profile-resolution and remote-spec tests, making them
+    host-dependent. Tests that need a config write their own into the
+    isolated XDG location (or pass config= directly).
+    """
+    xdg = tmp_path / "xdg-config-home"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.setenv("HOME", str(xdg))
+
+
+@pytest.fixture(autouse=True)
+def isolate_custom_blueprint_registry():
+    """Keep leftover custom-blueprint POSTs from poisoning empty-list / matrix tests.
+
+    CustomBlueprintsView writes a process-global `_custom_blueprints_registry`
+    fallback. A prior create (e.g. REQ-81 fixture) must not fill GET
+    `/v1/blueprints/custom/` when the library is empty.
+    """
+    from swarm.views import api_views
+
+    api_views._custom_blueprints_registry.clear()
+    yield
+    api_views._custom_blueprints_registry.clear()
+
+
+@pytest.fixture(autouse=True)
 def isolate_app_config():
     """Snapshot/restore the Django AppConfig ``config`` around every test.
 
@@ -37,21 +68,6 @@ def isolate_app_config():
     yield
     if app is not None:
         app.config = saved
-
-
-@pytest.fixture(autouse=True)
-def isolate_custom_blueprint_registry():
-    """Keep leftover custom-blueprint POSTs from poisoning empty-list / matrix tests.
-
-    CustomBlueprintsView writes a process-global `_custom_blueprints_registry`
-    fallback. A prior create (e.g. REQ-81 fixture) must not fill GET
-    `/v1/blueprints/custom/` when the library is empty.
-    """
-    from swarm.views import api_views
-
-    api_views._custom_blueprints_registry.clear()
-    yield
-    api_views._custom_blueprints_registry.clear()
 
 
 # --- Fixtures ---

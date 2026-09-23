@@ -1,39 +1,11 @@
 name: REQ-171C-4 one CLI session store
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/core/cli_adapter.py"
-      - "src/swarm/core/cli_catalog.py"
-      - "src/swarm/core/cli_sessions.py"
-      - "src/swarm/core/session_policy.py"
-      - "src/swarm/blueprints/cli_agent/blueprint_cli_agent.py"
-      - "src/swarm/views/chat_persist_views.py"
-      - "src/swarm/consumers.py"
-      - "tests/core/test_cli_resume_argv.py"
-      - "tests/core/test_session_policy.py"
-      - "tests/core/test_cli_catalog.py"
-      - "tests/core/test_cli_untrusted_argv.py"
-      - "tests/views/test_chat_thread_on_mode.py"
-      - "tests/test_consumers_on_mode.py"
-      - ".github/workflows/req171c4-cli-session-store.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/core/cli_adapter.py"
-      - "src/swarm/core/cli_catalog.py"
-      - "src/swarm/core/cli_sessions.py"
-      - "src/swarm/core/session_policy.py"
-      - "src/swarm/blueprints/cli_agent/blueprint_cli_agent.py"
-      - "src/swarm/views/chat_persist_views.py"
-      - "src/swarm/consumers.py"
-      - "tests/core/test_cli_resume_argv.py"
-      - "tests/core/test_session_policy.py"
-      - "tests/core/test_cli_catalog.py"
-      - "tests/core/test_cli_untrusted_argv.py"
-      - "tests/views/test_chat_thread_on_mode.py"
-      - "tests/test_consumers_on_mode.py"
-      - ".github/workflows/req171c4-cli-session-store.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

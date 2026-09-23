@@ -8,6 +8,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 REMOTES = REPO / "src" / "swarm" / "core" / "remotes.py"
+# #812 slice 5: the Herdr impl body moved verbatim to remote_impls/herdr.py.
+HERDR_IMPL = REPO / "src" / "swarm" / "core" / "remote_impls" / "herdr.py"
 TEAMS = REPO / "src" / "swarm" / "core" / "remote_teams.py"
 CI = REPO / ".github" / "workflows" / "req171c5-one-herdr-client.yml"
 CHANGELOG = REPO / "CHANGELOG.md"
@@ -19,25 +21,39 @@ def _no_secrets(text: str) -> None:
         assert needle not in lowered
 
 
-def test_operate_send_calls_from_remote_config():
+def test_operate_send_builds_client_per_spec():
     text = REMOTES.read_text(encoding="utf-8")
-    send_start = text.index("def _herdr_send")
-    send = text[send_start : send_start + 1800]
-    assert "HerdrClient.from_remote_config" in send
+    impl_text = HERDR_IMPL.read_text(encoding="utf-8")
+    send_start = impl_text.index("def _herdr_send")
+    send = impl_text[send_start : send_start + 1800]
+    # #849: per-instance dispatch — named Herdr instances get their own
+    # client via herdr_client_from_spec; from_remote_config hardcodes the
+    # default "herdr" config key and silently drops a second instance.
+    assert "herdr_client_from_spec" in send
+    assert "HerdrClient.from_remote_config" not in send
     assert "herdr_send_via_cli" not in text
+    assert "herdr_send_via_cli" not in impl_text
     assert ":8001" not in send
     assert "WAVE" not in send
     _no_secrets(send)
 
 
-def test_chat_herdr_delegates_to_client_single_until():
+def test_chat_herdr_delegates_to_client_stopped_until():
+    """#470 reversed the earlier single ``--until idle`` pin.
+
+    Herdr accepts repeated ``--until`` (``herdr agent wait --help``: "State to
+    match; repeat for more than one state"), and a turn that finishes settles in
+    ``done`` — proven live: ``--until idle`` returned
+    ``{"error":{"code":"timeout"}}`` on a pane whose status was ``done``, while
+    ``--until idle --until done --until blocked`` matched it immediately.
+    """
     text = TEAMS.read_text(encoding="utf-8")
     start = text.index("def chat_herdr")
     block = text[start : start + 1600]
     assert "from_remote_config" in block
     assert "check_blocked=True" in block
-    assert 'until="idle"' in block
-    assert '"--until", "done"' not in block
+    assert "until=WAIT_UNTIL_STOPPED" in block
+    assert 'until="idle"' not in block
     assert ":8001" not in block
     _no_secrets(block)
 

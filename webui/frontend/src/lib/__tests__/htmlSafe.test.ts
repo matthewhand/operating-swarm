@@ -56,4 +56,13 @@ describe('sanitizeMarkdownHtml', () => {
     expect(out).toContain('href="/docs"')
     expect(out).toContain('href="#sec"')
   })
+
+  it('REQ-868: keeps in-app settings hrefs including settings: protocol', () => {
+    const out = sanitizeMarkdownHtml(
+      '<a href="/chat?settings=cli-agents">Manage CLI</a>' +
+        '<a href="settings:cli-agents">pane</a>',
+    )
+    expect(out).toContain('href="/chat?settings=cli-agents"')
+    expect(out).toContain('href="settings:cli-agents"')
+  })
 })

@@ -159,7 +159,10 @@ describe('TeamEditor (REQ-81)', () => {
     fireEvent.change(picker, { target: { value: 'codey' } })
     const roster = await screen.findByTestId('declared-roster')
     expect(roster).toHaveAttribute('data-persona-count', '1')
-    expect(screen.getByText('Solo')).toBeInTheDocument()
+    // #438 gave the single-face path the same `sr-only` persona list as every
+    // other roster size, so the name now appears both there and in the picker —
+    // scope the query to the roster rather than matching globally.
+    expect(within(roster).getByText('Solo')).toBeInTheDocument()
   })
 
   it('garbage source is one generic face with no fake names', async () => {

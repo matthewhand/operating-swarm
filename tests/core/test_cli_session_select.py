@@ -643,3 +643,43 @@ def test_select_imports_grok_provider_transcript_real_reader(tmp_path, monkeypat
     texts = [str(m.get("content") or "") for m in res.get("messages") or []]
     assert any("hydrate me" in t for t in texts)
     assert any("hydrated from grok" in t for t in texts)
+
+
+@pytest.mark.django_db
+def test_select_cli_session_tolerates_escaped_provider_folder_hint(tmp_path, monkeypatch):
+    """#71: a provider escaped-project hint must not 400 the select path.
+
+    The hint names qwen's per-project dir, not a path. When it resolves we use
+    the real directory; when it cannot, we drop it (the session's own
+    transcript supplies the cwd) instead of raising AgentFolderError.
+    """
+    from swarm.core.cli_session_select import select_cli_session
+
+    escaped = "-tmp-nope-project"
+    (tmp_path / "projects" / escaped).mkdir(parents=True)
+    monkeypatch.setenv("SWARM_QWEN_PROJECTS_DIR", str(tmp_path / "projects"))
+
+    payload = select_cli_session(
+        "user:test",
+        "cli_agent",
+        "qwen",
+        session_id="11111111-1111-1111-1111-111111111111",
+        folder=escaped,
+    )
+    assert payload["object"] == "cli_session_select"
+    assert payload["cli_session_id"] == "11111111-1111-1111-1111-111111111111"
+
+
+def test_select_cli_session_still_rejects_a_bad_real_path(tmp_path):
+    """Validation is not weakened: a real path that does not exist still fails."""
+    from swarm.core.agent_folder import AgentFolderError
+    from swarm.core.cli_session_select import select_cli_session
+
+    with pytest.raises(AgentFolderError):
+        select_cli_session(
+            "user:test",
+            "cli_agent",
+            "qwen",
+            start_new=True,
+            folder=str(tmp_path / "definitely-missing"),
+        )

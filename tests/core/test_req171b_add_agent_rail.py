@@ -53,6 +53,34 @@ def test_create_cli_seat_persists_rail_and_command(
 
 @patch("swarm.views.api_views.save_user_blueprint_library", return_value=True)
 @patch("swarm.views.api_views.get_user_blueprint_library", return_value=_empty_library())
+def test_create_cli_seat_persists_remote_endpoint_for_capable_cli(
+    _mock_get, mock_save, api_client
+):
+    api_views._custom_blueprints_registry.clear()
+    response = api_client.post(
+        "/v1/blueprints/custom/",
+        data={
+            "name": "GPU OpenCode",
+            "kind": "cli",
+            "command": "opencode",
+            "category": "cli",
+            "tags": ["cli"],
+            "remote": {"host": "dev-gpu.lan", "port": 4096, "password": "secret"},
+        },
+        format="json",
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    body = response.json()
+    assert body["remote"]["host"] == "dev-gpu.lan"
+    assert body["remote"]["port"] == 4096
+    assert "password" not in body["remote"]
+    saved = mock_save.call_args[0][0]["custom"][0]
+    assert saved["remote"]["host"] == "dev-gpu.lan"
+    assert "password" not in saved["remote"]
+
+
+@patch("swarm.views.api_views.save_user_blueprint_library", return_value=True)
+@patch("swarm.views.api_views.get_user_blueprint_library", return_value=_empty_library())
 def test_create_cli_without_command_is_honest_error(_mock_get, _mock_save, api_client):
     response = api_client.post(
         "/v1/blueprints/custom/",

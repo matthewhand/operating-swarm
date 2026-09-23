@@ -11,8 +11,18 @@ import {
 } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plug, Plus, Search, Server, Users, X } from 'lucide-react'
-import AddAgentWizard, { type AgentKind } from './AddAgentWizard'
+import {
+  Calendar,
+  ChevronRight,
+  Plug,
+  Plus,
+  Search,
+  Server,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
+import AgentCalendarView from './AgentCalendarView'
 import {
   UNREAD_CHANGED_EVENT,
   loadUnreadAgentIds,
@@ -33,11 +43,14 @@ import {
   fetchHerdrAgents,
   fetchRemotes,
   terminateCliRun,
-  type Blueprint,
-  type CliRailAgent,
-  type HerdrAgent,
+  type RemoteConnection,
   type RouterDesign,
 } from '../lib/api'
+import {
+  DYNAMIC_SUBAGENT_SPAWNED_EVENT,
+  loadDynamicSubagents,
+  type DynamicSubagent,
+} from '../lib/dynamicSubagents'
 import { useOptionalToast } from './DaisyUI'
 import {
   CLI_PROCESS_STOPPED_TOAST,
@@ -46,7 +59,14 @@ import {
   notifyCliTerminated,
   peekCliRunning,
 } from '../lib/cliRunState'
+import {
+  AGENT_ATTENTION_EVENT,
+  NEEDS_APPROVAL_LABEL,
+  approvalWaitFromEvent,
+  peekApprovalWait,
+} from '../lib/agentAttention'
 import AgentAvatar from './AgentAvatar'
+import { remoteThemeFace } from './RemoteThemeFace'
 import {
   agentRole,
   isChiefOfStaff,
@@ -56,6 +76,8 @@ import {
 } from '../lib/agentRoles'
 import { isNonCatalogRailPinId, railSeatAgents } from '../lib/railSeats'
 import {
+  HIDDEN_AGENTS_CHANGED_EVENT,
+  canHideAgent,
   hasHiddenAgentsStorage,
   hideAgentId,
   loadHiddenAgentIds,
@@ -78,9 +100,12 @@ import {
   endRailDrag,
   generationCompleteAgentId,
   generationCompleteDetail,
+  insertRailIdAfter,
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
+  moveRailIdAfter,
+  dropHalfFromClientY,
   peekRailDrag,
   saveRailOrder,
 } from '../lib/railOrder'
@@ -96,7 +121,10 @@ import {
 } from '../lib/agentNotifications'
 import {
   BUMP_COMPLETED_EVENT,
+  BUMP_SCOPE_EVENT,
   loadBumpCompleted,
+  loadBumpScope,
+  type BumpScope,
   saveHostnameOverride,
 } from '../lib/settingsPrefs'
 import { computeRailHotkeyTargets } from '../lib/railHotkeys'
@@ -117,13 +145,24 @@ import {
   SCALE_OUT_SESSIONS_EVENT,
   sessionHref,
   shouldOpenSessionPicker,
-  type AgentSession,
 } from '../lib/scaleOutSessions'
 import { agentLabel, defaultBlueprintId, isSupportAgent } from '../lib/supportAgent'
+import { seatHasSessions } from '../lib/seatCapabilities'
 import { AGENT_CHAT_SESSIONS_EVENT } from '../lib/agentChatSessions'
+import {
+  agentBubbleThemeOverrides,
+  loadBubbleTheme,
+  setAgentBubbleTheme,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId, type TeamRoster } from '../lib/teamRosters'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId, type RemoteEntry } from '../lib/remotesCatalog'
+import {
+  activeRailId,
+  herdrRowIdFromParams,
+  railSelectionFromParams,
+} from '../lib/railActive'
 import { configuredRemotes } from '../lib/remotes'
 import RemoteSessionsPopup from './RemoteSessionsPopup'
 import UpdateChrome from './UpdateChrome'
@@ -132,7 +171,14 @@ import {
   getChatConnection,
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
-import { selectStackedFaces, teamSidepaneStack } from '../lib/avatarStack'
+import {
+  markStackWorking,
+  orderedFacesByRecency,
+  railTeamStackLayout,
+  teamChatFaceStack,
+  teamSidepaneStack,
+  type StackFace,
+} from '../lib/avatarStack'
 import {
   defaultSessionForRemote,
   defaultSessionForTeam,
@@ -160,6 +206,7 @@ import {
   RAIL_LONG_PRESS_MS,
   copyableConversationId,
   duplicateName,
+  duplicateRemoteId,
   isRailMenuKey,
   paneMenuItems,
   railMenuItems,
@@ -169,12 +216,12 @@ import {
 } from '../lib/railContextMenu'
 import {
   NEW_SECTION_TARGET,
-  UNASSIGNED_SECTION_ID,
   createSection,
   createSectionWithAgent,
   deleteSection,
   isUnassignedSection,
   loadRailSections,
+  railSectionsHasContent,
   moveAgentToSection,
   moveSection,
   partitionRowsBySection,
@@ -182,6 +229,8 @@ import {
   renameSection,
   sectionIdForAgent,
   toggleSectionCollapsed,
+  toggleSectionInternalOnly,
+  UNASSIGNED_SECTION_ID,
   type RailSectionsState,
 } from '../lib/railSections'
 import { copyTextToClipboard } from '../lib/clipboard'
@@ -190,7 +239,7 @@ import {
   loadDeletedRailIds,
   markRailIdDeleted,
 } from '../lib/deletedRailIds'
-import { openSearchPalette } from './SearchPalette'
+import { openSearchPalette, type HiddenRailRow } from './SearchPalette'
 import { isMacPlatform, searchShortcutLabel } from '../lib/keybindingTips'
 import {
   AGENT_EDITS_CHANGED_EVENT,
@@ -198,8 +247,9 @@ import {
   loadAgentEdit,
   saveAgentEdit,
 } from '../lib/agentEdits'
+import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
-import { declaredRosterForTeam } from '../lib/declaredRoster'
+import { declaredRosterForTeam, type DeclaredTeamRoster } from '../lib/declaredRoster'
 import { openTeamEditor } from './TeamEditor'
 import PersonaRoster from './PersonaRoster'
 import SessionPicker from './SessionPicker'
@@ -218,155 +268,69 @@ import {
 } from '../lib/cliSessionHop'
 import { FALLBACK_CLIS } from '../lib/chatStatus'
 import PluginsPopup from './PluginsPopup'
-import { OPEN_TEAM_COMPOSER_EVENT } from './TeamComposer'
+import { OPEN_TEAM_COMPOSER_EVENT, TEAM_CREATED_EVENT } from './TeamComposer'
 import { openSettingsSheet } from './SettingsSheet'
 import { OPEN_PLUGINS_EVENT } from '../lib/chromeOverlay'
-import { ConfirmModal } from './DaisyUI'
+import { useCurrentAgent, isSwarmOwnedSeat } from '../lib/currentAgent'
 import RailContextMenu from './RailContextMenu'
 import RailSectionHeader, { RailSectionEmpty } from './RailSectionHeader'
-import AvatarStack from './AvatarStack'
 import StackedAvatars from './StackedAvatars'
 import {
-  clampRailWidth,
-  loadRailWidth,
-  saveRailWidth,
-  isAvatarOnlyWidth,
   MIN_RAIL_WIDTH,
   MAX_RAIL_WIDTH,
-  AVATAR_ONLY_THRESHOLD,
+  COLLAPSED_RAIL_WIDTH,
 } from '../lib/railResize'
+import { SidebarConcealButton, SidebarExpandButton } from './SidepaneConceal'
+import RailRowSlot from './RailRowSlot'
 
-const EMPTY_BLUEPRINTS: Blueprint[] = []
-
-export interface AgentSidebarProps {
-  /** Mobile drawer open. Desktop (lg+) is always visible. */
-  open?: boolean
-  /** Below Tailwind `lg` — drawer + inert when closed. */
-  narrow?: boolean
-  onClose?: () => void
-  /** Agent / conversation / team pick — parent may tuck the rail (REQ-54). */
-  onPick?: () => void
-  onOpenSearch?: () => void
-}
-
-interface ContextMenuState {
-  agentId: string
-  agentName: string
-  hidden: boolean
-  pinned: boolean
-  x: number
-  y: number
-  kind: RailMenuKind
-  entityId: string
-  sessions?: MemberSession[]
-  isCli?: boolean
-  cli?: string
-}
-
-interface SectionMenuState {
-  sectionId: string
-  sectionName: string
-  x: number
-  y: number
-}
-
-interface CliPickerState {
-  agentId: string
-  agentName: string
-  cli: string
-  sessions: CliProviderSession[]
-  canList: boolean
-  emptyReason: string | null
-  loading: boolean
-}
-
-interface SessionPickerState {
-  agentId: string
-  agentName: string
-  sessions: AgentSession[]
-}
-
-type SidebarAgent = Blueprint & {
-  kind?: string
-  remote?: string
-  cli?: string
-}
-
-type RailRow =
-  | { kind: 'agent'; id: string; agent: SidebarAgent }
-  | { kind: 'team'; id: string; team: TeamRoster }
-  | { kind: 'remote'; id: string; remote: RemoteEntry }
-
-function isHerdrAgent(agent: { id: string; kind?: string }): boolean {
-  return agent.kind === 'herdr' || String(agent.id).startsWith('herdr:')
-}
-
-function sidebarHref(agent: { id: string; kind?: string }): string {
-  if (isHerdrAgent(agent)) return '/teams/#herdr-members'
-  return agentChatHref(agent.id)
-}
-
-function toSidebarCli(row: CliRailAgent): SidebarAgent {
-  const kind = row.kind === 'api' ? 'api' : 'cli'
-  return {
-    id: row.id,
-    object: 'blueprint',
-    name: row.name,
-    description:
-      kind === 'cli' && !row.installed ? `${row.description} (not on PATH)` : row.description,
-    abbreviation: null,
-    required_mcp_servers: [],
-    tags: [kind],
-    installed: row.installed,
-    compiled: true,
-    kind,
-    cli: row.cli,
-    rail: true,
-  }
-}
-
-/** Named kind rows (cli_agent, api_agent) stay on the rail. */
-function isCliRailAgent(agent: { id?: string; kind?: string }): boolean {
-  return agent.kind === 'cli'
-}
-
-function isApiRailAgent(agent: { id?: string; kind?: string }): boolean {
-  return agent.kind === 'api' || agent.id === 'api_agent'
-}
-
-function isBlueprintRailAgent(agent: { id?: string; kind?: string }): boolean {
-  return agent.kind === 'blueprint'
-}
-
-function toSidebarHerdr(row: HerdrAgent): SidebarAgent {
-  return {
-    id: `herdr:${row.name}`,
-    object: 'blueprint',
-    name: row.name,
-    description: row.remote ? `Herdr · ${row.remote}` : 'Herdr · localhost',
-    abbreviation: null,
-    required_mcp_servers: [],
-    tags: [],
-    installed: true,
-    compiled: true,
-    kind: 'herdr',
-    remote: row.remote || '',
-    rail: true,
-  }
-}
-
-interface PickerState {
-  title: string
-  sessions: MemberSession[]
-}
-
+// #856 slice 3: module-scope rail-row surface moved verbatim to
+// features/sidebar/rows.ts; re-imported here so the component body and the
+// './AgentSidebar' import surface are unchanged.
+import {
+  API_ONLY_REASON,
+  EMPTY_BLUEPRINTS,
+  type AgentSidebarProps,
+  type CliPickerState,
+  type ContextMenuState,
+  type NotifyOutcomeHint,
+  type PickerState,
+  type RailRow,
+  type SectionMenuState,
+  type SessionPickerState,
+  type SidebarAgent,
+  isApiRailAgent,
+  isBlueprintRailAgent,
+  isCliRailAgent,
+  isHerdrAgent,
+  sidebarHref,
+  toSidebarCli,
+  toSidebarDynamic,
+  toSidebarHerdr,
+} from '../features/sidebar/rows'
+import { useRailResize } from './sidebar/useRailResize'
+import type { AgentKind } from './AddAgentWizard'
+import { RailOverlays } from './sidebar/RailOverlays'
+export const OPEN_CALENDAR_EVENT = 'open-calendar-view'
 export default function AgentSidebar({
   open = false,
   narrow = false,
   onClose,
   onPick,
   onOpenSearch,
+  blueprints: propBlueprints,
 }: AgentSidebarProps) {
+  const [dynamicSubagents, setDynamicSubagents] = useState<DynamicSubagent[]>(() =>
+    loadDynamicSubagents(),
+  )
+  const [subagentsCollapsed, setSubagentsCollapsed] = useState(false)
+
+  useEffect(() => {
+    const onSpawned = () => {
+      setDynamicSubagents(loadDynamicSubagents())
+    }
+    window.addEventListener(DYNAMIC_SUBAGENT_SPAWNED_EVENT, onSpawned)
+    return () => window.removeEventListener(DYNAMIC_SUBAGENT_SPAWNED_EVENT, onSpawned)
+  }, [])
   const pickOrClose = onPick ?? onClose
   const drawerHidden = Boolean(narrow && !open)
   const { pathname } = useLocation()
@@ -376,11 +340,14 @@ export default function AgentSidebar({
   const onChat = pathname.startsWith('/chat') || pathname === '/'
   const selectedTeamId = onChat ? (searchParams.get('team') ?? '') : ''
   const selectedRemoteId = onChat ? (searchParams.get('remote') ?? '') : ''
-  const selectedId =
-    selectedTeamId || selectedRemoteId
-      ? ''
-      : defaultBlueprintId(onChat ? searchParams.get('blueprint') : '')
-
+  const selectedId = defaultBlueprintId(onChat ? searchParams.get('blueprint') : '')
+  // #542: the rail's active state comes from the URL, not from `selectedId`
+  // (which team/remote scopes used to blank out, so those pins could never
+  // light up). `activeRail` carries the `team:` / `remote:` id shape the pins
+  // and rows are stored under.
+  const activeRail = onChat ? activeRailId(railSelectionFromParams(searchParams)) : ''
+  // #543: when the chat targets a herdr agent, that row is the active one.
+  const activeHerdrRow = onChat ? herdrRowIdFromParams(searchParams) : ''
   const [hiddenIds, setHiddenIds] = useState<string[] | null>(() =>
     hasHiddenAgentsStorage() ? loadHiddenAgentIds() : null,
   )
@@ -389,10 +356,34 @@ export default function AgentSidebar({
   const [pins, setPins] = useState<PinnedAgent[]>(() => loadOrSeedPinnedAgents())
   const [hoveringHidden, setHoveringHidden] = useState(false)
   const [pluginsOpen, setPluginsOpen] = useState(false)
+  const [calendarOpen, setCalendarOpen] = useState(false)
   const [remotesPopupOpen, setRemotesPopupOpen] = useState(false)
   const [localWsStatus, setLocalWsStatus] = useState<ChatConnectionStatus>(() => getChatConnection())
   const [cliRunningIds, setCliRunningIds] = useState<Set<string>>(() => new Set())
+  const [approvalWaitIds, setApprovalWaitIds] = useState<Set<string>>(() => new Set())
   const toast = useOptionalToast()
+
+  // REQ-912 (#511): Plugins and Calendar only work for swarm-run seats. The
+  // selected seat is published by ChatPage (see lib/currentAgent.ts); the
+  // signal is reactive so switching seats re-evaluates the gate without a
+  // remount. Unknown/unresolved selection stays ENABLED (issue §6) so a
+  // transient load state cannot lock the operator out. Teams is not gated.
+  const currentAgent = useCurrentAgent()
+  const pluginsCalendarSupported = currentAgent === null || isSwarmOwnedSeat(currentAgent)
+  const openPlugins = useCallback(() => {
+    if (!pluginsCalendarSupported) return
+    setPluginsOpen(true)
+  }, [pluginsCalendarSupported])
+  const openCalendar = useCallback(() => {
+    if (!pluginsCalendarSupported) return
+    setCalendarOpen(true)
+  }, [pluginsCalendarSupported])
+
+  useEffect(() => {
+    const onOpenCalendar = () => openCalendar()
+    window.addEventListener(OPEN_CALENDAR_EVENT, onOpenCalendar)
+    return () => window.removeEventListener(OPEN_CALENDAR_EVENT, onOpenCalendar)
+  }, [openCalendar])
 
   useEffect(() => {
     const onRunState = (event: Event) => {
@@ -407,6 +398,25 @@ export default function AgentSidebar({
     }
     window.addEventListener(CLI_RUN_STATE_EVENT, onRunState)
     return () => window.removeEventListener(CLI_RUN_STATE_EVENT, onRunState)
+  }, [])
+
+  useEffect(() => {
+    const onAttention = (event: Event) => {
+      const detail = approvalWaitFromEvent(event)
+      if (!detail) return
+      setApprovalWaitIds((current) => {
+        // Plain tool_status frames emit `waiting: false` for tools that never
+        // waited, and they arrive continuously — bail out so the rail is not
+        // re-rendered on every one of them.
+        if (current.has(detail.agentId) === detail.waiting) return current
+        const next = new Set(current)
+        if (detail.waiting) next.add(detail.agentId)
+        else next.delete(detail.agentId)
+        return next
+      })
+    }
+    window.addEventListener(AGENT_ATTENTION_EVENT, onAttention)
+    return () => window.removeEventListener(AGENT_ATTENTION_EVENT, onAttention)
   }, [])
 
   useEffect(() => {
@@ -437,10 +447,10 @@ export default function AgentSidebar({
   }, [])
 
   useEffect(() => {
-    const onOpenPlugins = () => setPluginsOpen(true)
+    const onOpenPlugins = () => openPlugins()
     window.addEventListener(OPEN_PLUGINS_EVENT, onOpenPlugins)
     return () => window.removeEventListener(OPEN_PLUGINS_EVENT, onOpenPlugins)
-  }, [])
+  }, [openPlugins])
 
   const localWsDown = localWsStatus === 'closed' || localWsStatus === 'failed'
   const [hostname, setHostname] = useState(() => loadHostname())
@@ -455,12 +465,14 @@ export default function AgentSidebar({
   const [dropActive, setDropActive] = useState(false)
   const [listDropActive, setListDropActive] = useState(false)
   const [hideDropActive, setHideDropActive] = useState(false)
+  const [binDragOver, setBinDragOver] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [picker, setPicker] = useState<PickerState | null>(null)
   const [, setEditsTick] = useState(0)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const [railOrder, setRailOrder] = useState<string[]>(() => loadRailOrder())
   const [bumpCompleted, setBumpCompleted] = useState(() => loadBumpCompleted())
+  const [bumpScope, setBumpScope] = useState<BumpScope>(() => loadBumpScope())
   const [sessionTick, setSessionTick] = useState(0)
   const [sessionPicker, setSessionPicker] = useState<SessionPickerState | null>(null)
   const [cliPicker, setCliPicker] = useState<CliPickerState | null>(null)
@@ -479,7 +491,10 @@ export default function AgentSidebar({
   const sessionsByAgent = useMemo(() => loadAllAgentSessions(), [sessionTick])
   const [unreadIds, setUnreadIds] = useState<string[]>(() => loadUnreadAgentIds())
   const [notifyIds, setNotifyIds] = useState<string[]>(() => loadNotifyAgentIds())
-  const [notifyDeniedHint, setNotifyDeniedHint] = useState(false)
+  // #546: the *outcome*, not a boolean. `permission !== 'granted'` collapsed
+  // "blocked", "never asked" and "no API here" into one message that was only
+  // correct for the first.
+  const [notifyHint, setNotifyHint] = useState<NotifyOutcomeHint | null>(null)
   const currentTargetId = selectedTeamId || selectedRemoteId || selectedId
   const prevTargetRef = useRef(currentTargetId)
 
@@ -492,10 +507,13 @@ export default function AgentSidebar({
   }, [])
 
   useEffect(() => {
-    if (!notifyDeniedHint) return
-    const timer = window.setTimeout(() => setNotifyDeniedHint(false), 6000)
+    if (!notifyHint) return
+    // #546: `never-asked` and `unsupported` carry an action (try again, or the
+    // real reason), so they get longer on screen than the old 6s denial toast.
+    const ttl = notifyHint.outcome === 'denied' ? 6000 : 15000
+    const timer = window.setTimeout(() => setNotifyHint(null), ttl)
     return () => window.clearTimeout(timer)
-  }, [notifyDeniedHint])
+  }, [notifyHint])
 
   useEffect(() => {
     const onFocusAgent = (event: Event) => {
@@ -526,96 +544,47 @@ export default function AgentSidebar({
     }
   }, [currentTargetId])
 
-  const [railWidth, setRailWidth] = useState(() => loadRailWidth())
-  const [isResizing, setIsResizing] = useState(false)
-  const isAvatarOnly = !narrow && isAvatarOnlyWidth(railWidth)
-
-  const startDragXRef = useRef(0)
-  const startWidthRef = useRef(railWidth)
-
-  const handleResizeStart = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault()
-      setIsResizing(true)
-      startDragXRef.current = event.clientX
-      startWidthRef.current = railWidth
-      const target = event.currentTarget
-      try {
-        target.setPointerCapture(event.pointerId)
-      } catch {}
-
-      const handlePointerMove = (e: PointerEvent) => {
-        const delta = e.clientX - startDragXRef.current
-        const next = clampRailWidth(startWidthRef.current + delta, window.innerWidth)
-        setRailWidth(next)
-      }
-
-      const handlePointerUp = (e: PointerEvent) => {
-        setIsResizing(false)
-        try {
-          target.releasePointerCapture(e.pointerId)
-        } catch {}
-        window.removeEventListener('pointermove', handlePointerMove)
-        window.removeEventListener('pointerup', handlePointerUp)
-        window.removeEventListener('pointercancel', handlePointerUp)
-        const finalDelta = e.clientX - startDragXRef.current
-        const finalWidth = clampRailWidth(startWidthRef.current + finalDelta, window.innerWidth)
-        setRailWidth(finalWidth)
-        saveRailWidth(finalWidth)
-      }
-
-      window.addEventListener('pointermove', handlePointerMove)
-      window.addEventListener('pointerup', handlePointerUp)
-      window.addEventListener('pointercancel', handlePointerUp)
-    },
-    [railWidth],
-  )
-
-  const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      setRailWidth((prev) => {
-        const next = clampRailWidth(prev - 12, window.innerWidth)
-        saveRailWidth(next)
-        return next
-      })
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      setRailWidth((prev) => {
-        const next = clampRailWidth(prev + 12, window.innerWidth)
-        saveRailWidth(next)
-        return next
-      })
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      setRailWidth(MIN_RAIL_WIDTH)
-      saveRailWidth(MIN_RAIL_WIDTH)
-    } else if (event.key === 'End') {
-      event.preventDefault()
-      const max = clampRailWidth(MAX_RAIL_WIDTH, window.innerWidth)
-      setRailWidth(max)
-      saveRailWidth(max)
-    }
-  }, [])
-
+  // #856 slice C: resize/dock state machine moved to sidebar/useRailResize.
+  const {
+    railSide,
+    railWidth,
+    isResizing,
+    isAvatarOnly,
+    isCollapsed,
+    handlePillToggle,
+    beginResizeDrag,
+    handleResizeStart,
+    handleResizeKeyDown,
+    pillDraggedRef,
+  } = useRailResize({ narrow, onClose })
   useEffect(() => {
     const onChange = () => {
       setSessionTick((n) => n + 1)
-      // Search Hidden Bots unhides in localStorage and fires `storage` (same tab).
+      // #507: any same-tab write to the canonical hidden-id store dispatches
+      // HIDDEN_AGENTS_CHANGED_EVENT (the DOM `storage` event only fires in
+      // *other* documents, never the tab that wrote). The `storage` listener
+      // below is kept for cross-tab writes only.
       if (hasHiddenAgentsStorage()) {
-        setHiddenIds(loadHiddenAgentIds())
+        // Change-guarded: a stale echo must not dirty state (the store's own
+        // write already notified it synchronously before this guard existed).
+        const next = loadHiddenAgentIds()
+        setHiddenIds((current) =>
+          JSON.stringify(current ?? []) === JSON.stringify(next) ? current : next,
+        )
       }
     }
     window.addEventListener(SCALE_OUT_SESSIONS_EVENT, onChange)
     window.addEventListener(AGENT_CHAT_SESSIONS_EVENT, onChange)
     window.addEventListener(AGENT_CONVERSATION_EVENT, onChange)
     window.addEventListener(GENERATION_COMPLETE_EVENT, onChange)
+    window.addEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onChange)
     window.addEventListener('storage', onChange)
     return () => {
       window.removeEventListener(SCALE_OUT_SESSIONS_EVENT, onChange)
       window.removeEventListener(AGENT_CHAT_SESSIONS_EVENT, onChange)
       window.removeEventListener(AGENT_CONVERSATION_EVENT, onChange)
       window.removeEventListener(GENERATION_COMPLETE_EVENT, onChange)
+      window.removeEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onChange)
       window.removeEventListener('storage', onChange)
     }
   }, [])
@@ -653,7 +622,8 @@ export default function AgentSidebar({
   const fullRemotesQuery = useQuery({
     queryKey: ['remotes-list'],
     queryFn: fetchRemotes,
-    retry: 1,
+    // #726: remotes change infrequently — share the 60s cache with ChatPage
+    staleTime: 60_000,
   })
   const configuredRemotesList = useMemo(
     () => configuredRemotes(fullRemotesQuery.data),
@@ -662,7 +632,8 @@ export default function AgentSidebar({
   const cliQuery = useQuery({
     queryKey: ['cli-agents'],
     queryFn: fetchCliAgents,
-    retry: 1,
+    // #726: shares the same queryKey as ChatPage — coalesced, 60s fresh
+    staleTime: 60_000,
   })
   // Designer-created Agent Router agents (router_designs.json). Fast feed —
   // /v1/agents/ would init the router blueprint (~55s) just to list them.
@@ -690,7 +661,7 @@ export default function AgentSidebar({
         })),
     [designsQuery.data],
   )
-  const catalog = blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS
+  const catalog = propBlueprints ?? blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS
   const teams = parseTeamRosters(teamsQuery.data ?? [])
   const remotes = remotesQuery.data ?? []
   const agents = useMemo<SidebarAgent[]>(() => {
@@ -725,7 +696,14 @@ export default function AgentSidebar({
     const fromBlueprintsNoCli = fromBlueprints.filter((a) => !namedIds.has(a.id) && a.id !== 'api_agent')
     // Designed (router) agents join the rail; skip ids a live row already owns.
     const designed = designedAgents.filter((a) => !seen.has(a.id) && !namedIds.has(a.id))
-    const list = [...fromRosters, ...fromBlueprintsNoCli, ...herdr, ...designed]
+    const dynamicSidebar = dynamicSubagents.map(toSidebarDynamic)
+    const list = [
+      ...fromRosters,
+      ...fromBlueprintsNoCli,
+      ...herdr,
+      ...designed,
+      ...dynamicSidebar.filter((a) => !seen.has(a.id) && !namedIds.has(a.id)),
+    ]
     const support = list.filter((a) => isSupportAgent(a))
     // Named api_agent comes from /v1/cli-agents/. Add-agent API customs stay
     // in the catalog with rail+kind and must not be dropped here (REQ-171B).
@@ -740,10 +718,11 @@ export default function AgentSidebar({
       if (a.kind === 'design') return 2
       if (isApiRailAgent(a) || isBlueprintRailAgent(a)) return 2
       if (isChiefOfStaff(roleFromAgent(a))) return 3
+      if (a.kind === 'subagent') return 5
       return 4
     }
     return merged.sort((a, b) => railRank(a) - railRank(b))
-  }, [catalog, cliQuery.data, herdrQuery.data, teams, designedAgents])
+  }, [catalog, cliQuery.data, herdrQuery.data, teams, designedAgents, dynamicSubagents])
   const cliAgentsForActivity = useMemo(
     () =>
       agents
@@ -772,7 +751,6 @@ export default function AgentSidebar({
     },
     enabled: cliAgentsForActivity.length > 0,
     staleTime: 5 * 60 * 1000,
-    retry: 1,
   })
   const cliActivityByAgent = cliActivityQuery.data ?? {}
   const rosterById = useMemo(() => new Map(teams.map((r) => [r.id, r])), [teams])
@@ -808,12 +786,13 @@ export default function AgentSidebar({
   // (blueprints, rosters, remotes, cli, herdr) settle so a mid-load drop can
   // neither flash rows visible nor persist a trimmed hide list to prefs.
   const railDataPending =
-    blueprintsQuery.isPending ||
-    teamsQuery.isPending ||
-    remotesQuery.isPending ||
-    cliQuery.isPending ||
-    herdrQuery.isPending ||
-    designsQuery.isPending
+    !propBlueprints &&
+    (blueprintsQuery.isPending ||
+      teamsQuery.isPending ||
+      remotesQuery.isPending ||
+      cliQuery.isPending ||
+      herdrQuery.isPending ||
+      designsQuery.isPending)
   const resolvedHiddenIds = railDataPending
     ? hiddenIds ?? []
     : reconcileHiddenAgentIds(
@@ -837,6 +816,12 @@ export default function AgentSidebar({
       setPins(next.pins)
       setHiddenIds(next.hidden)
       setHostname(next.hostnameOverride || defaultHostname())
+      // #786: the server bag wins when it actually defines a layout; an
+      // empty server default never clobbers this browser's local sections —
+      // the debounced sync below pushes the local bag up instead.
+      if (railSectionsHasContent(next.sections)) {
+        setSectionState(next.sections as RailSectionsState)
+      }
       setPrefsReady(true)
     })
     return () => {
@@ -857,10 +842,12 @@ export default function AgentSidebar({
         favourites: pins,
         hidden_agents: resolvedHiddenIds,
         hostname_override: override,
+        // #786: sidepane layout syncs with the same debounce.
+        rail_sections: sectionState,
       })
     }, 300)
     return () => window.clearTimeout(handle)
-  }, [pins, resolvedHiddenIds, hostname, prefsReady])
+  }, [pins, resolvedHiddenIds, hostname, sectionState, prefsReady])
 
   useEffect(() => {
     const onSettings = () => setSettingsTick((n) => n + 1)
@@ -868,12 +855,17 @@ export default function AgentSidebar({
     return () => window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onSettings)
   }, [])
 
+  // #507: Hide and Unhide are inverses for every rail kind — the old
+  // force-visible exemption for CLI/API seats (#321/#621) turned Hide into a
+  // silent no-op that no UI could undo. canHideAgent() is now the single
+  // policy: any rail row is hideable, and a hidden CLI/API seat lands in the
+  // Hidden tail like any other.
   const visibleAgents = useMemo(
     () =>
       agents.filter(
         (agent) =>
           !isRailIdDeleted(agent.id, deletedIds) &&
-          (isCliRailAgent(agent) || isApiRailAgent(agent) || !resolvedHiddenIds.includes(agent.id)),
+          !resolvedHiddenIds.includes(agent.id),
       ),
     [agents, resolvedHiddenIds, deletedIds],
   )
@@ -882,8 +874,6 @@ export default function AgentSidebar({
       agents.filter(
         (agent) =>
           !isRailIdDeleted(agent.id, deletedIds) &&
-          !isCliRailAgent(agent) &&
-          !isApiRailAgent(agent) &&
           resolvedHiddenIds.includes(agent.id),
       ),
     [agents, resolvedHiddenIds, deletedIds],
@@ -892,8 +882,11 @@ export default function AgentSidebar({
     () =>
       teams.filter(
         (team) =>
+          // #687: team rows answer ONLY to their namespaced rail id
+          // (team:<id>). A bare-id delete belongs to an agent seat — honoring
+          // it here too is how deleting one agent made a same-id team
+          // disappear (1 delete removed >1 seat).
           !isRailIdDeleted(teamHideId(team.id), deletedIds) &&
-          !isRailIdDeleted(team.id, deletedIds) &&
           !resolvedHiddenIds.includes(teamHideId(team.id)),
       ),
     [teams, resolvedHiddenIds, deletedIds],
@@ -902,8 +895,8 @@ export default function AgentSidebar({
     () =>
       rootTeams.filter(
         (team) =>
+          // #687: namespaced rail id only — see visibleTeams.
           !isRailIdDeleted(teamHideId(team.id), deletedIds) &&
-          !isRailIdDeleted(team.id, deletedIds) &&
           !resolvedHiddenIds.includes(teamHideId(team.id)),
       ),
     [rootTeams, resolvedHiddenIds, deletedIds],
@@ -912,8 +905,8 @@ export default function AgentSidebar({
     () =>
       teams.filter(
         (team) =>
+          // #687: namespaced rail id only — see visibleTeams.
           !isRailIdDeleted(teamHideId(team.id), deletedIds) &&
-          !isRailIdDeleted(team.id, deletedIds) &&
           resolvedHiddenIds.includes(teamHideId(team.id)),
       ),
     [teams, resolvedHiddenIds, deletedIds],
@@ -922,8 +915,10 @@ export default function AgentSidebar({
     () =>
       remotes.filter(
         (remote) =>
+          // #687: remote rows answer ONLY to remote:<id>. This bare-id check
+          // is the showstopper: deleting the Hermes *agent* seat marked the
+          // bare id and the Hermes *remote* vanished with it.
           !isRailIdDeleted(remoteHideId(remote.id), deletedIds) &&
-          !isRailIdDeleted(remote.id, deletedIds) &&
           !resolvedHiddenIds.includes(remoteHideId(remote.id)),
       ),
     [remotes, resolvedHiddenIds, deletedIds],
@@ -932,22 +927,61 @@ export default function AgentSidebar({
     () =>
       remotes.filter(
         (remote) =>
+          // #687: namespaced rail id only — see visibleRemotes.
           !isRailIdDeleted(remoteHideId(remote.id), deletedIds) &&
-          !isRailIdDeleted(remote.id, deletedIds) &&
           resolvedHiddenIds.includes(remoteHideId(remote.id)),
       ),
     [remotes, resolvedHiddenIds, deletedIds],
   )
   const hiddenCount = hiddenAgents.length + hiddenTeams.length + hiddenRemotes.length
+  // #549: the badge counts agents + teams + remotes, but the palette's universe
+  // is recipe rows only — so a hidden team, remote or CLI/herdr seat counted and
+  // was never listed. Hand the palette the rows it cannot derive, and the
+  // reconciled id list the badge itself used.
+  const hiddenRailRows = useMemo<HiddenRailRow[]>(() => {
+    const rows: HiddenRailRow[] = []
+    for (const team of hiddenTeams) {
+      rows.push({
+        id: teamHideId(team.id),
+        name: team.name || team.id,
+        description: team.description || 'Team hidden from the rail',
+        href: `/chat?team=${encodeURIComponent(team.id)}`,
+        tab: 'Agents',
+      })
+    }
+    for (const remote of hiddenRemotes) {
+      rows.push({
+        id: remoteHideId(remote.id),
+        name: remote.title,
+        description: remoteDisplayName(remote) || 'Remote hidden from the rail',
+        href: `/chat?remote=${encodeURIComponent(remote.id)}`,
+        tab: 'Agents',
+      })
+    }
+    for (const agent of hiddenAgents) {
+      rows.push({
+        id: agent.id,
+        name: agentLabel(agent),
+        description: agent.description || 'Agent hidden from the rail',
+        href: agentChatHref(agent.id),
+        avatarPath: agent.avatar_path ?? null,
+        tab: 'Agents',
+      })
+    }
+    return rows
+  }, [hiddenTeams, hiddenRemotes, hiddenAgents])
   const visibleCount = visibleAgents.length + visibleTeams.length + visibleRemotes.length
-  const loadingList = blueprintsQuery.isPending && teamsQuery.isPending
+  const loadingList = !propBlueprints && blueprintsQuery.isPending && teamsQuery.isPending
   const loadFailed = blueprintsQuery.isError && teamsQuery.isError && visibleCount === 0
+  /* #736: product-modes gating is retired — surfaces are always-on if
+     configured. Every group renders from the payloads alone. */
   const supportAgents = visibleAgents.filter((agent) => isSupportAgent(agent))
   const cliAgents = visibleAgents.filter((agent) => isCliRailAgent(agent))
   const apiAgents = visibleAgents.filter((agent) => isApiRailAgent(agent))
-  const otherAgents = visibleAgents.filter(
-    (agent) => !isSupportAgent(agent) && !isCliRailAgent(agent) && !isApiRailAgent(agent),
-  )
+  const otherAgents = visibleAgents.filter((agent) => {
+    if (isSupportAgent(agent) || isCliRailAgent(agent) || isApiRailAgent(agent)) return false
+    return true
+  })
   const catalogRows = useMemo<RailRow[]>(() => {
     const supportRows: RailRow[] = supportAgents.map((agent) => ({
       kind: 'agent',
@@ -988,14 +1022,50 @@ export default function AgentSidebar({
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],
   )
-  const sectionBlocks = useMemo(
-    () => partitionRowsBySection(orderedRows, sectionState),
-    [orderedRows, sectionState],
-  )
+  const sectionBlocks = useMemo(() => {
+    const baseBlocks = partitionRowsBySection(orderedRows, sectionState)
+    if (dynamicSubagents.length === 0) return baseBlocks
+
+    const dynamicIds = new Set(dynamicSubagents.map((s) => s.id))
+    const subagentRows: RailRow[] = []
+
+    const updatedBlocks = baseBlocks.map((block) => {
+      if (block.id === UNASSIGNED_SECTION_ID) {
+        const standardRows: RailRow[] = []
+        for (const row of block.rows) {
+          if (dynamicIds.has(row.id)) {
+            subagentRows.push(row)
+          } else {
+            standardRows.push(row)
+          }
+        }
+        return { ...block, rows: standardRows }
+      }
+      return block
+    })
+
+    if (subagentRows.length > 0) {
+      const subagentsBlock = {
+        id: 'subagents',
+        name: 'Subagents',
+        collapsed: subagentsCollapsed,
+        rows: subagentRows,
+        custom: false,
+      }
+      const unassignedIdx = updatedBlocks.findIndex((b) => b.id === UNASSIGNED_SECTION_ID)
+      if (unassignedIdx >= 0) {
+        updatedBlocks.splice(unassignedIdx, 0, subagentsBlock)
+      } else {
+        updatedBlocks.push(subagentsBlock)
+      }
+    }
+
+    return updatedBlocks
+  }, [orderedRows, sectionState, dynamicSubagents, subagentsCollapsed])
   const visibleRowIds = useMemo(() => orderedRows.map((row) => row.id), [orderedRows])
   const knownRailIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents])
   const catalogById = useMemo(() => new Map(catalog.map((row) => [row.id, row])), [catalog])
-  const catalogReady = !blueprintsQuery.isPending
+  const catalogReady = Boolean(propBlueprints) || !blueprintsQuery.isPending
   const visiblePins = useMemo(
     () =>
       pins.filter((pin) => {
@@ -1064,6 +1134,16 @@ export default function AgentSidebar({
   const handleMoveTo = useCallback(
     (agentId: string, target: string) => {
       if (!agentId) return
+      // #801: a pinned agent moved to a section must LEAVE the pin grid —
+      // excludePinnedFromList strips pinned ids from the section lists, so
+      // keeping the pin would park the agent in limbo (membership set, row
+      // rendered nowhere). Unpinning matches drag-to-section behavior.
+      const wasPinned = isPinnedId(agentId)
+      if (wasPinned) {
+        setPins((current) =>
+          current.some((pin) => pin.id === agentId) ? unpinAgent(agentId, current) : current,
+        )
+      }
       if (target === NEW_SECTION_TARGET) {
         const created = createSectionWithAgent(sectionState, agentId)
         setSectionState(created.state)
@@ -1075,6 +1155,16 @@ export default function AgentSidebar({
       closeMenu()
     },
     [closeMenu, sectionState, startSectionRename],
+  )
+
+  /** #724: dispatch the per-agent bubble-theme override from the rail menu. */
+  const handleBubbleTheme = useCallback(
+    (agentId: string, theme: string) => {
+      if (!agentId) return
+      setAgentBubbleTheme(agentId, theme === '__default__' ? null : (theme as BubbleTheme))
+      closeMenu()
+    },
+    [closeMenu],
   )
 
   const openSectionMenuAt = useCallback(
@@ -1109,6 +1199,11 @@ export default function AgentSidebar({
       }
       if (id === 'section-rename') {
         startSectionRename(sectionId, sectionName)
+        return
+      }
+      if (id === 'section-talk-lock') {
+        setSectionState((current) => toggleSectionInternalOnly(current, sectionId))
+        closeMenu()
         return
       }
       if (id === 'section-move-up') {
@@ -1169,22 +1264,47 @@ export default function AgentSidebar({
       const result = await enableAgentNotifications(agentId)
       setNotifyIds(result.ids)
       closeMenu()
-      if (result.permission !== 'granted') {
-        setNotifyDeniedHint(true)
+      if (result.outcome !== 'granted') {
+        setNotifyHint({
+          agentId,
+          outcome: result.outcome,
+          requestFailed: result.requestFailed,
+        })
       }
     },
     [closeMenu, notifyIds],
   )
 
+  /** #546: re-ask. `never-asked` means the prompt did not appear, so it is worth
+   *  another attempt rather than a dead-end sentence. */
+  const retryNotifyPermission = useCallback(async () => {
+    if (!notifyHint) return
+    const result = await enableAgentNotifications(notifyHint.agentId)
+    setNotifyIds(result.ids)
+    if (result.outcome === 'granted') {
+      setNotifyHint(null)
+      return
+    }
+    setNotifyHint({
+      agentId: notifyHint.agentId,
+      outcome: result.outcome,
+      requestFailed: result.requestFailed,
+    })
+  }, [notifyHint])
+
   const openPalette = useCallback(() => {
     onOpenSearch?.()
-    openSearchPalette()
-  }, [onOpenSearch])
+    // #549: keep the palette's hidden universe in sync with the badge even when
+    // the palette is opened from search rather than the Hidden Agents row.
+    openSearchPalette({ hiddenIds: resolvedHiddenIds, hiddenRows: hiddenRailRows })
+  }, [onOpenSearch, resolvedHiddenIds, hiddenRailRows])
 
   const openGroupPicker = useCallback((title: string, sessions: MemberSession[]) => {
     setPicker({ title, sessions })
   }, [])
 
+  // #748: the rail no longer hosts a remote session browser — rows navigate
+  // immediately and the chat header owns session switching.
   const closePicker = useCallback(() => setPicker(null), [])
 
   const openCliSessionPicker = useCallback(
@@ -1258,7 +1378,10 @@ export default function AgentSidebar({
         })
         const resultFolder = (result.folder || '').trim()
         const effectiveFolder = resultFolder || sessionFolder
-        if (effectiveFolder) saveAgentEdit(opts.agentId, { folder: effectiveFolder })
+        persistSessionWorkspace(opts.agentId, {
+          folder: effectiveFolder,
+          gitBranch: result.git_branch,
+        })
         dispatchCliSessionSwitched({
           agentId: opts.agentId,
           conversationId: result.conversation_id,
@@ -1363,6 +1486,16 @@ export default function AgentSidebar({
     [railOrder, visibleRowIds, persistVisibleOrder],
   )
 
+  // #761: bottom-half drop — the moved row lands immediately BELOW the target.
+  const reorderAfter = useCallback(
+    (fromId: string, afterId: string) => {
+      if (!fromId || !afterId || fromId === afterId) return
+      const base = mergeRailOrder(railOrder, visibleRowIds)
+      persistVisibleOrder(moveRailIdAfter(base, fromId, afterId))
+    },
+    [railOrder, visibleRowIds, persistVisibleOrder],
+  )
+
   const handleAgentCreated = useCallback(
     (created: { id: string; name: string; kind: AgentKind }) => {
       setAddWizardOpen(false)
@@ -1378,6 +1511,20 @@ export default function AgentSidebar({
     [navigate, onClose, railOrder, visibleRowIds, persistVisibleOrder],
   )
 
+  // #793: newly created teams land at the TOP of Unassigned — never appended
+  // below the fold where creation looks like it failed.
+  useEffect(() => {
+    const onTeamCreated = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail
+      const id = detail?.id ? teamHideId(detail.id) : ''
+      if (!id) return
+      const base = mergeRailOrder(railOrder, visibleRowIds)
+      persistVisibleOrder(bumpRailIdToTop(base, id))
+    }
+    window.addEventListener(TEAM_CREATED_EVENT, onTeamCreated)
+    return () => window.removeEventListener(TEAM_CREATED_EVENT, onTeamCreated)
+  }, [railOrder, visibleRowIds, persistVisibleOrder])
+
   const handleAgentSelected = useCallback(
     (agentId: string) => {
       setAddWizardOpen(false)
@@ -1388,9 +1535,16 @@ export default function AgentSidebar({
   )
 
   useEffect(() => {
-    const onBump = () => setBumpCompleted(loadBumpCompleted())
+    const onBump = () => {
+      setBumpCompleted(loadBumpCompleted())
+      setBumpScope(loadBumpScope())
+    }
     window.addEventListener(BUMP_COMPLETED_EVENT, onBump)
-    return () => window.removeEventListener(BUMP_COMPLETED_EVENT, onBump)
+    window.addEventListener(BUMP_SCOPE_EVENT, onBump)
+    return () => {
+      window.removeEventListener(BUMP_COMPLETED_EVENT, onBump)
+      window.removeEventListener(BUMP_SCOPE_EVENT, onBump)
+    }
   }, [])
 
   const rowDisplayName = useCallback(
@@ -1431,6 +1585,15 @@ export default function AgentSidebar({
       }
       if (!bumpCompleted) return
       if (!agentId || !visibleRowIds.includes(agentId)) return
+      // #552: by default the bump is confined to Unassigned, so an agent the
+      // operator placed in a section keeps the position they gave it. This
+      // guards the automatic bump only — a manual drag is not gated by it.
+      if (
+        bumpScope === 'unassigned' &&
+        sectionIdForAgent(agentId, sectionState) !== UNASSIGNED_SECTION_ID
+      ) {
+        return
+      }
       const base = mergeRailOrder(railOrder, visibleRowIds)
       persistVisibleOrder(bumpRailIdToTop(base, agentId))
     }
@@ -1438,6 +1601,8 @@ export default function AgentSidebar({
     return () => window.removeEventListener(GENERATION_COMPLETE_EVENT, onComplete)
   }, [
     bumpCompleted,
+    bumpScope,
+    sectionState,
     visibleRowIds,
     railOrder,
     persistVisibleOrder,
@@ -1466,7 +1631,6 @@ export default function AgentSidebar({
     const onAltDigit = (event: KeyboardEvent) => {
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && /^[1-9]$/.test(event.key)) {
         const idx = parseInt(event.key, 10) - 1
-        const pin = visiblePins[idx]
         const target = hotkeyTargets[idx]
         if (target) {
           event.preventDefault()
@@ -1489,7 +1653,9 @@ export default function AgentSidebar({
     if (hideId.startsWith('remote:')) return 'remote'
     const agent = agents.find((row) => row.id === hideId)
     if (agent && isCliRailAgent(agent)) return 'cli'
-    if (agent && isHerdrAgent(agent)) return 'remote'
+    // #543: herdr rows get their own menu kind — no Edit/Duplicate (no
+    // swarm-owned profile), no swarm conversation id, matching 'remote'.
+    if (agent && isHerdrAgent(agent)) return 'herdr'
     if ((agent as unknown as { kind?: string })?.kind === 'blueprint') return 'blueprint'
     return 'api'
   }
@@ -1599,8 +1765,27 @@ export default function AgentSidebar({
     setDropActive(false)
     setListDropActive(false)
     setHideDropActive(false)
+    setBinDragOver(false)
     hideDropDepth.current = 0
   }
+
+  // #725: global safety net — if the browser never delivers `onDragEnd` to the
+  // React element (pointer left the window, OS cancelled the drag, or a
+  // re-render during a 429 storm orphaned the handler) draggingId would stay
+  // set forever. The window-level listener catches it regardless of source.
+  useEffect(() => {
+    if (!draggingId) return
+    const onGlobalDragEnd = () => finishDrag()
+    const onVisibilityHide = () => { if (document.visibilityState === 'hidden') finishDrag() }
+    window.addEventListener('dragend', onGlobalDragEnd)
+    document.addEventListener('visibilitychange', onVisibilityHide)
+    return () => {
+      window.removeEventListener('dragend', onGlobalDragEnd)
+      document.removeEventListener('visibilitychange', onVisibilityHide)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId])
+
 
   const isPinnedId = (id: string | null | undefined) =>
     Boolean(id && pins.some((pin) => pin.id === id))
@@ -1611,13 +1796,7 @@ export default function AgentSidebar({
    * favourite slot. Role agents (support, gate, skeptic) are not exempt.
    */
   const hideFromRail = (id: string) => {
-    if (!id) return
-    if (
-      agents.some(
-        (agent) => agent.id === id && (isCliRailAgent(agent) || isApiRailAgent(agent)),
-      )
-    )
-      return
+    if (!id || !canHideAgent(id)) return
     setHiddenIds((current) => hideAgentId(id, current ?? resolvedHiddenIds))
   }
 
@@ -1724,8 +1903,15 @@ export default function AgentSidebar({
     if (fromId && fromId !== targetId) {
       const targetSection = sectionIdForAgent(targetId, sectionState)
       setSectionState((current) => moveAgentToSection(current, fromId, targetSection))
+      // #761: relative placement — the pointer's half of the target row
+      // decides above/below; dropping onto any row of a section also assigns
+      // into that section (above). Pinned drops unpin into place either way.
+      const half = dropHalfFromClientY(event.clientY, event.currentTarget.getBoundingClientRect())
       if (isPinnedId(fromId)) {
         setPins((current) => unpinAgent(fromId, current))
+      }
+      if (half === 'below') {
+        reorderAfter(fromId, targetId)
       } else {
         reorderBefore(fromId, targetId)
       }
@@ -1796,11 +1982,6 @@ export default function AgentSidebar({
     setDraggingId(agent.id)
   }
 
-  const openEditor = (agent: Blueprint) => {
-    openAgentEditor({ agentId: agent.id })
-    onClose?.()
-  }
-
   const openDefinition = (
     kind: 'role' | 'blueprint' | 'team',
     id: string,
@@ -1842,6 +2023,12 @@ export default function AgentSidebar({
     const name = duplicateName(row.agentName)
     try {
       if (row.kind === 'cli') return
+
+      let sourceSectionId = sectionIdForAgent(row.agentId, sectionState)
+      if (isUnassignedSection(sourceSectionId) && row.entityId && row.entityId !== row.agentId) {
+        sourceSectionId = sectionIdForAgent(row.entityId, sectionState)
+      }
+
       if (row.kind === 'team') {
         const source = teams.find((team) => team.id === row.entityId)
         const created = await createTeamRoster({
@@ -1856,25 +2043,52 @@ export default function AgentSidebar({
         })
         await queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
         const createdHide = teamHideId(created.id)
+        if (!isUnassignedSection(sourceSectionId)) {
+          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
+        }
         const base = mergeRailOrder(railOrder, visibleRowIds)
+        // #793: the duplicate lands at the top of the Unassigned order so it
+        // is immediately visible (source section membership is preserved).
         persistVisibleOrder(bumpRailIdToTop(base, createdHide))
         closeMenu()
         return
       }
       if (row.kind === 'remote') {
-        const source = configuredRemotesList.find((remote) => remote.id === row.entityId)
+        const source: Partial<RemoteConnection> | undefined =
+          configuredRemotesList.find((remote) => remote.id === row.entityId) ||
+          remotes.find((r) => r.id === row.entityId) ||
+          fullRemotesQuery.data?.data?.find((r) => r.id === row.entityId)
+
+        const existingRemoteIds = new Set<string>()
+        for (const r of configuredRemotesList) if (r.id) existingRemoteIds.add(r.id)
+        for (const r of remotes) if (r.id) existingRemoteIds.add(r.id)
+        for (const r of fullRemotesQuery.data?.data ?? []) if (r.id) existingRemoteIds.add(r.id)
+        for (const r of fullRemotesQuery.data?.configured ?? []) if (r.id) existingRemoteIds.add(r.id)
+
+        const newId = duplicateRemoteId(row.entityId, existingRemoteIds)
         const created = await createRemote({
-          kind: source?.kind || row.entityId,
+          id: newId,
+          title: name,
+          kind: source?.kind || (row.entityId ? row.entityId.split('_')[0] : 'generic'),
           base_url: source?.base_url,
           api_key_env: source?.api_key_env,
           ui_url: source?.ui_url,
+          herdr_mode: (source as any)?.herdr_mode,
+          ssh_host: (source as any)?.ssh_host,
+          ssh_user: (source as any)?.ssh_user,
+          ssh_port: (source as any)?.ssh_port,
+          ssh_identity_env: (source as any)?.ssh_identity_env,
+          ssh_agent: (source as any)?.ssh_agent,
         })
         await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
         await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-        await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+        await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
         const createdHide = remoteHideId(created.id)
+        if (!isUnassignedSection(sourceSectionId)) {
+          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
+        }
         const base = mergeRailOrder(railOrder, visibleRowIds)
-        persistVisibleOrder(bumpRailIdToTop(base, createdHide))
+        persistVisibleOrder(insertRailIdAfter(base, createdHide, row.agentId))
         closeMenu()
         return
       }
@@ -1897,8 +2111,11 @@ export default function AgentSidebar({
       })
       await queryClient.invalidateQueries({ queryKey: ['blueprints'] })
       await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
+      if (!isUnassignedSection(sourceSectionId)) {
+        setSectionState((current) => moveAgentToSection(current, created.id, sourceSectionId))
+      }
       const base = mergeRailOrder(railOrder, visibleRowIds)
-      persistVisibleOrder(bumpRailIdToTop(base, created.id))
+      persistVisibleOrder(insertRailIdAfter(base, created.id, row.agentId))
     } catch {
       /* caller / tests mock fetch; failures stay on the current row */
     }
@@ -1913,6 +2130,60 @@ export default function AgentSidebar({
     }
     await copyTextToClipboard(id)
     closeMenu()
+  }
+
+  const handleDropOnRecycleBin = (fromId: string) => {
+    const row = orderedRows.find((item) => item.id === fromId)
+    const pin = pins.find((p) => p.id === fromId)
+    const agent = agents.find((a) => a.id === fromId)
+    const remote = remotes.find((r) => remoteHideId(r.id) === fromId || r.id === fromId)
+    const team = teams.find((t) => teamHideId(t.id) === fromId || t.id === fromId)
+
+    let kind: RailMenuKind = resolveMenuKind(fromId)
+    let entityId = fromId
+    let agentName = fromId
+
+    if (row) {
+      if (row.kind === 'remote') {
+        kind = 'remote'
+        entityId = row.remote.id
+        agentName = row.remote.title
+      } else if (row.kind === 'team') {
+        kind = 'team'
+        entityId = row.team.id
+        agentName = row.team.name
+      } else {
+        kind = row.agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
+        entityId = row.agent.id
+        agentName = row.agent.name
+      }
+    } else if (remote) {
+      kind = 'remote'
+      entityId = remote.id
+      agentName = remote.title
+    } else if (team) {
+      kind = 'team'
+      entityId = team.id
+      agentName = team.name
+    } else if (agent) {
+      kind = agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
+      entityId = agent.id
+      agentName = agent.name
+    } else if (pin) {
+      agentName = pin.name
+      entityId = pin.id
+    }
+
+    setDeleteConfirm({
+      agentId: fromId,
+      agentName,
+      hidden: false,
+      pinned: isPinnedId(fromId),
+      x: 0,
+      y: 0,
+      kind,
+      entityId,
+    })
   }
 
   const requestDelete = (row: ContextMenuState) => {
@@ -1935,7 +2206,7 @@ export default function AgentSidebar({
       }
       await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
       await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-      await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+      await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
     } else if (row.kind === 'team') {
       try {
         await deleteTeamRoster(row.entityId)
@@ -1953,21 +2224,36 @@ export default function AgentSidebar({
       await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
     }
     // CLI: hide-or-remove from rail only — do not uninstall the binary.
-    setDeletedIds((current) => {
-      let next = markRailIdDeleted(hideId, current)
-      if (row.entityId !== hideId) next = markRailIdDeleted(row.entityId, next)
-      return next
-    })
-    setSectionState((current) => {
-      let next = removeSectionMembership(current, hideId)
-      if (row.entityId !== hideId) next = removeSectionMembership(next, row.entityId)
-      return next
-    })
+    // #687 invariant: mark ONLY this row's rail id. The old double-mark of
+    // row.entityId leaked a bare agent id into the shared deleted list, which
+    // the (now namespaced-only) team/remote filters used to honor — deleting
+    // one agent could remove a same-id remote/team row with it.
+    setDeletedIds((current) => markRailIdDeleted(hideId, current))
+    setSectionState((current) => removeSectionMembership(current, hideId))
     setDeleteConfirm(null)
   }
 
   const handleMenuSelect = (id: RailMenuItemId) => {
     if (!menu) return
+    if (id === 'select-agent' && menu.kind === 'remote') {
+      const remote =
+        remotesQuery.data?.find((row) => row.id === menu.entityId) ||
+        configuredRemotesList.find((row) => row.id === menu.entityId)
+      closeMenu()
+      // #748: no async session fetch on this path. A multi-agent remote keeps
+      // its bot-choice picker (choosing WHICH agent is a different axis from
+      // sessions) using the rows already in the menu payload; everything else
+      // navigates immediately.
+      if (menu.sessions && menu.sessions.length > 0) {
+        openGroupPicker(menu.agentName, menu.sessions)
+        return
+      }
+      if (remote) {
+        navigate(`/chat?remote=${encodeURIComponent(remote.id)}`)
+        onClose?.()
+      }
+      return
+    }
     if (id === 'select-agent' && menu.sessions && menu.sessions.length > 0) {
       const title = menu.agentName
       const sessions = menu.sessions
@@ -2070,8 +2356,9 @@ export default function AgentSidebar({
         hidden: menu.hidden,
         unread: unreadIds.includes(menu.agentId),
         hasSelectAgent: shouldShowSelectAgent(menu.sessions),
-        hasSelectSession: menu.kind === 'api' || menu.kind === 'cli' || Boolean(menu.isCli),
-        hasNewSession: menu.kind === 'api' || menu.kind === 'cli' || Boolean(menu.isCli),
+        // #580: one declared capability drives the rail menu AND the navbar.
+        hasSelectSession: seatHasSessions(menu),
+        hasNewSession: seatHasSessions(menu),
         notifyEnabled: notifyIds.includes(menu.agentId),
         canCopyId:
           menu.kind === 'cli' || menu.kind === 'remote'
@@ -2083,6 +2370,10 @@ export default function AgentSidebar({
           sections: sectionState.sections,
           currentSectionId: sectionIdForAgent(menu.agentId, sectionState),
         },
+        // #724: per-agent bubble theme override picker (agent-presentation
+        // setting belongs on the agent row's menu, not the message's).
+        bubbleTheme: agentBubbleThemeOverrides()[menu.agentId],
+        bubbleThemeDefault: loadBubbleTheme(),
       })
     : []
 
@@ -2093,6 +2384,10 @@ export default function AgentSidebar({
         canMoveDown:
           sectionState.sections.findIndex((section) => section.id === sectionMenu.sectionId) <
           sectionState.sections.length - 1,
+        internalOnly: Boolean(
+          sectionState.sections.find((section) => section.id === sectionMenu.sectionId)
+            ?.internalOnly,
+        ),
       })
     : []
 
@@ -2101,7 +2396,10 @@ export default function AgentSidebar({
     const herdr = isHerdrAgent(agent)
     const sessions = sessionsByAgent[agent.id] ?? []
     const scaleOut = !herdr && shouldOpenSessionPicker(sessions)
-    const active = !herdr && selectedId === agent.id
+    // #543: herdr seats are URL-addressable now (`herdrRowIdFromParams`), so
+    // the targeted agent's row goes active exactly like a remote row.
+    const active = Boolean(activeHerdrRow && herdr && activeHerdrRow === agent.id) ||
+      Boolean(activeRail && !herdr && activeRail === agent.id)
     const role = agentRole(agent)
     const dragging = draggingId === agent.id
     const dropping = dropTargetId === agent.id
@@ -2116,11 +2414,12 @@ export default function AgentSidebar({
     const { snippet, timestamp } = getRowLastMessage(
       agent.id,
       sessions,
-      agent as any,
+      agent, // #601: typed RowActivityMeta — no `as any`
       cliActivityByAgent[agent.id] ?? null,
     )
     const timestampLabel = formatRailTimestamp(timestamp)
     const unread = unreadIds.includes(agent.id)
+    const needsApproval = approvalWaitIds.has(agent.id) || peekApprovalWait(agent.id)
     const mark = (
       scaleOut ? (
         // Teams/remotes (#398) must not be stacked here — import AvatarStack there.
@@ -2140,9 +2439,6 @@ export default function AgentSidebar({
         className={`os-agent-role-badge shrink-0 ${roleCssClass(role)}`}
         data-role={role}
         data-definition-id={agent.id}
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${role} settings`}
         style={{
           fontSize: '0.55rem',
           padding: '0 0.25rem',
@@ -2150,18 +2446,6 @@ export default function AgentSidebar({
           height: '0.9rem',
           boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
           whiteSpace: 'nowrap',
-        }}
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          openDefinition('role', agent.id, { blueprintId: agent.id })
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            openDefinition('role', agent.id, { blueprintId: agent.id })
-          }
         }}
       >
         {badge}
@@ -2173,43 +2457,26 @@ export default function AgentSidebar({
           {mark}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
-            <span className="flex items-center gap-1 shrink-0 relative">
-              {spillSlot ? (
-                <span
-                  className="os-rail-shortcut text-[10px] font-mono text-base-content/40 opacity-70 group-hover/row:inline-block hidden"
-                  aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${spillSlot}`}
-                  data-testid="spill-hotkey"
-                >
-                  {isMac ? `⌥${spillSlot}` : `Alt+${spillSlot}`}
-                </span>
-              ) : null}
-              {unread ? (
-                <span
-                  className={`os-rail-unread-dot inline-block h-2 w-2 rounded-full bg-sky-500 shrink-0 ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  aria-label="Unread"
-                  data-testid="rail-unread-dot"
-                />
-              ) : roleBadgeNode ? (
-                roleBadgeNode
-              ) : timestampLabel ? (
-                <span
-                  className={`os-rail-timestamp text-xs text-base-content/40 tabular-nums ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  data-testid="rail-row-timestamp"
-                >
-                  {timestampLabel}
-                </span>
-              ) : null}
+          <span className="flex min-w-0 flex-col gap-0.5">
+            {/* #500/#501: name and slot share one line, so the tip layers over
+                the time instead of occupying a line of its own. */}
+            <span className="os-rail-name-line text-sm font-semibold leading-5">
+              <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
+              <RailRowSlot
+                spillSlot={spillSlot}
+                isMac={isMac}
+                unread={unread}
+                badge={roleBadgeNode}
+                timestampLabel={timestampLabel}
+              />
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {snippet || agent.description}
+            <span
+              className={`block truncate min-w-0 flex-1${needsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={needsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {needsApproval ? NEEDS_APPROVAL_LABEL : snippet || agent.description}
             </span>
             {taskCount > 1 ? (
               <span
@@ -2237,8 +2504,12 @@ export default function AgentSidebar({
           onDragEnd={finishDrag}
           onDragOver={(event) => allowRowDrop(event, agent.id)}
           onDrop={(event) => dropReorder(event, agent.id)}
-          onClick={pickOrClose}
-          {...rowMenuHandlers(agent.id, name, hidden, isHerdrAgent(agent) ? 'remote' : 'api')}
+          onClick={(event) => {
+            pickOrClose?.()
+            event.currentTarget.blur()
+          }}
+          onMouseLeave={(event) => event.currentTarget.blur()}
+          {...rowMenuHandlers(agent.id, name, hidden, isHerdrAgent(agent) ? 'herdr' : 'api')}
         >
           {body}
         </a>
@@ -2250,6 +2521,9 @@ export default function AgentSidebar({
       onDragEnd: finishDrag,
       onDragOver: (event: ReactDragEvent) => allowRowDrop(event, agent.id),
       onDrop: (event: ReactDragEvent) => dropReorder(event, agent.id),
+      onMouseLeave: (event: ReactMouseEvent<HTMLElement>) => {
+        event.currentTarget.blur()
+      },
       ...rowMenuHandlers(
         agent.id,
         name,
@@ -2276,8 +2550,9 @@ export default function AgentSidebar({
             aria-current={active ? 'page' : undefined}
             aria-label={`${name}, ${sessions.length} sessions`}
             {...dragHandlers}
-            onClick={() => {
+            onClick={(event) => {
               setSessionPicker({ agentId: agent.id, agentName: name, sessions })
+              event.currentTarget.blur()
             }}
           >
             {body}
@@ -2299,7 +2574,10 @@ export default function AgentSidebar({
           data-hotkey={spillSlot}
           aria-current={active ? 'page' : undefined}
           {...dragHandlers}
-          onClick={pickOrClose}
+          onClick={(event) => {
+            pickOrClose?.()
+            event.currentTarget.blur()
+          }}
         >
           {body}
         </Link>
@@ -2307,66 +2585,185 @@ export default function AgentSidebar({
     )
   }
 
+  /**
+   * #438: one face — the member you are talking to — plus a compact `+N` for
+   * everyone else. No fan of overlapping faces at rail size. `remainder` is
+   * omitted entirely for a one-member team, and a team whose roster has not
+   * resolved keeps the generic team mark rather than inventing a member.
+   */
+  const renderTeamAvatar = ({
+    name,
+    face,
+    remainder,
+    declared,
+    teamId,
+    recencyFaces,
+    collapsed,
+    remoteKind,
+  }: {
+    name: string
+    face?: StackFace | null
+    remainder: number
+    declared?: DeclaredTeamRoster | null
+    teamId?: string
+    /** #639: recency-ordered faces for the graduated mini row (wide rail). */
+    recencyFaces?: StackFace[]
+    /** #639: collapsed (avatar-width) rail — one face only. */
+    collapsed?: boolean
+    /** #747: remote platform kind — themes the face-less fallback. */
+    remoteKind?: string | null
+  }) => {
+    if (declared) {
+      return <PersonaRoster roster={declared} groupId={teamId || name} label={`${name} declared members`} />
+    }
+    if (!face) {
+      // #747: remotes with no member faces render their platform-themed
+      // face (Letta, Slack, AnythingLLM, …) instead of the generic Users mark.
+      if (remoteKind) {
+        return (
+          <AgentAvatar
+            agentId={teamId || name}
+            alt={name}
+            size="sm"
+            remoteKind={remoteKind}
+          />
+        )
+      }
+      return (
+        <span
+          className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
+          aria-hidden="true"
+        >
+          <Users className="h-3.5 w-3.5" />
+        </span>
+      )
+    }
+    // face — collapsed shows the most recently active member, wide shows the
+    // chat target — and the `+N` remainder sticker (roster minus the face)
+    // rides along in both. The graduated mini row is retired.
+    const layout = railTeamStackLayout(recencyFaces ?? [], Boolean(collapsed))
+    if (collapsed) {
+      const solo = layout.faces[0] ?? face
+      return (
+        <span
+          className="os-team-face relative inline-flex shrink-0 items-center justify-center"
+          data-testid="team-chat-face"
+          data-remainder={String(remainder)}
+          data-stack-count="1"
+          data-rail-collapsed="true"
+        >
+          <AgentAvatar
+            src={solo.avatarSrc || solo.src}
+            agentId={solo.agentId || solo.id}
+            alt={solo.name || name}
+            size="sm"
+            status={solo.working ? 'working' : 'idle'}
+            active={Boolean(solo.working)}
+          />
+          {remainder > 0 ? (
+            <span className="os-team-face__remainder" data-testid="team-remainder" aria-hidden="true">
+              +{remainder}
+            </span>
+          ) : null}
+        </span>
+      )
+    }
+    return (
+      <span
+        className="os-team-face relative inline-flex shrink-0 items-center justify-center"
+        data-testid="team-chat-face"
+        data-remainder={String(remainder)}
+        data-stack-count="1"
+        data-rail-collapsed="false"
+      >
+        <span className="inline-flex items-end justify-center">
+          <span
+            className="relative inline-flex shrink-0"
+            style={{ width: 32, height: 32 }}
+          >
+            <AgentAvatar
+              src={face.avatarSrc || face.src}
+              agentId={face.agentId || face.id}
+              alt={face.name || name}
+              size="sm"
+              className="os-team-face__large"
+            />
+          </span>
+        </span>
+        {remainder > 0 ? (
+          <span
+            className="os-team-face__remainder"
+            data-testid="team-remainder"
+            aria-hidden="true"
+          >
+            +{remainder}
+          </span>
+        ) : null}
+      </span>
+    )
+  }
+
   const renderTeamLink = (team: TeamRoster, hidden: boolean, nested = false, spillSlot?: number) => {
     const name = team.name || team.id
     const hideId = teamHideId(team.id)
-    const active = selectedTeamId === team.id
+    const active = Boolean(activeRail) && activeRail === hideId
     const sessions = sessionsForTeam(team)
     const declared = declaredRosterForTeam(team, catalog)
-    const declaredFaces = declared ? null : teamSidepaneStack(stackFacesForTeam(team))
-    const stacked = declaredFaces || { faces: [], remainder: 0 }
+    const rawFaces = stackFacesForTeam(team)
+    const marked = markStackWorking(
+      rawFaces,
+      (id) => cliRunningIds.has(id) || peekCliRunning(id),
+    )
+    const teamWorkerBusy = Boolean(
+      marked.anyWorking ||
+      cliRunningIds.has(hideId) ||
+      peekCliRunning(hideId),
+    )
+    // #438: the face is the team's chat target — `chief_of_staff_id`, else the
+    // CoS-roled member, else the first. `defaultSessionForTeam` already owns
+    // that rule, so the rail reads it rather than inventing a second one.
+    const chatTargetId = defaultSessionForTeam(team)?.memberId ?? ''
+    // NOTE: `teamSidepaneStack` caps the list at STACK_FACE_LIMIT, so it cannot
+    // be the source of the remainder — a 5-member team would report +2. The
+    // remainder is the *roster* minus the one face, which is what #438 specifies.
+    const chatFace = declared
+      ? null
+      : teamChatFaceStack(teamSidepaneStack(marked.faces, teamWorkerBusy).faces, chatTargetId)
+        .face
     const totalMembers = declared
       ? declared.parsed
         ? declared.count
         : 1
       : team.members
         ? team.members.length
-        : stacked.faces.length + (stacked.remainder || 0)
+        : rawFaces.length
     const singleMember = !declared && totalMembers === 1
-    const singleFace = stacked.faces[0]
+    const teamRemainder = declared || totalMembers <= 1 ? 0 : totalMembers - 1
     const dragging = draggingId === hideId
     const dropping = dropTargetId === hideId
+    // #438: the roster is no longer fanned into faces, so "needs approval" is the
+    // chat face's state (the member the row represents) rather than any member.
+    const teamNeedsApproval =
+      approvalWaitIds.has(teamHideId(team.id)) ||
+      peekApprovalWait(teamHideId(team.id)) ||
+      Boolean(
+        chatFace &&
+          (approvalWaitIds.has(chatFace.id) || peekApprovalWait(chatFace.id)),
+      )
     const { snippet: teamSnippet, timestamp: teamTime } = getRowLastMessage(
       teamHideId(team.id),
-      sessions as any,
-      team as any,
+      sessions,
+      team, // #601: TeamRoster.lastMessageAt — no `as any`
     )
     const teamTimestampLabel = formatRailTimestamp(teamTime)
     const unread = unreadIds.includes(hideId)
-    // Team badge lives in the name row's right slot (unread → badge → timestamp),
-    // matching the agent/CoS/support pill placement — not an avatar overlay.
-    const teamBadgeNode = (
-      <span
-        className="os-agent-role-badge shrink-0 badge badge-ghost badge-xs font-medium uppercase tracking-wide text-base-content/55"
-        data-kind="team"
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${name} team settings`}
-        data-definition-id={team.id}
-        style={{
-          fontSize: '0.55rem',
-          padding: '0 0.25rem',
-          lineHeight: '1.2',
-          height: '0.9rem',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
-          whiteSpace: 'nowrap',
-        }}
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          openDefinition('team', team.id, { teamId: team.id })
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            openDefinition('team', team.id, { teamId: team.id })
-          }
-        }}
-      >
-        Team
-      </span>
-    )
+    // #639 (REQ-909) as revised by #817: recency-ordered faces — every state
+    // renders one face (most recently active when collapsed, chat target when
+    // wide) plus the roster `+N` sticker. No mini row in either state.
+    const teamRecencyFaces = orderedFacesByRecency(marked.faces)
+    // #525: no `Team` badge. Team membership is not a role, so the pill was
+    // claiming role status — same reason #496 removed `Remote`. The right slot
+    // now falls through to the row's timestamp.
     return (
       <Link
         to={`/chat?team=${encodeURIComponent(team.id)}`}
@@ -2374,14 +2771,14 @@ export default function AgentSidebar({
           active ? 'os-agent-row--active' : ''
         } ${nested ? 'os-agent-row--nested' : ''} ${dragging ? 'os-agent-row--dragging' : ''} ${
           dropping ? 'os-agent-row--drop' : ''
-        }`}
+        } ${teamWorkerBusy ? 'os-agent-row--working-stack' : ''}`}
         aria-current={active ? 'page' : undefined}
         aria-label={`${name} (team)`}
         data-agent-id={hideId}
         data-kind="team"
         data-hotkey={spillSlot}
-        data-stack-count={String(declared ? (declared.parsed ? declared.count : 1) : stacked.faces.length)}
-        data-remainder={String(declared ? 0 : stacked.remainder)}
+        data-stack-count={String(declared ? (declared.parsed ? declared.count : 1) : singleMember ? 1 : chatFace ? 1 : 0)}
+        data-remainder={String(teamRemainder)}
         data-persona-count={declared ? String(declared.parsed ? declared.count : 1) : undefined}
         data-roster={declared ? 'declared' : undefined}
         draggable={!hidden}
@@ -2402,69 +2799,34 @@ export default function AgentSidebar({
         {...rowMenuHandlers(hideId, name, hidden, 'team', sessions, team.id)}
       >
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
-          {declared ? (
-            <PersonaRoster roster={declared} groupId={team.id} label={`${name} declared members`} />
-          ) : totalMembers >= 2 ? (
-            <AvatarStack
-              faces={stacked.faces}
-              remainder={stacked.remainder}
-              animate
-              label={`${name} members`}
-            />
-          ) : singleMember && singleFace ? (
-            <AgentAvatar
-              src={singleFace.avatarSrc || singleFace.src}
-              agentId={singleFace.id}
-              alt={singleFace.name || name}
-              size="sm"
-            />
-          ) : (
-            <span
-              className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
-              aria-hidden="true"
-            >
-              <Users className="h-3.5 w-3.5" />
-            </span>
-          )}
+          {renderTeamAvatar({
+            name,
+            face: chatFace,
+            remainder: teamRemainder,
+            declared,
+            teamId: team.id,
+            recencyFaces: teamRecencyFaces,
+            collapsed: isAvatarOnly,
+          })}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
-            <span className="flex items-center gap-1 shrink-0 relative">
-              {spillSlot ? (
-                <span
-                  className="os-rail-shortcut text-[10px] font-mono text-base-content/40 opacity-70 group-hover/row:inline-block hidden"
-                  aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${spillSlot}`}
-                  data-testid="spill-hotkey"
-                >
-                  {isMac ? `⌥${spillSlot}` : `Alt+${spillSlot}`}
-                </span>
-              ) : null}
-              {unread ? (
-                <span
-                  className={`os-rail-unread-dot inline-block h-2 w-2 rounded-full bg-sky-500 shrink-0 ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  aria-label="Unread"
-                  data-testid="rail-unread-dot"
-                />
-              ) : teamBadgeNode ? (
-                teamBadgeNode
-              ) : teamTimestampLabel ? (
-                <span
-                  className={`os-rail-timestamp shrink-0 text-xs text-base-content/40 tabular-nums ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  data-testid="rail-row-timestamp"
-                >
-                  {teamTimestampLabel}
-                </span>
-              ) : null}
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="os-rail-name-line text-sm font-semibold leading-5">
+              <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
+              <RailRowSlot
+                spillSlot={spillSlot}
+                isMac={isMac}
+                unread={unread}
+                timestampLabel={teamTimestampLabel}
+              />
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {teamSnippet || team.description}
+            <span
+              className={`block truncate min-w-0 flex-1${teamNeedsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={teamNeedsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {teamNeedsApproval ? NEEDS_APPROVAL_LABEL : teamSnippet || team.description}
             </span>
           </span>
         </span>
@@ -2475,51 +2837,67 @@ export default function AgentSidebar({
   const renderRemoteRow = (remote: RemoteEntry, hidden: boolean, spillSlot?: number) => {
     const name = remote.title
     const hideId = remoteHideId(remote.id)
-    const active = selectedRemoteId === remote.id
+    const active = Boolean(activeRail) && activeRail === hideId
     const dragging = draggingId === hideId
     const sessions = sessionsForRemote(remote)
-    const stacked = teamSidepaneStack(stackFacesForRemote(remote))
-    const totalMembers = remote.agents ? remote.agents.length : (stacked.faces.length + (stacked.remainder || 0))
+    const rawFaces = stackFacesForRemote(remote)
+    const marked = markStackWorking(
+      rawFaces,
+      (id) => cliRunningIds.has(id) || peekCliRunning(id),
+    )
+    const remoteWorkerBusy = Boolean(
+      marked.anyWorking ||
+      cliRunningIds.has(hideId) ||
+      peekCliRunning(hideId),
+    )
+    // #438: a remote has no CoS concept, so its chat face is the default talk-to
+    // member — first, in the ordering the working-aware stack already produced.
+    // The remainder comes from the member total, never from the capped list.
+    const chatFace = teamChatFaceStack(
+      teamSidepaneStack(marked.faces, remoteWorkerBusy).faces,
+      defaultSessionForRemote(remote)?.memberId ?? '',
+    ).face
+    // #747: sessionsForRemote fabricates a member for empty remotes, so the
+    // face is rarely null — the themed face applies whenever the chat face
+    // carries no custom avatar (uploaded faces always win).
+    const chatFaceHasAvatar = Boolean(chatFace && (chatFace.avatarSrc || chatFace.src))
+    const totalMembers = remote.agents ? remote.agents.length : rawFaces.length
     const singleMember = totalMembers === 1
-    const singleFace = stacked.faces[0]
+    const remoteRemainder = totalMembers <= 1 ? 0 : totalMembers - 1
+    const remoteNeedsApproval =
+      approvalWaitIds.has(hideId) ||
+      peekApprovalWait(hideId) ||
+      Boolean(
+        chatFace &&
+          (approvalWaitIds.has(chatFace.id) || peekApprovalWait(chatFace.id)),
+      )
     const { snippet: remoteSnippet, timestamp: remoteTime } = getRowLastMessage(
       hideId,
-      sessions as any,
-      remote as any,
+      sessions,
+      remote, // #601: RemoteEntry.lastMessageAt — no `as any`
     )
     const remoteTimestampLabel = formatRailTimestamp(remoteTime)
     const unread = unreadIds.includes(hideId)
-    // Remote badge aligns right on the name row like the Team/agent pills.
-    const remoteBadgeNode = (
-      <span
-        className="os-agent-role-badge shrink-0 badge badge-ghost badge-xs font-medium uppercase tracking-wide text-base-content/55"
-        data-kind="remote"
-        style={{
-          fontSize: '0.55rem',
-          padding: '0 0.25rem',
-          lineHeight: '1.2',
-          height: '0.9rem',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Remote
-      </span>
-    )
+    // #496: no `Remote` badge. Remote is a seat kind (transport), not a role, so
+    // the pill was claiming role status. The kind stays on the row itself —
+    // `data-kind="remote"`, `os-agent-row--remote`, and the `(remote)` aria
+    // label all remain. The right slot now falls through to the timestamp.
     return (
       <Link
         to={`/chat?remote=${encodeURIComponent(remote.id)}`}
         className={`os-remote-item os-agent-row group/row os-agent-row--remote ${
           active ? 'os-agent-row--active' : ''
-        } ${dragging ? 'os-agent-row--dragging' : ''}`}
+        } ${dragging ? 'os-agent-row--dragging' : ''} ${
+          remoteWorkerBusy ? 'os-agent-row--working-stack' : ''
+        }`}
         aria-current={active ? 'page' : undefined}
         aria-label={`${name} (remote)`}
         data-agent-id={hideId}
         data-kind="remote"
         data-hotkey={spillSlot}
         data-remote-id={remote.id}
-        data-stack-count={String(stacked.faces.length)}
-        data-remainder={String(stacked.remainder)}
+        data-stack-count={String(singleMember ? 1 : chatFace ? 1 : 0)}
+        data-remainder={String(remoteRemainder)}
         draggable={!hidden}
         onDragStart={(event) => beginRowDrag(event, { id: hideId, name })}
         onDragEnd={finishDrag}
@@ -2538,78 +2916,59 @@ export default function AgentSidebar({
         onDrop={dropOnSelf}
         onClick={(event) => {
           event.preventDefault()
+          // #748: rail rows are launch surfaces — every row navigates
+          // immediately, session-capable remotes included. The default is the
+          // most recent session when one exists; otherwise the remote chat.
+          // Session *switching* stays in the chat header, not the rail.
           const def = defaultSessionForRemote(remote)
-          if (def) {
-            navigate(def.href)
-            onClose?.()
-          } else {
-            openGroupPicker(name, sessions)
-          }
+          navigate(def?.href || `/chat?remote=${encodeURIComponent(remote.id)}`)
+          onClose?.()
         }}
         {...rowMenuHandlers(hideId, name, hidden, 'remote', sessions, remote.id)}
       >
         <span className="os-agent-row__avatar-slot relative inline-flex shrink-0 items-center justify-center">
-          {totalMembers >= 2 ? (
-            <AvatarStack
-              faces={stacked.faces}
-              remainder={stacked.remainder}
-              animate
-              label={`${name} members`}
-            />
-          ) : singleMember && singleFace ? (
+          {!chatFaceHasAvatar && remoteThemeFace(remote.kind) ? (
+            // #747: platform-themed face (Letta, Slack, AnythingLLM, …) —
+            // only for kinds the registry actually covers, so omb/herdr and
+            // other stack remotes keep their existing member-face rendering.
             <AgentAvatar
-              src={singleFace.avatarSrc || singleFace.src}
-              agentId={singleFace.id}
-              alt={singleFace.name || name}
+              agentId={remote.id}
+              alt={name}
               size="sm"
+              remoteKind={remote.kind}
+              active={remoteWorkerBusy}
+              status={remoteWorkerBusy ? 'working' : 'idle'}
             />
           ) : (
-            <span
-              className="os-team-mark os-agent-team-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-base-300 text-base-content/80"
-              aria-hidden="true"
-            >
-              <Users className="h-3.5 w-3.5" />
-            </span>
+            renderTeamAvatar({
+              name,
+              face: chatFace,
+              remainder: remoteRemainder,
+              teamId: remote.id,
+              remoteKind: remote.kind,
+            })
           )}
         </span>
         <span className="os-agent-row__label-col min-w-0 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-1.5">
-            <span className="block truncate text-sm font-semibold leading-5">{name}</span>
-            <span className="flex items-center gap-1 shrink-0 relative">
-              {spillSlot ? (
-                <span
-                  className="os-rail-shortcut text-[10px] font-mono text-base-content/40 opacity-70 group-hover/row:inline-block hidden"
-                  aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${spillSlot}`}
-                  data-testid="spill-hotkey"
-                >
-                  {isMac ? `⌥${spillSlot}` : `Alt+${spillSlot}`}
-                </span>
-              ) : null}
-              {unread ? (
-                <span
-                  className={`os-rail-unread-dot inline-block h-2 w-2 rounded-full bg-sky-500 shrink-0 ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  aria-label="Unread"
-                  data-testid="rail-unread-dot"
-                />
-              ) : remoteBadgeNode ? (
-                remoteBadgeNode
-              ) : remoteTimestampLabel ? (
-                <span
-                  className={`os-rail-timestamp text-xs text-base-content/40 tabular-nums ${
-                    spillSlot ? 'group-hover/row:hidden' : ''
-                  }`}
-                  data-testid="rail-row-timestamp"
-                >
-                  {remoteTimestampLabel}
-                </span>
-              ) : null}
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="os-rail-name-line text-sm font-semibold leading-5">
+              <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
+              <RailRowSlot
+                spillSlot={spillSlot}
+                isMac={isMac}
+                unread={unread}
+                timestampLabel={remoteTimestampLabel}
+              />
             </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 text-xs text-base-content/45">
-            <span className="block truncate min-w-0 flex-1">
-              {remoteSnippet || (remote as any).description || 'Remote team'}
+            <span
+              className={`block truncate min-w-0 flex-1${remoteNeedsApproval ? ' os-rail-attention' : ''}`}
+              data-testid={remoteNeedsApproval ? 'rail-needs-approval' : undefined}
+            >
+              {remoteNeedsApproval
+                ? NEEDS_APPROVAL_LABEL
+                : remoteSnippet || (remote as any).description || 'Remote team'}
             </span>
           </span>
         </span>
@@ -2707,20 +3066,36 @@ export default function AgentSidebar({
       />
 
       <aside
-        className={`os-agent-sidebar fixed inset-y-0 left-0 z-40 flex shrink-0 flex-col transition-transform duration-200 lg:static lg:z-0 lg:translate-x-0 ${
-          open ? 'translate-x-0' : '-translate-x-full'
-        } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''}`}
-        style={!narrow ? { width: `${railWidth}px` } : { width: '16rem' }}
+        className={`os-agent-sidebar os-agent-sidebar--${railSide} fixed inset-y-0 ${
+          railSide === 'right' ? 'right-0' : 'left-0'
+        } z-40 flex shrink-0 flex-col transition-transform duration-200 lg:static lg:z-0 lg:translate-x-0 ${
+          open
+            ? 'translate-x-0'
+            : railSide === 'right'
+              ? 'translate-x-full'
+              : '-translate-x-full'            } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''} ${
+          isCollapsed ? 'os-agent-sidebar--collapsed' : ''
+        }`}
+        style={
+          !narrow
+            ? isCollapsed
+              ? { width: `${COLLAPSED_RAIL_WIDTH}px` }
+              : { width: `${railWidth}px` }
+            : { width: '16rem' }
+        }
         aria-label="Agents"
         data-testid="os-agent-rail"
         data-rail-open={open ? 'true' : 'false'}
         data-avatar-only={isAvatarOnly ? 'true' : 'false'}
+        data-collapsed={isCollapsed ? 'true' : 'false'}
         aria-hidden={drawerHidden || undefined}
         {...(drawerHidden ? { inert: '' } : {})}
       >
         {!narrow ? (
           <div
-            className={`os-rail-resizer ${isResizing ? 'os-rail-resizer--active' : ''}`}
+            className={`os-rail-resizer ${
+              railSide === 'right' ? 'os-rail-resizer--right' : ''
+            } ${isResizing ? 'os-rail-resizer--active' : ''}`}
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize agent sidebar"
@@ -2731,12 +3106,66 @@ export default function AgentSidebar({
             data-testid="rail-resize-handle"
             onPointerDown={handleResizeStart}
             onKeyDown={handleResizeKeyDown}
-          />
+          >
+            {/* #555: collapse/expand lives on the divider, not in the pane
+                header — the bee mark was doing the brand mark's job and the
+                collapse button's job at once, and read as a logo that
+                happened to collapse the pane. The pill overlays the edge (no
+                width taken from the pane) and stays in the tab order: it
+                reveals on hover *and* on focus, plus unconditionally on
+                coarse pointers where hover does not exist. Its own
+                pointerdown never reaches the resizer, so a drag that starts
+                on the pill cannot resize. */}
+            {/* #741: the pill is a handle now, not a click-only button that
+                blocks the divider. Pointer-down records the origin and the
+                window listeners watch for movement: past the slop it becomes
+                a resize (funnelling into the same drag body as the strip).
+                The toggle itself is intent-gated in handlePillToggle — the
+                trailing click after a drag is the end of the resize, not a
+                toggle. */}
+            <span
+              className="os-rail-divider-pill"
+              data-testid="rail-divider-pill"
+              onPointerDown={(event) => {
+                if (narrow) return
+                event.stopPropagation()
+                const startX = event.clientX
+                const pointerId = event.pointerId
+                // React nulls currentTarget after the handler returns — the
+                // drag body needs the element for pointer capture.
+                const pillEl = event.currentTarget
+                pillDraggedRef.current = false
+                const onMove = (e: PointerEvent) => {
+                  if (pillDraggedRef.current || Math.abs(e.clientX - startX) > 4) {
+                    pillDraggedRef.current = true
+                    window.removeEventListener('pointermove', onMove)
+                    window.removeEventListener('pointerup', onUp)
+                    beginResizeDrag(startX, pointerId, pillEl)
+                  }
+                }
+                const onUp = () => {
+                  window.removeEventListener('pointermove', onMove)
+                  window.removeEventListener('pointerup', onUp)
+                }
+                window.addEventListener('pointermove', onMove)
+                window.addEventListener('pointerup', onUp)
+              }}
+            >
+              {isAvatarOnly ? (
+                <SidebarExpandButton onClick={handlePillToggle} />
+              ) : (
+                <SidebarConcealButton onClick={handlePillToggle} />
+              )}
+            </span>
+          </div>
         ) : null}
-        <div className="flex items-center justify-end px-3 pt-3 lg:hidden">
+        {/* #555: the top of the pane is content now (search, sections, rows).
+            Only the narrow-overlay drawer keeps a header, and only for its
+            dismiss affordance. */}
+        <div className="flex items-center justify-end gap-2 px-3 pt-3 lg:hidden">
           <button
             type="button"
-            className="btn btn-ghost btn-xs btn-circle"
+            className="btn btn-ghost btn-xs btn-circle lg:hidden"
             aria-label="Close agents sidebar"
             onClick={onClose}
           >
@@ -2745,14 +3174,10 @@ export default function AgentSidebar({
         </div>
 
         <div className="os-rail-search-row flex items-center gap-1.5 px-3 pb-2 pt-3">
-          <label className="sr-only" htmlFor="os-rail-search">
-            Search
-          </label>
-          <div
+          <button
+            type="button"
             className="os-rail-search min-w-0 flex-1 cursor-pointer"
             data-testid="rail-search-trigger"
-            role="button"
-            tabIndex={0}
             aria-label="Search"
             onClick={openPalette}
             onKeyDown={(event) => {
@@ -2763,33 +3188,13 @@ export default function AgentSidebar({
             }}
           >
             <Search
-              className="h-3.5 w-3.5 shrink-0 text-base-content/40 cursor-pointer"
+              className="h-3.5 w-3.5 shrink-0 text-base-content/40"
               aria-hidden="true"
               data-testid="rail-search-icon"
-              onClick={(event) => {
-                event.stopPropagation()
-                openPalette()
-              }}
             />
-            <input
-              id="os-rail-search"
-              type="search"
-              className="os-rail-search__input"
-              placeholder="Search"
-              readOnly
-              tabIndex={isAvatarOnly ? -1 : 0}
-              autoComplete="off"
-              onFocus={(event) => {
-                event.currentTarget.blur()
-                openPalette()
-              }}
-              onClick={(event) => {
-                event.stopPropagation()
-                openPalette()
-              }}
-            />
+            <span className="os-rail-search__input os-rail-search__placeholder">Search</span>
             <kbd className="os-rail-search__kbd kbd kbd-xs">{searchShortcut}</kbd>
-          </div>
+          </button>
           <button
             type="button"
             className="os-search-add-btn"
@@ -2836,18 +3241,70 @@ export default function AgentSidebar({
             ) : null}
           {visiblePins.map((pin, pinIdx) => {
             const live = agents.find((agent) => agent.id === pin.id)
-            const pinName = live ? agentLabel(live) : pin.name || pin.id
+            const pinTeam = pin.id.startsWith('team:')
+              ? teams.find((item) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
+              : undefined
+            const pinName = live ? agentLabel(live) : pinTeam?.name || pin.name || pin.id
             const role = live ? agentRole(live) : 'default'
             const badge = live ? roleBadgeLabel(role) : ''
-            const pinActive = Boolean(selectedId && selectedId === pin.id)
+            const pinActive = Boolean(activeRail && activeRail === pin.id)
             const pinUnread = unreadIds.includes(pin.id)
+            const pinTeamPlan = pinTeam
+              ? (() => {
+                  const rawFaces = stackFacesForTeam(pinTeam)
+                  const marked = markStackWorking(
+                    rawFaces,
+                    (id) => cliRunningIds.has(id) || peekCliRunning(id),
+                  )
+                  const busy = Boolean(
+                    marked.anyWorking ||
+                      cliRunningIds.has(pin.id) ||
+                      peekCliRunning(pin.id),
+                  )
+                  // The remainder is the roster minus the one shown face — not
+                  // the capped stack length, which would under-report.
+                  const memberTotal = pinTeam.members ? pinTeam.members.length : marked.faces.length
+                  const face = teamChatFaceStack(
+                    teamSidepaneStack(marked.faces, busy).faces,
+                    defaultSessionForTeam(pinTeam)?.memberId ?? '',
+                  ).face
+                  return {
+                    ...marked,
+                    anyWorking: busy,
+                    remainder: memberTotal > 1 ? memberTotal - 1 : 0,
+                    face,
+                  }
+                })()
+              : null
+            const pinWorkerBusy = Boolean(
+              pinTeamPlan?.anyWorking ||
+                cliRunningIds.has(pin.id) ||
+                peekCliRunning(pin.id),
+            )
+            const pinNeedsApproval = Boolean(
+              approvalWaitIds.has(pin.id) ||
+                peekApprovalWait(pin.id) ||
+                Boolean(
+                  pinTeamPlan?.face &&
+                    (approvalWaitIds.has(pinTeamPlan.face.id) ||
+                      peekApprovalWait(pinTeamPlan.face.id)),
+                ),
+            )
             const pinClass = `os-fav-tile group/tile ${
               draggingId === pin.id ? 'os-fav-tile--dragging' : ''
             } ${dropTargetId === pin.id ? 'os-fav-tile--drop' : ''} ${
               pinActive ? 'os-fav-tile--active' : ''
-            }`
+            } ${pinWorkerBusy ? 'os-fav-tile--working-stack' : ''}`
             const pinFace = (
               <>
+                {pinNeedsApproval ? (
+                  <span
+                    className="os-fav-tile__attention"
+                    data-testid="pin-needs-approval"
+                  >
+                    {NEEDS_APPROVAL_LABEL}
+                  </span>
+                ) : null}
                 {pinUnread && (
                   <span
                     className="os-rail-unread-dot absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-sky-500 z-10 group-hover/tile:hidden"
@@ -2879,12 +3336,36 @@ export default function AgentSidebar({
                     {badge}
                   </span>
                 ) : null}
-                <AgentAvatar
-                  src={live?.avatar_path}
-                  agentId={pin.id}
-                  size="lg"
-                  className="os-fav-tile__avatar"
-                />
+                {/* #438: one full-size face + a corner `+N` overlay.
+                    #689 (supersedes #523's graduated stack): exactly ONE
+                    avatar + the +N counter on pinned team seats — the second
+                    face read as a second agent at pin size. The face is
+                    still the most recently active member (#523 ordering),
+                    just no longer stacked. */}
+                <span
+                  className="os-fav-tile__face relative inline-flex shrink-0 items-center justify-center"
+                  data-testid="pin-team-face"
+                  data-remainder={String(pinTeamPlan?.remainder ?? 0)}
+                >
+                  <AgentAvatar
+                    src={pinTeamPlan?.face?.avatarSrc || pinTeamPlan?.face?.src || live?.avatar_path}
+                    agentId={pinTeamPlan?.face?.agentId || pinTeamPlan?.face?.id || pin.id}
+                    alt={pinTeamPlan?.face?.name || pinName}
+                    size="lg"
+                    className="os-fav-tile__avatar"
+                    status={pinWorkerBusy ? 'working' : 'idle'}
+                    active={pinWorkerBusy}
+                  />
+                  {pinTeamPlan && pinTeamPlan.remainder > 0 ? (
+                    <span
+                      className="os-fav-tile__remainder"
+                      data-testid="pin-team-remainder"
+                      aria-hidden="true"
+                    >
+                      +{pinTeamPlan.remainder}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="os-fav-tile__name">{pinName}</span>
                 {pinIdx < 9 && (
                   <span
@@ -2907,11 +3388,15 @@ export default function AgentSidebar({
               onClick: (event: ReactMouseEvent<HTMLElement>) => {
                 if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
                   pickOrClose?.()
+                  event.currentTarget.blur()
                   return
                 }
                 event.preventDefault()
                 navigate(agentChatHref(pin.id))
                 pickOrClose?.()
+                event.currentTarget.blur()
+              },
+              onMouseLeave: (event: ReactMouseEvent<HTMLElement>) => {
                 event.currentTarget.blur()
               },
               ...rowMenuHandlers(
@@ -2959,7 +3444,12 @@ export default function AgentSidebar({
           <nav
             ref={navScrollRef}
             onScroll={updateCanScroll}
-            className="min-h-0 flex-1 overflow-y-auto px-2 pb-3"
+            className={`os-rail-scroller min-h-0 flex-1 overflow-y-auto px-2 ${
+              /* #729: the 4rem bottom pad exists to clear the drag ghost; it
+                 is dead space when idle — active rows get the height back. */
+              draggingId ? 'pb-16' : 'pb-4'
+            }`}
+            data-testid="rail-agent-scroller"
             aria-label="Agent list"
             onContextMenu={(event) => {
               const target = event.target as HTMLElement
@@ -2968,8 +3458,17 @@ export default function AgentSidebar({
               openPaneMenuAt(event.clientX, event.clientY)
             }}
           >
+            {/* #685: a disabled provider kind is COMPLETELY absent — no notice,
+                no badge, no "enable in Settings" copy anywhere outside Settings.
+                The old #594 rail notice advertised the withheld surfaces and was
+                exactly the informative noise this ticket bans. Product modes are
+                still discoverable where they belong: Settings → Rail. */}
             <div
-              className={`os-agent-list ${listDropActive ? 'os-agent-list--unfav' : ''}`}
+              className={`os-agent-list ${listDropActive ? 'os-agent-list--unfav' : ''} ${
+                /* #729: the 3rem floor is a drop affordance, not an idle
+                   requirement — reserve it only while a drag can use it. */
+                draggingId ? 'os-agent-list--dragging' : ''
+              }`}
               data-testid="agent-list-drop"
               data-unfavourite-target="true"
               onDragOver={allowListUnfavourite}
@@ -2991,6 +3490,18 @@ export default function AgentSidebar({
               ) : (
                 <ul className="os-rail-sections space-y-1">
                   {sectionBlocks.map((block) => {
+                    // #688: an emptied Unassigned section is not a permanent
+                    // empty block. It hides until it has rows again — or until
+                    // a drag starts, when it reappears as a drop target (its
+                    // drop handler below is live the whole time). "Move to →
+                    // Unassigned" in the context menu works either way.
+                    if (
+                      isUnassignedSection(block.id) &&
+                      block.rows.length === 0 &&
+                      !draggingId
+                    ) {
+                      return null
+                    }
                     const showMembers = isAvatarOnly || !block.collapsed
                     return (
                       <li
@@ -3002,6 +3513,15 @@ export default function AgentSidebar({
                         data-section-id={block.id}
                         data-section-custom={block.custom ? 'true' : 'false'}
                         data-collapsed={block.collapsed ? 'true' : 'false'}
+                        data-internal-only={block.internalOnly ? 'true' : 'false'}
+                        /* #564: the whole section block accepts a drop, not just
+                           its header and its empty hint. Without this, a drop
+                           on the padding or the gap between rows bubbled to the
+                           list container's `dropUnfavourite`, which unpins but
+                           never assigns — so a dragged pin landed in
+                           Unassigned however carefully you aimed. */
+                        onDragOver={(event) => allowSectionDrop(event, block.id)}
+                        onDrop={(event) => dropOnSection(event, block.id)}
                       >
                         {isAvatarOnly ? null : (
                           <RailSectionHeader
@@ -3010,11 +3530,24 @@ export default function AgentSidebar({
                             count={block.rows.length}
                             collapsed={block.collapsed}
                             custom={block.custom}
+                            internalOnly={Boolean(block.internalOnly)}
                             editing={editingSectionId === block.id}
                             editValue={editingSectionId === block.id ? editingSectionName : block.name}
                             dropActive={sectionDropId === block.id}
-                            onToggle={() =>
-                              setSectionState((current) => toggleSectionCollapsed(current, block.id))
+                            onToggle={() => {
+                              if (block.id === 'subagents') {
+                                setSubagentsCollapsed((current) => !current)
+                              } else {
+                                setSectionState((current) => toggleSectionCollapsed(current, block.id))
+                              }
+                            }}
+                            onToggleTalkLock={
+                              block.custom
+                                ? () =>
+                                    setSectionState((current) =>
+                                      toggleSectionInternalOnly(current, block.id),
+                                    )
+                                : undefined
                             }
                             onContextMenu={
                               block.custom
@@ -3037,6 +3570,7 @@ export default function AgentSidebar({
                                   dropActive={sectionDropId === block.id}
                                   onDragOver={(event) => allowSectionDrop(event, block.id)}
                                   onDrop={(event) => dropOnSection(event, block.id)}
+                                  unassigned={block.id === UNASSIGNED_SECTION_ID}
                                 />
                               </li>
                             ) : (
@@ -3085,7 +3619,7 @@ export default function AgentSidebar({
           data-empty={hiddenCount === 0 ? 'true' : 'false'}
           data-drag-over={hideDropActive ? 'true' : undefined}
           role="region"
-          aria-label="Hidden Bots"
+          aria-label="Hidden Agents"
           onDragEnter={(event) => {
             event.preventDefault()
             hideDropDepth.current += 1
@@ -3114,13 +3648,19 @@ export default function AgentSidebar({
               type="button"
               className="os-hide-drop__action os-hidden-bots-row group"
               aria-haspopup="dialog"
-              aria-label={`Hidden Bots ${hiddenCount} (${hiddenCount} hidden)`}
+              aria-label={`Hidden Agents ${hiddenCount} (${hiddenCount} hidden)`}
               data-testid="os-hidden-bots-button"
-              onClick={() => openSearchPalette({ filterHidden: true })}
+              onClick={() =>
+                openSearchPalette({
+                  filterHidden: true,
+                  hiddenIds: resolvedHiddenIds,
+                  hiddenRows: hiddenRailRows,
+                })
+              }
               onMouseEnter={() => setHoveringHidden(true)}
               onMouseLeave={() => setHoveringHidden(false)}
             >
-              <span className="os-hidden-bots-label font-medium">Hidden Bots</span>
+              <span className="os-hidden-bots-label font-medium">Hidden Agents</span>
               <span className="os-hidden-bots-tail font-mono text-xs" data-testid="os-hidden-bots-tail">
                 <span
                   className={`os-hidden-bots-count ${hoveringHidden ? 'hidden' : 'inline group-hover:hidden'}`}
@@ -3128,106 +3668,192 @@ export default function AgentSidebar({
                 >
                   {hiddenCount}
                 </span>
+                {/* #557: this row opens the Hidden Agents **dialog**
+                    (`aria-haspopup="dialog"` → `openSearchPalette({ filterHidden })`),
+                    so it is a navigation affordance and a right chevron is correct —
+                    deliberately NOT a `DisclosureChevron`, which would imply an inline
+                    expand. Only the glyph changes: a lucide icon instead of the literal
+                    `>` character, so weight/size match the rest of the set. */}
                 <span
                   className={`os-hidden-bots-chevron ${hoveringHidden ? 'inline' : 'hidden group-hover:inline'}`}
-                  aria-hidden="true"
                   data-testid="os-hidden-bots-chevron"
                 >
-                  &gt;
+                  <ChevronRight className="h-3 w-3" aria-hidden="true" />
                 </span>
               </span>
             </button>
           ) : null}
         </div>
 
-        <div className="border-t border-base-300/70 px-3 py-3">
-          {/* #182: Teams entry lives in the rail footer, directly above Plugins. */}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
-            onClick={() => window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))}
-            title="Teams"
-            aria-label="Teams"
-            aria-haspopup="dialog"
-            data-testid="os-teams-button"
-          >
-            <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="os-teams-label">Teams</span>
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
-            onClick={() => setPluginsOpen(true)}
-            title="Plugins"
-            aria-label="Plugins"
-            data-testid="os-plugins-button"
-          >
-            <Plug className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="os-plugins-label">Plugins</span>
-          </button>
-          <div className="relative os-rail-hostname-row">
-            <button
-              type="button"
-              className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0 text-base-content/60 hover:text-base-content relative"
-              aria-label="Remote sessions"
-              aria-expanded={remotesPopupOpen}
-              aria-haspopup="menu"
-              data-testid="rail-server-icon"
-              onClick={() => setRemotesPopupOpen((open) => !open)}
+        <div className="border-t border-base-300/70 px-3 py-3" data-testid="sidebar-footer-container">
+          {draggingId ? (
+            <div
+              /* #783: the bin reserves the exact height of the menu cluster it
+                 conceals (see --os-footer-cluster-h below), so engaging the
+                 drag never jolts the rail. */
+              style={{ ['--os-footer-cluster-h' as string]: '10rem' }}
+              className={`os-recycle-bin flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed py-3 px-2 transition-all cursor-pointer ${
+                binDragOver
+                  ? 'border-error bg-error/20 text-error scale-[1.02]'
+                  : 'border-error/40 bg-error/5 text-error/80 hover:border-error hover:bg-error/10 hover:text-error'
+              }`}
+              data-testid="os-recycle-bin"
+              role="region"
+              aria-label="Delete"
+              onDragOver={(event) => {
+                event.preventDefault()
+                try {
+                  event.dataTransfer.dropEffect = 'move'
+                } catch {
+                  /* synthetic/jsdom */
+                }
+                setBinDragOver(true)
+              }}
+              onDragLeave={() => setBinDragOver(false)}
+              onDrop={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                setBinDragOver(false)
+                const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id || draggingId
+                if (fromId) {
+                  handleDropOnRecycleBin(fromId)
+                }
+                finishDrag()
+              }}
             >
-              <Server className="h-3.5 w-3.5" aria-hidden="true" />
-              {localWsDown && (
-                <span
-                  data-testid="local-server-status-dot"
-                  className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-error ring-1 ring-base-100"
+              <Trash2 className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span className="os-bin-label text-xs font-semibold uppercase tracking-wider">Delete</span>
+            </div>
+          ) : (
+            <>
+              {/* #182: Teams entry lives in the rail footer, directly above Plugins. */}
+              <button
+                type="button"
+                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                onClick={() => window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))}
+                title="Teams"
+                aria-label="Teams"
+                aria-haspopup="dialog"
+                data-testid="os-teams-button"
+              >
+                <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="os-teams-label">Teams</span>
+              </button>
+              <button
+                type="button"
+                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                onClick={openPlugins}
+                title={pluginsCalendarSupported ? 'Plugins' : API_ONLY_REASON}
+                aria-label={pluginsCalendarSupported ? 'Plugins' : `Plugins: ${API_ONLY_REASON}`}
+                aria-disabled={pluginsCalendarSupported ? undefined : 'true'}
+                aria-describedby={pluginsCalendarSupported ? undefined : 'os-plugins-gate-reason'}
+                data-testid="os-plugins-button"
+                data-disabled={pluginsCalendarSupported ? undefined : 'true'}
+              >
+                <Plug className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="os-plugins-label">Plugins</span>
+              </button>
+              {/* #511: the reason is a real element so the explanation is
+                  reachable by keyboard and screen reader even in avatar-only
+                  mode, where the label spans are hidden. */}
+              <span id="os-plugins-gate-reason" hidden>
+                {API_ONLY_REASON}
+              </span>
+              <button
+                type="button"
+                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                onClick={openCalendar}
+                title={pluginsCalendarSupported ? 'Routines' : API_ONLY_REASON}
+                aria-label={pluginsCalendarSupported ? 'Routines' : `Routines: ${API_ONLY_REASON}`}
+                aria-disabled={pluginsCalendarSupported ? undefined : 'true'}
+                aria-describedby={pluginsCalendarSupported ? undefined : 'os-calendar-gate-reason'}
+                data-testid="os-calendar-button"
+                data-disabled={pluginsCalendarSupported ? undefined : 'true'}
+              >
+                <Calendar className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {/* REQ-913 / #512: the entry reads Routines. The class stays
+                    `os-calendar-label` — index.css's avatar-only rule hides it
+                    in slim mode, and renaming the class without moving that
+                    rule would re-expose the label in the slim rail. */}
+                <span className="os-calendar-label">Routines</span>
+              </button>
+              <span id="os-calendar-gate-reason" hidden>
+                {API_ONLY_REASON}
+              </span>
+              <div className="relative os-rail-hostname-row">
+                <button
+                  type="button"
+                  className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0 text-base-content/60 hover:text-base-content relative"
+                  aria-label="Remote sessions"
+                  aria-expanded={remotesPopupOpen}
+                  aria-haspopup="menu"
+                  data-testid="rail-server-icon"
+                  onClick={() => setRemotesPopupOpen((open) => !open)}
+                >
+                  <Server className="h-3.5 w-3.5" aria-hidden="true" />
+                  {localWsDown && (
+                    <span
+                      data-testid="local-server-status-dot"
+                      className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-error ring-1 ring-base-100"
+                    />
+                  )}
+                </button>
+                {!isAvatarOnly ? (
+                  <>
+                <label className="sr-only" htmlFor="os-rail-hostname">
+                  Hostname
+                </label>
+                <input
+                  id="os-rail-hostname"
+                  type="text"
+                  className="os-rail-hostname"
+                  value={hostname}
+                  spellCheck={false}
+                  onChange={(event) => setHostname(event.target.value)}
+                  onBlur={() => {
+                    const next = saveHostname(hostname)
+                    setHostname(next)
+                    const override = next === defaultHostname() ? '' : next
+                    saveHostnameOverride(override)
+                    dispatchHostnameChanged(override)
+                    void saveUserPrefs({ hostname_override: override })
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur()
+                    }
+                    if (event.key === 'Escape') {
+                      setHostname(loadHostname() || defaultHostname())
+                      event.currentTarget.blur()
+                    }
+                  }}
                 />
-              )}
-            </button>
-            <label className="sr-only" htmlFor="os-rail-hostname">
-              Hostname
-            </label>
-            <input
-              id="os-rail-hostname"
-              type="text"
-              className="os-rail-hostname"
-              value={hostname}
-              spellCheck={false}
-              onChange={(event) => setHostname(event.target.value)}
-              onBlur={() => {
-                const next = saveHostname(hostname)
-                setHostname(next)
-                const override = next === defaultHostname() ? '' : next
-                saveHostnameOverride(override)
-                dispatchHostnameChanged(override)
-                void saveUserPrefs({ hostname_override: override })
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.currentTarget.blur()
-                }
-                if (event.key === 'Escape') {
-                  setHostname(loadHostname() || defaultHostname())
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-            <UpdateChrome />
-            {remotesPopupOpen && (
-              <RemoteSessionsPopup
-                isOpen={remotesPopupOpen}
-                onClose={() => setRemotesPopupOpen(false)}
-                remotes={configuredRemotesList}
-                onOpenSettingsRemotes={() => {
-                  setRemotesPopupOpen(false)
-                  openSettingsSheet({ section: 'remotes' })
-                }}
-              />
-            )}
-          </div>
+                <UpdateChrome />
+                  </>
+                ) : null}
+                {remotesPopupOpen && (
+                  <RemoteSessionsPopup
+                    isOpen={remotesPopupOpen}
+                    onClose={() => setRemotesPopupOpen(false)}
+                    remotes={configuredRemotesList}
+                    onOpenSettingsRemotes={() => {
+                      setRemotesPopupOpen(false)
+                      openSettingsSheet({ section: 'remotes' })
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </aside>
 
       <PluginsPopup open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
+      <AgentCalendarView
+        open={calendarOpen}
+        onClose={() => setCalendarOpen(false)}
+        agents={agents}
+      />
 
       <SessionPicker
         open={Boolean(picker)}
@@ -3304,6 +3930,7 @@ export default function AgentSidebar({
           onSelect={handleMenuSelect}
           onSubSelect={(parentId, childId) => {
             if (parentId === 'move-to') handleMoveTo(menu.agentId, childId)
+            if (parentId === 'bubble-theme') handleBubbleTheme(menu.agentId, childId)
           }}
         />
       )}
@@ -3317,49 +3944,21 @@ export default function AgentSidebar({
           onSelect={handleSectionMenuSelect}
         />
       )}
-      {paneMenu && (
-        <RailContextMenu
-          agentName="Side pane"
-          x={paneMenu.x}
-          y={paneMenu.y}
-          items={paneMenuItems()}
-          menuRef={menuRef}
-          onSelect={handlePaneMenuSelect}
-        />
-      )}
-      {deleteConfirm && (
-        <ConfirmModal
-          isOpen
-          onClose={() => setDeleteConfirm(null)}
-          onConfirm={confirmDeleteRow}
-          title={`Delete ${deleteConfirm.agentName}?`}
-          confirmText="Delete"
-          cancelText="Cancel"
-          confirmVariant="error"
-        >
-          <p>
-            {deleteConfirm.kind === 'cli'
-              ? 'This removes the CLI agent from the rail. It does not uninstall the CLI on this machine.'
-              : deleteConfirm.kind === 'remote'
-                ? 'This removes the configured remote from swarm. It does not change the far-side host.'
-                : 'This deletes the local entity and removes it from the rail. This cannot be undone from Hidden Bots.'}
-          </p>
-        </ConfirmModal>
-      )}
-      {notifyDeniedHint ? (
-        <div
-          role="status"
-          data-testid="notify-permission-hint"
-          className="fixed bottom-4 right-4 z-50 max-w-xs rounded-lg border border-base-300 bg-neutral px-3 py-2 text-sm shadow-xl"
-        >
-          Notifications are blocked. Enable them in the browser site settings for this page.
-        </div>
-      ) : null}
-      <AddAgentWizard
-        isOpen={addWizardOpen}
-        onClose={() => setAddWizardOpen(false)}
-        onCreated={handleAgentCreated}
-        onSelectAgent={handleAgentSelected}
+      <RailOverlays
+        paneMenu={paneMenu}
+        paneMenuItems={paneMenuItems}
+        onPaneMenuSelect={handlePaneMenuSelect}
+        deleteConfirm={deleteConfirm}
+        onDeleteCancel={() => setDeleteConfirm(null)}
+        onDeleteConfirm={confirmDeleteRow}
+        notifyHint={notifyHint}
+        onNotifyRetry={() => void retryNotifyPermission()}
+        onNotifyDismiss={() => setNotifyHint(null)}
+        addWizardOpen={addWizardOpen}
+        onAddWizardClose={() => setAddWizardOpen(false)}
+        onAddWizardCreated={handleAgentCreated}
+        onAddWizardSelect={handleAgentSelected}
+        menuRef={menuRef}
       />
     </>
   )

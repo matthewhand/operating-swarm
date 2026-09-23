@@ -86,6 +86,11 @@ class CliSessionHopAPIView(APIView):
         )
         raw_to = body.get("to_cli") or body.get("cli")
         to_cli = _resolve_cli(agent, raw_to if isinstance(raw_to, str) else None)
+        to_agent_raw = body.get("to_agent")
+        if isinstance(to_agent_raw, str) and to_agent_raw.strip():
+            to_agent_resolved = normalize_agent_id(to_agent_raw.strip())
+            if to_agent_resolved and to_agent_resolved != agent:
+                to_cli = to_agent_resolved
         conversation_id = ""
         raw_cid = body.get("conversation_id") or body.get("from_conversation_id")
         if isinstance(raw_cid, str):
@@ -97,6 +102,19 @@ class CliSessionHopAPIView(APIView):
         if not isinstance(imported, list):
             imported = None
         kind = str(body.get("kind") or "cli").strip().lower()
+        # #900: cross-kind destination (cli | api | remote). Falls back to the
+        # legacy ``kind`` field so existing CLI/API callers are unchanged.
+        to_kind = body.get("to_kind") or body.get("from_kind") and kind
+        if not isinstance(to_kind, str) or not to_kind.strip():
+            to_kind = kind
+        to_label = body.get("to_label")
+        to_label = to_label.strip() if isinstance(to_label, str) else None
+        from_label = body.get("from_label")
+        from_label = from_label.strip() if isinstance(from_label, str) else None
+        from_agent = body.get("from_agent") or body.get("from_blueprint")
+        from_agent = from_agent.strip() if isinstance(from_agent, str) else None
+        to_agent = body.get("to_agent")
+        to_agent = to_agent.strip() if isinstance(to_agent, str) else None
         try:
             payload = hop_backend(
                 _user_key(request),
@@ -109,6 +127,10 @@ class CliSessionHopAPIView(APIView):
                 import_session_id=import_sid,
                 imported_messages=imported,
                 kind=kind,
+                to_kind=to_kind,
+                to_label=to_label,
+                from_label=from_label,
+                from_agent=from_agent or to_agent,
                 config=_swarm_config(),
             )
         except ValueError as exc:

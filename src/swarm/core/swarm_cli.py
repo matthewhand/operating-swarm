@@ -1,6 +1,7 @@
 import importlib.resources as pkg_resources
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import typer
@@ -33,210 +34,48 @@ try:
 except Exception:
     pass
 
-app = typer.Typer(help="Swarm CLI tool", add_completion=False)
+app = typer.Typer(
+    help=(
+        "Operating Swarm CLI (OS CLI). `os` is a shortcut for `os-cli`. "
+        "Bare `os` / `os-cli` opens the TUI to chat with configured agents."
+    ),
+    add_completion=False,
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
 
 
-def _safe_blueprint_segment(name: str) -> str | None:
-    """Return a single path segment for library/bin joins, or None if unsafe.
+@app.callback()
+def _cli_root(ctx: typer.Context) -> None:
+    """Operating Swarm CLI. Bare invocation opens the TUI."""
+    if ctx.invoked_subcommand is None:
+        from swarm.tui.cli import tui_cmd
 
-    Rejects empty names, NUL, ``..``, absolute/drive paths, and any separator so
-    ``root / name`` cannot escape the intended directory via ``../``.
-    """
-    if not isinstance(name, str):
-        return None
-    raw = name.strip()
-    if not raw or "\x00" in raw or raw in (".", ".."):
-        return None
-    normalized = raw.replace("\\", "/")
-    if normalized.startswith("/") or (
-        len(raw) >= 2 and raw[1] == ":" and raw[0].isalpha()
-    ):
-        return None
-    parts = Path(normalized).parts
-    if "/" in normalized or ".." in parts or Path(normalized).name != normalized:
-        return None
-    return raw
+        tui_cmd()
 
 
-def _require_safe_blueprint_segment(name: str, *, what: str = "blueprint name") -> str:
-    """Like :func:`_safe_blueprint_segment` but exit the CLI on rejection."""
-    safe = _safe_blueprint_segment(name)
-    if safe is None:
-        typer.echo(
-            f"Error: Invalid {what} {name!r}: must be a single path segment.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    return safe
-
-
-def _path_is_under_root(path: Path, root: Path) -> bool:
-    """True if resolved ``path`` is ``root`` or a descendant."""
-    resolved = path.resolve()
-    root_resolved = root.resolve()
-    return resolved == root_resolved or root_resolved in resolved.parents
-
-
-def configure_moa_verbose_logging() -> None:
-    """Enable INFO on ``swarm.core.moa`` without touching the root logger.
-
-    ``logging.basicConfig(..., force=True)`` would wipe handlers already
-    attached to root (unsafe when swarm-cli is embedded or tests configure
-    logging). Attach a dedicated stderr handler once instead.
-    """
-    import logging
-    import sys
-
-    log = logging.getLogger("swarm.core.moa")
-    log.setLevel(logging.INFO)
-    marker = "_swarm_moa_cli_verbose"
-    if getattr(log, marker, False):
-        return
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setLevel(logging.INFO)
-    handler.setFormatter(
-        logging.Formatter("%(levelname)s %(name)s | %(message)s")
-    )
-    log.addHandler(handler)
-    log.propagate = False
-    setattr(log, marker, True)
-
-
-def write_moa_trace(path: str | Path, data: dict) -> None:
-    """Persist MoA telemetry JSON, creating parent directories as needed."""
-    import json
-
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-
-def find_entry_point(blueprint_dir: Path) -> str | None:
-    """Find entry point with deterministic priority for CLI compatibility.
-    Prefers {name}_cli.py, then {name}.py, then blueprint_{name}.py.
-    """
-    name = blueprint_dir.name
-    candidates = [
-        f"{name}_cli.py",
-        f"{name}.py",
-        f"blueprint_{name}.py",
-    ]
-    for cand in candidates:
-        p = blueprint_dir / cand
-        if p.is_file() and not p.name.startswith("_"):
-            return p.name
-    for item in blueprint_dir.glob("*.py"):
-        if item.is_file() and not item.name.startswith("_"):
-            return item.name
-    return None
+@app.command(name="compile")
+def compile_cmd(
+    blueprint_name: str = typer.Argument(..., help="Name of the blueprint to compile into a standalone executable."),
+):
+    """Compile an installed blueprint into a standalone executable (PyInstaller)."""
+    _compile_blueprint_executable(blueprint_name)
 
 
 @app.command(name="install-executable")
 def install_executable(
-    blueprint_name: str = typer.Argument(..., help="Name of the blueprint directory to install as an executable."),
+    blueprint_name: str = typer.Argument(..., help="Alias for 'compile'."),
 ):
-    blueprint_name = _require_safe_blueprint_segment(blueprint_name)
-    user_bp_root = paths.get_user_blueprints_dir()
-    source_dir_user = user_bp_root / blueprint_name
-    if source_dir_user.is_dir() and _path_is_under_root(source_dir_user, user_bp_root):
-        source_dir = source_dir_user
-    else:
-        bundled_base = Path(__file__).resolve().parent.parent / "blueprints"
-        bundled_dir = bundled_base / blueprint_name
-        if bundled_dir.is_dir() and _path_is_under_root(bundled_dir, bundled_base):
-            source_dir = bundled_dir
-            typer.echo(f"Using bundled blueprint directory: {bundled_dir}")
-        else:
-            typer.echo(
-                f"Error: Blueprint '{blueprint_name}' not found in user blueprints directory ({paths.get_user_blueprints_dir()}) or bundled blueprints."
-            )
-            raise typer.Exit(code=1)
-
-    entry_point = find_entry_point(source_dir)
-    if not entry_point:
-        typer.echo(f"Error: Could not find entry point script in {source_dir}")
-        raise typer.Exit(code=1)
-
-    entry_point_path = source_dir / entry_point
-    output_bin_name = blueprint_name
-    output_bin_dir = paths.get_user_bin_dir()
-    output_bin_path = output_bin_dir / output_bin_name
-    if not _path_is_under_root(output_bin_path, output_bin_dir):
-        typer.echo(f"Error: Install path escapes bin directory: {output_bin_path}", err=True)
-        raise typer.Exit(code=1)
-    cache_root = paths.get_user_cache_dir_for_swarm()
-    pyinstaller_workpath = cache_root / "build" / blueprint_name
-    pyinstaller_specpath = cache_root / "specs"
-    if not _path_is_under_root(pyinstaller_workpath, cache_root):
-        typer.echo(f"Error: Build path escapes cache directory: {pyinstaller_workpath}", err=True)
-        raise typer.Exit(code=1)
-    pyinstaller_workpath.mkdir(parents=True, exist_ok=True)
-    pyinstaller_specpath.mkdir(parents=True, exist_ok=True)
-
-    typer.echo(f"Installing blueprint '{blueprint_name}' as executable...")
-    typer.echo(f"  Source: {source_dir}")
-    typer.echo(f"  Entry Point: {entry_point}")
-    typer.echo(f"  Output Executable: {output_bin_path}")
-
-    if os.environ.get("SWARM_TEST_MODE"):
-        # In test mode, skip PyInstaller and create a stub executable
-        output_bin_dir.mkdir(parents=True, exist_ok=True)
-        output_bin_path.write_text(f"#!/bin/sh\nexec python3 {entry_point_path} \"$@\"\n")
-        output_bin_path.chmod(0o755)
-        typer.echo(f"Installed stub executable: {output_bin_path}")
-        raise typer.Exit(code=0)
-
-    pyinstaller_cmd = [
-        "pyinstaller",
-        "--onefile",
-        "--name",
-        str(output_bin_name),
-        "--distpath",
-        str(output_bin_dir),
-        "--workpath",
-        str(pyinstaller_workpath),
-        "--specpath",
-        str(pyinstaller_specpath),
-        str(entry_point_path),
-    ]
-
-    if os.environ.get("SWARM_TEST_MODE"):
-        shim = f"#!/usr/bin/env bash\npython3 {entry_point_path} \"$@\"\n"
-        try:
-            with open(output_bin_path, "w") as f:
-                f.write(shim)
-            os.chmod(output_bin_path, 0o755)
-            typer.echo(f"Test-mode shim installed at: {output_bin_path}")
-            return
-        except Exception as e:
-            typer.echo(f"Error installing test-mode shim: {e}")
-            raise typer.Exit(code=1)
-
-    typer.echo(f"Running PyInstaller: {' '.join(map(str, pyinstaller_cmd))}")
-    try:
-        result = subprocess.run(pyinstaller_cmd, check=True, capture_output=True, text=True)
-        typer.echo("PyInstaller output:")
-        typer.echo(result.stdout)
-        typer.echo(f"Successfully installed '{blueprint_name}' to {output_bin_path}")
-    except FileNotFoundError:
-        typer.echo("Error: PyInstaller command not found. Is PyInstaller installed?")
-        raise typer.Exit(code=1)
-    except subprocess.CalledProcessError as e:
-        typer.echo(f"Error during PyInstaller execution (Return Code: {e.returncode}):")
-        typer.echo(e.stderr)
-        typer.echo("Check the output above for details.")
-        raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"An unexpected error occurred: {e}")
-        raise typer.Exit(code=1)
+    """Alias for ``compile`` (historical name)."""
+    _compile_blueprint_executable(blueprint_name)
 
 
 @app.command(name="install")
 def install(
-    blueprint_name: str = typer.Argument(..., help="Name of the blueprint directory to install as an executable."),
+    blueprint_name: str = typer.Argument(..., help="Alias for 'compile' (README quickstart)."),
 ):
-    """Alias for install-executable to match README quickstart."""
-    install_executable(blueprint_name)
+    """Alias for ``compile`` to match README quickstart."""
+    _compile_blueprint_executable(blueprint_name)
 
 
 @app.command()
@@ -250,16 +89,28 @@ def launch(
     blueprint_name = _require_safe_blueprint_segment(blueprint_name)
     user_bin_dir = paths.get_user_bin_dir()
     executable_path = user_bin_dir / blueprint_name
-    if (
-        not _path_is_under_root(executable_path, user_bin_dir)
-        or not executable_path.is_file()
-        or not os.access(executable_path, os.X_OK)
-    ):
-        typer.echo(f"Error: Blueprint executable not found or not executable: {executable_path}")
+    binary_ready = (
+        _path_is_under_root(executable_path, user_bin_dir)
+        and executable_path.is_file()
+        and os.access(executable_path, os.X_OK)
+    )
+    if binary_ready:
+        launch_base = [str(executable_path)]
+    else:
+        # No compiled binary: run the source instead. Never prompt — the
+        # --pre/--listen/--post hooks below shell out and cannot answer one.
+        fallback = _source_launch_target(blueprint_name)
+        if fallback is None:
+            typer.echo(f"Error: Blueprint executable not found or not executable: {executable_path}")
+            typer.echo(
+                f"Ensure '{blueprint_name}' is compiled using 'os-cli compile {blueprint_name}'."
+            )
+            raise typer.Exit(code=1)
+        entry_path, tier = fallback
         typer.echo(
-            f"Ensure '{blueprint_name}' is installed using 'swarm-cli install-executable {blueprint_name}'."
+            f"No compiled executable at {executable_path}; using {tier}: {entry_path}"
         )
-        raise typer.Exit(code=1)
+        launch_base = [sys.executable, str(entry_path)]
 
     def _safe_hook_exe(hook_name: str) -> Path | None:
         safe = _safe_blueprint_segment(hook_name)
@@ -285,7 +136,7 @@ def launch(
                     f"Pre-hook executable '{bp_pre_name}' not found in {user_bin_dir}; skipping."
                 )
 
-    cmd = [str(executable_path)]
+    cmd = list(launch_base)
     if message is not None:
         cmd.extend(["--message", message])
     typer.echo(f"Launching '{blueprint_name}' with: {' '.join(cmd)}")
@@ -481,7 +332,7 @@ def moa(
         typer.echo(
             "Error: --workdir is the team write workspace and requires --team. "
             "For panel-only participant context use --cwd instead "
-            '(e.g. swarm-cli moa "…" --cwd .).',
+            '(e.g. os-cli moa "…" --cwd .).',
             err=True,
         )
         raise typer.Exit(code=2)
@@ -747,7 +598,7 @@ def remotes_cmd(
 
     if act == "set":
         if not rid:
-            typer.echo("remotes set requires a name (hermes|omb|rakazo|herdr|swarm)", err=True)
+            typer.echo("remotes set requires a name (hermes|omb|rakazo|herdr|swarm|trueforge)", err=True)
             raise typer.Exit(code=1)
         kwargs: dict = {}
         if base_url:
@@ -811,7 +662,7 @@ def remotes_cmd(
 
     if act == "operate":
         if not rid:
-            typer.echo("remotes operate requires a name (hermes|omb|rakazo|herdr|swarm)", err=True)
+            typer.echo("remotes operate requires a name (hermes|omb|rakazo|herdr|swarm|trueforge)", err=True)
             raise typer.Exit(code=1)
         result = _remotes.operate(rid, op, prompt=prompt, target=target, config=cfg)
         typer.echo(_json.dumps(result.as_dict(), indent=2, default=str))
@@ -824,7 +675,7 @@ def remotes_cmd(
 
     if act in ("place", "unplace"):
         if not rid:
-            typer.echo(f"remotes {act} requires a name (hermes|omb|rakazo|herdr|swarm)", err=True)
+            typer.echo(f"remotes {act} requires a name (hermes|omb|rakazo|herdr|swarm|trueforge)", err=True)
             raise typer.Exit(code=1)
         try:
             if act == "place":
@@ -863,14 +714,14 @@ def list_blueprints(
             try:
                 for item in user_bin_dir.iterdir():
                     if item.is_file() and os.access(item, os.X_OK):
-                        typer.echo(f"- {item.name}")
+                        typer.echo(f"- {item.name} ({_launcher_kind(item)})")
                         found_installed = True
             except OSError as e:
                 typer.echo(f"(Warning: Could not read installed directory: {e})")
         if not found_installed:
             typer.echo(f"(No installed blueprint executables found in {user_bin_dir})")
             typer.echo(
-                "Try 'swarm-cli install-executable <blueprint_name>' or see 'swarm-cli list --available'."
+                "Try 'os-cli compile <blueprint_name>' or see 'os-cli list --available'."
             )
         typer.echo("")
 
@@ -949,7 +800,7 @@ def cli_agents(
                 typer.echo(f"Backed up existing config to {backup}")
             dest.write_text(blob)
             typer.echo(f"Wrote starter config for {len(installed)} CLI(s) [{', '.join(installed) or 'none'}] to {dest}")
-            typer.echo("Next: export OPENAI_API_KEY, then `swarm-cli cli-agents` to verify.")
+            typer.echo("Next: export OPENAI_API_KEY, then `os-cli cli-agents` to verify.")
         else:
             if not installed:
                 typer.echo("# No catalog CLIs (claude/gemini/codex/opencode) found on this host.")
@@ -1143,7 +994,7 @@ def moa_init(
 
     Writes panel/consensus defaults and named presets (default, ci, single-grok).
     Presets are backend/participants/fake_responses only — team mode is not a
-    preset key. Use ``swarm-cli moa --team --workdir …`` or models hybrid_moa /
+    preset key. Use ``os-cli moa --team --workdir …`` or models hybrid_moa /
     moa_orchestrator for consensus-then-team. See docs/MOA.md.
     """
     import json as _json
@@ -1193,7 +1044,7 @@ def moa_init(
         typer.echo(_json.dumps({"moa": merged.get("moa", DEFAULT_MOA_BLOCK)}, indent=2))
         typer.echo(
             "\n# Presets are panel-only (backend/participants/fake_responses). "
-            "Team mode: swarm-cli moa --team --workdir …  (not a preset key)."
+            "Team mode: os-cli moa --team --workdir …  (not a preset key)."
         )
         typer.echo("\nRe-run with --write to persist. See docs/OPENWEBUI_MOA.md and docs/MOA.md")
         raise typer.Exit(code=0)
@@ -1211,7 +1062,7 @@ def moa_init(
         "(legacy: cli_fusion, cli_ensemble)"
     )
     typer.echo(
-        "Team mode is not in moa.presets — use swarm-cli moa --team --workdir … "
+        "Team mode is not in moa.presets — use os-cli moa --team --workdir … "
         "or hybrid_moa / moa_orchestrator (params.tasks)."
     )
 
@@ -1238,7 +1089,7 @@ def config_cmd(
         if cfg_path.is_file() and not force:
             typer.echo(
                 f"Config already exists at {cfg_path}. Pass --force to overwrite, "
-                "or use `swarm-cli config add` to edit profiles.",
+                "or use `os-cli config add` to edit profiles.",
                 err=True,
             )
             raise typer.Exit(code=1)
@@ -1321,12 +1172,18 @@ def wizard_cmd(
         parts = role_spec.split(":", 1)
         rname, rdesc = (parts[0], parts[1]) if len(parts) == 2 else (parts[0], parts[0])
         agents_code += f"        Agent(name='{rname}', instructions='{rdesc}'),\n"
+    # ADR-005 §4: emit a kind base by default (no wizard --kind flag yet;
+    # the scaffolded Agent-graph body is API-kind, so pass "api" explicitly
+    # to stay honest rather than falling through to BlueprintBase).
+    from swarm.core.kind_bases import base_class_for_kind
+
+    base_class = base_class_for_kind("api")
     bp_file = out / f"blueprint_{slug}.py"
     bp_file.write_text(f'''"""Auto-generated blueprint: {team_name}"""
 from agents import Agent
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import {base_class}
 
-class {slug.title().replace("_","")}Blueprint(BlueprintBase):
+class {slug.title().replace("_","")}Blueprint({base_class}):
     metadata = {{"name": "{slug}", "description": "Team blueprint: {team_name}"}}
     async def run(self, messages, **kwargs):
         yield {{"messages": [{{"role": "assistant", "content": "Team {team_name} ready."}}]}}
@@ -1359,42 +1216,214 @@ def add_cmd(
 
 @app.command(name="delete")
 def delete_cmd(
-    blueprint_name: str = typer.Argument(..., help="Blueprint name to delete from user library"),
+    blueprint_name: str = typer.Argument(..., help="Blueprint name to delete"),
+    source: bool = typer.Option(False, "--source", help="Remove only the user blueprint source."),
+    binary: bool = typer.Option(False, "--binary", help="Remove only the compiled executable."),
+    all_: bool = typer.Option(False, "--all", help="Remove source and executable (the default)."),
 ):
-    """Delete a blueprint from the user blueprint library."""
+    """Remove a blueprint's source, compiled executable, or both (default).
+
+    Reports each artefact separately; exits 0 when anything was removed and 1
+    when nothing was found, so scripts can rely on the exit code.
+    """
     blueprint_name = _require_safe_blueprint_segment(blueprint_name)
-    dest_root = paths.get_user_blueprints_dir()
-    dest = dest_root / blueprint_name
-    if not _path_is_under_root(dest, dest_root):
-        typer.echo(f"Error: Delete path escapes blueprints directory: {dest}", err=True)
+    if all_ or not (source or binary):
+        source = binary = True
+    removed_any = False
+    for wanted, remove in (
+        (source, _remove_blueprint_source),
+        (binary, _remove_blueprint_binary),
+    ):
+        if not wanted:
+            continue
+        removed, message = remove(blueprint_name)
+        removed_any = removed_any or removed
+        typer.echo(message)
+    if not removed_any:
+        typer.echo(f"Nothing to remove for '{blueprint_name}'.", err=True)
         raise typer.Exit(code=1)
-    if not dest.exists():
-        typer.echo(f"Blueprint '{blueprint_name}' not found in user library", err=True)
-        raise typer.Exit(code=1)
-    _shutil.rmtree(dest)
-    typer.echo(f"Deleted blueprint '{blueprint_name}' from {dest}")
 
 
 @app.command(name="uninstall")
 def uninstall_cmd(
     blueprint_name: str = typer.Argument(..., help="Blueprint executable to uninstall"),
 ):
-    """Uninstall a compiled blueprint executable from the user bin directory."""
+    """Uninstall a compiled blueprint executable (alias for ``delete --binary``)."""
     blueprint_name = _require_safe_blueprint_segment(blueprint_name)
+    removed, _message = _remove_blueprint_binary(blueprint_name)
     bin_dir = paths.get_user_bin_dir()
-    exe = bin_dir / blueprint_name
-    if not _path_is_under_root(exe, bin_dir):
-        typer.echo(f"Error: Uninstall path escapes bin directory: {exe}", err=True)
-        raise typer.Exit(code=1)
-    if not exe.exists():
+    if not removed:
         typer.echo(f"Executable '{blueprint_name}' not found in {bin_dir}", err=True)
         raise typer.Exit(code=1)
-    exe.unlink()
     typer.echo(f"Uninstalled '{blueprint_name}' from {bin_dir}")
+
+
+# --- Session inspection (REQ-871 workstream D) -------------------------------
+# Swarm-side session ids live in the chat store (core/chat_store.py); a CLI's own
+# sessions live in that CLI's store (core/cli_session_stores.py). These commands
+# read those two. They never invent a parallel session DB and never write one.
+
+session_app = typer.Typer(
+    help="Inspect Swarm-side chat records and the CLI session ids they hold.",
+    add_completion=False,
+)
+
+
+@session_app.command("list")
+def session_list_cmd(
+    agent: str = typer.Option(None, "--agent", help="Only show records for this agent id."),
+    provider: str = typer.Option(
+        None,
+        "--provider",
+        help="Also list this CLI's own sessions (read-only passthrough).",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+):
+    """List Swarm-side session records and the CLI session ids they hold."""
+    import json
+
+    from swarm.core import chat_store
+
+    rows = _iter_chat_session_rows()
+    if agent:
+        rows = [row for row in rows if row["agent_id"] == agent]
+
+    provider_rows: list[dict] | None = None
+    provider_note: str | None = None
+    if provider:
+        from swarm.core.cli_session_select import list_provider_sessions
+
+        can_list, provider_rows, warning = list_provider_sessions(provider)
+        if not can_list:
+            provider_rows = []
+            provider_note = f"{provider}: this CLI can't list sessions"
+        elif warning:
+            provider_note = warning
+
+    if as_json:
+        payload: dict = {"sessions": rows}
+        if provider:
+            payload["provider"] = {"name": provider, "note": provider_note, "rows": provider_rows or []}
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    if not rows:
+        typer.echo(f"No Swarm-side session records found in {chat_store.store_dir() / 'active'}")
+    for row in rows:
+        typer.echo(
+            f"- {row['agent_id']}"
+            f"  session={row['session_id'] or '(default)'}"
+            f"  updated={row['updated_at'] or '?'}"
+            f"  messages={row['message_count']}"
+        )
+        typer.echo(f"    cli_sessions: {_format_cli_sessions(row['cli_sessions'])}")
+        typer.echo(f"    transcript:   {row['path']}")
+
+    if provider:
+        typer.echo(f"--- {provider} provider sessions ---")
+        if provider_note:
+            typer.echo(f"({provider_note})")
+        if not provider_rows:
+            typer.echo("(no provider sessions reported)")
+        for row in provider_rows or []:
+            typer.echo(
+                f"- {row.get('id', '?')}  updated={row.get('updated_at') or '?'}  {row.get('title', '')}"
+            )
+
+
+@session_app.command("show")
+def session_show_cmd(
+    agent: str = typer.Argument(..., help="Agent id (chat-store record stem)."),
+    session: str = typer.Option(
+        "",
+        "--session",
+        help="Concurrent session id (the part of the file stem after '__').",
+    ),
+    user_key: str = typer.Option(None, "--user-key", help="Only consider this user key (e.g. u1)."),
+    provider: str = typer.Option(
+        None,
+        "--provider",
+        help="Check whether this CLI still reports its stored session id.",
+    ),
+):
+    """Show one session record: its CLI session ids and transcript location."""
+    rows = [
+        row
+        for row in _iter_chat_session_rows()
+        if row["agent_id"] == agent
+        and (not session or row["session_id"] == session)
+        and (not user_key or row["user_key"] == user_key)
+    ]
+    if not rows:
+        typer.echo(f"No Swarm-side session record for agent '{agent}'.", err=True)
+        raise typer.Exit(code=1)
+    if len(rows) > 1 and not session:
+        typer.echo(
+            f"Agent '{agent}' has {len(rows)} records; showing the most recent. "
+            "Pass --session to pick one."
+        )
+    row = rows[0]
+    typer.echo(f"agent_id        : {row['agent_id']}")
+    typer.echo(f"user_key        : {row['user_key']}")
+    typer.echo(f"session_id      : {row['session_id'] or '(default)'}")
+    typer.echo(f"conversation_id : {row['conversation_id'] or '(none)'}")
+    typer.echo(f"updated_at      : {row['updated_at'] or '(unknown)'}")
+    typer.echo(f"messages        : {row['message_count']}")
+    typer.echo(f"cli_sessions    : {_format_cli_sessions(row['cli_sessions'])}")
+    typer.echo(f"transcript      : {row['path']}")
+
+    if provider:
+        stored = row["cli_sessions"].get(provider)
+        if not stored:
+            typer.echo(f"{provider}: no stored session id on this record.")
+            return
+        from swarm.core.cli_session_select import list_provider_sessions
+
+        can_list, provider_rows, warning = list_provider_sessions(provider)
+        if not can_list:
+            typer.echo(f"{provider}: this CLI can't list sessions; stored id {stored} (unverified).")
+        elif warning:
+            typer.echo(f"{provider}: {warning}; stored id {stored} (unverified).")
+        else:
+            found = next((item for item in provider_rows if item.get("id") == stored), None)
+            if found:
+                typer.echo(
+                    f"{provider}: stored id {stored} is still reported ({found.get('title', '')})."
+                )
+            else:
+                typer.echo(f"{provider}: stored id {stored} is NOT in the provider's current list.")
+
+
+app.add_typer(session_app, name="session")
 
 
 # REQ-111 Wave 0: Herdr-like TUI client of the same HTTP API as WebUI.
 register_tui(app)
+
+
+# #855 slice 2 — launcher/session helpers moved verbatim to swarm.cli.launcher
+# (patch-safe: the moved bodies resolve sibling helpers, paths, _shutil, and
+# __file__ through a late-bound swarm.core.swarm_cli handle, so monkeypatch
+# targets on this module keep landing; the binding defers to first use,
+# avoiding a circular import).
+# NOTE: bound *before* the __main__ entry point — in-process
+# ``python -m swarm.core.swarm_cli`` runs command bodies at module import, so
+# the moved helpers must already be names on this module.
+from swarm.cli import launcher as _cli_launcher  # noqa: E402
+
+_compile_blueprint_executable = _cli_launcher._compile_blueprint_executable
+find_entry_point = _cli_launcher.find_entry_point
+_format_cli_sessions = _cli_launcher._format_cli_sessions
+_iter_chat_session_rows = _cli_launcher._iter_chat_session_rows
+_launcher_kind = _cli_launcher._launcher_kind
+_path_is_under_root = _cli_launcher._path_is_under_root
+_remove_blueprint_binary = _cli_launcher._remove_blueprint_binary
+_remove_blueprint_source = _cli_launcher._remove_blueprint_source
+_require_safe_blueprint_segment = _cli_launcher._require_safe_blueprint_segment
+_safe_blueprint_segment = _cli_launcher._safe_blueprint_segment
+_source_launch_target = _cli_launcher._source_launch_target
+configure_moa_verbose_logging = _cli_launcher.configure_moa_verbose_logging
+write_moa_trace = _cli_launcher.write_moa_trace
 
 
 if __name__ == "__main__":

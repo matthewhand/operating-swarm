@@ -94,25 +94,33 @@ test('sidepane mixes a team row; selecting it shows the unlabeled member dropdow
   await expect(team).toBeVisible()
   await expect(list.getByRole('link', { name: /Codey/ })).toBeVisible()
 
+  // The team row opens the team chat directly now; per-session switching moved to
+  // the row context menu ("Select session"), so there is no sessions dialog here.
   await team.click()
-  const picker = page.getByRole('dialog', { name: 'Demo Team sessions' })
-  await expect(picker).toBeVisible()
-  await picker.getByRole('option', { name: /Codey/ }).click()
   await expect(page).toHaveURL(/[?&]team=demo-team/)
 
   const dropdown = page.getByRole('combobox', { name: 'Team members' })
   await expect(dropdown).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'Blueprint' })).toHaveCount(0)
-  const remotes = page.getByRole('combobox', { name: 'Remote' })
-  await expect(remotes).toBeVisible()
-  await expect(remotes.locator('option')).toHaveText(['No remotes', 'Add remote'])
-  await expect(page.getByText('Blueprint', { exact: true })).toHaveCount(0)
+  // Remote chrome is gated to remote seats and remote-backed teams
+  // (`showRemotesControl = isRemoteAgent || isRemoteBackedTeam`), so an
+  // agent-only team renders neither the remote picker nor its empty state.
+  await expect(page.getByRole('combobox', { name: 'Remote' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add remote' })).toHaveCount(0)
+  // Raw-text count is polluted by hidden nodes (closed sheets/selects), so limit
+  // the check to what is actually on screen for a team seat.
+  await expect(
+    page.getByText('Blueprint', { exact: true }).locator('visible=true'),
+  ).toHaveCount(0)
   await expect(dropdown.locator('option')).toHaveText([
     'All members',
     'Codey (agent/coder)',
     'Stewie (agent/ops)',
-    'Manage Teams',
+    '──────────',
+    'Manage Team',
   ])
-  await expect(dropdown).toHaveValue('all')
+  // Opening a team resumes its default session, so the member dropdown reflects
+  // that session's member instead of "All members" (`defaultSessionForTeam`).
+  await expect(dropdown).toHaveValue('codey')
   expect(jsErrors, `uncaught JS errors: ${jsErrors.join(' | ')}`).toHaveLength(0)
 })

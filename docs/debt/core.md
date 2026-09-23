@@ -491,7 +491,7 @@ llm_profile), not a multi-agent team builder.
 
 ---
 
-### P2-8. Unreachable second `SWARM_TEST_MODE` block
+### P2-8. Unreachable second `SWARM_TEST_MODE` block — RESOLVED (REQ-871)
 
 - **Path:** `src/swarm/core/swarm_cli.py` `install_executable` L180–186
   (`raise typer.Exit`) then L202–212 (dead second shim)
@@ -499,6 +499,11 @@ llm_profile), not a multi-agent team builder.
   mentions `swarm-cli compile` and missing `core/build_launchers.py`.
 - **Action:** **delete** the dead block in a later PR. **leave**
   `install-executable` as the only compile path until Teams owns binaries.
+- **Resolved:** [REQ-871](../qa/REQ-871-cli-blueprint-lifecycle.md) deleted the
+  unreachable block and promoted `compile` to the primary name (`install` /
+  `install-executable` stay as aliases on one shared build body). The stale
+  `core/build_launchers.py` pointer and the non-existent
+  `~/.cache/swarm/sessions` claim are corrected in `TODO.md`.
 
 ---
 

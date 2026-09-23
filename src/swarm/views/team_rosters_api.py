@@ -84,7 +84,28 @@ class TeamRostersAPIView(APIView):
     def get(self, request, *_args, **_kwargs):
         try:
             rosters = list(load_team_rosters().values())
-            data = [_public_roster(r) for r in rosters]
+            # #601: the rail's team-row time slot needs an honest instant.
+            # Team threads persist under ``team:<id>`` in the chat store.
+            from swarm.core.chat_store import rail_activity_summaries
+
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                from swarm.core.chat_store import user_key_for
+
+                activity = rail_activity_summaries(user_key=user_key_for(user))
+            else:
+                activity = rail_activity_summaries(user_key="u0")
+            data = []
+            for roster in rosters:
+                payload = _public_roster(roster)
+                # Store stems slugify ':' → '-': team threads persist as
+                # 'team-<id>.json', matching teamThreadId() on the SPA side.
+                summary = activity.get(f"team-{payload.get('id', '')}")
+                if summary:
+                    payload["last_message_at"] = summary["at"]
+                    if summary.get("text"):
+                        payload["last_message"] = summary["text"]
+                data.append(payload)
             return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
         except Exception:
             logger.exception("Error retrieving team rosters.")
@@ -106,6 +127,11 @@ class TeamRostersAPIView(APIView):
                 ),
                 "members": serializers.ListField(required=False, child=serializers.DictField()),
                 "wires": serializers.DictField(required=False),
+                "tools": serializers.ListField(
+                    required=False,
+                    child=serializers.DictField(),
+                    help_text="Tools pane slots: handoff, as_tool, mcp. wires are derived.",
+                ),
                 "chief_of_staff_id": serializers.CharField(
                     required=False,
                     allow_blank=True,
@@ -145,6 +171,11 @@ class TeamRostersAPIView(APIView):
                         },
                     ],
                     "wires": {"handoff": True, "as_tool": True},
+                    "tools": [
+                        {"type": "handoff", "to": "research"},
+                        {"type": "as_tool", "agent": "research"},
+                        {"type": "mcp", "server": "duckduckgo", "agents": []},
+                    ],
                     "chief_of_staff_id": "cos",
                     "chief_of_staff_instructions": (
                         "Coordinate this team's roster. Hand off or use-as-tool "
@@ -181,6 +212,8 @@ class TeamRostersAPIView(APIView):
                 "wires": body.get("wires"),
                 "blueprint_id": body.get("blueprint_id") or body.get("blueprint"),
             }
+            if "tools" in body:
+                payload["tools"] = body.get("tools")
             if "chief_of_staff_id" in body:
                 payload["chief_of_staff_id"] = body.get("chief_of_staff_id")
             if "chief_of_staff_instructions" in body:
@@ -226,6 +259,10 @@ class TeamRosterDetailAPIView(APIView):
                 "wires": body.get("wires", existing.get("wires")),
                 "blueprint_id": blueprint_id,
             }
+            if "tools" in body:
+                payload["tools"] = body.get("tools")
+            elif "tools" in existing:
+                payload["tools"] = existing.get("tools")
             if "chief_of_staff_id" in body:
                 payload["chief_of_staff_id"] = body.get("chief_of_staff_id")
             elif "chief_of_staff_id" in existing:

@@ -8,7 +8,7 @@ import {
   clearRecentSlashIds,
   DEFAULT_ACTIONS,
   DEFAULT_SKILLS,
-  SlashItem,
+
 } from '../slashMenu'
 
 describe('slashMenu helpers', () => {

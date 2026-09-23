@@ -37,6 +37,8 @@ def _ssh_client(_spec=None, **_kwargs):
             return _ok(argv, '{"result":{"state":"idle","agent":"grok"}}')
         if "prompt" in remote:
             return _ok(argv, '{"type":"agent_prompted"}')
+        if "read" in remote:
+            return _ok(argv, '{"text":"grok: HERDR_PING_OK acknowledged"}')
         return _ok(argv, "{}")
 
     transport = stub_ssh_transport(handler)
@@ -157,6 +159,8 @@ def test_local_herdr_health_list_send_without_ssh():
             return _ok(argv, '{"type":"agent_prompted"}')
         if "get" in argv:
             return _ok(argv, '{"result":{"state":"idle"}}')
+        if "read" in argv:
+            return _ok(argv, '{"text":"grok: HERDR_PING_OK acknowledged"}')
         return _ok(argv, "{}")
 
     def factory(_spec, **_kwargs):
@@ -209,7 +213,10 @@ def test_remote_herdr_health_list_send_interrogate_over_stub_ssh():
     assert listed.ok is True
     assert [m["name"] for m in listed.data["members"]] == ["w3:p1", "w3"]
     assert sent.ok is True
-    assert "agent_prompted" in sent.detail
+    # #470 send contract: the reply is pane text read after the wait, and the
+    # detail names the hop — the agent_prompted ACK alone is not a reply.
+    assert sent.detail == "Herdr reply from w3:p1 via ssh herdr@herdr.example.test"
+    assert sent.data["text"] == "grok: HERDR_PING_OK acknowledged"
     assert probed.ok is True
     assert probed.data["target"] == "w3:p1"
     ssh_calls = [c for client in spies for c in getattr(client, "_test_calls", [])]

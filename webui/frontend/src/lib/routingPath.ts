@@ -13,7 +13,8 @@ export const HIDDEN_ROUTING_LABELS = new Set(['you', 'default'])
 
 export const ROUTING_PATH_SEP = ' / '
 
-export type RoutingSeatKind = 'cli' | 'remote' | 'api' | 'blueprint'
+/** '#755': team seats route through the same picker — the member is the agent. */
+export type RoutingSeatKind = 'cli' | 'remote' | 'api' | 'blueprint' | 'team'
 
 export type RoutingDimension = 'agent' | 'model' | 'effort'
 

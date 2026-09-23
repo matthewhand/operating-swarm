@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RemoteOperatePane } from '../RemotesSettings'
+import { AddRemoteForm, RemoteOperatePane } from '../RemotesSettings'
 import { ToastProvider } from '../DaisyUI'
 import * as api from '../../lib/api'
 
@@ -25,10 +25,49 @@ function renderPane(remote = { id: 'omb', label: 'OpenMousBot', base_url: 'http:
 describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // #453: the pane lists on mount, so every case needs a stub or it would hit
+    // the real API. Cases that assert specific rows re-spy with their own data.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'stub',
+      op: 'list',
+      ok: true,
+      detail: 'stub list',
+      data: { bots: [] },
+    } as any)
   })
 
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('populates the target field from AnythingLLM sessions', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'anythingllm',
+      op: 'list',
+      ok: true,
+      detail: 'listed 2 AnythingLLM thread(s) across 1 workspace(s)',
+      data: {
+        sessions: [
+          { id: 'teamstinky:thread-1', title: 'latest hacker news?' },
+          { id: 'teamstinky:thread-2', title: 'onboarding docs' },
+        ],
+        source: 'anythingllm',
+      },
+    })
+
+    renderPane({
+      id: 'anythingllm',
+      label: 'AnythingLLM',
+      base_url: 'http://127.0.0.1:3001',
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /^list$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/teamstinky:thread-1 · latest hacker news\?/i)).toBeInTheDocument()
+      expect(screen.getByText(/teamstinky:thread-2 · onboarding docs/i)).toBeInTheDocument()
+      expect(screen.getByDisplayValue('teamstinky:thread-1')).toBeInTheDocument()
+    })
   })
 
   it('renders List bots button and stops spinner on success', async () => {
@@ -69,6 +108,379 @@ describe('RemotesSettings RemoteOperatePane (REQ-131)', () => {
         screen.getByText(/OpenMousBot list operation timed out after 12s/i),
       ).toBeInTheDocument()
       expect(listBtn).not.toHaveAttribute('aria-busy', 'true')
+    })
+  })
+
+  it('lists targets on mount and enables Send without the operator clicking List (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 2 member(s) via local herdr (no SSH)',
+      data: {
+        members: [
+          { kind: 'herdr', name: 'w2:pG', object: 'herdr.member' },
+          { kind: 'herdr', name: 'w3:p1', object: 'herdr.member' },
+        ],
+      },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('w2:pG')
+    })
+    expect(screen.getByRole('button', { name: /^send$/i })).toBeEnabled()
+  })
+
+  it('keeps Send disabled when the target list comes back empty (#453)', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'herdr',
+      op: 'list',
+      ok: true,
+      detail: 'Herdr listed 0 member(s) via local herdr (no SSH)',
+      data: { members: [] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    })
+  })
+
+  it('ignores a target list that belongs to another remote (#453)', async () => {
+    // Browser-verified on the LAN app: a stale OpenMousBot list reached the
+    // Herdr pane and its first row was adopted as the Herdr target — a UUID no
+    // Herdr pane can accept. A list from another remote is ignored outright.
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'omb',
+      op: 'list',
+      ok: true,
+      detail: 'OpenMousBot listed 1 bot(s)',
+      data: { bots: [{ id: '3a383904-ec73-444c-ba8b-9805a05d18e3', name: 'hide-qa-beta' }] },
+    } as any)
+
+    renderPane({ id: 'herdr', label: 'Herdr', base_url: '' } as any)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    })
+    expect(screen.getByLabelText(/cli \/ pane/i)).toHaveValue('')
+    expect(screen.queryByText(/hide-qa-beta/i)).not.toBeInTheDocument()
+  })
+
+  it('renders routines section when capabilities.routines is true and displays routines', async () => {
+    vi.spyOn(api, 'fetchRemoteRoutines').mockResolvedValue({
+      remote: 'trueforge',
+      op: 'routines',
+      ok: true,
+      detail: 'TrueForge listed 1 routine(s)',
+      data: {
+        routines: [
+          {
+            id: 'sched-1',
+            name: 'Morning Summary',
+            agent: 'summarizer-agent',
+            cron: '0 9 * * 1-5',
+            timezone: 'America/New_York',
+            task: 'Summarize news',
+            status: 'active',
+            last_run: {
+              id: 'run-1',
+              scheduled_for: '2026-09-15T09:00:00Z',
+              status: 'scheduled',
+            },
+          },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'trueforge',
+      label: 'TrueForge',
+      base_url: 'http://127.0.0.1:8791',
+      capabilities: { routines: true },
+    } as any)
+
+    expect(screen.getByTestId('remote-routines-section')).toBeInTheDocument()
+    expect(screen.getByText('Routines (TrueForge schedules)')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByText('Morning Summary')).toBeInTheDocument()
+      expect(screen.getByText(/Agent:/)).toBeInTheDocument()
+      expect(screen.getByText('summarizer-agent')).toBeInTheDocument()
+      expect(screen.getByText(/0 9 \* \* 1-5/)).toBeInTheDocument()
+      expect(screen.getByText(/Weekdays at 09:00/)).toBeInTheDocument()
+      expect(screen.getByText(/America\/New_York/)).toBeInTheDocument()
+      expect(screen.getByText('Summarize news')).toBeInTheDocument()
+      expect(screen.getByText('scheduled')).toBeInTheDocument()
+      expect(screen.getByText('2026-09-15T09:00:00Z')).toBeInTheDocument()
+    })
+  })
+
+  it('renders empty message when no routines configured', async () => {
+    vi.spyOn(api, 'fetchRemoteRoutines').mockResolvedValue({
+      remote: 'trueforge',
+      op: 'routines',
+      ok: true,
+      detail: 'TrueForge listed 0 routine(s)',
+      data: { routines: [] },
+    })
+
+    renderPane({
+      id: 'trueforge',
+      label: 'TrueForge',
+      base_url: 'http://127.0.0.1:8791',
+      capabilities: { routines: true },
+    } as any)
+
+    await waitFor(() => {
+      expect(screen.getByText('No routines configured on this remote.')).toBeInTheDocument()
+    })
+  })
+
+  it('lists AnythingLLM sessions from operate and lets the operator pick one', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'anythingllm',
+      op: 'list',
+      ok: true,
+      detail: 'listed 2',
+      data: {
+        sessions: [
+          { id: 'docs', title: 'Docs' },
+          { id: 'docs:t1', title: 'latest hacker news?' },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'anythingllm',
+      label: 'AnythingLLM',
+      base_url: 'http://127.0.0.1:3001',
+      capabilities: { sessions: true, list: true, send: true },
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /list/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/docs:t1 · latest hacker news/i)).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /docs:t1/i }))
+    expect(screen.getByLabelText(/target/i)).toHaveValue('docs:t1')
+  })
+
+  it('lists Flowise sessions and selects a resume key', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'flowise',
+      op: 'list',
+      ok: true,
+      detail: 'listed',
+      data: {
+        sessions: [
+          { id: 'support-bot', title: 'Support Bot' },
+          { id: 'support-bot:chat-hn', title: 'latest hacker news?' },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'flowise',
+      label: 'Flowise',
+      base_url: 'http://127.0.0.1:3000',
+      capabilities: { sessions: true, list: true, send: true },
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /list/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/support-bot:chat-hn · latest hacker news/i)).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /support-bot:chat-hn/i }))
+    expect(screen.getByLabelText(/target/i)).toHaveValue('support-bot:chat-hn')
+  })
+
+  it('does not render routines section when capabilities.routines is false', () => {
+    renderPane({
+      id: 'omb',
+      label: 'OpenMousBot',
+      base_url: 'http://localhost:8000',
+      capabilities: { routines: false },
+    } as any)
+
+    expect(screen.queryByTestId('remote-routines-section')).not.toBeInTheDocument()
+    expect(screen.queryByText('Routines (TrueForge schedules)')).not.toBeInTheDocument()
+  })
+
+  it('hides routines section when remote probe reports DOWN', async () => {
+    vi.spyOn(api, 'fetchRemoteRoutines').mockResolvedValue({
+      remote: 'trueforge',
+      op: 'routines',
+      ok: true,
+      detail: 'TrueForge listed 0 routine(s)',
+      data: { routines: [] },
+    })
+    vi.spyOn(api, 'probeRemoteHealth').mockResolvedValue({
+      remote: 'trueforge',
+      ok: false,
+      state: 'DOWN',
+      detail: 'Connection refused',
+    })
+
+    renderPane({
+      id: 'trueforge',
+      label: 'TrueForge',
+      base_url: 'http://127.0.0.1:8791',
+      capabilities: { routines: true },
+    } as any)
+
+    expect(screen.getByTestId('remote-routines-section')).toBeInTheDocument()
+
+    const healthBtn = screen.getByRole('button', { name: /health/i })
+    fireEvent.click(healthBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText(/report, not a crash/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('remote-routines-section')).not.toBeInTheDocument()
+    })
+  })
+
+  it('lists Open WebUI chats as clickable sessions', async () => {
+    vi.spyOn(api, 'operateRemote').mockResolvedValue({
+      remote: 'openwebui',
+      op: 'list',
+      ok: true,
+      detail: 'listed 2 Open WebUI chat(s)',
+      data: {
+        sessions: [
+          { id: '550e8400-e29b-41d4-a716-446655440000', title: 'latest hacker news?' },
+          { id: '660f9511-f3ac-52e5-b827-557766551111', title: 'onboarding docs' },
+        ],
+      },
+    })
+
+    renderPane({
+      id: 'openwebui',
+      label: 'Open WebUI',
+      base_url: 'http://127.0.0.1:8080',
+      capabilities: { sessions: true, list: true, send: true },
+    } as any)
+
+    fireEvent.click(screen.getByRole('button', { name: /^list$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/sessions/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /latest hacker news/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /latest hacker news/i }))
+    expect(screen.getByLabelText(/target/i)).toHaveValue(
+      '550e8400-e29b-41d4-a716-446655440000',
+    )
+  })
+})
+
+describe('AddRemoteForm pre-save test connection (REQ-889)', () => {
+  it('triggers testRemoteCandidate on Test connection click and displays probe status', async () => {
+    const testSpy = vi.spyOn(api, 'testRemoteCandidate').mockResolvedValue({
+      remote: 'omb',
+      ok: true,
+      state: 'UP',
+      detail: 'tcp 4ms · http 200 on /health',
+      latency_ms: 12,
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <AddRemoteForm kinds={[{ id: 'omb', label: 'OpenMousBot' }]} onAdded={() => {}} />
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText(/Base URL/i), {
+      target: { value: 'http://127.0.0.1:8791' },
+    })
+
+    const testBtn = screen.getByRole('button', { name: /test connection/i })
+    expect(testBtn).toBeInTheDocument()
+
+    fireEvent.click(testBtn)
+
+    await waitFor(() => {
+      expect(testSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'omb',
+          base_url: 'http://127.0.0.1:8791',
+        }),
+      )
+      expect(screen.getByText(/UP \(12ms\)/i)).toBeInTheDocument()
+      expect(screen.getAllByText(/tcp 4ms · http 200 on \/health/i).length).toBeGreaterThan(0)
+    })
+  })
+})
+
+describe('#503 naming remote instances', () => {
+  it('AddRemoteForm sends the optional name as title', async () => {
+    const addSpy = vi.spyOn(api, 'addRemote').mockResolvedValue({
+      id: 'trueforge-2',
+      kind: 'trueforge',
+      title: 'TrueForge (gtx)',
+      label: 'TrueForge (gtx)',
+      base_url: 'http://127.0.0.1:8791',
+    } as any)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <AddRemoteForm kinds={[{ id: 'trueforge', label: 'TrueForge' }]} onAdded={() => {}} />
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: 'TrueForge (gtx)' } })
+    fireEvent.change(screen.getByLabelText(/Base URL/i), { target: { value: 'http://127.0.0.1:8791' } })
+    fireEvent.click(screen.getByRole('button', { name: /add remote/i }))
+    await waitFor(() => {
+      expect(addSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'TrueForge (gtx)' }))
+    })
+  })
+
+  it('RemoteOperatePane offers rename and PATCHes the new title', async () => {
+    const patchSpy = vi.spyOn(api, 'patchRemote').mockResolvedValue({
+      id: 'trueforge-2',
+      kind: 'trueforge',
+      title: 'Forge B',
+      label: 'Forge B',
+      base_url: 'http://127.0.0.1:8791',
+    } as any)
+    renderPane({ id: 'trueforge-2', label: 'TrueForge (trueforge-2)', title: 'TrueForge (trueforge-2)', base_url: 'http://127.0.0.1:8791' } as any)
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+    fireEvent.change(screen.getByLabelText(/Instance name/i), { target: { value: 'Forge B' } })
+    fireEvent.click(screen.getByRole('button', { name: /save name/i }))
+    await waitFor(() => {
+      expect(patchSpy).toHaveBeenCalledWith('trueforge-2', { title: 'Forge B' })
+    })
+  })
+
+  it('RemoteOperatePane can clear the name back to the derived label', async () => {
+    const patchSpy = vi.spyOn(api, 'patchRemote').mockResolvedValue({
+      id: 'trueforge-2',
+      kind: 'trueforge',
+      title: '',
+      label: 'TrueForge (trueforge-2)',
+      base_url: 'http://127.0.0.1:8791',
+    } as any)
+    renderPane({ id: 'trueforge-2', label: 'Forge B', title: 'Forge B', base_url: 'http://127.0.0.1:8791' } as any)
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }))
+    fireEvent.change(screen.getByLabelText(/Instance name/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /save name/i }))
+    await waitFor(() => {
+      expect(patchSpy).toHaveBeenCalledWith('trueforge-2', { title: '' })
     })
   })
 })

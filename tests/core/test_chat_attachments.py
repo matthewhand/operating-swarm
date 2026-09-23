@@ -21,6 +21,14 @@ def test_parse_attachment_ids_keeps_valid_uuids_only():
     assert chat_attachments.parse_attachment_ids("not-a-list") == []
 
 
+# 1×1 red PNG (REQ-811 vision proof fixture).
+TINY_RED_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf"
+    b"\xc0\x00\x00\x00\x03\x00\x01\x00\x05\xfe\xd4\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
 def test_compose_user_content_includes_text_excerpt():
     body = chat_attachments.compose_user_content(
         "please review",
@@ -31,19 +39,65 @@ def test_compose_user_content_includes_text_excerpt():
                 "size": 5,
                 "text": "hello",
             },
-            {
-                "name": "photo.png",
-                "content_type": "image/png",
-                "size": 2048,
-            },
         ],
     )
+    assert isinstance(body, str)
     assert body.startswith("please review")
     assert "[Attached files]" in body
     assert "notes.txt" in body
     assert "hello" in body
-    assert "photo.png" in body
-    assert "2.0 KB" in body
+
+
+def test_compose_user_content_images_become_image_url_parts():
+    body = chat_attachments.compose_user_content(
+        "what is in this picture",
+        [
+            {
+                "name": "notes.txt",
+                "content_type": "text/plain",
+                "size": 5,
+                "text": "hello",
+            },
+            {
+                "name": "photo.png",
+                "content_type": "image/png",
+                "size": len(TINY_RED_PNG),
+                "data": TINY_RED_PNG,
+            },
+        ],
+    )
+    assert isinstance(body, list)
+    text_part = next(part for part in body if part["type"] == "text")
+    image_part = next(part for part in body if part["type"] == "image_url")
+    assert "what is in this picture" in text_part["text"]
+    assert "notes.txt" in text_part["text"]
+    assert "hello" in text_part["text"]
+    assert "Attached photo.png" not in text_part["text"]
+    url = image_part["image_url"]["url"]
+    assert url.startswith("data:image/png;base64,")
+    assert chat_attachments.display_text_from_content(body) == text_part["text"]
+
+
+def test_to_runner_input_converts_image_url_parts():
+    converted = chat_attachments.to_runner_input(
+        [
+            {"type": "text", "text": "describe this"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+        ]
+    )
+    assert converted == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "describe this"},
+                {
+                    "type": "input_image",
+                    "image_url": "data:image/png;base64,abc",
+                    "detail": "auto",
+                },
+            ],
+        }
+    ]
 
 
 def test_write_and_read_bytes_are_user_scoped(tmp_path):

@@ -4,10 +4,10 @@ Chucks Angels Blueprint
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from swarm.core.blueprint_base import BlueprintBase  # Import the base class
+from swarm.core.kind_bases import TeamKindBase  # Import the base class
 
 
-class ChucksAngelsBlueprint(BlueprintBase): # Inherit from BlueprintBase
+class ChucksAngelsBlueprint(TeamKindBase): # Inherit from BlueprintBase
     """
     Blueprint for Chucks Angels. Coordinates angelic tasks, Chuck Norris style.
     """

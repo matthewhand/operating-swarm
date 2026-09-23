@@ -40,6 +40,28 @@ describe('REQ-118: RemoteSessionsPopup', () => {
     expect(onOpenSettings).toHaveBeenCalled()
   })
 
+  it('#933: a Manage Remotes affordance opens Settings → Remotes when remotes exist', () => {
+    const onOpenSettings = vi.fn()
+    const onClose = vi.fn()
+    const remotes: RemoteConnection[] = [
+      { id: 'omb', title: 'omb', base_url: 'http://127.0.0.1:8802' },
+    ]
+
+    render(
+      <RemoteSessionsPopup
+        isOpen={true}
+        onClose={onClose}
+        remotes={remotes}
+        onOpenSettingsRemotes={onOpenSettings}
+      />,
+    )
+
+    const manage = screen.getByTestId('manage-remotes-link')
+    fireEvent.click(manage)
+    expect(onClose).toHaveBeenCalled()
+    expect(onOpenSettings).toHaveBeenCalled()
+  })
+
   it('renders browsable remotes with clean URLs and OpenMousBot naming', () => {
     const remotes: RemoteConnection[] = [
       {
@@ -68,7 +90,11 @@ describe('REQ-118: RemoteSessionsPopup', () => {
     expect(screen.queryByText(/^omb$/i)).toBeNull()
     expect(screen.getByText('Hermes Box')).toBeInTheDocument()
 
-    const links = screen.getAllByRole('menuitem')
+    // Scoped to the session list: the popup also carries the #933
+    // Manage Remotes menuitem, which is a button, not an <a>.
+    const links = screen.getAllByRole('menuitem').filter(
+      (el) => el.tagName === 'A',
+    )
     expect(links).toHaveLength(2)
     expect(links[0]).toHaveAttribute('target', '_blank')
     expect(links[0]).toHaveAttribute('rel', 'noopener noreferrer')

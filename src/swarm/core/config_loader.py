@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,58 @@ def _substitute_env_vars(value: Any) -> Any:
 
 # Backwards-compatible alias (formerly in swarm.extensions.config.config_loader).
 _substitute_env_vars_recursive = _substitute_env_vars
+
+# ``os.path.expandvars`` leaves an unknown reference untouched, so a surviving
+# ``${NAME}`` means NAME was never set. Braced form only: an unbraced ``$NAME``
+# can legitimately appear inside a literal secret and would false-positive.
+_UNRESOLVED_ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def unresolved_env_placeholders(value: Any) -> list[str]:
+    """Env var names referenced as ``${NAME}`` that substitution left behind.
+
+    Walks strings, dict values and list/tuple items and returns a sorted,
+    de-duplicated list of names. Used to refuse a literal ``"${NAME}"`` before
+    it reaches a provider client as a bogus URL, key or model id.
+    """
+    names: set[str] = set()
+
+    def _walk(item: Any) -> None:
+        if isinstance(item, str):
+            names.update(_UNRESOLVED_ENV_RE.findall(item))
+        elif isinstance(item, dict):
+            for child in item.values():
+                _walk(child)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                _walk(child)
+
+    _walk(value)
+    return sorted(names)
+
+
+def drop_unresolved_env_values(
+    profile: dict, keys: tuple[str, ...] = ("api_key", "base_url")
+) -> tuple[dict, list[str]]:
+    """Strip profile values that are still ``${NAME}`` placeholders.
+
+    Returns ``(cleaned_profile, missing_env_vars)``. Dropping the value (rather
+    than passing the literal through) matters: a literal ``"${LITELLM_BASE_URL}"``
+    is a *valid* string to the OpenAI SDK, so it becomes a request target and
+    fails much later as an opaque URL/auth error that never names the variable.
+    Dropping ``api_key`` also restores the SDK's own ``OPENAI_API_KEY`` lookup.
+    """
+    unresolved = {
+        key: profile[key]
+        for key in keys
+        if isinstance(profile.get(key), str) and unresolved_env_placeholders(profile[key])
+    }
+    if not unresolved:
+        return profile, []
+    missing = sorted({n for value in unresolved.values() for n in unresolved_env_placeholders(value)})
+    cleaned = {k: v for k, v in profile.items() if k not in unresolved}
+    return cleaned, missing
+
 
 def _hint(msg: str) -> str:
     """Format a concise, actionable hint for CLI surfaces."""
@@ -55,7 +108,7 @@ def find_config_file(
             return p.resolve()
         logger.warning(
             f"Specified config path does not exist: {specific_path} | "
-            + _hint("Create a default config with: swarm-cli config init --path "
+            + _hint("Create a default config with: os-cli config init --config "
                     f"{specific_path}")
         )
         # Fall through
@@ -121,15 +174,15 @@ def load_config(config_path: Path) -> dict[str, Any]:
     except FileNotFoundError:
         logger.error(
             f"Config not found: {config_path} | "
-            + _hint("Initialize a default config with: swarm-cli config init"
-                    f"{' --path ' + str(config_path) if config_path else ''}")
+            + _hint("Initialize a default config with: os-cli config init"
+                    f"{' --config ' + str(config_path) if config_path else ''}")
         )
         raise
     except json.JSONDecodeError as e:
         logger.error(
             f"Invalid JSON in {config_path}: {e} | "
             + _hint("Fix the file or recreate it: mv "
-                    f"{config_path} {config_path}.bak && swarm-cli config init")
+                    f"{config_path} {config_path}.bak && os-cli config init")
         )
         raise ValueError(f"Invalid JSON: {config_path}") from e
     except Exception as e:
@@ -152,7 +205,7 @@ def validate_config(config: dict[str, Any]):
     if "llm" not in config or not isinstance(config["llm"], dict):
         raise ValueError(
             "Config 'llm' section missing/malformed. "
-            + _hint("Use: swarm-cli config add --section llm --name default --json "
+            + _hint("Use: os-cli config add --section llm --name default --json "
                     "'{\"provider\":\"openai\",\"model\":\"gpt-4o\",\"api_key\":\"${OPENAI_API_KEY}\"}'")
         )
     for name, prof in config.get("llm", {}).items():
@@ -165,8 +218,8 @@ def get_profile_from_config(config: dict[str, Any], profile_name: str) -> dict[s
     if profile_data is None:
         raise ValueError(
             f"LLM profile '{profile_name}' not found. "
-            + _hint("List profiles or add one: swarm-cli config list; "
-                    "swarm-cli config add --section llm --name default --json '{...}'")
+            + _hint("List profiles or add one: os-cli config list; "
+                    "os-cli config add --section llm --name default --json '{...}'")
         )
     if not isinstance(profile_data, dict):
         raise ValueError(f"LLM profile '{profile_name}' not dict.")
@@ -234,12 +287,13 @@ def load_full_configuration(
     profile_override: str | None = None,
     cli_config_overrides: dict[str, Any] | None = None,
     # default_config_path is now primarily for specific overrides or testing;
-    # if None, get_swarm_config_file() from paths.py will be used.
+    # if None, find_config_file() discovery is used.
     default_config_path_for_tests: Path | None = None,
 ) -> dict[str, Any]:
     """
     Loads and merges configuration settings from base file, blueprint specifics, profiles, and CLI overrides.
-    Uses XDG-compliant config path by default.
+    Discovers the base file the same way the rest of the app does (see
+    :func:`find_config_file`) unless a path is given explicitly.
 
     Args:
         blueprint_class_name (str): The name of the blueprint class (e.g., "MyBlueprint").
@@ -248,7 +302,8 @@ def load_full_configuration(
         cli_config_overrides (Optional[Dict[str, Any]]): Overrides provided via CLI argument.
         default_config_path_for_tests (Optional[Path]): Explicit path to a config file,
                                                         primarily for testing or specific scenarios.
-                                                        If None, uses XDG default path.
+                                                        If None, uses :func:`find_config_file`
+                                                        discovery.
 
     Returns:
         Dict[str, Any]: The final, merged configuration dictionary.
@@ -258,7 +313,7 @@ def load_full_configuration(
         FileNotFoundError: If a specific config_path_override is given but the file doesn't exist.
     """
     # Determine the configuration file path to use
-    # Priority: CLI override > test/specific override > XDG default
+    # Priority: CLI override > test/specific override > discovery
     if config_path_override:
         config_path = Path(config_path_override)
         logger.debug(f"Using CLI overridden configuration path: {config_path}")
@@ -266,8 +321,14 @@ def load_full_configuration(
         config_path = default_config_path_for_tests
         logger.debug(f"Using test/specific default configuration path: {config_path}")
     else:
-        config_path = get_swarm_config_file() # Default to XDG config file
-        logger.debug(f"Using XDG default configuration path: {config_path}")
+        # Discovery (explicit > SWARM_CONFIG_PATH > XDG swarm_config.json >
+        # upwards > CWD), matching find_config_file's documented precedence.
+        # This used to be get_swarm_config_file(), which named a config.yaml that
+        # nothing writes — so this branch silently loaded an empty base config for
+        # every caller without an override (requirements.load_active_config, and
+        # through it the MCP provider's mcpServers).
+        config_path = find_config_file() or get_swarm_config_file()
+        logger.debug(f"Using discovered configuration path: {config_path}")
 
     base_config = {}
     if config_path.is_file():
@@ -464,6 +525,22 @@ def get_resolved_llm_profile(
     # Apply overrides
     resolved = _apply_litellm_overrides(profile)
 
+    # Env overrides above substitute the real values when present, so a value
+    # still braced here points at a variable that is not set. Never hand that
+    # literal to a provider client — name the variable and drop the value.
+    resolved, missing_env = drop_unresolved_env_values(resolved)
+    if missing_env:
+        names = ", ".join(missing_env)
+        logger.warning(
+            "LLM profile %r references %s, but %s not set; ignoring those values. "
+            "Set %s in the environment (e.g. .env or ~/.config/swarm/.env), or "
+            "replace the placeholder in swarm_config.json.",
+            name,
+            names,
+            "that variable is" if len(missing_env) == 1 else "those variables are",
+            names,
+        )
+
     return resolved
 
 
@@ -497,7 +574,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
         validate_config(config)
         return _substitute_env_vars(config)
     except FileNotFoundError:
-        logger.error(f"Config not found: {config_path} | " + _hint("swarm-cli config init"))
+        logger.error(f"Config not found: {config_path} | " + _hint("os-cli config init"))
         raise
     except Exception as e:
         logger.error(f"Load error {config_path}: {e}", exc_info=True)
@@ -513,14 +590,14 @@ def save_config(config: dict[str, Any], config_path: Path):
 
 def validate_config(config: dict[str, Any]):
     if "llm" not in config or not isinstance(config.get("llm"), dict):
-        raise ValueError("Config 'llm' section missing/malformed. " + _hint("swarm-cli config add --section llm ..."))
+        raise ValueError("Config 'llm' section missing/malformed. " + _hint("os-cli config add --section llm ..."))
     logger.debug("Config structure OK.")
 
 
 def get_profile_from_config(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
     prof = config.get("llm", {}).get(profile_name)
     if not prof:
-        raise ValueError(f"LLM profile '{profile_name}' not found. " + _hint("swarm-cli config list"))
+        raise ValueError(f"LLM profile '{profile_name}' not found. " + _hint("os-cli config list"))
     return _substitute_env_vars(prof)
 
 

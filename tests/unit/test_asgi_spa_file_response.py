@@ -25,7 +25,10 @@ def test_spa_views_and_urls_do_not_use_fileresponse():
     assert "return FileResponse" not in web_views
     assert "FileResponse(" not in urls
     assert "asgi_file_response" in web_views
-    assert "asgi_file_response" in urls
+    # #714: the ASGI-safe serving helper lives in web_views; routing modules
+    # consume the views (spa_asset_view / spa_fallback_view), not the helper.
+    assert "spa_asset_view" in urls
+    assert "spa_fallback_view" in urls
     assert "django.views.static import serve" not in urls.split("SPA Fallback")[-1]
 
 

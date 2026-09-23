@@ -72,13 +72,29 @@ describe('MailboxAclEditor (REQ-162)', () => {
     stubAcl()
     render(<MailboxAclEditor agentId="support" role="support" />)
     expect(await screen.findByTestId('mailbox-acl-editor')).toBeInTheDocument()
-    expect(screen.getByText(/Mailbox visibility/i)).toBeInTheDocument()
-    expect(screen.getByTestId('mailbox-acl-allow-all')).toHaveTextContent(/allow-all/i)
+    // #545: the heading and the toggle no longer use whitelist/blacklist jargon.
+    expect(screen.getByText(/Who this seat may message/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Mailbox visibility/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Filter')).toBeInTheDocument()
+    // Scope the two options to the toggle's own row: `Permitted` also appears in
+    // the allow-all explanation below it.
+    const filterRow = screen
+      .getByLabelText('Filter the entries below: permitted or denied')
+      .closest('label')
+    expect(filterRow).toHaveTextContent('Permitted')
+    expect(filterRow).toHaveTextContent('Denied')
+    expect(screen.queryByText('Whitelist')).not.toBeInTheDocument()
+    expect(screen.queryByText('Blacklist')).not.toBeInTheDocument()
+    expect(screen.queryByText('White')).not.toBeInTheDocument()
+    expect(screen.queryByText('Black')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mailbox-acl-allow-all')).toHaveTextContent(/open to everyone/i)
     expect(screen.getByText('agent', { selector: 'strong' })).toBeInTheDocument()
     expect(screen.getByText('team', { selector: 'strong' })).toBeInTheDocument()
     expect(screen.getByText('role', { selector: 'strong' })).toBeInTheDocument()
     expect(screen.getByLabelText('ACL scope')).toBeInTheDocument()
-    expect(screen.getByLabelText('Toggle whitelist or blacklist')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('Filter the entries below: permitted or denied'),
+    ).toBeInTheDocument()
   })
 
   it('toggles white↔black and adds/removes an agent entry', async () => {
@@ -86,7 +102,7 @@ describe('MailboxAclEditor (REQ-162)', () => {
     render(<MailboxAclEditor agentId="pat" role="default" />)
     await screen.findByTestId('mailbox-acl-editor')
 
-    fireEvent.click(screen.getByLabelText('Toggle whitelist or blacklist'))
+    fireEvent.click(screen.getByLabelText('Filter the entries below: permitted or denied'))
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/v1/mailbox-acl/agents/pat/'),

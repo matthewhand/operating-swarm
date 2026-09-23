@@ -10,6 +10,29 @@ Grok-like WebUI is product chrome. Vocabulary:
 Shared helpers live in `common/` (not a blueprint). Empty husk directories without
 `blueprint_*.py` were deleted — do not restore.
 
+## Teaching examples (REQ-920 / #539)
+
+`example_*` directories are the **SDK teaching bundle**: one minimal,
+heavily-commented recipe per extension point. Read them before writing a
+blueprint; the full interface reference is the Blueprint SDK docs
+(REQ-921 / #540).
+
+| Example | Base | Teaches |
+|---|---|---|
+| `example_api_minimal` | `ApiKindBase` | smallest recipe that answers a turn; kind-base `run()` does the work |
+| `example_cli_minimal` | `CliKindBase` | the "which CLI, which model" binding; native sessions |
+| `example_remote_minimal` | `RemoteKindBase` | binding one registered harness; honest DOWN reporting |
+| `example_cli_provider_agy` | `CliKindBase` | provider-locked CLIs: documenting a backend exclusion (agy is Gemini-only, no orchestration) |
+| `example_cli_provider_omp` | `CliKindBase` | provider surface: sessions, status line, honest slash commands (opencode/qwen/pi follow the same pattern) |
+| `example_team_orchestrator` | `ApiKindBase` | coordinating sub-agents by **role**, not hard-coded ids |
+| `example_advisor_tool` | `ApiKindBase` | exposing a specialist as a tool via `as_tool()` (the advisor pattern) |
+
+Every example: states its base, each hook it overrides **and why**, and
+what it deliberately does not do. They load and are inspectable with zero
+credentials; each docstring says what they need to actually run. Examples
+never set `rail: true` — they appear in the catalog/library, not on the
+rail.
+
 ## Two workflow families
 
 See **[docs/SWARM_WORKFLOWS.md](../../../docs/SWARM_WORKFLOWS.md)**.

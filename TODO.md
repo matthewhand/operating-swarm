@@ -6,12 +6,15 @@
 > fine-grained engineering tasks are kept below. Add new strategic items to
 > `ROADMAP.md`, not here.
 
-## CLI blueprint lifecycle (gaps in `swarm-cli`)
+## CLI blueprint lifecycle (`swarm-cli`)
 
-- [ ] `swarm-cli compile <blueprint_name>` — PyInstaller compile of an installed blueprint to `get_user_bin_dir()` (see `src/swarm/core/build_launchers.py` for the invocation pattern), plus tests.
-- [ ] `swarm-cli launch` should prefer the compiled binary in `get_user_bin_dir()` and fall back to (or offer to compile from) installed source.
-- [ ] `delete`/`uninstall` should handle removing source, compiled binary, or both.
-- [ ] `swarm-cli session list` / `session show` to inspect past sessions in `~/.cache/swarm/sessions`.
+Shipped as [REQ-871](docs/qa/REQ-871-cli-blueprint-lifecycle.md), locked by
+`tests/unit/test_req871_cli_blueprint_lifecycle.py`.
+
+- [x] `swarm-cli compile <blueprint_name>` — PyInstaller compile into `get_user_bin_dir()` (`_compile_blueprint_executable` in `src/swarm/core/swarm_cli.py`); `install` / `install-executable` stay behaviourally identical aliases. Behaviour tests: `tests/cli/test_blueprint_lifecycle.py`.
+- [x] `swarm-cli launch` prefers the compiled binary in `get_user_bin_dir()` and falls back to installed, then bundled, source. Non-interactive by design: it never offers to compile, because the `--pre` / `--listen` / `--post` hooks it drives cannot answer a prompt.
+- [x] `delete` takes `--source` / `--binary` / `--all` (default: both) and reports each artefact separately; `uninstall` stays the binary-only alias.
+- [x] `swarm-cli session list` / `session show` — reads the chat store (`SWARM_CHAT_DIR`, else `<user data>/chats`) plus provider session stores. Note: **there is no `~/.cache/swarm/sessions` store** — that path never existed, and `session` deliberately does not create one (`tests/cli/test_session_command.py` asserts this).
 
 ## Blueprint metadata
 

@@ -29,7 +29,22 @@ def test_user_facing_kind_is_always_remote():
     assert USER_FACING_KIND == "remote"
     assert user_facing_kind("herdr") == "remote"
     assert user_facing_kind("hermes") == "remote"
-    assert set(REMOTE_IMPL_IDS) == {"hermes", "omb", "rakazo", "herdr", "swarm"}
+    assert user_facing_kind("trueforge") == "remote"
+    assert user_facing_kind("anythingllm") == "remote"
+    assert user_facing_kind("openwebui") == "remote"
+    assert set(REMOTE_IMPL_IDS) == {
+        "hermes",
+        "anythingllm",
+        "letta",
+        "openwebui",
+        "flowise",
+        "n8n",
+        "omb",
+        "rakazo",
+        "herdr",
+        "swarm",
+        "trueforge",
+    }
 
 
 def test_registry_covers_every_catalog_impl():
@@ -55,10 +70,21 @@ def test_capabilities_computer_only_on_omb_and_rakazo():
     assert capabilities_for("omb").operate is True
     assert capabilities_for("rakazo").operate is True
     assert capabilities_for("hermes").operate is False
+    assert capabilities_for("anythingllm").operate is False
+    assert capabilities_for("letta").operate is False
     assert capabilities_for("herdr").operate is False
     assert capabilities_for("herdr").interrogate is True
     assert capabilities_for("herdr").transport == "cli"
     assert capabilities_for("hermes").transport == "http"
+    assert capabilities_for("anythingllm").transport == "http"
+    assert capabilities_for("letta").transport == "http"
+    assert capabilities_for("hermes").sessions is True
+    assert capabilities_for("anythingllm").sessions is True
+    assert capabilities_for("letta").sessions is True
+    assert capabilities_for("openwebui").sessions is True
+    assert capabilities_for("flowise").sessions is True
+    assert capabilities_for("n8n").sessions is True
+    assert capabilities_for("omb").sessions is False
 
 
 def test_implementation_catalog_kind_is_remote_impl_is_id():
@@ -104,22 +130,35 @@ def test_computer_operate_stub_honest():
 def test_herdr_is_remote_impl_not_fifth_kind():
     assert "herdr" not in AGENT_TYPES
     assert AGENT_TYPES == ("api", "cli", "remote")
-    assert set(get_args(AgentKind)) == {"api", "cli", "remote"}
+    # classify_agent_kind grew the stored-design kind "blueprint" (REQ-49);
+    # user-facing AGENT_TYPES stay three — blueprint maps to api.
+    assert set(get_args(AgentKind)) == {"api", "cli", "remote", "blueprint"}
+    assert agent_type_for_kind("blueprint") == "api"
     assert agent_type_for_kind("herdr") == "remote"
     assert classify_agent_kind("herdr") == "remote"
     assert classify_agent_kind("w3:p1", explicit="herdr") == "remote"
     assert classify_agent_kind("herdr:w3:p1") == "remote"
     assert classify_agent_kind("hermes") == "remote"
+    assert classify_agent_kind("anythingllm") == "remote"
+    assert classify_agent_kind("letta") == "remote"
+    assert classify_agent_kind("openwebui") == "remote"
+    assert classify_agent_kind("open-webui") == "remote"
+    assert classify_agent_kind("flowise") == "remote"
+    assert classify_agent_kind("n8n") == "remote"
     assert classify_agent_kind("omb") == "remote"
     assert classify_agent_kind("rakazo") == "remote"
+    assert classify_agent_kind("trueforge") == "remote"
     # Design-kind swarm stays API (not the nested remote impl).
     assert classify_agent_kind("swarm") == "api"
     assert agent_type_for_kind("swarm") == "api"
     assert is_remote_impl_id("herdr")
     assert is_remote_impl_id("open-swarm")
+    assert is_remote_impl_id("trueforge")
     assert not is_remote_impl_id("swarm")
     assert normalize_impl_id("openmousbot") == "omb"
     assert normalize_impl_id("open-swarm") == "swarm"
+    assert normalize_impl_id("true_forge") == "trueforge"
+    assert normalize_impl_id("true-forge") == "trueforge"
 
 
 def test_wrappers_expose_contract_methods_without_lan():

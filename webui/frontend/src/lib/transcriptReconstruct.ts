@@ -142,11 +142,9 @@ export function messagesFromThreadPayload(payload: {
   if (events && !messages.length) {
     return reconstructTranscript([], events)
   }
-  return reconstructTranscript(...(() => {
-    const split = splitMixedMessages(messages)
-    const mixed = messages.some((row) => isChromeRole(row.role))
-    return mixed ? [split.turns, split.events] : [messages, []]
-  })())
+  const split = splitMixedMessages(messages)
+  const mixed = messages.some((row) => isChromeRole(row.role))
+  return reconstructTranscript(mixed ? split.turns : messages, mixed ? split.events : [])
 }
 
 export function turnIndexFromDisplay(

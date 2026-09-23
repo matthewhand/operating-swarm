@@ -369,6 +369,29 @@ def _list_cwd(cli_name: str, config: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _normalize_folder_hint(cli_name: str, folder: str | None) -> str | None:
+    """Folder to validate/forward, dropping provider hints we cannot use (#71).
+
+    A real path passes through untouched (the caller still validates it). A
+    provider escaped-project hint — qwen hands back ``-home-me-proj``, the
+    *name* of its per-project dir, not a path — is resolved against that
+    provider's store root. When it cannot be resolved we drop the hint instead
+    of raising ``AgentFolderError``: the session's own transcript supplies the
+    real cwd on select, and listing must still work.
+    """
+    text = str(folder or "").strip()
+    if not text:
+        return None
+    if text.startswith(("/", "~", ".")):
+        return text
+    from swarm.core.cli_session_stores import (
+        provider_store_dir,
+        resolve_escaped_project_dir,
+    )
+
+    return resolve_escaped_project_dir(text, provider_store_dir(cli_name))
+
+
 def _session_list_cwd(
     cli_name: str,
     config: dict[str, Any] | None,
@@ -484,6 +507,9 @@ def list_cli_sessions(
     """Picker payload: provider list (if any) + recent swarm-touch rows."""
     from swarm.core.agent_folder import resolve_session_cwd
 
+    # #71: a provider escaped-project hint is not a path — resolve it against
+    # the provider store (or drop it) before validating.
+    folder = _normalize_folder_hint(cli_name, folder)
     # Validate Folder before listing so a bad path never silently uses another cwd.
     resolve_session_cwd(agent_id=agent_id, raw=folder)
     can_list, provider, warning = list_provider_sessions(
@@ -610,9 +636,12 @@ def select_cli_session(
     from swarm.core.agent_folder import resolve_session_cwd
 
     agent = chat_store.normalize_agent_id(agent_id)
+    cli = chat_store.normalize_agent_id(cli_name)
+    # #71: resolve (or drop) a provider escaped-project hint before validating,
+    # so selecting a qwen session no longer 400s on a hint that is not a path.
+    folder = _normalize_folder_hint(cli, folder)
     # Fail before minting a conversation when Folder is set but unusable.
     resolve_session_cwd(agent_id=agent, raw=folder)
-    cli = chat_store.normalize_agent_id(cli_name)
     sid = None if start_new else sanitize_cli_session_id(session_id)
     if not start_new and session_id and sid is None:
         raise ValueError("session_id is not a storeable CLI session id")

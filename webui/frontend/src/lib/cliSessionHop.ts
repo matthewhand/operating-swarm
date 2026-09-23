@@ -12,7 +12,7 @@ import { loadHopPrefs } from './sessionHopPrefs'
 export const CLI_SESSION_HOPPED_EVENT = 'swarm:cli-session-hopped'
 
 export const CONTEXT_CARRIED_RE =
-  /^Carried (summary|full) context from \S+ → \S+ \(\d+ tokens\)\./
+  /^Started a new \S+ session \(\S+ → \S+\)\. Carried (summary|full) context \(\d+ tokens\)\./
 
 export type HopMode = 'summary' | 'full'
 
@@ -31,7 +31,8 @@ export interface CliSessionHopResult {
   empty: boolean
   status: string
   export_warning: string | null
-  import: 'transcript' | 'swarm'
+  /** Where the seeded context came from: native export, the #901 DB mirror, or the swarm thread. */
+  import: 'transcript' | 'swarm' | 'db_mirror'
   injection: {
     text: string
     mode: HopMode
@@ -68,7 +69,7 @@ export function formatContextCarriedStatus(
   mode: HopMode,
   tokens: number,
 ): string {
-  return `Carried ${mode} context from ${fromCli} → ${toCli} (${tokens} tokens).`
+  return `Started a new ${toCli} session (${fromCli} → ${toCli}). Carried ${mode} context (${tokens} tokens).`
 }
 
 export function isContextCarriedStatus(text: string | null | undefined): boolean {
@@ -88,6 +89,15 @@ export async function hopCliSession(opts: {
   tokenBudget?: number
   importSessionId?: string
   kind?: 'cli' | 'api'
+  /** #900: destination seat kind for cross-kind hops (cli | api | remote). */
+  toKind?: 'cli' | 'api' | 'remote'
+  /** #900: the seat id whose record consumes the pending seed. */
+  toAgent?: string
+  /** #900: human backend names for the banner (pretty labels). */
+  toLabel?: string
+  fromLabel?: string
+  /** #900: seat id whose record owns the source transcript. */
+  fromAgent?: string
 }): Promise<CliSessionHopResult> {
   const prefs = loadHopPrefs()
   const from = conversationIdForAgent(opts.agentId)
@@ -100,7 +110,56 @@ export async function hopCliSession(opts: {
     token_budget: opts.tokenBudget ?? prefs.tokenBudget,
     import_session_id: opts.importSessionId || undefined,
     kind: opts.kind || 'cli',
+    to_kind: opts.toKind,
+    to_agent: opts.toAgent,
+    to_label: opts.toLabel,
+    from_label: opts.fromLabel,
+    from_agent: opts.fromAgent,
   })
+}
+
+
+export interface CrossKindHopSpec {
+  agentId: string
+  conversationId: string
+  fromCli: string
+  toCli: string
+  toKind: 'cli' | 'api' | 'remote'
+  toAgent: string
+  toLabel: string
+  fromLabel?: string
+}
+
+/**
+ * #900 — turn a provider switch into a cross-kind hop: same conversation id,
+ * the pending seed stored under the destination seat, CLI destinations keyed
+ * by adapter name (prepare_cli_turn consumes by CLI), api/remote keyed by
+ * seat record id (the consumer matches what the send frame resolves).
+ */
+export function crossKindHopForReconfigure(input: {
+  /** Seat id of the agent being reconfigured (blueprint / remote:kind / team:id). */
+  seatId: string
+  conversationId: string
+  /** Current backend label (grok, omb, auxiliary …). */
+  fromCli: string
+  /** Picked backend label. */
+  toCli: string
+  /** Destination seat kind. */
+  toKind: 'cli' | 'api' | 'remote'
+  /** Destination backend record id (cli catalog id, remote impl id). */
+  toBackendId: string
+}): CrossKindHopSpec {
+  const seat = (input.seatId || '').trim() || 'cli_agent'
+  return {
+    agentId: seat,
+    conversationId: (input.conversationId || '').trim(),
+    fromCli: (input.fromCli || 'prior').trim() || 'prior',
+    toCli: input.toKind === 'cli' ? (input.toBackendId || input.toCli).trim() : seat,
+    toKind: input.toKind,
+    toAgent: input.toKind === 'cli' ? (input.toBackendId || input.toCli).trim() : seat,
+    toLabel: input.toCli,
+    fromLabel: input.fromCli,
+  }
 }
 
 export function dispatchCliSessionHopped(detail: {

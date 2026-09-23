@@ -34,8 +34,19 @@ Effective discoverability = team ∪ edges ∩ (whitelist / ¬blacklist), with S
 | `agent` | One catalogued rail / roster agent id |
 | `team` | Every member of that composition roster |
 | `role` | Every peer whose canonical role matches (`support`, `gate`, `skeptic`, `chief_of_staff`, `engineer`, `suggestions`, `default`) |
+| `section` | Every member of that CoS rail section (Issue #219 `set_talk_acl` / `create_section`) |
 
 Per-agent overrides beat per-role policies. Empty blacklist = no extra cut. Empty whitelist = nobody, except Support/CoS allow-all. `list_agents` and `send_message` both apply the effective ACL.
+
+## Section lock (Issue #163)
+
+A custom rail section marked **internal-only** further cuts discoverability to
+members of that section (including a team of one). Unassigned cannot be
+locked. Unlock restores the team+ACL reach above. CoS/Support allow-all does
+**not** bypass a locked section. SPA chrome persists the flag on
+`swarm_rail_sections`; chat turns snapshot it as `params.rail_sections`.
+Denied sends return `section_internal_only`. See
+[ISSUE-163-section-internal-talk.md](./qa/ISSUE-163-section-internal-talk.md).
 
 ## Code
 

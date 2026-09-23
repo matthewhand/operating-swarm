@@ -14,7 +14,9 @@ CSS = REPO / "webui" / "frontend" / "src" / "index.css"
 
 def test_req845_offline_sends_are_queued_not_dropped():
     text = CHAT.read_text(encoding="utf-8")
-    assert "queued.enqueue(trimmed)" in text
+    # #603: the enqueue carries the attachment-caption fallback, not just the
+    # bare draft — the contract is 'never drop', whatever the send contains.
+    assert "queued.enqueue(fallbackText)" in text
     assert "status !== 'open'" in text
     assert "Chat is reconnecting" in text
 

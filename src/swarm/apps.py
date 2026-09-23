@@ -83,6 +83,7 @@ class SwarmConfig(AppConfig):
         # reloader's parent process to avoid double-resume.
         self._check_uvicorn_workers()
         self._maybe_resume_async_tasks()
+        self._maybe_start_schedule_engine()
 
         logger.info("Swarm app initialization checks completed.")
 
@@ -157,6 +158,27 @@ class SwarmConfig(AppConfig):
             threading.Thread(target=resume_pending_responses, daemon=True).start()
         except Exception as e:  # never let resume break startup
             logger.warning("Could not schedule async-task resume: %s", e)
+
+    @staticmethod
+    def _maybe_start_schedule_engine() -> None:
+        """Tick routines + test schedules in this process (not distributed)."""
+        import sys
+
+        if os.environ.get("SWARM_TEST_MODE") or os.environ.get("SWARM_DISABLE_SCHEDULE_ENGINE"):
+            return
+        argv = " ".join(sys.argv)
+        if "runserver" in argv:
+            serving = ("--noreload" in argv) or os.environ.get("RUN_MAIN") == "true"
+        else:
+            serving = any(s in argv for s in ("swarm-api", "daphne", "uvicorn", "gunicorn"))
+        if not serving:
+            return
+        try:
+            from swarm.core.schedule_engine import start_loop
+
+            start_loop()
+        except Exception as e:  # never let the ticker break startup
+            logger.warning("Could not start schedule engine: %s", e)
 
     @staticmethod
     def _load_swarm_config() -> dict:

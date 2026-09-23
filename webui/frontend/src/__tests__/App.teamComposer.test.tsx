@@ -42,10 +42,16 @@ describe('SPA + team composer entry', () => {
     ).toBeNull()
 
     fireEvent.click(screen.getByTestId('os-teams-button'))
-    expect(await screen.findByRole('heading', { name: /new team/i })).toBeInTheDocument()
+    // The #892 redesign retitled the dialog to 'Manage Teams' (role entry).
+    expect(await screen.findByRole('dialog', { name: /manage teams/i })).toBeInTheDocument()
     expect(screen.getByTestId('team-drop-zone')).toHaveTextContent(/drop agents here/i)
     expect(screen.getByTestId('team-cos-select')).toBeDisabled()
-    expect(screen.getByText(/add agents first/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)
+    // #780: the Roles facet is the default tab below the permanent roster —
+    // present on the opening frame and disabled until agents are added.
+    expect(screen.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: 'Roles' }))
+    expect(screen.getByTestId('team-roles-pane')).toHaveAttribute('aria-disabled', 'true')
     // Overlay — Chat route stays mounted (REQ-364 / #364).
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
   })

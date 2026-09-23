@@ -77,6 +77,9 @@ services:
       # remap with an override rather than editing this published default.
       # For bind-mount + uvicorn --reload, use: make dev (docker-compose.dev.yml, :8002).
       - "8000:8000"
+    extra_hosts:
+      # Host TrueForge / OMB / Rakazo at 127.0.0.1:* rewrite to this name.
+      - "host.docker.internal:host-gateway"
     environment:
       # Pin the in-container listen port. `environment` wins over `env_file`, so
       # this shields the container from a host-oriented PORT in .env (e.g. the
@@ -110,12 +113,31 @@ services:
       # and not bare-metal. Pinokio pinokio/start.js also sets this. Values:
       # bare-metal | sandbox-home | sandbox-isolated
       SWARM_RUNTIME: "${SWARM_RUNTIME:-sandbox-home}"
+      SWARM_HOST_GATEWAY: "${SWARM_HOST_GATEWAY:-host.docker.internal}"
+      # REQ-916 / #515 / #690: external name for container-gateway aliases
+      # (host.docker.internal & co) as seen from LAN browsers. Rewrites the
+      # browser-facing ui_url even when the server itself is in a container.
+      SWARM_HOST_GATEWAY_EXTERNAL: "${SWARM_HOST_GATEWAY_EXTERNAL:-}"
       ENABLE_WEBUI: "${ENABLE_WEBUI:-true}"
     volumes:
-      # Your swarm config (llm profiles + any cli_agents) — read-only.
-      - "${HOME}/.config/swarm:${HOME}/.config/swarm:ro"
+      # Your swarm config (llm profiles, cli_agents, blueprint_library.json).
+      # #762: must stay WRITABLE — blueprint_library.json persistence lives here
+      # (POST /v1/blueprints/custom/ 500s "failed to persist" on a read-only
+      # mount) and the app treats ~/.config/swarm as its live config home.
+      - "${HOME}/.config/swarm:${HOME}/.config/swarm"
       # Writable state: async /v1/responses task store (Django DB is Postgres).
       - "${HOME}/.local/share/swarm:${HOME}/.local/share/swarm"
+      # #716/#717: host CLI binaries, ro, at identical paths so the catalog's
+      # discovery (extra_cli_path_dirs/which_cli) sees what the host sees —
+      # agy/opencode/grok et al. Missing dirs are created empty (no discovery
+      # impact); SWARM_CLI_PATH_DIRS can point discovery at anything else.
+      - "${HOME}/.local/bin:${HOME}/.local/bin:ro"
+      - "${HOME}/bin:${HOME}/bin:ro"
+      - "${HOME}/.grok/bin:${HOME}/.grok/bin:ro"
+      - "${HOME}/.opencode/bin:${HOME}/.opencode/bin:ro"
+      - "${HOME}/.npm-global/bin:${HOME}/.npm-global/bin:ro"
+      - "${HOME}/.local/share/pnpm:${HOME}/.local/share/pnpm:ro"
+      - "${HOME}/.nvm/versions/node:${HOME}/.nvm/versions/node:ro"
     depends_on:
       postgres:
         condition: service_healthy

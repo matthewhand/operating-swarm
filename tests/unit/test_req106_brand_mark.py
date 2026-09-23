@@ -231,7 +231,9 @@ def test_root_icon_urls_are_not_html(client: Client):
     assert manifest.status_code == 200
     assert "manifest" in manifest["Content-Type"] or "json" in manifest["Content-Type"]
     body = json.loads(manifest.content)
-    assert body["name"] == "Open Swarm"
+    # REQ-862 identity: the served PWA manifest carries the Operating Swarm
+    # name, matching the UI templates and the SPA copy (#311 rename).
+    assert body["name"] == "Operating Swarm"
 
 
 def test_django_static_finder_resolves_brand_icons():

@@ -1,8 +1,25 @@
-import '@testing-library/jest-dom';
+import { afterEach, beforeEach } from 'vitest'
+import { configure } from '@testing-library/dom'
+import { resetRemotesFetchCacheForTests } from './lib/api'
 import { resetChatConnection } from './lib/chatConnection';
 import { resetExpectedSpaVersion } from './lib/spaHello';
+import { __resetUserPrefsCacheForTests } from './lib/userPrefs';
 import { resetGithubReleaseCache } from './lib/githubRelease';
 import { setBakedSpaVersionForTests } from './lib/spaVersion';
+
+import '@testing-library/jest-dom';
+
+// #592: default 1000ms findBy*/waitFor window is too tight for heavy mounts
+// in a full parallel run (machine-speed flaky, membership moved between runs).
+// See TESTING.md.
+configure({ asyncUtilTimeout: 4000 })
+
+// #581: drop the coalesced /v1/remotes/ cache after every test — the
+// module-level TTL cache must never leak a previous test's remotes payload
+// into the next mount (that made the remote-backed-teams test order-dependent).
+afterEach(() => {
+    resetRemotesFetchCacheForTests()
+})
 
 afterEach(() => {
     resetChatConnection();
@@ -36,6 +53,12 @@ if (!HTMLDialogElement.prototype.showModal) {
         this.open = true;
     };
 }
+
+// #726: fetchUserPrefs dedupes via module-level cache/promise. Reset it before
+// every test so re-stubbed fetch payloads are always observed.
+beforeEach(() => {
+    __resetUserPrefsCacheForTests();
+});
 if (!HTMLDialogElement.prototype.close) {
     HTMLDialogElement.prototype.close = function () {
         this.open = false;

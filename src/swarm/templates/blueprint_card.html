@@ -10,9 +10,9 @@
             <img src="{% static 'img/default-agent-avatar.svg' %}" alt="" class="bp-avatar bp-avatar--default" data-agent-avatar="default">
             {% endif %}
             <div class="flex-grow-1 min-w-0">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="card-title mb-0 text-truncate" title="{{ blueprint.name }}">{{ blueprint.name }}</div>
-                    <span class="badge difficulty-badge difficulty-{{ blueprint.difficulty }} ms-2">{{ blueprint.difficulty|title }}</span>
+                <div class="d-flex flex-column align-items-start gap-1">
+                    <div class="card-title mb-0" title="{{ blueprint.name|default:blueprint.id }}">{{ blueprint.name|default:blueprint.id }}</div>
+                    <span class="badge difficulty-badge difficulty-{{ blueprint.difficulty }}">{{ blueprint.difficulty|title }}</span>
                 </div>
                 <small class="text-muted">{{ blueprint.category_info.icon }} {{ blueprint.category_info.name }} &middot; v{{ blueprint.version }}</small>
             </div>

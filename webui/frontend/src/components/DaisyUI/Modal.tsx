@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useRef, useId, useState } from 'react';
-import FocusTrap from 'focus-trap-react';
 import { Alert } from './Alert';
 import { LoadingButton } from './Loading';
+import { SidepaneConcealButton } from '../SidepaneConceal';
 
 /**
  * Modal component using DaisyUI classes.
@@ -14,7 +14,7 @@ export interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   title?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'sheet';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'wizard' | 'sheet';
   /** Horizontal/vertical dock. `end` is a right-docked sheet (`modal-end`). */
   placement?: ModalPlacement;
   className?: string;
@@ -91,22 +91,17 @@ export const Modal = ({
     lg: 'max-w-lg max-h-[90vh] overflow-y-auto',
     xl: 'max-w-xl max-h-[90vh] overflow-y-auto',
     '2xl': 'max-w-5xl w-11/12 max-h-[90vh] overflow-y-auto',
+    /* #798: tabbed multi-step dialogs pin to a fixed viewport box so switching
+       tabs never re-flows the outer chrome — only the inner content scrolls. */
+    wizard: 'w-[85vw] max-w-4xl h-[85vh] overflow-hidden flex flex-col',
     sheet: 'h-full max-h-full w-full max-w-4xl rounded-none rounded-s-box overflow-hidden',
   };
 
   const placementClass = placement === 'middle' ? '' : `modal-${placement}`;
 
-  // Keep FocusTrap mounted and toggle `active` so DaisyUI open/close
-  // transitions are not interrupted by remounting the dialog tree.
+  // Native <dialog>.showModal() already traps focus on the top layer.
+  // Wrapping it in focus-trap-react races the UA trap (#313).
   return (
-    <FocusTrap
-      active={isOpen}
-      focusTrapOptions={{
-        allowOutsideClick: true,
-        escapeDeactivates: false,
-        fallbackFocus: () => dialogRef.current || document.body,
-      }}
-    >
       <dialog
         ref={dialogRef}
         className={`modal ${placementClass} ${isOpen ? 'modal-open' : ''}`.replace(/\s+/g, ' ').trim()}
@@ -120,8 +115,13 @@ export const Modal = ({
           data-testid="os-overlay-chrome"
           onClick={(e) => e.stopPropagation()}
         >
-          {title && (
-            <h3 id={titleId} className="font-bold text-lg mb-4">{title}</h3>
+          {(title || placement === 'end') && (
+            <div className={`flex items-center gap-2 ${title ? 'mb-4' : 'mb-2'}`}>
+              {placement === 'end' ? <SidepaneConcealButton onClick={onClose} /> : null}
+              {title ? (
+                <h3 id={titleId} className="font-bold text-lg min-w-0 flex-1">{title}</h3>
+              ) : null}
+            </div>
           )}
           <div className="modal-content">
             {children}
@@ -150,7 +150,6 @@ export const Modal = ({
           </button>
         </form>
       </dialog>
-    </FocusTrap>
   );
 };
 

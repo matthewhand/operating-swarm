@@ -12,7 +12,12 @@ from swarm.core.remotes import HealthResult, OperateResult, RemoteError, RemoteS
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    client = APIClient()
+    from django.conf import settings
+
+    if getattr(settings, "ENABLE_API_AUTH", False) and getattr(settings, "SWARM_API_KEY", None):
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {settings.SWARM_API_KEY}")
+    return client
 
 
 def _spec(rid: str = "hermes") -> RemoteSpec:
@@ -168,6 +173,35 @@ class TestRemoteDetail:
         resp = api_client.patch("/v1/remotes/hermes/", {}, format="json")
         assert resp.status_code == 400
 
+    @patch("swarm.views.remotes_api.remotes_core.persist_remote")
+    def test_patch_title_round_trips_as_label(self, mock_persist, api_client):
+        """#503: PATCH a title, GET-style payload reports it as label."""
+        named = _spec("hermes-2")
+        named.kind = "hermes"
+        named.title = "Hermes (box-a)"
+        mock_persist.return_value = (named, "/tmp/swarm_config.json")
+        resp = api_client.patch(
+            "/v1/remotes/hermes-2/",
+            {"title": "Hermes (box-a)"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        # The title reached persist_remote, not dropped on the floor.
+        assert mock_persist.call_args.kwargs.get("title") == "Hermes (box-a)"
+        assert resp.json()["label"] == "Hermes (box-a)"
+
+    @patch("swarm.views.remotes_api.remotes_core.persist_remote")
+    def test_patch_title_clear_restores_derived_label(self, mock_persist, api_client):
+        """#503: clearing the title (empty string) re-derives the label."""
+        derived = _spec()
+        derived.title = "Hermes Agent (hermes)"
+        mock_persist.return_value = (derived, "/tmp/swarm_config.json")
+        resp = api_client.patch("/v1/remotes/hermes/", {"title": ""}, format="json")
+        assert resp.status_code == 200
+        assert mock_persist.call_args.kwargs.get("title") == ""
+        # _spec has no instance id, so the bare-kind label is used.
+        assert resp.json()["label"] != "TrueForge (box-a)"
+
     @patch("swarm.views.remotes_api.remotes_core.delete_remote")
     def test_delete(self, mock_delete, api_client):
         mock_delete.return_value = ("omb", "/tmp/swarm_config.json")
@@ -223,6 +257,85 @@ class TestRemoteOperate:
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         mock_op.assert_called_once()
+        kwargs = mock_op.call_args.kwargs
+        assert kwargs.get("session_id") in (None, "")
+
+    @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_send_forwards_session_id(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="anythingllm", op="send", ok=True, detail="replied", data={"response": "pong"}
+        )
+        resp = api_client.post(
+            "/v1/remotes/anythingllm/operate/",
+            {
+                "op": "send",
+                "prompt": "hi",
+                "target": "ws:thread",
+                "session_id": "ws:thread",
+            },
+            format="json",
+        )
+        assert resp.status_code == 200
+        kwargs = mock_op.call_args.kwargs
+        assert kwargs["session_id"] == "ws:thread"
+        assert kwargs["target"] == "ws:thread"
+        assert kwargs["prompt"] == "hi"
+
+    @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_send_forwards_session_id_and_query(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="anythingllm", op="send", ok=True, detail="replied"
+        )
+        resp = api_client.post(
+            "/v1/remotes/anythingllm/operate/",
+            {
+                "op": "send",
+                "prompt": "hi",
+                "session_id": "docs:thread-1",
+                "query": "hacker",
+            },
+            format="json",
+        )
+        assert resp.status_code == 200
+        kwargs = mock_op.call_args.kwargs
+        assert kwargs["session_id"] == "docs:thread-1"
+        assert kwargs["query"] == "hacker"
+
+    @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_forwards_session_id_and_query(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="openwebui", op="list", ok=True, detail="listed", data={"sessions": []}
+        )
+        resp = api_client.post(
+            "/v1/remotes/openwebui/operate/",
+            {"op": "list", "query": "hacker", "session_id": "abc"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        mock_op.assert_called_once()
+        kwargs = mock_op.call_args.kwargs
+        assert kwargs.get("query") == "hacker"
+        assert kwargs.get("session_id") == "abc"
+
+    @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_send_forwards_session_id_and_query(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="flowise", op="send", ok=True, detail="replied"
+        )
+        resp = api_client.post(
+            "/v1/remotes/flowise/operate/",
+            {
+                "op": "send",
+                "prompt": "hi",
+                "session_id": "support-bot:chat-1",
+                "query": "onboarding",
+            },
+            format="json",
+        )
+        assert resp.status_code == 200
+        kwargs = mock_op.call_args.kwargs
+        assert kwargs["session_id"] == "support-bot:chat-1"
+        assert kwargs["query"] == "onboarding"
 
     @patch("swarm.views.remotes_api.remotes_core.operate")
     def test_swarm_send(self, mock_op, api_client):
@@ -241,6 +354,28 @@ class TestRemoteOperate:
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         assert resp.json()["remote"] == "swarm"
+
+
+class TestRemoteRoutines:
+    @patch("swarm.views.remotes_api.remotes_core.operate")
+    def test_routines_get(self, mock_op, api_client):
+        mock_op.return_value = OperateResult(
+            remote="trueforge",
+            op="routines",
+            ok=True,
+            detail="TrueForge listed 1 routine(s)",
+            data={"routines": [{"name": "Routine 1", "cron": "0 * * * *"}]},
+        )
+        resp = api_client.get("/v1/remotes/trueforge/routines/")
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert resp.json()["remote"] == "trueforge"
+        assert len(resp.json()["data"]["routines"]) == 1
+        mock_op.assert_called_once_with("trueforge", "routines")
+
+    def test_routines_unknown_remote(self, api_client):
+        resp = api_client.get("/v1/remotes/nonexistent_xyz/routines/")
+        assert resp.status_code == 404
 
 
 class TestAgentTeam:

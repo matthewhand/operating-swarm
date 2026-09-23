@@ -13,8 +13,18 @@ user-local dirs) and prepopulates the **suggested / addable** set. Discovery
 is ``which`` / ``stat`` only — never ``auth_check``, never a login probe,
 never a network call.
 
+CLI-first product modes (#151 / #149): shipped defaults turn **CLI on** and
+**API / Blueprint / Team / Remote off** until Settings enables them. The rail
+and agent picker start from **discovered host CLIs only** — a known catalog
+name that is not on PATH (pi absent) stays absent. ``known`` is the full
+catalog; ``discovered`` / ``installed`` is the PATH seed; ``configured`` is
+opt-in.
+
 Known catalog names (agy is the antigravity CLI): grok, agy, claude, gemini,
-codex, opencode, pi, omp, qwen.
+codex, opencode, kilocode, pi, omp, qwen.
+
+Remote/headless serving (Issue #180): opencode and kilocode can attach to a
+``serve`` endpoint on another box. See :mod:`swarm.core.cli_remote`.
 
 Each entry runs the CLI **one-shot, non-interactive, auto-approve** (full
 capability) — the flag that matters is the auto-approve one, without which the
@@ -54,20 +64,121 @@ import os
 import shutil
 from typing import Any
 
+from swarm.core.kind_bases import CliSlashCommand
+
+# REQ-910 / #641: per-CLI **native slash commands**, declared by the provider
+# (ADR-005 ``CliKindBase`` capability) and published verbatim in
+# ``GET /v1/cli-agents/`` as ``slash_commands`` so the webui composer derives
+# its popup from data — never a hardcoded list in JSX.
+#
+# Blocking investigation recorded in #641: **omp print mode does not dispatch
+# slash commands.** oh-my-pi's own docs (``slash-command-internals.md`` §2)
+# dispatch built-ins only in *TUI and ACP/RPC modes*; ``cli-reference.md``
+# shows no ``--compress``/compaction launch flag; and the ``omp compress``
+# *subcommand* is an unrelated file-to-prompt-register tool. omp therefore
+# declares ``/compress`` with ``available=False``: the popup greys it with the
+# reason and it is never sent as chat text (the server-side compact flow is
+# #636's surface).
+CLI_SLASH_COMMANDS: dict[str, tuple[CliSlashCommand, ...]] = {
+    "omp": (
+        CliSlashCommand(
+            name="compress",
+            description="Compact this omp session's context",
+            available=False,
+            unavailable_reason="omp cannot compress in non-interactive (print) mode",
+        ),
+    ),
+}
+
+
+def cli_slash_commands_payload() -> dict[str, list[dict[str, Any]]]:
+    """JSON-safe ``slash_commands`` rows for ``GET /v1/cli-agents/``."""
+    return {
+        cli: [
+            {
+                "name": cmd.name,
+                "description": cmd.description,
+                "available": cmd.available,
+                "unavailable_reason": cmd.unavailable_reason,
+            }
+            for cmd in commands
+        ]
+        for cli, commands in CLI_SLASH_COMMANDS.items()
+    }
+
+
+# #636: per-CLI provider-native compact hooks, populated as providers verify
+# their CLI's real compact command on a CliKindBase subclass. Ships empty —
+# an unverified argv template would be the dishonest surface #641 walked back.
+CLI_COMPACT_HOOKS: dict[str, str] = {}
+
+
+def cli_compact_payload() -> dict[str, str]:
+    """JSON-safe ``cli_compact`` rows for ``GET /v1/cli-agents/``."""
+    return dict(CLI_COMPACT_HOOKS)
+
+
+def seat_capabilities_payload(extra_bases: list[type] | None = None) -> dict[str, dict]:
+    """JSON-safe per-kind seat capabilities for ``GET /v1/cli-agents/`` (#551).
+
+    The published channel: the frontend derives attach/compact/plugins gates
+    from this data instead of comparing kind strings. ``extra_bases`` lets a
+    test (or a plugin host) prove a subclass override flows through unchanged.
+    """
+    from swarm.core.kind_bases import (
+        ApiKindBase,
+        CliKindBase,
+        RemoteKindBase,
+        TeamKindBase,
+        seat_capabilities,
+    )
+
+    bases: dict[str, type] = {
+        "api": ApiKindBase,
+        "cli": CliKindBase,
+        "remote": RemoteKindBase,
+        "team": TeamKindBase,
+    }
+    for extra in extra_bases or []:
+        kind = str(getattr(extra, "kind", "") or "").strip().lower()
+        if kind in bases and extra is not bases[kind]:
+            # A subclass overriding axes still publishes under its kind — the
+            # payload reflects what a seat of this kind may declare.
+            merged = seat_capabilities(bases[kind])
+            merged.update(seat_capabilities(extra))
+            bases[kind] = extra
+    return {
+        kind: {
+            name: {"enabled": bool(cap["enabled"]), "reason": str(cap["reason"])}
+            for name, cap in seat_capabilities(base).items()
+        }
+        for kind, base in bases.items()
+    }
+
 # User-local bins Daphne often misses when started with PATH=/usr/bin:/bin.
 _EXTRA_BIN_REL = (
     (".local", "bin"),
     ("bin",),
     (".grok", "bin"),
+    (".opencode", "bin"),
     (".npm-global", "bin"),
     (".local", "share", "pnpm"),
 )
 
 
 def extra_cli_path_dirs() -> list[str]:
-    """User and nvm bin dirs that commonly hold grok/agy/pi/opencode."""
+    """User and nvm bin dirs that commonly hold grok/agy/pi/opencode.
+
+    ``SWARM_CLI_PATH_DIRS`` (``os.pathsep``-joined) extends the scan — the
+    deployment knob for containerised runs whose host bin mounts differ
+    (#716/#717). Configured dirs come first and must exist.
+    """
     home = os.path.expanduser("~")
     dirs: list[str] = []
+    configured = os.environ.get("SWARM_CLI_PATH_DIRS", "")
+    for d in configured.split(os.pathsep):
+        if d.strip() and os.path.isdir(d) and d not in dirs:
+            dirs.append(d)
     for parts in _EXTRA_BIN_REL:
         path = os.path.join(home, *parts)
         if os.path.isdir(path):
@@ -170,6 +281,15 @@ CATALOG: dict[str, dict[str, Any]] = {
         "mode": "write",
         "timeout": 240,
     },
+    "kilocode": {
+        # Kilo Code CLI (opencode fork). Binary is ``kilo``. One-shot ``run``
+        # with a positional prompt after ``--``. Headless: ``kilo serve``;
+        # attach with ``--attach http://host:port`` (see cli_remote).
+        "cmd": ["kilo", "run", "--", "{prompt}"],
+        "parse": "text",
+        "mode": "write",
+        "timeout": 240,
+    },
     "omp": {
         # Oh My Pi non-interactive print mode. -p/--print does not consume the
         # prompt; the message is positional after `--`. Pin LiteLLM
@@ -196,6 +316,9 @@ CATALOG: dict[str, dict[str, Any]] = {
         # --mode text; --approve trusts project-local files for that run.
         # --no-session is smoke/verify only (see SMOKE_FLAGS) so production
         # runs can resume with --session.
+        # No catalog ``--model``: pi's implicit default was a discontinued
+        # Aliyun/DashScope coding-plan slug (401). Pin via apply_model from
+        # the live ``pi --list-models`` table (provider/id before ``--``).
         "cmd": ["pi", "-p", "--mode", "text", "--approve", "--", "{prompt}"],
         "parse": "text",
         "mode": "write",
@@ -273,6 +396,10 @@ DEFAULT_AGY_CONVERSATIONS_DIR = "~/.gemini/antigravity-cli/conversations"
 # name is the session's cwd, non-alphanumerics → ``-``.
 QWEN_SESSIONS_STORE = "qwen_sessions"
 DEFAULT_QWEN_PROJECTS_DIR = "~/.qwen/projects"
+# omp (Oh My Pi) persists every session as JSONL under its agent dir; the
+# visible `-p` output is plain text, so ids are read from the store (#640).
+OMP_SESSIONS_STORE = "omp_sessions"
+DEFAULT_OMP_SESSIONS_DIR = "~/.omp/agent/sessions"
 
 SESSION: dict[str, dict[str, Any]] = {
     "grok": {
@@ -337,17 +464,33 @@ SESSION: dict[str, dict[str, Any]] = {
             "List: ``opencode session list --format json`` ({id, title, updated})."
         ),
     },
+    "kilocode": {
+        "resume_argv": ["--session", "{session_id}"],
+        "resume_insert": 2,  # after `kilo run` → `kilo run --session <id> …`
+        "resume_strip": ["--continue", "-c"],
+        "session_id_paths": [".session", ".sessionID", ".id"],
+        "list_capability": LIST_CAPABILITY_PASTE_ONLY,
+        "notes": (
+            "kilo run --session <id> (also -s). --continue/-c is last-session "
+            "in the cwd, not thread-scoped — do not use it. "
+            "Headless: ``kilo serve``; attach with ``--attach http://host:port``. "
+            "List is paste-only until a non-interactive list argv is verified."
+        ),
+    },
     "omp": {
         "resume_argv": ["--resume", "{session_id}"],
         "resume_insert": 2,  # after `omp -p` → `omp -p --resume <id> …`
         "resume_strip": ["--no-session", "--continue", "-c"],
         "session_id_paths": [".session", ".id"],
-        "list_capability": LIST_CAPABILITY_PASTE_ONLY,
+        "list_store": OMP_SESSIONS_STORE,
+        "list_store_dir": DEFAULT_OMP_SESSIONS_DIR,
+        "list_capability": LIST_CAPABILITY_WORKS,
         "notes": (
             "omp -p --resume <id|path> (also -r). --continue/-c is last session — "
-            "do not use it here. Smoke/verify injects --no-session (ephemeral); "
-            "production cmd does not. List is paste-only — no verified "
-            "non-interactive list argv."
+            "do not use it here. `-p` prints text, so the session id is read from "
+            "omp's own store ~/.omp/agent/sessions/<cwd>/<timestamp>_<id>.jsonl "
+            "(newest after each successful turn). Smoke/verify injects --no-session "
+            "(ephemeral) and is never stamped."
         ),
     },
     "agy": {
@@ -412,151 +555,20 @@ LIST_SESSIONS_TIMEOUT = 15.0
 RECENT_SESSION_LIMIT = 10
 
 
-def _cli_agent_entry(name: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
-    """``cli_agents.<name>`` dict from config, or empty."""
-    raw_agents = (config or {}).get("cli_agents") or {}
-    if not isinstance(raw_agents, dict):
-        return {}
-    entry = raw_agents.get(name)
-    return entry if isinstance(entry, dict) else {}
 
+# #855 slice D — session-cluster helpers moved verbatim to swarm.core.cli.sessions (patch-safe: bodies resolve catalog references through a late-bound handle; names are rebound here so the import surface is unchanged).
+from swarm.core.cli import sessions as _cli_sessions  # noqa: E402
 
-def list_sessions_argv(name: str, config: dict[str, Any] | None = None) -> list[str] | None:
-    """Copy of a non-interactive list-sessions argv, or None if this CLI cannot list.
-
-    Config ``cli_agents.<name>.list_argv`` wins over the catalog (fixtures).
-    An empty list in config disables a catalogued argv (honest paste-only).
-    """
-    entry = _cli_agent_entry(name, config)
-    if "list_argv" in entry:
-        argv = entry.get("list_argv")
-        if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-            return list(argv)
-        return None
-    policy = session_policy(name) or {}
-    argv = policy.get("list_argv")
-    if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-        return list(argv)
-    return None
-
-
-def list_sessions_store(name: str, config: dict[str, Any] | None = None) -> str | None:
-    """Provider-store kind (e.g. ``agy_conversations``), or None.
-
-    Config ``cli_agents.<name>.list_store`` wins. Empty string disables the
-    catalogued store. When ``list_argv`` is set, the argv is preferred.
-    """
-    if list_sessions_argv(name, config) is not None:
-        return None
-    entry = _cli_agent_entry(name, config)
-    if "list_store" in entry:
-        raw = entry.get("list_store")
-        kind = str(raw or "").strip()
-        return kind or None
-    policy = session_policy(name) or {}
-    raw = policy.get("list_store")
-    kind = str(raw or "").strip()
-    return kind or None
-
-
-def list_sessions_store_dir(name: str, config: dict[str, Any] | None = None) -> str | None:
-    """Expanded directory for a provider session store, or None."""
-    if list_sessions_store(name, config) is None:
-        return None
-    entry = _cli_agent_entry(name, config)
-    raw = entry.get("list_store_dir")
-    if raw is None:
-        policy = session_policy(name) or {}
-        raw = policy.get("list_store_dir")
-    if raw:
-        return os.path.expanduser(str(raw))
-    env = os.environ.get("SWARM_AGY_CONVERSATIONS_DIR", "").strip()
-    if env:
-        return os.path.expanduser(env)
-    if list_sessions_store(name, config) == AGY_CONVERSATIONS_STORE:
-        return os.path.expanduser(DEFAULT_AGY_CONVERSATIONS_DIR)
-    return None
-
-
-def list_capability(name: str, config: dict[str, Any] | None = None) -> str:
-    """``works`` | ``paste-only`` | ``unsupported`` for this CLI's session list."""
-    entry = _cli_agent_entry(name, config)
-    override = entry.get("list_capability")
-    if isinstance(override, str) and override in LIST_CAPABILITIES:
-        return override
-    if can_list_sessions(name, config):
-        return LIST_CAPABILITY_WORKS
-    policy = session_policy(name) or {}
-    if policy.get("resume_argv"):
-        return LIST_CAPABILITY_PASTE_ONLY
-    documented = policy.get("list_capability")
-    if isinstance(documented, str) and documented in LIST_CAPABILITIES:
-        return documented
-    return LIST_CAPABILITY_UNSUPPORTED
-
-
-def can_list_sessions(name: str, config: dict[str, Any] | None = None) -> bool:
-    """True when a real list argv or provider store is configured."""
-    return list_sessions_argv(name, config) is not None or list_sessions_store(name, config) is not None
-
-
-def export_sessions_argv(name: str, config: dict[str, Any] | None = None) -> list[str] | None:
-    """Non-interactive transcript-export argv, or None.
-
-    Config ``cli_agents.<name>.export_argv`` wins. An empty list disables a
-    catalogued argv. Catalog CLIs ship no export argv (honest summary inject).
-    ``{session_id}`` is replaced by the caller when invoking.
-    """
-    entry = _cli_agent_entry(name, config)
-    if "export_argv" in entry:
-        argv = entry.get("export_argv")
-        if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-            return list(argv)
-        return None
-    policy = session_policy(name) or {}
-    argv = policy.get("export_argv")
-    if isinstance(argv, (list, tuple)) and argv and all(isinstance(p, str) for p in argv):
-        return list(argv)
-    return None
-
-
-def export_capability(name: str, config: dict[str, Any] | None = None) -> str:
-    """``transcript`` | ``summary`` | ``none`` for hop import from this CLI."""
-    entry = _cli_agent_entry(name, config)
-    override = entry.get("export_capability")
-    if isinstance(override, str) and override in EXPORT_CAPABILITIES:
-        return override
-    if export_sessions_argv(name, config) is not None:
-        return EXPORT_CAPABILITY_TRANSCRIPT
-    policy = session_policy(name) or {}
-    documented = policy.get("export_capability")
-    if isinstance(documented, str) and documented in EXPORT_CAPABILITIES:
-        return documented
-    if session_policy(name) or _cli_agent_entry(name, config):
-        return EXPORT_CAPABILITY_SUMMARY
-    return EXPORT_CAPABILITY_NONE
-
-
-def can_export_transcript(name: str, config: dict[str, Any] | None = None) -> bool:
-    """True when a real export argv is configured (fixture or verified CLI)."""
-    return export_sessions_argv(name, config) is not None
-
-
-def list_sessions_catalog() -> dict[str, dict[str, Any]]:
-    """Machine-readable list/resume/export table for every catalogued CLI."""
-    out: dict[str, dict[str, Any]] = {}
-    for name in catalog_names():
-        policy = session_policy(name) or {}
-        out[name] = {
-            "capability": list_capability(name),
-            "list_argv": list_sessions_argv(name),
-            "list_store": list_sessions_store(name),
-            "resume_argv": list(policy["resume_argv"]) if policy.get("resume_argv") else None,
-            "export_capability": export_capability(name),
-            "export_argv": export_sessions_argv(name),
-        }
-    return out
-
+_cli_agent_entry = _cli_sessions._cli_agent_entry
+list_sessions_argv = _cli_sessions.list_sessions_argv
+list_sessions_store = _cli_sessions.list_sessions_store
+list_sessions_store_dir = _cli_sessions.list_sessions_store_dir
+list_capability = _cli_sessions.list_capability
+can_list_sessions = _cli_sessions.can_list_sessions
+export_sessions_argv = _cli_sessions.export_sessions_argv
+export_capability = _cli_sessions.export_capability
+can_export_transcript = _cli_sessions.can_export_transcript
+list_sessions_catalog = _cli_sessions.list_sessions_catalog
 
 # Default capability traits (0..1) per known CLI for inference-profile matching
 # (see swarm.core.inference_profile). These are sensible starting points the
@@ -570,6 +582,7 @@ CLI_TRAITS: dict[str, dict[str, float]] = {
     "gemini":   {"intelligence": 0.60, "speed": 0.92, "cost": 0.90},
     "codex":    {"intelligence": 0.75, "speed": 0.60, "cost": 0.50},
     "opencode": {"intelligence": 0.55, "speed": 0.65, "cost": 0.75},
+    "kilocode": {"intelligence": 0.55, "speed": 0.65, "cost": 0.75},
     "omp":      {"intelligence": 0.60, "speed": 0.70, "cost": 0.80},
     "pi":       {"intelligence": 0.70, "speed": 0.70, "cost": 0.70},
     "qwen":     {"intelligence": 0.62, "speed": 0.85, "cost": 0.85},
@@ -627,195 +640,25 @@ CLI_SIDEBAR: dict[str, dict[str, str]] = {
 }
 
 
-def cli_traits(name: str) -> dict[str, float] | None:
-    """Default capability traits for a known CLI, or None if unknown."""
-    t = CLI_TRAITS.get(name)
-    return dict(t) if t is not None else None
 
+# #855 slice D — model-cluster helpers moved verbatim to swarm.core.cli.models (patch-safe: bodies resolve catalog references through a late-bound handle; names are rebound here so the import surface is unchanged).
+from swarm.core.cli import models as _cli_models  # noqa: E402
 
-def has_native_consensus(name: str) -> bool:
-    """True when this CLI has a built-in consensus/heavy mode the catalog knows."""
-    return name in NATIVE_CONSENSUS
-
-
-def native_consensus_flags(name: str, n: int = 2) -> list[str] | None:
-    """argv to append to enable ``name``'s built-in consensus for N candidates, or None."""
-    tmpl = NATIVE_CONSENSUS.get(name)
-    if not tmpl:
-        return None
-    count = str(max(2, int(n)))
-    return [count if part == "{n}" else part for part in tmpl]
-
-
-def with_native_consensus(name: str, n: int = 2) -> dict[str, Any] | None:
-    """A catalog entry for ``name`` with its built-in consensus mode enabled.
-
-    Returns None if the CLI is unknown or has no native consensus flag.
-    """
-    entry = catalog_entry(name)
-    flags = native_consensus_flags(name, n)
-    if entry is None or flags is None:
-        return None
-    entry["cmd"] = list(entry["cmd"]) + flags
-    return entry
-
-
-# Non-interactive argv that lists models each catalog CLI can actually run.
-# Sourced from each CLI's ``--help`` / official docs (not a vendor marketing
-# list). Probe via :mod:`swarm.core.cli_models` — never prompts, always times
-# out. antigravity is omitted until it is wired into ``CATALOG``.
-#
-#   grok      ``grok models``           (xAI CLI reference)
-#   claude    ``claude models``         (same shape as grok/opencode; older
-#                                       builds fail the probe → empty+warning)
-#   gemini    ``gemini --list-models``  (JSON; early-exit, no REPL)
-#   codex     ``codex debug models``    (raw catalog JSON)
-#   opencode  ``opencode models``       (already documented in this catalog)
-#   agy       ``agy models``            (tab-separated id<TAB>label lines; a
-#                                       spinner banner goes to stderr, stdout
-#                                       parses as plain lines)
-# qwen: deliberately absent — its current build rejects ``--list-models``
-# ("Unknown arguments") and has no models subcommand, so there is nothing
-# honest to probe; dropdown falls back to the empty + warning path.
-LIST_MODELS: dict[str, list[str]] = {
-    "grok": ["grok", "models"],
-    "claude": ["claude", "models"],
-    "gemini": ["gemini", "--list-models"],
-    "codex": ["codex", "debug", "models"],
-    "opencode": ["opencode", "models"],
-    "agy": ["agy", "models"],
-}
-
-# List-models probes must stay cheap and never hang a Settings / #358 caller.
-LIST_MODELS_TIMEOUT = 15.0
-
-
-def list_models_argv(name: str) -> list[str] | None:
-    """Copy of the list-models argv for ``name``, or None if unknown."""
-    argv = LIST_MODELS.get(name)
-    return list(argv) if argv is not None else None
-
-
-def has_list_models(name: str) -> bool:
-    """True when the catalog documents a list-models probe for ``name``."""
-    return name in LIST_MODELS
-
-
-# Flag each CLI uses to pin a specific model, so callers can request a
-# particular tier (e.g. gemini's pro vs. flash). Only flags verified against the
-# installed CLI version belong here; omit a CLI rather than guess.
-MODEL_FLAG: dict[str, str] = {
-    "gemini": "-m",        # verified live (gemini 0.45): -m gemini-3-pro-preview
-    "claude": "--model",   # claude -p --model <name>
-    "opencode": "--model", # opencode run --model <name>
-    "omp": "--model",      # omp -p --model <provider/id>
-    "agy": "--model",      # agy --model <name>
-    "grok": "-m",          # grok -m/--model <id> (verified: grok-4.6, grok-4.5)
-    "qwen": "-m",          # qwen -m/--model <id> (verified live: gateway slug auxiliary)
-}
-
-# Suggested model ids for the Agent Router CLI-model dropdown. The UI always
-# offers a custom string on top of these; they are starting points, not a
-# live catalog from the host CLI.
-CLI_MODELS: dict[str, list[str]] = {
-    "grok": ["grok-4.6", "grok-4.5"],
-    "agy": [
-        "gemini-3.8-flash-high",
-        "gemini-3.8-flash-medium",
-        "gemini-3.1-pro-high",
-        "claude-sonnet-4-6",
-        "claude-opus-4-6-thinking",
-        "gpt-oss-120b-medium",
-    ],
-    "gemini": ["gemini-3-flash-preview", "gemini-3-pro-preview"],
-    "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
-    "opencode": ["litellm/orchestration"],
-    "omp": ["litellm/orchestration"],
-}
-
-
-# Default capability traits (0..1) per known MODEL, keyed by model id. These
-# refine the per-provider CLI_TRAITS default: a provider runs many models (e.g.
-# gemini flash vs pro) with very different intelligence/speed/cost. Illustrative
-# starting points — users override per-model via config. cost = cheapness.
-MODEL_TRAITS: dict[str, dict[str, float]] = {
-    "gemini-3-pro-preview":   {"intelligence": 0.92, "speed": 0.35, "cost": 0.30},
-    "gemini-3-flash-preview": {"intelligence": 0.62, "speed": 0.95, "cost": 0.92},
-    "claude-opus-4-8":        {"intelligence": 0.98, "speed": 0.45, "cost": 0.20},
-    "claude-sonnet-4-6":      {"intelligence": 0.90, "speed": 0.70, "cost": 0.55},
-    "claude-haiku-4-5":       {"intelligence": 0.70, "speed": 0.92, "cost": 0.85},
-}
-
-
-def model_traits(model: str) -> dict[str, float] | None:
-    """Default capability traits for a known model id, or None if unknown."""
-    t = MODEL_TRAITS.get(model)
-    return dict(t) if t is not None else None
-
-
-_PROMPT_FLAG_TOKENS = frozenset({"-p", "--print", "--prompt", "--single"})
-
-
-def _model_flag_insert_at(cmd: list[str]) -> int:
-    """Index to insert a model flag — before ``-p`` / ``{prompt}``, never after."""
-    if "--" in cmd:
-        return cmd.index("--")
-    for i, part in enumerate(cmd):
-        if part in _PROMPT_FLAG_TOKENS:
-            return i
-        if part.startswith(("-p=", "--print=", "--prompt=", "--single=")):
-            return i
-        if "{prompt}" in part:
-            return i
-    return len(cmd)
-
-
-def apply_model(entry: dict[str, Any], name: str, model: str) -> dict[str, Any]:
-    """Return a copy of ``entry`` with ``name``'s model flag set to ``model``.
-
-    Replaces an already-pinned model (e.g. opencode's default) rather than
-    duplicating it; a no-op for CLIs with no known model flag. New flags sit
-    before ``-p`` / ``{prompt}`` so the prompt cannot swallow them.
-    """
-    entry = _deepcopy(entry)
-    flag = MODEL_FLAG.get(name)
-    if flag is None:
-        return entry
-    cmd = list(entry.get("cmd") or [])
-    if not cmd:
-        return entry  # no command to pin a model on; don't fabricate a flag-only cmd
-    if flag in cmd:
-        i = cmd.index(flag)
-        nxt = cmd[i + 1] if i + 1 < len(cmd) else None
-        if nxt is not None and nxt != "--":
-            cmd[i + 1] = model
-        elif nxt == "--":
-            cmd.insert(i + 1, model)
-        else:
-            cmd.append(model)
-    else:
-        insert_at = _model_flag_insert_at(cmd)
-        cmd[insert_at:insert_at] = [flag, model]
-    entry["cmd"] = cmd
-    return entry
-
-
-def with_model(name: str, model: str, *, timeout: int | None = None) -> dict[str, Any] | None:
-    """A catalog entry for ``name`` pinned to a specific ``model``.
-
-    Pro/heavy tiers (notably ``gemini-3-pro-preview``) think for much longer than
-    the flash default, so pass a larger ``timeout`` when selecting one. Returns
-    None for an unknown CLI; returns the entry unchanged if the catalog has no
-    known model flag for it.
-    """
-    base = catalog_entry(name)
-    if base is None:
-        return None
-    entry = apply_model(base, name, model)
-    if timeout is not None:
-        entry["timeout"] = timeout
-    return entry
-
+cli_traits = _cli_models.cli_traits
+has_native_consensus = _cli_models.has_native_consensus
+native_consensus_flags = _cli_models.native_consensus_flags
+with_native_consensus = _cli_models.with_native_consensus
+list_models_argv = _cli_models.list_models_argv
+has_list_models = _cli_models.has_list_models
+model_traits = _cli_models.model_traits
+_model_flag_insert_at = _cli_models._model_flag_insert_at
+apply_model = _cli_models.apply_model
+with_model = _cli_models.with_model
+LIST_MODELS = _cli_models.LIST_MODELS
+LIST_MODELS_TIMEOUT = _cli_models.LIST_MODELS_TIMEOUT
+MODEL_FLAG = _cli_models.MODEL_FLAG
+CLI_MODELS = _cli_models.CLI_MODELS
+MODEL_TRAITS = _cli_models.MODEL_TRAITS
 
 def listed_cli_specs() -> list[dict[str, Any]]:
     """Host grok/agy as Agent Router sidebar specs (OpenMausBot-style).
@@ -854,43 +697,98 @@ def cli_from_rail_id(agent_id: str | None) -> str | None:
     raw = str(agent_id or "").strip().lower()
     if not raw:
         return None
+    from swarm.core.cli_remote import CLI_ALIASES
+
     if raw.endswith("_agent"):
         candidate = raw[: -len("_agent")]
         if candidate in CATALOG:
             return candidate
+        mapped = CLI_ALIASES.get(candidate)
+        if mapped and mapped in CATALOG:
+            return mapped
     if raw in CATALOG:
         return raw
+
+    aliased = CLI_ALIASES.get(raw)
+    if aliased and aliased in CATALOG:
+        return aliased
     for delim in ("-", "_"):
         if delim in raw:
             suffix = raw.rsplit(delim, 1)[-1]
             if suffix in CATALOG:
                 return suffix
+            mapped = CLI_ALIASES.get(suffix)
+            if mapped and mapped in CATALOG:
+                return mapped
     return None
 
 
-def rail_cli_rows() -> list[dict[str, Any]]:
-    """Named kind rows for the conversation rail: ``cli_agent`` + ``api_agent``.
+# CLI-first product modes (#151) — RETIRED (#736): surfaces are **always on
+# if configured**. The Settings toggle was unreliable (#594, #710) and the
+# synthetic gating only produced "hidden by product modes" noise. The module
+# keeps tiny compatibility shims so legacy configs advertising
+# ``settings.product_modes`` still parse; the values are advisory only.
+# Full contract archived in docs/archive/product-modes.md (PR #955).
+PRODUCT_MODE_KEYS: tuple[str, ...] = ("cli", "api", "blueprint", "team", "remote")
+DEFAULT_PRODUCT_MODES: dict[str, bool] = {
+    "cli": True,
+    "api": True,
+    "blueprint": True,
+    "team": True,
+    "remote": True,
+}
 
-    Host CLIs (grok/agy/opencode/pi) are picked from the chat CLI dropdown, not
-    as four separate rail ids. ``grok_agent``-style ids still map via
-    :func:`cli_from_rail_id` for old bookmarks.
+
+def default_product_modes() -> dict[str, bool]:
+    """Shipped defaults: every mode on (toggle unreliability workaround)."""
+    return dict(DEFAULT_PRODUCT_MODES)
+
+
+def product_modes(config: dict[str, Any] | None = None) -> dict[str, bool]:
+    """Always-on (#736): every mode is on regardless of stored settings.
+
+    Kept for call-site stability; the stored ``settings.product_modes`` payload
+    is ignored. Legacy configs carrying the key still load and validate.
     """
-    default_cli = next(
-        (name for name in SIDEBAR_CLIS if name in CATALOG and which_cli(CATALOG[name]["cmd"][0])),
-        SIDEBAR_CLIS[0] if SIDEBAR_CLIS else "grok",
-    )
-    installed = any(
-        name in CATALOG and which_cli(CATALOG[name]["cmd"][0]) for name in SIDEBAR_CLIS
-    )
-    return [
+    return dict(DEFAULT_PRODUCT_MODES)
+
+
+def _discovered_default_cli(discovered: list[str]) -> str:
+    """First discovered catalog CLI; never invent a missing executable."""
+    found = [name for name in discovered if name in CATALOG]
+    for name in SIDEBAR_CLIS:
+        if name in found:
+            return name
+    return found[0] if found else ""
+
+
+def rail_cli_rows(
+    config: dict[str, Any] | None = None,
+    *,
+    discovered: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Named kind rows for the conversation rail.
+
+    ``cli`` is a PATH-discovered catalog name or empty — never a fake grok/pi
+    that is not installed. Host CLIs are picked from the chat CLI dropdown,
+    not as four separate rail ids. ``grok_agent``-style ids still map via
+    :func:`cli_from_rail_id` for old bookmarks. Both seats always ship
+    (#736 always-on-if-configured).
+    """
+    if discovered is None:
+        discovered = discover_host_clis()
+    default_cli = _discovered_default_cli(discovered)
+    # #736: always-on-if-configured — the former ``modes["cli"]`` /
+    # ``modes["api"]`` gates are gone; both rows always ship.
+    rows: list[dict[str, Any]] = [
         {
             "id": "cli_agent",
             "object": "cli.agent",
             "name": "cli_agent",
             "cli": default_cli,
             "kind": "cli",
-            "description": "Host CLI — pick grok, agy, opencode, or pi in the header.",
-            "installed": installed,
+            "description": "Host CLI — pick a discovered catalog CLI in the header.",
+            "installed": bool(default_cli),
         },
         {
             "id": "api_agent",
@@ -902,6 +800,7 @@ def rail_cli_rows() -> list[dict[str, Any]]:
             "installed": True,
         },
     ]
+    return rows
 
 
 def session_policy(name: str) -> dict[str, Any] | None:
@@ -963,13 +862,21 @@ def suggested_cli_agents(config: dict[str, Any] | None = None) -> dict[str, dict
 def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Public ``GET /v1/cli-agents/`` body: configured vs discovered candidates.
 
+    ``known`` / ``clis`` is the full catalog (documentation, not the start set).
     ``configured`` is opt-in (empty until add). ``discovered`` / ``installed``
-    are the PATH seed. ``suggestions`` is discovered-minus-configured with a
-    ready catalog entry for one-click add. Never includes secrets.
+    are the PATH seed and the CLI-first starting set (#149). ``suggestions`` is
+    discovered-minus-configured with a ready catalog entry for one-click add.
+    ``modes`` is the always-on advertisement (#736): legacy consumers reading
+    the key see every surface enabled.
+    Never includes secrets. Never invents a missing executable.
     """
     configured = configured_cli_names(config)
     discovered = discover_host_clis()
     suggestions = suggested_cli_agents(config)
+    modes = product_modes(config)
+    default_cli = next((name for name in configured if name), "") or _discovered_default_cli(
+        discovered
+    )
     return {
         "clis": catalog_names(),
         "known": list(KNOWN_CLIS),
@@ -977,17 +884,43 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
         "discovered": discovered,
         "installed": discovered,
         "suggestions": suggestions,
-        "default_cli": next((name for name in configured if name), ""),
+        "default_cli": default_cli,
+        # #736: always-on advertisement — legacy consumers reading ``modes``
+        # see every surface enabled; ``mode_limitations`` is dropped.
+        "modes": modes,
         "native_consensus": dict(NATIVE_CONSENSUS),
         "catalog": {name: catalog_entry(name) for name in catalog_names()},
-        "rail": rail_cli_rows(),
+        "rail": rail_cli_rows(config, discovered=discovered),
         "list_models": {
             name: list_models_argv(name)
             for name in catalog_names()
             if has_list_models(name)
         },
         "list_sessions": list_sessions_catalog(),
+        "slash_commands": cli_slash_commands_payload(),
+        "cli_compact": cli_compact_payload(),
+        "seat_capabilities": seat_capabilities_payload(),
+        "remote": _remote_catalog_payload(),
+        "remote_boxes": _remote_boxes_payload(config),
     }
+
+
+def _remote_catalog_payload() -> dict[str, dict[str, Any]]:
+    from swarm.core.cli_remote import remote_catalog
+
+    return remote_catalog()
+
+
+def _remote_boxes_payload(config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    from swarm.core.cli_remote import list_remote_boxes, public_remote_endpoint
+
+    boxes = list_remote_boxes(config)
+    rows: list[dict[str, Any]] = []
+    for box_id, spec in sorted(boxes.items()):
+        public = public_remote_endpoint(spec) or {}
+        public["id"] = box_id
+        rows.append(public)
+    return rows
 
 
 def installed_catalog_clis() -> list[str]:
@@ -1036,8 +969,10 @@ def build_starter_config(installed: list[str] | None = None) -> dict[str, Any]:
     judge/router/reducer/planner roles prefer ``grok`` (then ``claude``, then the
     first available); the panels include *every* installed CLI, so the other
     agents are only engaged for the multi-agent paths. Includes a default ``llm``
-    block so the config passes validation. When nothing is installed, returns
-    just the llm + an empty ``cli_agents`` block.
+    block so the config passes validation. Historically it also carried
+    CLI-first ``settings.product_modes`` (#151); that gating is retired (#736)
+    so starter configs no longer advertise the key. When nothing is installed,
+    returns just the llm + empty ``cli_agents`` — never invents absent CLIs (#149).
     """
     if installed is None:
         installed = installed_catalog_clis()

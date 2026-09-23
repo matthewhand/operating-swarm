@@ -10,6 +10,28 @@ from swarm.blueprints.hybrid_moa.blueprint_hybrid_moa import HybridMoABlueprint
 
 
 @pytest.mark.asyncio
+async def test_hybrid_moa_swarm_test_mode_short_circuits(monkeypatch):
+    monkeypatch.setenv("SWARM_TEST_MODE", "1")
+
+    async def _boom(*_a, **_k):
+        raise AssertionError("run_hybrid_scripted must not run under SWARM_TEST_MODE")
+
+    monkeypatch.setattr(
+        "swarm.blueprints.hybrid_moa.blueprint_hybrid_moa.run_hybrid_scripted",
+        _boom,
+    )
+    bp = HybridMoABlueprint(blueprint_id="hybrid_moa")
+    chunks = []
+    async for c in bp.run([{"role": "user", "content": "ping"}]):
+        chunks.append(c)
+    assert chunks
+    content = chunks[-1]["messages"][0]["content"]
+    assert content and content.strip()
+    assert not content.startswith("Generating")
+    assert "ping" in content
+
+
+@pytest.mark.asyncio
 async def test_hybrid_moa_blueprint_run(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("SWARM_WORKSPACES_DIR", str(tmp_path))
     bp = HybridMoABlueprint(blueprint_id="hybrid_moa")

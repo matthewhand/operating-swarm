@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPut, type AgentRole } from './api'
 
 /** Entry targets documented by GET /v1/mailbox-acl/ (REQ-162). */
-export type MailboxAclEntryKind = 'agent' | 'team' | 'role'
+export type MailboxAclEntryKind = 'agent' | 'team' | 'role' | 'section'
 export type MailboxAclMode = 'whitelist' | 'blacklist'
 export type MailboxAclScope = 'agent' | 'role'
 export type MailboxAclSource = 'agent' | 'role' | 'default'
@@ -11,6 +11,7 @@ export const MAILBOX_ACL_ENTRY_KINDS: { kind: MailboxAclEntryKind; label: string
     { kind: 'agent', label: 'Agent', hint: 'A catalogued rail or roster agent id.' },
     { kind: 'team', label: 'Team', hint: 'A team roster id — every member of that team.' },
     { kind: 'role', label: 'Role', hint: 'A canonical role (support, gate, skeptic, CoS, …).' },
+    { kind: 'section', label: 'Section', hint: 'Members of a CoS rail section.' },
   ]
 
 export const MAILBOX_ACL_ROLE_OPTIONS: { value: AgentRole; label: string }[] = [
@@ -49,7 +50,7 @@ export interface MailboxAclStore {
   entry_kinds: { kind: MailboxAclEntryKind; description: string }[]
 }
 
-const ENTRY_KINDS = new Set<MailboxAclEntryKind>(['agent', 'team', 'role'])
+const ENTRY_KINDS = new Set<MailboxAclEntryKind>(['agent', 'team', 'role', 'section'])
 
 export function isAllowAllRole(role: string | null | undefined): boolean {
   const key = String(role || '').trim().toLowerCase()
@@ -164,7 +165,6 @@ export async function resetMailboxAcl(
   id: string,
   role?: string,
 ): Promise<MailboxAcl> {
-  const fallback = defaultMailboxAcl(id, (role || 'default') as AgentRole, scope)
   const path =
     scope === 'role'
       ? `/v1/mailbox-acl/roles/${encodeURIComponent(id)}/`

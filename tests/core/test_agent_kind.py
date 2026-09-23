@@ -11,9 +11,23 @@ from swarm.core.agent_kind import (
 
 def test_api_blueprints_are_editable():
     assert classify_agent_kind("jeeves") == "api"
-    assert classify_agent_kind("cli_agent") == "api"
     assert classify_agent_kind("support") == "api"
     assert can_edit_agent_messages("codey") is True
+
+
+def test_recipe_blueprints_classify_as_payload_kind_issue_534():
+    """#534: ``remote_harness`` / ``cli_agent`` are recipes that *run* a turn
+    for their payload kind — the SPA sends ``blueprint: remote_harness`` when a
+    remote seat chats, so the recipe id (not the roster id) is what the
+    send-path gates see. Classifying it ``api`` made the REQ-87 compression
+    gate pass on remote seats and emit 'Auto-compress skipped' notices."""
+    assert classify_agent_kind("remote_harness") == "remote"
+    assert classify_agent_kind("REMOTE_HARNESS") == "remote"
+    assert classify_agent_kind("cli_agent") == "cli"
+    # Plain API seats keep their classification:
+    assert classify_agent_kind("api_agent") == "api"
+    assert classify_agent_kind("chatbot") == "api"
+    assert classify_agent_kind("jeeves") == "api"
 
 
 def test_cli_threads_are_editable_with_session_restart_remote_is_not():
@@ -47,6 +61,15 @@ def test_blueprint_is_a_first_class_editable_kind():
     assert classify_agent_kind("blueprint:planner") == "blueprint"
     assert can_edit_agent_messages("blueprint:planner") is True
     assert can_edit_agent_messages("jeeves", explicit="blueprint") is True
+
+
+def test_recipe_payloads_stay_editable_and_api_seats_unchanged_issue_534():
+    """#534 follow-through: recipe ids inherit their payload's edit rights
+    (remote stays read-only, CLI restarts the provider session) and explicit
+    kinds still win."""
+    assert can_edit_agent_messages("remote_harness") is False
+    assert can_edit_agent_messages("cli_agent") is True
+    assert classify_agent_kind("remote_harness", explicit="api") == "api"
 
 
 def test_api_agent_rail_id_resolves_to_chatbot_recipe():

@@ -1,21 +1,11 @@
 name: REQ-171A-2 persist on assistant final
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "src/swarm/consumers.py"
-      - "src/swarm/core/chat_store.py"
-      - "tests/unit/test_req171a2_persist_on_final.py"
-      - "docs/websocket_chat.md"
-      - ".github/workflows/req171a2-persist-on-final.yml"
-  push:
-    branches: [main]
-    paths:
-      - "src/swarm/consumers.py"
-      - "src/swarm/core/chat_store.py"
-      - "tests/unit/test_req171a2_persist_on_final.py"
-      - "docs/websocket_chat.md"
-      - ".github/workflows/req171a2-persist-on-final.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:

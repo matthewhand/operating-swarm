@@ -5,6 +5,7 @@ Basic functional tests for Codey blueprint (SWARM_TEST_MODE / keyless).
 from __future__ import annotations
 
 from unittest.mock import patch
+import json
 
 import pytest
 
@@ -174,8 +175,7 @@ class TestCodeyConfiguration:
         assert isinstance(config, dict)
 
     def test_llm_profile_access(self, tmp_path, monkeypatch):
-        """LLM profile comes from a fixture SoT — not a committed live file."""
-        import json
+        """LLM profile comes from direct config injection — not the host config."""
 
         cfg = {
             "llm": {

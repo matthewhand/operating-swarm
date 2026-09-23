@@ -1,17 +1,66 @@
-import { parseCreatedAtMs } from './chatTime'
+import {
+  allBubbleThemes,
+  getRegisteredBubbleTheme,
+  type BubbleTheme,
+  type BubbleThemeBase,
+} from './bubbleThemes'
 
-export const BUBBLE_THEMES = ['speech', 'simple', 'irc', 'feed'] as const
-export type BubbleTheme = (typeof BUBBLE_THEMES)[number]
+export {
+  allBubbleThemes,
+  BubbleThemeBase,
+  formatBubbleTime,
+  IrcTheme,
+  registerBubbleTheme,
+  SimpleTheme,
+  SpeechTheme,
+  type ActionRowPlacement,
+  type ComposerChrome,
+  type MessageLayout,
+  type NoticeRowSpec,
+  type TimestampPlacement,
+} from './bubbleThemes'
+export type { BubbleTheme } from './bubbleThemes'
 
 // REQ-844 / #166: 'speech' is the default — tails visible + symmetric gutters.
 export const DEFAULT_BUBBLE_THEME: BubbleTheme = 'speech'
 export const BUBBLE_THEME_STORAGE_KEY = 'os.bubbleTheme'
+/** #506: fired by saveBubbleTheme so mounted transcripts re-read without a remount. */
+export const BUBBLE_THEME_CHANGED_EVENT = 'swarm:bubble-theme-changed'
 
-export const BUBBLE_THEME_LABELS: Record<BubbleTheme, string> = {
-  speech: 'Speech',
-  simple: 'Simple',
-  irc: 'IRC',
-  feed: 'Feed',
+/** Theme ids in registry insertion order. */
+export const BUBBLE_THEMES = allBubbleThemes().map((theme) => theme.id)
+
+export const BUBBLE_THEME_LABELS = Object.fromEntries(
+  allBubbleThemes().map((theme) => [theme.id, theme.label]),
+) as Record<BubbleTheme, string>
+
+/** #220 — per-theme streaming affordance (theme gate; #217 owns the rest). */
+export type StreamingAffordance = 'caret' | 'block' | 'none'
+
+export interface BubbleThemeStreaming {
+  id: BubbleTheme
+  supportsStreaming: boolean
+  renderStreamingAffordance: StreamingAffordance
+}
+
+export const BUBBLE_THEME_STREAMING: Record<BubbleTheme, BubbleThemeStreaming> = {
+  speech: { id: 'speech', supportsStreaming: true, renderStreamingAffordance: 'caret' },
+  simple: { id: 'simple', supportsStreaming: true, renderStreamingAffordance: 'caret' },
+  irc: { id: 'irc', supportsStreaming: true, renderStreamingAffordance: 'block' },
+}
+
+export function bubbleThemeSupportsStreaming(theme: BubbleTheme): boolean {
+  return BUBBLE_THEME_STREAMING[theme].supportsStreaming
+}
+
+export function renderStreamingAffordance(theme: BubbleTheme): StreamingAffordance {
+  return BUBBLE_THEME_STREAMING[theme].renderStreamingAffordance
+}
+
+export function streamingAffordanceClass(theme: BubbleTheme): string {
+  const kind = renderStreamingAffordance(theme)
+  if (kind === 'none') return ''
+  return `os-stream-affordance os-stream-affordance--${kind}`
 }
 
 export function parseBubbleTheme(raw: unknown): BubbleTheme {
@@ -19,6 +68,10 @@ export function parseBubbleTheme(raw: unknown): BubbleTheme {
     return raw as BubbleTheme
   }
   return DEFAULT_BUBBLE_THEME
+}
+
+export function getBubbleTheme(id?: unknown): BubbleThemeBase {
+  return getRegisteredBubbleTheme(parseBubbleTheme(id))
 }
 
 export function loadBubbleTheme(): BubbleTheme {
@@ -36,14 +89,77 @@ export function saveBubbleTheme(value: string): BubbleTheme {
   } catch {
     /* persistence is best-effort */
   }
+  try {
+    window.dispatchEvent(new CustomEvent(BUBBLE_THEME_CHANGED_EVENT, { detail: next }))
+  } catch {
+    /* tests / non-browser */
+  }
   return next
 }
 
-/** Compact clock for feed-style rows; empty when `ts` is missing or invalid. */
-export function formatBubbleTime(ts: string | undefined): string {
-  const ms = parseCreatedAtMs(ts)
-  if (ms == null) return ''
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
-    new Date(ms),
-  )
+// --- #676: per-agent overrides + Settings "Apply to all" -------------------
+
+/** localStorage key for the {agentId → theme} override map. */
+export const AGENT_BUBBLE_THEME_STORAGE_KEY = 'os.bubbleThemeByAgent'
+
+/** Read the whole override map ({} when unset/corrupt). */
+export function agentBubbleThemeOverrides(): Record<string, BubbleTheme> {
+  try {
+    const raw = localStorage.getItem(AGENT_BUBBLE_THEME_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+    const out: Record<string, BubbleTheme> = {}
+    for (const [id, theme] of Object.entries(parsed as Record<string, unknown>)) {
+      const t = parseBubbleTheme(theme)
+      if (typeof id === 'string' && id.trim()) out[id.trim()] = t
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** Set (theme) or clear (null) one agent's bubble-theme override. */
+export function setAgentBubbleTheme(agentId: string, theme: BubbleTheme | null): void {
+  const id = agentId.trim()
+  if (!id) return
+  const map = agentBubbleThemeOverrides()
+  if (theme === null) delete map[id]
+  else map[id] = theme
+  try {
+    localStorage.setItem(AGENT_BUBBLE_THEME_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    /* persistence is best-effort */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BUBBLE_THEME_CHANGED_EVENT, { detail: loadBubbleTheme() }))
+  } catch {
+    /* tests / non-browser */
+  }
+}
+
+/** How many agents carry an override that differs from `defaultTheme`. */
+export function overriddenBubbleThemeCount(defaultTheme: BubbleTheme): number {
+  return Object.values(agentBubbleThemeOverrides()).filter((t) => t !== defaultTheme).length
+}
+
+/**
+ * #676: bring every overridden agent onto the default — clears all
+ * overrides; returns how many were cleared (the Apply-to-all toast count).
+ */
+export function applyBubbleThemeToAll(_defaultTheme: BubbleTheme): number {
+  const map = agentBubbleThemeOverrides()
+  const count = Object.keys(map).length
+  try {
+    localStorage.removeItem(AGENT_BUBBLE_THEME_STORAGE_KEY)
+  } catch {
+    /* persistence is best-effort */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BUBBLE_THEME_CHANGED_EVENT, { detail: loadBubbleTheme() }))
+  } catch {
+    /* tests / non-browser */
+  }
+  return count
 }

@@ -6,6 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CHAT_PAGE = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 PICKER = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "NavbarRoutingPicker.tsx"
 PATH_LIB = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "routingPath.ts"
+PALLETTE = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "ModelSearchPalette.tsx"
 SETTINGS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "agentSettings.ts"
 STATUS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "chatStatus.ts"
 
@@ -29,12 +30,16 @@ def test_navbar_uses_one_cascading_picker_not_sibling_selects():
 
     assert "navbar-routing-picker" in picker
     assert "routing-pill-agent" in picker
-    assert "routing-pill-model" in picker
-    assert "routing-pill-effort" in picker
-    assert "ArrowDown" in picker
-    assert "Escape" in picker
-    assert "rtl" in picker
-    assert "routing-sheet" in picker
+    # #629 superseded the sibling model pill: ONE combined trigger now.
+    # #638 folded effort into the combined pill too — no sibling effort pill.
+    # (test_req638 asserts 'routing-pill-effort' is absent; it is the authority.)
+    assert "routing-pill-model" not in picker
+    assert "routing-pill-effort" not in picker
+    # REQ-906/#504 retired the flyout/sheet menus — the shared palette is the
+    # successor surface and inherits the keyboard/rtl handling.
+    assert "ArrowDown" in PALLETTE.read_text(encoding="utf-8")
+    assert "rtl" in PALLETTE.read_text(encoding="utf-8")
+    assert "routing-sheet" not in picker
 
     assert "HIDDEN_ROUTING_LABELS" in path_lib
     assert "you" in path_lib

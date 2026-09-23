@@ -108,7 +108,16 @@ def _configured_file_path() -> Path | None:
     if name is None:
         return None
     text = str(name).strip()
-    if not text or text == ":memory:" or looks_like_connection_string(text):
+    if (
+        not text
+        or text == ":memory:"
+        # SQLite URI names (e.g. pytest's ``file:memorydb_default?mode=memory``)
+        # are not filesystem paths. Treating one as a path hid the live counts
+        # and surfaced a bogus resolved path, so no ``file:`` URI counts as a
+        # local file here.
+        or text.startswith("file:")
+        or looks_like_connection_string(text)
+    ):
         return None
     engine_l = engine.lower()
     looks_like_file = (

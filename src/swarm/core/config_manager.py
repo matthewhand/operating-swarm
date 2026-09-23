@@ -7,6 +7,7 @@ import sys
 from typing import Any
 
 from swarm.settings import DEBUG
+from swarm.utils.redact import redact_sensitive_data
 
 
 def prompt_user(prompt: str) -> str:
@@ -76,7 +77,7 @@ def load_config(config_path: str) -> dict[str, Any]:
     try:
         with open(config_path) as file:
             config = json.load(file)
-            logger.debug(f"Raw configuration loaded: {config}")
+            logger.debug("Raw configuration loaded: %s", redact_sensitive_data(config))
     except FileNotFoundError:
         logger.error(f"Configuration file not found at {config_path}")
         print(f"Configuration file not found at {config_path}")
@@ -89,7 +90,10 @@ def load_config(config_path: str) -> dict[str, Any]:
     # Resolve placeholders recursively
     try:
         resolved_config = resolve_placeholders(config)
-        logger.debug(f"Configuration after resolving placeholders: {resolved_config}")
+        logger.debug(
+            "Configuration after resolving placeholders: %s",
+            redact_sensitive_data(resolved_config),
+        )
     except Exception as e:
         logger.error(f"Failed to resolve placeholders in configuration: {e}")
         print(f"Failed to resolve placeholders in configuration: {e}")

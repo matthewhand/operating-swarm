@@ -29,6 +29,10 @@ def test_happy_path_and_under_the_hood_are_documented():
     assert "ApiKindBase" in blob or "blueprint class" in blob.lower()
     assert "ask **Support**" in blob or "ask Support" in blob
     assert "View / edit code" in blob
+    assert "Add as agent" in docs
+    assert "Save as blueprint" in docs
+    assert "Socratic" in docs or "socratic" in docs.lower()
+    assert "Open in chat" not in docs
     # Guided path is GitHub-only; README may still mention the REQ-156 seed host.
     assert ":8001" not in docs
     assert "WAVE" not in docs
@@ -43,7 +47,10 @@ def test_support_nl_create_does_not_require_user_python():
     lowered = blob.lower()
     assert "write python" in lowered
     assert "not" in lowered and "python" in lowered
-    assert "View / edit code" in blob
+    # #735 (PR #879): the card label is 'View code' — the old
+    # 'View / edit code' copy is retired everywhere.
+    assert "View code" in blob
+    assert "View / edit code" not in blob
     assert "ApiKindBase" in blob
     assert ":8001" not in blob
 
@@ -53,7 +60,7 @@ def test_kickstart_includes_handoff_example():
     front = FRONT_JOURNEY.read_text(encoding="utf-8")
     assert "Create a BA → Engineer → Tester workflow" in journey
     assert "Create a BA → Engineer → Tester workflow" in front
-    assert "View / edit code" in FRONT_CARD.read_text(encoding="utf-8")
+    assert "View code" in FRONT_CARD.read_text(encoding="utf-8")
 
 
 def test_req_pointer_and_own_diff_ci():

@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
@@ -27,7 +29,33 @@ from swarm.core.chat_compact import (
 )
 from swarm.core.thread_load import load_thread
 from swarm.core.thread_load import public_messages as _public_messages
-from swarm.models import ChatAttachment, ChatMessage
+from swarm.models import ChatAttachment, ChatMessage, ConversationSummary
+
+
+def _usage_payload(*, user, agent: str, conversation_id: str, turns=None, model_id: str | None = None):
+    """#215: read-only usage snapshot. Failures stay off the main action path."""
+    from swarm.core.context_usage import usage_snapshot
+
+    cid = (conversation_id or "").strip()
+    agent_id = chat_store.normalize_agent_id(agent)
+    rows = turns
+    if rows is None:
+        loaded = load_thread(
+            user,
+            agent_id,
+            requested_cid=cid,
+            session_id=cid,
+            default_cid=cid,
+            fresh_task=False,
+        )
+        rows = loaded.turns
+    return usage_snapshot(
+        conversation_id=cid,
+        agent_id=agent_id,
+        turns=rows,
+        model_id=model_id,
+    )
+
 
 logger = logging.getLogger(__name__)
 
@@ -106,16 +134,22 @@ def _sync_django_and_memory(
                 row["ts"] = ts
             if item.get("edited"):
                 row["edited"] = True
+            if item.get("fatal_config_error") is True:
+                row["fatal_config_error"] = True
             mem_rows.append(row)
         IN_MEMORY_CONVERSATIONS[_conversation_cache_key(user, cid)] = mem_rows
         try:
             touch_session(chat, messages, agent_id=agent_id)
         except Exception:
             logger.exception("Failed to touch Django session %s", cid)
+        # #731: background semantic retitle when the title is still raw.
+        from swarm.core.agent_sessions import schedule_session_retitle
+        schedule_session_retitle(chat, messages=messages)
 
 
 @login_required
 @ensure_csrf_cookie
+@never_cache
 @require_http_methods(["GET", "POST", "PATCH"])
 def chat_thread(request):
     """Hydrate (GET), append (POST), or edit (PATCH) the persisted transcript for one agent."""
@@ -152,6 +186,17 @@ def chat_thread(request):
         if requested_cid and requested_cid != default_cid:
             session_id = requested_cid
         requested_for_load = requested_cid
+
+    flush_requested = request.GET.get("flush") in ("1", "true") or request.GET.get("force") in ("1", "true")
+    if flush_requested:
+        from swarm.consumers import IN_MEMORY_CONVERSATIONS, IN_MEMORY_UI_EVENTS, _conversation_cache_key
+
+        for cid in {requested_cid, requested_for_load, default_cid, session_id}:
+            if cid:
+                ck = _conversation_cache_key(request.user, cid)
+                IN_MEMORY_CONVERSATIONS.pop(ck, None)
+                IN_MEMORY_UI_EVENTS.pop(ck, None)
+
     # JSON first, Django backfill — same order as WS fetch_conversation.
     loaded = load_thread(
         request.user,
@@ -162,7 +207,52 @@ def chat_thread(request):
         fresh_task=fresh_task,
     )
     record = loaded.record
-    turns, events = loaded.turns, loaded.events
+    turns, events = list(loaded.turns), list(loaded.events)
+
+    is_herdr = bool(
+        (agent_raw and str(agent_raw).startswith(("remote:herdr", "remote-herdr")))
+        or (requested_cid and requested_cid.startswith("remote-herdr"))
+    )
+    if is_herdr:
+        from swarm.core.remotes import (
+            read_herdr_recent,
+            read_herdr_recent_raw,
+            sanitize_herdr_response,
+        )
+
+        target = ""
+        if requested_cid and requested_cid.startswith("remote-herdr-"):
+            target = requested_cid[len("remote-herdr-") :]
+        elif session_id and not session_id.startswith("remote-herdr"):
+            target = session_id
+
+        if target:
+            recent = read_herdr_recent(target)
+            raw_recent = read_herdr_recent_raw(target) or recent
+            if recent:
+                if not turns:
+                    turns = [
+                        {
+                            "role": "assistant",
+                            "content": recent,
+                            "raw_response": raw_recent,
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ]
+                elif flush_requested and turns and turns[-1].get("content") != recent:
+                    turns.append(
+                        {
+                            "role": "assistant",
+                            "content": recent,
+                            "raw_response": raw_recent,
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+        for item in turns:
+            if isinstance(item, dict) and "content" in item and isinstance(item["content"], str):
+                if not item.get("raw_response"):
+                    item["raw_response"] = item["content"]
+                item["content"] = sanitize_herdr_response(item["content"])
     if (
         minted is None
         and requested_cid
@@ -200,12 +290,28 @@ def chat_thread(request):
             session_title = row.title or ""
         except Exception:
             session_title = ""
+
+    server_managed = False
+    if is_herdr:
+        server_managed = True
+    elif agent_raw and str(agent_raw).startswith(("remote:", "remote-")):
+        rname = str(agent_raw).replace("remote:", "").replace("remote-", "").split("-")[0]
+        try:
+            from swarm.core.remote_harness import capabilities_for
+
+            server_managed = getattr(capabilities_for(rname), "server_managed_context", False)
+        except Exception:
+            server_managed = False
+
     payload = {
         "agent_id": agent,
         "conversation_id": conversation_id,
         "session_title": session_title,
         "kind": kind,
-        "editable": kind == "api",
+        "server_managed_context": server_managed,
+        # REQ-808: CLI threads are editable too (edit restarts the provider
+        # session); only remote threads stay read-only.
+        "editable": can_edit_agent_messages(agent_raw or agent),
         "new_chat_per_task": fresh_task,
         "active_sessions": sessions,
         "session_missing": session_missing,
@@ -225,10 +331,44 @@ def chat_thread(request):
     except Exception:
         payload["context_meta"] = {"start_offset": 0, "last_event": None}
     if request.method == "GET":
-        return JsonResponse(payload)
+        response = JsonResponse(payload)
+        response["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response["Pragma"] = "no-cache"
+        return response
 
     if request.method == "POST":
         body = _json_body(request)
+        if str(body.get("action") or "").strip().lower() == "clear":
+            try:
+                chat_store.save(
+                    user_key,
+                    agent,
+                    [],
+                    conversation_id=conversation_id,
+                    session_id=conversation_id if conversation_id != default_cid else "",
+                    ui_events=[],
+                    cli_sessions={},
+                    cli_hop=None,
+                    active_cli="",
+                )
+            except OSError:
+                logger.exception("Failed to clear chat JSON for %s/%s", user_key, agent)
+            _sync_django_and_memory(
+                request.user,
+                [],
+                [conversation_id],
+                agent_id=agent,
+            )
+            try:
+                from swarm.consumers import IN_MEMORY_UI_EVENTS, _conversation_cache_key
+
+                IN_MEMORY_UI_EVENTS[_conversation_cache_key(request.user, conversation_id)] = []
+            except Exception:
+                logger.debug("in-memory ui_events clear skipped", exc_info=True)
+            payload["messages"] = []
+            payload["turns"] = []
+            payload["ui_events"] = []
+            return JsonResponse(payload)
         msg = body.get("message")
         if isinstance(msg, dict) and msg.get("content"):
             from swarm.core.transcript_roles import (
@@ -369,6 +509,95 @@ def chat_thread(request):
     return JsonResponse(payload)
 
 
+@login_required
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def chat_raw_context(request):
+    """#224: exactly what the model sees for one conversation — read-only.
+
+    Reuses the production context builder (``context_for_conversation``), so
+    the payload is the honest splice: spliced summary trees (with the #214
+    include-in-context state marked), uncovered raw turns, and the cull
+    offset. No fabrication; no transcript mutation.
+    """
+    from swarm.core.chat_compact import context_for_conversation, list_summaries
+    from swarm.core.transcript_roles import reconstruct_display
+
+    agent = chat_store.normalize_agent_id(request.GET.get("agent"))
+    requested_cid = (request.GET.get("conversation_id") or "").strip()
+    if not requested_cid:
+        return JsonResponse({"error": "conversation_id required"}, status=400)
+    loaded = load_thread(
+        request.user,
+        agent,
+        requested_cid=requested_cid,
+        session_id=requested_cid,
+        default_cid=requested_cid,
+        fresh_task=False,
+    )
+    turns = loaded.turns
+    model_context = context_for_conversation(requested_cid, turns)
+    included_ids: set[int] = set()
+    excluded_ids: list[int] = []
+    for row in list_summaries(requested_cid):
+        summary_id = getattr(row, "id", None)
+        if summary_id is None:
+            continue
+        if getattr(row, "include_in_context", True):
+            included_ids.add(summary_id)
+        else:
+            excluded_ids.append(summary_id)
+    from swarm.core.context_cull_policy import load_context_meta
+
+    try:
+        cull_offset = int(load_context_meta(requested_cid).get("start_offset") or 0)
+    except Exception:
+        cull_offset = 0
+    return JsonResponse(
+        {
+            "conversation_id": requested_cid,
+            "agent_id": agent,
+            "context": model_context,
+            "summaries_included": sorted(included_ids),
+            "summaries_excluded": sorted(excluded_ids),
+            "cull_offset": cull_offset,
+            "raw_turn_count": len(reconstruct_display(turns, loaded.events)),
+        }
+    )
+
+
+@login_required
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def chat_context_usage(request):
+    """#215: per-seat context-window usage — read-only estimate.
+
+    Tokens of current model context (messages + spliced summaries +
+    system/instructions + tool-schema overhead) against the seat's declared
+    window. ``estimate: true`` until a per-provider tokenizer is wired.
+    """
+    agent = chat_store.normalize_agent_id(request.GET.get("agent"))
+    requested_cid = (request.GET.get("conversation_id") or "").strip()
+    if not requested_cid:
+        return JsonResponse({"error": "conversation_id required"}, status=400)
+    model_id = (
+        (request.GET.get("model") or request.GET.get("llm_profile") or "")
+        .strip()
+        or None
+    )
+    try:
+        payload = _usage_payload(
+            user=request.user,
+            agent=agent,
+            conversation_id=requested_cid,
+            model_id=model_id,
+        )
+    except Exception:
+        logger.exception("context usage snapshot failed")
+        return JsonResponse({"error": "Could not estimate context usage."}, status=500)
+    return JsonResponse(payload)
+
+
 @require_http_methods(["POST"])
 def chat_attachment_upload(request):
     """Store one composer file and return its id (REQ-38).
@@ -489,14 +718,61 @@ def chat_compact(request):
     except Exception:
         logger.debug("compress last-event stamp skipped", exc_info=True)
 
-    return JsonResponse(
-        {
-            "summary": summary_to_dict(row),
-            "summaries": summaries,
-            "context": build_model_context(raw, list_summaries(conversation_id)),
-            "raw_count": len(raw),
-        }
-    )
+    payload = {
+        "summary": summary_to_dict(row),
+        "summaries": summaries,
+        "context": build_model_context(raw, list_summaries(conversation_id)),
+        "raw_count": len(raw),
+    }
+    try:
+        payload["usage"] = _usage_payload(
+            user=request.user,
+            agent=agent,
+            conversation_id=conversation_id,
+            turns=raw,
+        )
+    except Exception:
+        logger.debug("compact usage snapshot skipped", exc_info=True)
+    return JsonResponse(payload)
+
+
+@login_required
+@require_http_methods(["POST"])
+def chat_summary_toggle_context(request):
+    """#214: toggle a summary's include_in_context (default True keeps today's behavior).
+
+    Unticked = the summary (and the raw span it replaced) stops feeding model
+    context — a lightweight "new chat". The transcript row is untouched.
+    """
+    payload = _json_body(request)
+    summary_id = payload.get("summary_id")
+    try:
+        summary_id = int(summary_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "summary_id must be an integer."}, status=400)
+    include = payload.get("include_in_context")
+    if not isinstance(include, bool):
+        return JsonResponse({"error": "include_in_context must be a boolean."}, status=400)
+    try:
+        row = ConversationSummary.objects.select_related("conversation").get(pk=summary_id)
+    except ConversationSummary.DoesNotExist:
+        return JsonResponse({"error": "Summary not found."}, status=404)
+    owner = row.conversation.student
+    if owner is not None and request.user.pk != owner.pk:
+        return JsonResponse({"error": "Not your conversation."}, status=403)
+    row.include_in_context = include
+    row.save(update_fields=["include_in_context"])
+    body = {"summary": summary_to_dict(row)}
+    try:
+        conversation = row.conversation
+        body["usage"] = _usage_payload(
+            user=request.user,
+            agent=getattr(conversation, "agent_id", "") or "",
+            conversation_id=row.conversation_id,
+        )
+    except Exception:
+        logger.debug("toggle usage snapshot skipped", exc_info=True)
+    return JsonResponse(body)
 
 
 @login_required
@@ -579,11 +855,21 @@ def chat_context_start(request):
 def chat_retention_action(request):
     """Archive / restore / empty-trash for the signed-in user's JSON threads."""
     action = (request.POST.get("action") or "").strip()
+    raw_agent = request.POST.get("agent_id")
+    if not action and request.body:
+        try:
+            body_data = json.loads(request.body)
+            if isinstance(body_data, dict):
+                action = (body_data.get("action") or "").strip()
+                raw_agent = body_data.get("agent_id")
+        except (ValueError, TypeError):
+            pass
+
     if action not in _ALLOWED_ACTIONS:
         return JsonResponse({"success": False, "error": "Unknown action."}, status=400)
 
     user_key = _user_key(request.user)
-    agent = chat_store.normalize_agent_id(request.POST.get("agent_id"))
+    agent = chat_store.normalize_agent_id(raw_agent)
 
     try:
         if action == "archive":

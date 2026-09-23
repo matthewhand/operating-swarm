@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Dorsal Specimen Bee Profile Avatar">
+  <defs>
+    <linearGradient id="dorsal-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#24282B"/>
+      <stop offset="100%" stop-color="#121517"/>
+    </linearGradient>
+    <linearGradient id="dorsal-wing" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.88"/>
+      <stop offset="70%" stop-color="#FFF2D1" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#EBA222" stop-opacity="0.25"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#dorsal-bg)" stroke="#EBA222" stroke-width="1.5"/>
+  <g fill="url(#dorsal-wing)" stroke="#FFF8EC" stroke-width="0.8">
+    <path d="M30 26 C22 18 10 16 4 23 C2 28 12 33 28 29 Z"/>
+    <path d="M30 29 C24 27 15 28 11 34 C10 38 18 39 29 32 Z" opacity="0.9"/>
+  </g>
+  <path d="M29 27 C20 22 12 20 6 24" fill="none" stroke="#EBA222" stroke-width="0.5" opacity="0.7"/>
+  <g fill="url(#dorsal-wing)" stroke="#FFF8EC" stroke-width="0.8">
+    <path d="M34 26 C42 18 54 16 60 23 C62 28 52 33 36 29 Z"/>
+    <path d="M34 29 C40 27 49 28 53 34 C54 38 46 39 35 32 Z" opacity="0.9"/>
+  </g>
+  <path d="M35 27 C44 22 52 20 58 24" fill="none" stroke="#EBA222" stroke-width="0.5" opacity="0.7"/>
+  <g fill="none" stroke="#1A140C" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28 24 L20 18 L16 16"/>
+    <path d="M36 24 L44 18 L48 16"/>
+    <path d="M27 30 L18 36 L15 42"/>
+    <path d="M37 30 L46 36 L49 42"/>
+    <path d="M28 34 L21 44 L19 52"/>
+    <path d="M36 34 L43 44 L45 52"/>
+  </g>
+  <path d="M32 30 C26 30 25 36 26 44 C27 49 30 55 32 59 C34 55 37 49 38 44 C39 36 38 30 32 30 Z" fill="#1A140C" stroke="#1A140C" stroke-width="1.2"/>
+  <g fill="none" stroke="#EFAB22" stroke-width="2" stroke-linecap="round">
+    <path d="M27 36 Q32 39 37 36"/>
+    <path d="M27.5 41 Q32 44 36.5 41"/>
+    <path d="M28.5 46 Q32 49 35.5 46"/>
+    <path d="M30 51 Q32 53 34 51"/>
+  </g>
+  <path d="M32 59 L31 62 H33 Z" fill="#111111"/>
+  <ellipse cx="32" cy="27" rx="6.5" ry="5.8" fill="#EBA222" stroke="#1A140C" stroke-width="1.4"/>
+  <ellipse cx="32" cy="27" rx="3.5" ry="2.8" fill="#1A140C" opacity="0.25"/>
+  <ellipse cx="32" cy="18" rx="5.2" ry="4.2" fill="#1A140C" stroke="#EBA222" stroke-width="0.8"/>
+  <ellipse cx="27.4" cy="17.5" rx="1.6" ry="3.2" transform="rotate(-15 27.4 17.5)" fill="#3D2918" stroke="#EBA222" stroke-width="0.5"/>
+  <ellipse cx="36.6" cy="17.5" rx="1.6" ry="3.2" transform="rotate(15 36.6 17.5)" fill="#3D2918" stroke="#EBA222" stroke-width="0.5"/>
+  <g fill="none" stroke="#EBA222" stroke-width="1.3" stroke-linecap="round">
+    <path d="M30 14 C27 10 23 8 18 7"/>
+    <path d="M34 14 C37 10 41 8 46 7"/>
+  </g>
+  <circle cx="18" cy="7" r="0.9" fill="#EBA222"/>
+  <circle cx="46" cy="7" r="0.9" fill="#EBA222"/>
+</svg>

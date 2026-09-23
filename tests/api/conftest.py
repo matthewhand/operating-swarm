@@ -11,9 +11,17 @@ from django.test import AsyncClient
 
 # Async views touch the ORM through sync_to_async wrappers; allow this in the
 # test event loop when the suite is run directly via pytest (scripts/run_tests.py
-# sets this too).
-os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
-os.environ.setdefault("SWARM_TEST_MODE", "1")
+# sets this too). Scoped to this suite via the autouse fixture below — a
+# module-level os.environ.setdefault here leaked SWARM_TEST_MODE into every
+# other suite (pytest imports conftests at collection), making their behavior
+# test-order-dependent.
+
+
+@pytest.fixture(autouse=True)
+def _api_test_env(monkeypatch):
+    """Scope API-suite env (async-unsafe ORM + deterministic blueprint output) to tests/api."""
+    monkeypatch.setenv("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
+    monkeypatch.setenv("SWARM_TEST_MODE", "1")
 
 
 @pytest.fixture(scope='function')  # Use function scope if tests modify the user/db

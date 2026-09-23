@@ -61,6 +61,10 @@ def test_listed_specs_env_url_and_no_invented_ports(monkeypatch):
     monkeypatch.delenv("RAKAZO_BASE_URL", raising=False)
     monkeypatch.delenv("RAKEZO_BASE_URL", raising=False)
     monkeypatch.delenv("OPENMAUSBOT_BASE_URL", raising=False)
+    # Operator shells may export live remote URLs (handover-era env); the
+    # "no invented ports" contract requires unset env for these seats.
+    monkeypatch.delenv("OMB_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENMAUSBOT_UI_URL", raising=False)
     specs = listed_remote_specs({})
     hermes = next(s for s in specs if s["agent_id"] == "hermes")
     rakazo = next(s for s in specs if s["agent_id"] == "rakazo")
@@ -276,14 +280,20 @@ def test_chat_herdr_prompt_then_read():
             "w7:p1",
             "do the thing",
             "--wait",
+            # #470: idle | done | blocked (herdr repeats ``--until``).
             "--until",
             "idle",
+            "--until",
+            "done",
+            "--until",
+            "blocked",
             "--timeout",
             "1000",
         ],
         ["herdr", "agent", "read", "w7:p1", "--source", "recent", "--format", "text"],
     ]
-    assert calls[1].count("--until") == 1
+    # #470: herdr repeats --until for the stopped set (idle | done | blocked).
+    assert calls[1].count("--until") == 3
     assert "--remote" not in calls[1]
 
 
@@ -436,4 +446,151 @@ def test_remote_auth_uses_per_remote_key_and_remote_team_api_key(monkeypatch):
 
         _http_get_json("http://127.0.0.1:9/v1/models")
         assert captured_reqs[-1].get_header("Authorization") == "Bearer generic-team-key"
+
+
+
+def test_chat_letta_and_remote_dispatch():
+    from swarm.core.remote_teams import chat_letta, chat_remote
+
+    captured_reqs = []
+
+    class _Resp:
+        def read(self):
+            return b'{"messages": [{"message_type": "assistant_message", "content": "Letta assistant reply"}]}'
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    class _Opener:
+        def open(self, req, timeout=0):
+            captured_reqs.append(req)
+            return _Resp()
+
+    # Refuses to mint without agent_id
+    with pytest.raises(RuntimeError, match="letta agent id is required"):
+        chat_letta("http://127.0.0.1:8283", [{"role": "user", "content": "hi"}], agent_id="")
+
+    with pytest.raises(RuntimeError, match="letta agent id is required"):
+        chat_letta("http://127.0.0.1:8283", "hi", agent_id="default")
+
+    with patch("swarm.core.remote_teams.urllib.request.build_opener", return_value=_Opener()):
+        reply = chat_letta(
+            "http://127.0.0.1:8283",
+            [{"role": "user", "content": "hello"}],
+            agent_id="agent-xyz-123",
+            api_key="letta-key",
+        )
+        assert reply == "Letta assistant reply"
+        assert len(captured_reqs) == 1
+        req = captured_reqs[-1]
+        assert req.full_url == "http://127.0.0.1:8283/v1/agents/agent-xyz-123/messages"
+        assert req.get_header("Authorization") == "Bearer letta-key"
+        body = json.loads(req.data.decode("utf-8"))
+        assert body == {"messages": [{"role": "user", "content": "hello"}]}
+
+        # Via chat_remote
+        reply2 = chat_remote(
+            "http://127.0.0.1:8283",
+            [{"role": "user", "content": "hello again"}],
+            model="agent-xyz-123",
+            framework="letta",
+            api_key="letta-key",
+        )
+        assert reply2 == "Letta assistant reply"
+        assert len(captured_reqs) == 2
+        req2 = captured_reqs[-1]
+        assert req2.full_url == "http://127.0.0.1:8283/v1/agents/agent-xyz-123/messages"
+
+
+def test_chat_remote_delegates_to_herdr(monkeypatch):
+    from swarm.core.remote_teams import chat_remote
+
+    with patch("swarm.core.remote_teams.chat_herdr", return_value="herdr reply") as mock_herdr:
+        reply = chat_remote(
+            "http://unused",
+            [{"role": "user", "content": "run task"}],
+            model="w1:p1",
+            framework="herdr",
+        )
+        assert reply == "herdr reply"
+        mock_herdr.assert_called_once()
+        args, kwargs = mock_herdr.call_args
+        assert args[0] == "run task"
+        assert kwargs["target"] == "w1:p1"
+
+
+def test_server_managed_context_capabilities():
+    """#851: verify server_managed_context capability flags across remotes."""
+    from swarm.core.remote_harness import capabilities_for
+
+    assert capabilities_for("letta").server_managed_context is True
+    assert capabilities_for("flowise").server_managed_context is True
+    assert capabilities_for("herdr").server_managed_context is True
+    assert capabilities_for("hermes").server_managed_context is False
+    assert capabilities_for("omb").server_managed_context is False
+    assert capabilities_for("rakazo").server_managed_context is False
+    assert capabilities_for("trueforge").server_managed_context is False
+
+    # As dict contains the flag
+    caps_dict = capabilities_for("letta").as_dict()
+    assert caps_dict["server_managed_context"] is True
+    assert capabilities_for("hermes").as_dict()["server_managed_context"] is False
+
+
+def test_chat_remote_server_managed_submits_only_latest_turn():
+    """#851: stateful remotes receive only the latest turn, stateless receive full history."""
+    from swarm.core.remote_teams import chat_remote
+
+    captured_reqs = []
+
+    class _Resp:
+        def read(self):
+            return b'{"choices": [{"message": {"content": "ok"}}]}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class _Opener:
+        def open(self, req, timeout=0):
+            captured_reqs.append(req)
+            return _Resp()
+
+    history = [
+        {"role": "user", "content": "turn 1"},
+        {"role": "assistant", "content": "reply 1"},
+        {"role": "user", "content": "turn 2"},
+    ]
+
+    with patch("swarm.core.remote_teams.urllib.request.build_opener", return_value=_Opener()):
+        # 1. Stateless framework (hermes) receives full history
+        reply_stateless = chat_remote(
+            "http://127.0.0.1:9090/v1", history, framework="hermes"
+        )
+        assert reply_stateless == "ok"
+        payload_stateless = json.loads(captured_reqs[-1].data.decode("utf-8"))
+        assert payload_stateless["messages"] == history
+
+        # 2. Stateful framework (flowise, no special-cased sender) receives ONLY the latest turn
+        reply_stateful = chat_remote(
+            "http://127.0.0.1:9090/v1", history, framework="flowise"
+        )
+        assert reply_stateful == "ok"
+        payload_stateful = json.loads(captured_reqs[-1].data.decode("utf-8"))
+        assert payload_stateful["messages"] == [{"role": "user", "content": "turn 2"}]
+
+
+def test_listed_remote_specs_includes_server_managed_context():
+    """#851: listed_remote_specs exposes server_managed_context."""
+    from swarm.core.remote_teams import listed_remote_specs
+
+    specs = {s["agent_id"]: s for s in listed_remote_specs(expand=False)}
+    assert specs["letta"]["server_managed_context"] is True
+    assert specs["herdr"]["server_managed_context"] is True
+    assert specs["flowise"]["server_managed_context"] is True
+    assert specs["hermes"]["server_managed_context"] is False
+    assert specs["openmausbot"]["server_managed_context"] is False
 

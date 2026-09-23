@@ -4,7 +4,7 @@
     {% load static %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Login &middot; Open Swarm</title>
+    <title>Login &middot; Operating Swarm</title>
     {% include "includes/brand_icons.html" %}
     <link href="{% static 'css/operator.css' %}" rel="stylesheet">
 </head>
@@ -12,14 +12,15 @@
     <main class="login-card">
         <div class="brand">
             <img src="{% static 'brand/webui-geometric.svg' %}" alt="" width="64" height="64" class="brand-mark">
-            <h1 class="brand-name">Open Swarm</h1>
+            <h1 class="brand-name">Operating Swarm</h1>
             <p class="brand-sub">Sign in to continue</p>
         </div>
         {% if error %}
             <p class="error-message" role="alert">{{ error }}</p>
         {% endif %}
-        <form method="post" action="{% url 'custom_login' %}?next={{ request.GET.next }}">
+        <form method="post" action="{% url 'custom_login' %}">
             {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.GET.next }}">
             <div class="field">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" autocomplete="username" autofocus required>

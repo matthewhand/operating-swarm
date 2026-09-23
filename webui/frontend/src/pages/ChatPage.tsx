@@ -12,14 +12,38 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, FoldVertical, Layers, Mic, PanelLeft, Pencil, Plus, Reply, Settings, Users } from 'lucide-react'
+import { ArrowUp, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Settings, Square } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
-import { ConfirmModal, TOAST_KIND_WS_DISCONNECT, useToast } from '../components/DaisyUI'
+import ChatMessageInput from '../components/ChatMessageInput'
+import {
+  ConfirmModal,
+  TOAST_KIND_WS_DISCONNECT,
+  useToast,
+} from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
-import { OPEN_SETTINGS_EVENT, openSettingsSheet } from '../components/SettingsSheet'
+import {
+  OPEN_SETTINGS_EVENT,
+  openSettingsSheet,
+  settingsDetailFromQuery,
+} from '../components/SettingsSheet'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
-import { isRateLimitWait, type RateLimitWait } from '../lib/providerRateLimits'
-import { OPEN_TEAM_COMPOSER_EVENT } from '../components/TeamComposer'
+
+
+
+import {
+  getScopedSelectionText,
+  resolveReplyQuote,
+  type CachedBubbleSelection,
+} from '../lib/bubbleSelection'
+import { buildOutboundReplyText } from '../lib/replyQuote'
+import {
+  copyTextToClipboard,
+  COPY_EMPTY_MESSAGE,
+  COPY_EMPTY_TITLE,
+  COPY_FAILED_MESSAGE,
+  COPY_FAILED_TITLE,
+} from '../lib/clipboard'
+
 import {
   AGENT_DROPDOWNS_CHANGED_EVENT,
   AGENT_SETTINGS_CHANGED_EVENT,
@@ -30,10 +54,22 @@ import {
   openAgentEditor,
   type AgentSettingsChangedDetail,
 } from '../lib/agentSettings'
+import {
+  EMPTY_VOICE_BIND,
+  applyVoiceBindToSpeechSettings,
+  nextAutoSpeakText,
+  parseVoiceBind,
+  type AgentVoiceBind,
+} from '../lib/agentVoiceBind'
 import { openTeamEditor } from '../components/TeamEditor'
 import PersonaRoster from '../components/PersonaRoster'
 import { declaredRosterForTeam } from '../lib/declaredRoster'
-import { fetchUserPrefs, persistAgentDropdownChoice } from '../lib/userPrefs'
+import {
+  fetchUserPrefs,
+  persistAgentDropdownChoice,
+  USER_PREFS_CHANGED_EVENT,
+  type UserPrefs,
+} from '../lib/userPrefs'
 import {
   DEFAULT_CONTEXT_STRATEGY,
   DEFAULT_CULL_TRIGGER_PCT,
@@ -46,17 +82,54 @@ import {
   type ContextStrategy,
 } from '../lib/contextCull'
 import { persistableMessages, putAgentChatSession } from '../lib/agentChatSessions'
+
 import { useRailChrome } from '../components/RailChrome'
 import { ComputerControlStub } from '../components/ComputerControlStub'
 import { NavbarRoutingPicker, type RoutingPathChange } from '../components/NavbarRoutingPicker'
-import { ChatMessageBubble } from '../components/ChatMessageBubble'
+
+import {
+  BUBBLE_THEME_CHANGED_EVENT,
+  BUBBLE_THEME_STORAGE_KEY,
+  getBubbleTheme,
+  loadBubbleTheme,
+  type BubbleTheme,
+} from '../lib/bubbleTheme'
+import {
+  IRC_GUTTER_CHANGED_EVENT,
+  loadIrcGutterPx,
+  themeUsesIrcGutter,
+  saveIrcGutterPx,
+  IRC_GUTTER_DEFAULT_PX,
+} from '../lib/ircGutter'
 import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
+
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
-import { SystemPreloadPill } from '../components/SystemPreloadPill'
-import { CompactSummaryCard } from '../components/CompactSummaryCard'
+import ApiSessionSwitcher from '../components/ApiSessionSwitcher'
+import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
+import SessionPicker from '../components/SessionPicker'
+import {
+  fetchRemoteThreadSessions,
+  mostRecentRemoteSession,
+  remoteAgentsFromOperate,
+  remoteChatTurnParams,
+  remoteListsSessions,
+} from '../lib/remoteSessions'
+import type { MemberSession } from '../lib/sessionPicker'
+
+// #856 slice 2: summary card tree moved verbatim to features/chat/SummaryBlock.tsx.
+
 import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
+import ComposerAttachChips from '../components/ComposerAttachChips'
+import {
+  attachmentCaption,
+  filesFromList,
+  readyAttachmentIds,
+} from '../lib/chatAttachments'
+import { composerMenuCapabilities } from '../lib/composerMenu'
+import { applyRemoteRoutingChange } from '../lib/remoteRouting'
+import { ComposerPluginsPanel } from '../components/ComposerPluginsPanel'
 import {
   type SlashItem,
   buildSlashCatalog,
@@ -72,15 +145,21 @@ import {
   fetchBlueprints,
   fetchCliAgents,
   fetchCliModels,
+  fetchHerdrAgents,
   fetchLlmProfiles,
   fetchRemotes,
   fetchSpeechSettings,
+  isThrottleError,
+  operateRemote,
 } from '../lib/api'
 import {
   appendTranscript,
   listenSystemStt,
   recordMicrophoneAudio,
   resolveSttPath,
+  resolveTtsPath,
+  speakCustom,
+  speakSystem,
   sttUnavailableMessage,
   transcribeCustomBlob,
   type SpeechPath,
@@ -90,6 +169,7 @@ import {
   AGENT_CONVERSATION_EVENT,
   agentIdFromBlueprint,
   appendAgentMessage,
+  clearAgentThread,
   compactAgentThread,
   conversationIdForAgent,
   conversationIdForTask,
@@ -99,15 +179,21 @@ import {
   patchAgentMessage,
   peekConversationIdForAgent,
   setConversationIdForAgent,
+  toggleSummaryInContext,
   type ConversationSummary,
 } from '../lib/agentChat'
-import { canEditAgentMessages, classifyAgentKind, type AgentKind } from '../lib/agentKind'
+import { canEditAgentMessages, classifyAgentKind, isSwarmOwnedAgent, type AgentKind } from '../lib/agentKind'
 import {
   composerInsetCustomProperty,
   isPinnedToTranscriptBottom,
   measureComposerDockInset,
   scrollTranscriptToBottom,
 } from '../lib/composerInset'
+import {
+  initialComposerShowProvider,
+  COMPOSER_SHOW_PROVIDER_SET_EVENT,
+  COMPOSER_SHOW_PROVIDER_STORAGE_KEY,
+} from '../lib/composerShowProvider'
 import {
   buildDisplayItems,
   contextTextsForMeter,
@@ -116,27 +202,51 @@ import {
 } from '../lib/chatCompact'
 import { turnIndexFromDisplay } from '../lib/transcriptReconstruct'
 import {
+  buildCancelTurnFrame,
   buildChatWsEditFrame,
   buildChatWsFrame,
-  buildChatWsUrl,
+  buildQuestionAnswerFrame,
   buildToolDecisionFrame,
-  parseChatWsMessage,
-  type ChatWsEvent,
+  newConversationId,
+  cliAgentChatParams,
+  mergeChatSendParams,
 } from '../lib/chatWs'
-import { ToolCallPopup } from '../components/ToolCallPopup'
-import { PrOpenedCard } from '../components/PrOpenedCard'
-import { TeammateTaskCard } from '../components/TeammateTaskCard'
+import { ContextUsageBadge } from '../components/ContextUsageBadge'
+import { AuxActivityIndicator } from '../components/AuxActivityIndicator'
+import {
+  requestAuxCancel,
+  sweepAuxTasks,
+  AUX_CANCEL_EVENT,
+  type AuxTask,
+} from '../lib/auxTasks'
+import {
+  fetchContextUsage,
+  publishContextUsage,
+  type ContextUsage,
+} from '../lib/contextUsage'
+
+import type { DecisionQuestion } from '../lib/decisionQuestion'
+import { loadElicitQuestions } from '../lib/elicitQuestions'
+
+import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsPanel'
+
+
 import { SuggestionChips } from '../components/SuggestionChips'
+import ConsumerPills from '../components/ConsumerPills'
+import ComposerPluginsBadge from '../components/ComposerPluginsBadge'
+
+import { isDemoMode } from '../lib/demo/mode'
+import { demoSuggestionChips } from '../lib/demo/scenarios'
 import {
   openerChatSearch,
-  parsePrOpened,
-  type PrOpenedEvent,
   type PrOpenedOpener,
 } from '../lib/prOpened'
-import { parseTeammateTask, type TeammateTaskEvent } from '../lib/teammateTask'
+import SubagentFanOutBlock from '../components/SubagentFanOutBlock'
+
 import { TokenDiagnosticsModal } from '../components/TokenDiagnosticsModal'
+import { RawResponseModal } from '../components/RawResponseModal'
+import { isHerdrAgent } from '../lib/railHotkeys'
 import {
-  isToolAlwaysAllowed,
   rememberAlwaysAllow,
   upsertToolCall,
   type ToolCallState,
@@ -148,35 +258,50 @@ import {
   cliTerminatedFromEvent,
   notifyCliRunState,
 } from '../lib/cliRunState'
-import { publishExpectedSpaVersion } from '../lib/spaHello'
+import { notifyApprovalWait } from '../lib/agentAttention'
 import { maybeNotifyAgentTurn } from '../lib/agentNotifications'
 import {
+  ALL_MEMBERS_PARAM,
   ALL_MEMBERS_TARGET,
   MANAGE_TEAMS_HREF,
   MANAGE_TEAMS_VALUE,
   applyTeamMemberSessionParam,
   fetchTeamRosters,
+  isAllMembersChoice,
   parseTeamRosters,
   memberOptionLabel,
   teamHideId,
   teamThreadId,
 } from '../lib/teamRosters'
 import { defaultSessionForTeam } from '../lib/sessionPicker'
+import {
+  OMB_BOT_REQUIRED_GAP,
+  OMB_NO_AGENTS_WARNING,
+  OMB_SELECT_AGENT_WARNING,
+  ombSendTarget,
+} from '../lib/ombBots'
+import { isOpenMousBotKind } from '../lib/remoteKinds'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId } from '../lib/remotesCatalog'
+import { buildComposerProviders, composerOptionsForProvider } from '../lib/composerSources'
+import type { ComposerSources } from '../lib/composerSources'
 import {
   ADD_REMOTE_VALUE,
   configuredRemotes,
+  isHerdrKind,
   remoteKinds,
   remoteOptionLabel,
   remoteSelectPlaceholder,
 } from '../lib/remotes'
 import { enabledToolsParam } from '../lib/chatPluginTools'
+import { railSectionsParam } from '../lib/railSections'
 import { publishCurrentChatScope } from '../lib/chatScope'
+import { publishCurrentAgent } from '../lib/currentAgent'
 import {
   AGENT_REMOTE_BINDINGS_CHANGED_EVENT,
   isRemoteKindAgent,
   loadAgentRemoteBinding,
   remotesListForSelect,
+  resolveAgentBindingSubject,
   resolveBoundRemoteId,
   saveAgentRemoteBinding,
 } from '../lib/agentRemote'
@@ -185,49 +310,78 @@ import {
   type ChatConnectionStatus,
 } from '../lib/chatConnection'
 import {
-  reconnectBackoffMs,
-  shouldAutoReconnect,
-  WS_AUTH_REQUIRED_CODE,
-} from '../lib/chatReconnect'
-import {
-  CONTEXT_METER_TOKENS,
   estimateTokensInContext,
-  formatMeterLabel,
   resolveContextMaxFromProfiles,
 } from '../lib/chatMeter'
+import { useChatWebSocket } from '../features/chat/useChatWebSocket'
+import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
+import { useComposerAttachments } from '../features/chat/useComposerAttachments'
+import { ChatMessageList } from '../features/chat/ChatMessageList'
+import { ChatMessageActions } from '../experimental/ChatMessageActions'
+import { ChatMessageBubble } from '../components/ChatMessageBubble'
+import { ChatNewRule } from '../components/ChatLogMarkers'
+import CliSessionRecoveryBanner from '../components/CliSessionRecoveryBanner'
+import { DemoTourBanner } from '../components/DemoTourBanner'
+import { IrcNoticeLine } from '../components/IrcNoticeLine'
+import { PrOpenedCard } from '../components/PrOpenedCard'
+import { QuestionCard } from '../components/QuestionCard'
+import { SummaryBlock } from '../features/chat/SummaryBlock'
+import { SystemPreloadPill } from '../components/SystemPreloadPill'
+import { TeammateTaskCard } from '../components/TeammateTaskCard'
+import { ToolCallPopup } from '../components/ToolCallPopup'
+import { extractThinkingBlock } from '../lib/messageArtifacts'
+import { formatRateLimitNotice } from '../lib/statusLineText'
+import { personaForAgentMessage } from '../lib/personaAvatars'
+import { settingsTargetForProvider } from '../lib/providerRateLimits'
 import { formatGapLabel, parseCreatedAtMs } from '../lib/chatTime'
 import { workingLabel } from '../lib/chatBubble'
 import { isExperimentalEnabled } from '../experimental/flags'
-import { ChatMessageActions } from '../experimental/ChatMessageActions'
+
 import { RoleAgentTip } from '../components/RoleAgentTip'
+import { DefaultLlmTip } from '../components/DefaultLlmTip'
+
+import { lastRecoveryTarget, lastTurnNeedsRecovery } from '../lib/cliSessionRecovery'
 import {
   hydrateRoleAgentTipDismissed,
   persistRoleAgentTipDismissed,
   isRoleAgentTipDismissed,
   shouldShowRoleAgentTip,
 } from '../lib/roleAgentTip'
-import { agentRole, exampleRoleAgents, isChiefOfStaff, isExampleRole } from '../lib/agentRoles'
+import {
+  hydrateDefaultLlmTipDismissed,
+  persistDefaultLlmTipDismissed,
+  isDefaultLlmTipDismissed,
+  shouldShowDefaultLlmTip,
+} from '../lib/defaultLlmTip'
+import {
+  agentHasRole,
+  agentRole,
+  exampleRoleAgents,
+  isChiefOfStaff,
+  isExampleRole,
+  roleBadgeLabel,
+  roleCssClass,
+} from '../lib/agentRoles'
 import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit, loadInferenceList } from '../lib/agentEdits'
+import { cliRemoteSessionChoices, isRemoteCapableCli, remoteEndpointLabel } from '../lib/cliRemote'
 import { buildSkillParams, parseComposerSkillNames } from '../lib/skills'
 import { chatFolderParams } from '../lib/agentFolder'
+import { navbarWorkspaceSubtitle, persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { nextInferenceIndex, serializeInferenceList } from '../lib/inferenceList'
 import {
-  agentLabel,
   defaultBlueprintId,
   isSupportAgent,
   SUPPORT_AGENT_ID,
   supportTurnExtras,
 } from '../lib/supportAgent'
 import {
-  asTranscriptRole,
   formatDropdownStatus,
   isStatusRole,
   shouldRecordDropdownChange,
   type DropdownKind,
 } from '../lib/chatStatus'
-import { insertCliSessionNotice } from '../lib/chatTranscript'
-import { ChatNewRule } from '../components/ChatLogMarkers'
+
 import {
   countableChatCount,
   effectiveUnreadWatermark,
@@ -251,10 +405,23 @@ import {
   restoredSessionNotice,
   switchedSessionNotice,
 } from '../lib/sessionRestore'
-import { CLI_SESSION_SWITCHED_EVENT } from '../lib/cliSessions'
-import { CLI_SESSION_HOPPED_EVENT, hopCliSession } from '../lib/cliSessionHop'
+import {
+  CLI_SESSION_SWITCHED_EVENT,
+  dispatchCliSessionSwitched,
+  fetchCliSessions,
+  selectCliSession,
+} from '../lib/cliSessions'
+import {
+  CLI_SESSION_HOPPED_EVENT,
+  crossKindHopForReconfigure,
+  dispatchCliSessionHopped,
+  hopCliSession,
+} from '../lib/cliSessionHop'
+// #636: CLI-seat compact orchestration (summary + fresh session carrying it).
+import { compactCliThread } from '../lib/cliCompact'
 import {
   SUGGESTION_CHIP_EVENT,
+  drainHoldUntilStreamStarts,
   generationIsInFlight,
   nextDrainableQueuedSend,
   queuedPaneMaxHeightPx,
@@ -263,79 +430,52 @@ import {
 } from '../lib/chatQueue'
 import { QueuedSendPane } from '../components/QueuedSendPane'
 import {
+  apiModelOptionsFromProfiles,
   discoverChatClis,
   honestChatCliModels,
+  isApiBlueprintId,
   isCliAgentContext,
   isCliBlueprintId,
   preferredChatCli,
+  resolveCurrentCli,
   MANAGE_CLI_VALUE,
-  MANAGE_CLI_HREF,
 } from '../lib/cliAgentContext'
-import { isHiddenRoutingLabel } from '../lib/routingPath'
+import { recordBackendUse } from '../lib/backendAudit'
+import { isHiddenRoutingLabel, type RoutingSeatKind } from '../lib/routingPath'
+import {
+  providerReconfigureNotice,
+  seatParamsForPick,
+  type SeatPickKind,
+} from '../lib/seatRouting'
+
+// #856 slice 1: module-scope message/session types and helpers moved verbatim to
+// features/chat/chatMessages.ts; re-imported here so the component body and the
+// '../ChatPage' import surface are unchanged.
+import {
+  chatLoginHref,
+  hydrateThreadRows,
+  type ChatMessage,
+} from '../features/chat/chatMessages'
+
+/** #494: machine-readable remedy the backend stamps on classified failures. */
+interface RemoteAction {
+  kind: 'settings'
+  section: 'remotes'
+  remote?: string
+  field?: string
+}
+
+function isRemoteAction(value: unknown): value is RemoteAction {
+  if (!value || typeof value !== 'object') return false
+  const rec = value as Record<string, unknown>
+  return rec.kind === 'settings' && rec.section === 'remotes'
+}
+export { chatLoginHref, chatLoginNext } from '../features/chat/chatMessages'
 
 /** EXPERIMENTAL flags are read once per module load; see experimental/flags.ts. */
 const SHOW_MESSAGE_ACTIONS = isExperimentalEnabled('chat_message_actions')
 
 type ConnectionStatus = ChatConnectionStatus
-
-interface ChatMessage {
-  /** Stable key; for assistant messages this is the server-issued container id. */
-  key: string
-  role: 'user' | 'assistant' | 'status' | 'system'
-  text: string
-  /** True while the assistant message is still streaming. */
-  streaming: boolean
-  tools?: ToolCallState[]
-  edited?: boolean
-  /** REQ-71 chrome — structured PR-opened tool result, not markdown. */
-  prOpened?: PrOpenedEvent
-  /** REQ-84 chrome — team task whose worker is a configured remote. */
-  teammateTask?: TeammateTaskEvent
-  /** REQ-104 — expandable archive of the previous swarm thread. */
-  kind?: 'prior_history'
-  /** Persist/reload timestamp (ISO). Status/info chrome shows this. */
-  ts?: string
-  /** REQ-88 — provider queue wait; click opens that provider's rate-limit fields. */
-  rateLimit?: RateLimitWait
-}
-
-function chatMessageFromThreadRow(
-  message: {
-    role: string
-    content: string
-    edited?: boolean
-    kind?: string
-    ts?: string
-    rate_limit?: RateLimitWait
-  },
-  index: number,
-): ChatMessage {
-  const prOpened = parsePrOpened(message.content) ?? undefined
-  const teammateTask = parseTeammateTask(message.content) ?? undefined
-  const prior = message.kind === 'prior_history'
-  return {
-    key: `hist-${index}-${message.role}`,
-    role: prior ? 'system' : asTranscriptRole(message.role),
-    text: prOpened || teammateTask ? '' : message.content,
-    streaming: false,
-    edited: message.edited === true,
-    prOpened,
-    teammateTask,
-    kind: prior ? 'prior_history' : undefined,
-    ts: message.ts,
-    rateLimit: isRateLimitWait(message.rate_limit) ? message.rate_limit : undefined,
-  }
-}
-
-/** Post-login return path for the Django session gate (rooted, same-origin). */
-export function chatLoginNext(searchParams: URLSearchParams): string {
-  const qs = searchParams.toString()
-  return qs ? `/chat?${qs}` : '/chat'
-}
-
-export function chatLoginHref(searchParams: URLSearchParams): string {
-  return `/accounts/login/?next=${encodeURIComponent(chatLoginNext(searchParams))}`
-}
 
 export {
   estimateTokensInContext,
@@ -354,15 +494,47 @@ interface MessageContextMenuState {
   x: number
   y: number
   message: ChatMessage
+  selectedText?: string | null
+}
+
+function warnStatusPersistFailure(err: unknown): void {
+  const reason = err instanceof Error ? err.message : String(err)
+  console.warn('Could not persist status line', reason)
 }
 
 const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const { addToast, dismissByKind } = useToast()
+  const { addToast, dismissByKind, error: toastError } = useToast()
   const { narrow, railOpen, openRail } = useRailChrome()
   const teamFromUrl = searchParams.get('team') ?? ''
   const remoteFromUrl = searchParams.get('remote') ?? ''
   const sessionFromUrl = searchParams.get('session') ?? ''
+  // #288: an explicit "All members" pick rides `?members=all` so a reload keeps it
+  // instead of re-defaulting to the team's nominated seat.
+  const allMembersFromUrl = isAllMembersChoice(searchParams.get(ALL_MEMBERS_PARAM))
+  const settingsQuery = searchParams.get('settings')
+  const settingsQueryOpenedRef = useRef(false)
+  useEffect(() => {
+    if (settingsQueryOpenedRef.current) return
+    const detail = settingsDetailFromQuery(settingsQuery)
+    if (detail == null) return
+    settingsQueryOpenedRef.current = true
+    // #674: this effect runs on the CHILD before App (the sheet owner and
+    // OPEN_SETTINGS_EVENT listener) has subscribed on a cold load, so an
+    // immediate dispatch is dropped. Defer to the next macrotask so the
+    // parent's listener exists first.
+    const timer = window.setTimeout(() => {
+      openSettingsSheet(detail)
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('settings')
+        return next
+      }, { replace: true })
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [settingsQuery, setSearchParams])
   const selectedBlueprint = teamFromUrl || remoteFromUrl
     ? ''
     : defaultBlueprintId(searchParams.get('blueprint'))
@@ -381,6 +553,11 @@ const ChatPage = () => {
   const [useSuggestions, setUseSuggestions] = useState(() =>
     teamFromUrl ? false : loadLocalUseSuggestions(defaultBlueprintId(searchParams.get('blueprint'))),
   )
+  /** #878: show/hide the provider routing picker in the message input bar. */
+  const [composerShowProvider, setComposerShowProvider] = useState(() =>
+    initialComposerShowProvider(),
+  )
+  const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
   const [suggestionChips, setSuggestionChips] = useState<string[]>([])
   const [threadReady, setThreadReady] = useState(false)
   /** Honest hydrate miss — not a blank new chat (REQ-171A-4 / #604). */
@@ -394,6 +571,29 @@ const ChatPage = () => {
   const [contextStrategy, setContextStrategy] = useState<ContextStrategy>(DEFAULT_CONTEXT_STRATEGY)
   const [cullTriggerPct, setCullTriggerPct] = useState(DEFAULT_CULL_TRIGGER_PCT)
   const [contextMeta, setContextMeta] = useState<ContextMeta>({ start_offset: 0, last_event: null })
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null)
+  // #818: background (auxiliary) LLM inference visibility. Frames arrive on
+  // the chat socket; the kill switch rides the same socket back.
+  const [auxTasks, setAuxTasks] = useState<AuxTask[]>([])
+  useEffect(() => {
+    const onCancel = (e: Event) => {
+      const taskId = (e as CustomEvent<string>).detail
+      if (typeof taskId === 'string' && taskId) {
+        wsRef.current?.send(JSON.stringify({ type: 'cancel_auxiliary', task_id: taskId }))
+      }
+    }
+    window.addEventListener(AUX_CANCEL_EVENT, onCancel)
+    const sweeper = setInterval(() => {
+      setAuxTasks((prev) => {
+        const next = sweepAuxTasks(prev)
+        return next.length === prev.length ? prev : next
+      })
+    }, 1_000)
+    return () => {
+      window.removeEventListener(AUX_CANCEL_EVENT, onCancel)
+      clearInterval(sweeper)
+    }
+  }, [])
   const [startFromHereWarning, setStartFromHereWarning] = useState<{
     message: ChatMessage
     copy: string
@@ -403,8 +603,83 @@ const ChatPage = () => {
   const [sttListening, setSttListening] = useState(false)
   const [sttPathUsed, setSttPathUsed] = useState<SpeechPath | null>(null)
   const sttStopRef = useRef<(() => void) | null>(null)
+  const spokenReplyKeysRef = useRef<Set<string>>(new Set())
+  const autoSpeakHydratedRef = useRef(false)
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
+  const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
+  // #675: resizable IRC gutter — per-row dividers persist through the shared
+  // store; the transcript only mirrors the store via the change event.
+  const [ircGutterPx, setIrcGutterPx] = useState(() => loadIrcGutterPx())
+  // #721: the universal divider is ONE transcript-level rail (not per-row
+  // segments) — drag persists through the shared store, double-click resets.
+  const ircDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const [ircGutterDragging, setIrcGutterDragging] = useState(false)
+  const onIrcRailPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => {
+      event.preventDefault()
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      ircDragRef.current = { startX: event.clientX, startWidth: loadIrcGutterPx() }
+      setIrcGutterDragging(true)
+    },
+    [],
+  )
+  const onIrcRailPointerMove = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const drag = ircDragRef.current
+    if (!drag) return
+    saveIrcGutterPx(drag.startWidth + (event.clientX - drag.startX))
+  }, [])
+  const onIrcRailPointerUp = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    ircDragRef.current = null
+    setIrcGutterDragging(false)
+  }, [])
+  const onIrcRailDoubleClick = useCallback(() => {
+    saveIrcGutterPx(IRC_GUTTER_DEFAULT_PX)
+  }, [])
+  useEffect(() => {
+    const sync = () => setIrcGutterPx(loadIrcGutterPx())
+    window.addEventListener(IRC_GUTTER_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(IRC_GUTTER_CHANGED_EVENT, sync)
+  }, [])
+  // #506: Settings is a second bubble-theme writer — keep an already-mounted
+  // transcript in sync instead of going stale until reload.
+  useEffect(() => {
+    const onThemeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<BubbleTheme>).detail
+      if (detail) setBubbleTheme(detail)
+      else setBubbleTheme(loadBubbleTheme())
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === BUBBLE_THEME_STORAGE_KEY || event.key === null) {
+        setBubbleTheme(loadBubbleTheme())
+      }
+      if (
+        event.key === COMPOSER_SHOW_PROVIDER_STORAGE_KEY ||
+        event.key === null
+      ) {
+        setComposerShowProvider(initialComposerShowProvider())
+      }
+    }
+    const onComposerShowProviderChanged = (event: Event) => {
+      const detail = (event as CustomEvent<boolean>).detail
+      setComposerShowProvider(typeof detail === 'boolean' ? detail : initialComposerShowProvider())
+    }
+    window.addEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
+    window.addEventListener('storage', onStorage)
+    window.addEventListener(
+      COMPOSER_SHOW_PROVIDER_SET_EVENT,
+      onComposerShowProviderChanged,
+    )
+    return () => {
+      window.removeEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener(
+        COMPOSER_SHOW_PROVIDER_SET_EVENT,
+        onComposerShowProviderChanged,
+      )
+    }
+  }, [])
   /** REQ-213: view-only hide. Raw transcript / summary tree on disk stay. */
   const [hiddenSummaryIds, setHiddenSummaryIds] = useState<number[]>([])
   const [hiddenMessageKeys, setHiddenMessageKeys] = useState<string[]>([])
@@ -412,6 +687,7 @@ const ChatPage = () => {
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [recentSlashIds, setRecentSlashIds] = useState<string[]>(() => getRecentSlashIds())
   const [roleTipDismissed, setRoleTipDismissed] = useState(isRoleAgentTipDismissed)
+  const [defaultLlmTipDismissed, setDefaultLlmTipDismissed] = useState(isDefaultLlmTipDismissed)
   const [dynamicSkills, setDynamicSkills] = useState<{ name: string; description?: string }[]>([])
   const [skillCatalog, setSkillCatalog] = useState<SkillRecord[]>([])
   const [openSkillName, setOpenSkillName] = useState<string | null>(null)
@@ -420,6 +696,10 @@ const ChatPage = () => {
   const [connectAttempt, setConnectAttempt] = useState(0)
   const [authRejected, setAuthRejected] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
+  // #516: the Plugins panel is a second face of the `+` menu — same anchor,
+  // same Escape/outside-close behavior — so the menu cannot show both at once.
+  const [pluginsPanelOpen, setPluginsPanelOpen] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [agentKind, setAgentKind] = useState<AgentKind>(() =>
     classifyAgentKind(searchParams.get('remote') ? `remote:${searchParams.get('remote')}` : searchParams.get('blueprint')),
@@ -432,6 +712,19 @@ const ChatPage = () => {
   const [, setEditsTick] = useState(0)
   const [dropdownTick, setDropdownTick] = useState(0)
   const [selectedRemoteId, setSelectedRemoteId] = useState('')
+  const [remoteThreadPicker, setRemoteThreadPicker] = useState<MemberSession[] | null>(null)
+  // #789: the herdr talk-to choice lives in the composer routing picker —
+  // its two-stage dialog lists the configured panes (GET /v1/herdr-agents/)
+  // for a herdr seat and lands a pick in ?session=<name>, the same URL the
+  // retired #543 navbar button wrote. The query stays warm for it.
+  const herdrAgentsQuery = useQuery({
+    queryKey: ['herdr-agents-chat'],
+    queryFn: fetchHerdrAgents,
+    // #789: warm whenever a herdr seat is on screen — the composer picker's
+    // stage 2 lists these panes without a separate open-gated fetch.
+    enabled: isHerdrKind(remoteFromUrl),
+    retry: 1,
+  })
   const [conversationId, setConversationId] = useState(() =>
     teamFromUrl
       ? teamThreadId(teamFromUrl)
@@ -470,6 +763,16 @@ const ChatPage = () => {
   }, [seatUnread, activeChatAgentId, conversationId, messages])
   const hasRateLimitWait = messages.some((row) => row.rateLimit)
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [expandedThinkingKeys, setExpandedThinkingKeys] = useState<Set<string>>(new Set())
+  const [rawResponseModalText, setRawResponseModalText] = useState<string | null>(null)
+  const toggleThinking = useCallback((key: string) => {
+    setExpandedThinkingKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
   useEffect(() => {
     if (!hasRateLimitWait) return
     setNowMs(Date.now())
@@ -488,6 +791,42 @@ const ChatPage = () => {
   )
   const summaryMap = useMemo(() => summariesById(summaries), [summaries])
 
+  // #214: persist the include-in-context tick; optimistic update, honest revert.
+  const handleToggleSummaryContext = useCallback(
+    async (summaryId: number, include: boolean) => {
+      const threadSummaries = summariesByThread[threadKey] ?? []
+      setSummariesByThread((prev) => ({
+        ...prev,
+        [threadKey]: (prev[threadKey] ?? []).map((row) =>
+          row.id === summaryId ? { ...row, include_in_context: include } : row,
+        ),
+      }))
+      try {
+        const result = await toggleSummaryInContext({ summaryId, includeInContext: include })
+        if (result.usage) {
+          publishContextUsage(result.usage)
+          setContextUsage(result.usage)
+        }
+      } catch {
+        setSummariesByThread((prev) => ({ ...prev, [threadKey]: threadSummaries }))
+      }
+    },
+    [summariesByThread, threadKey],
+  )
+
+  const handleSaveSummary = useCallback(
+    (summaryId: number, nextText: string) => {
+      if (!messagesEditable) return
+      setSummariesByThread((prev) => ({
+        ...prev,
+        [threadKey]: (prev[threadKey] ?? []).map((row) =>
+          row.id === summaryId ? { ...row, body: nextText } : row,
+        ),
+      }))
+    },
+    [messagesEditable, threadKey],
+  )
+
   const wsRef = useRef<WebSocket | null>(null)
   const emptyRemoteOpenedForRef = useRef('')
   const conversationIdRef = useRef(conversationId)
@@ -503,15 +842,42 @@ const ChatPage = () => {
   const [transcriptHeightPx, setTranscriptHeightPx] = useState(0)
   const [queuedHoldIds, setQueuedHoldIds] = useState<string[]>([])
   const [awaitingAssistant, setAwaitingAssistant] = useState(false)
+  // #229: a seat/session switch starts with clean working chrome — the old
+  // seat's in-flight turn must never leak into the new seat's UI. The old
+  // socket's close resets its own thread's streaming flag; this covers the
+  // awaiting side. Stale closes from a replaced socket are harmless because
+  // isWorking also derives from the (per-thread) streaming flag.
+  useEffect(() => {
+    setAwaitingAssistant(false)
+  }, [threadKey, conversationId])
+  // #885: track whether the current thread incarnation has actually streamed.
+  // The drain hold uses this to tell the #229 reset race (awaiting cleared,
+  // harness has streamed nothing yet) apart from a genuine turn completion.
+  const streamSeenRef = useRef(false)
+  useEffect(() => {
+    streamSeenRef.current = false
+  }, [threadKey, conversationId])
+  useEffect(() => {
+    if (messages.some((row) => row.streaming === true)) streamSeenRef.current = true
+  }, [messages])
+  // #229: when the seat changes or the page unmounts, clear the working
+  // state published for the departed seat so its rail avatar stops animating
+  // (the working set is cross-seat; nothing else would clear the old id).
+  const runStateSeatRef = useRef<string | null>(null)
+  useEffect(() => {
+    runStateSeatRef.current = activeChatAgentId
+    return () => {
+      if (runStateSeatRef.current) notifyCliRunState(runStateSeatRef.current, false)
+    }
+  }, [activeChatAgentId])
+  // #224: agent-first — workings live in the on-demand panel, not the transcript.
+  const [generationsOpen, setGenerationsOpen] = useState(false)
   const drainLockRef = useRef(false)
   const queued = useQueuedSends(conversationId)
   /** Monotonic counter for collision-free user-echo keys. */
   const userKeyCounterRef = useRef(0)
   const prevStatusRef = useRef<ConnectionStatus>('connecting')
   /** Consecutive auto-reconnect attempts since last successful open. */
-  const backoffAttemptRef = useRef(0)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const intentionalCloseRef = useRef(false)
   const lastUserTextRef = useRef('')
   /** Last hydrated agent or team thread; used to detect switch vs remount. */
   const lastHydratedAgentRef = useRef<string | null>(null)
@@ -558,6 +924,14 @@ const ChatPage = () => {
     publishCurrentChatScope(conversationId)
   }, [conversationId])
 
+  // REQ-912 / REQ-914 / REQ-917: the rail and the routines calendar are siblings
+  // of this page, not descendants, so the selected seat is published rather than
+  // re-derived per surface. Published next to the chat scope so the two cannot
+  // drift, but kept a separate signal — see lib/currentAgent.ts.
+  useEffect(() => {
+    publishCurrentAgent(activeChatAgentId ? { id: activeChatAgentId, kind: agentKind } : null)
+  }, [activeChatAgentId, agentKind])
+
   useEffect(() => {
     setReplyTarget(null)
     setContextMenu(null)
@@ -566,7 +940,9 @@ const ChatPage = () => {
   }, [threadKey])
 
   useEffect(() => {
-    if (!contextMenu) return
+    if (!contextMenu) {
+      return
+    }
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') {
         setContextMenu(null)
@@ -576,17 +952,31 @@ const ChatPage = () => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [contextMenu])
 
+  // #846: a right-click's mousedown collapses the DOM selection before
+  // `contextmenu` fires (Chromium/WebKit), so the live read can be empty even
+  // when the user has a highlight. Cache the last selection seen per row on
+  // mouseup, and block the collapse on right-button mousedown long enough for
+  // the context menu to read it.
+  const activeSelectionRef = useRef<CachedBubbleSelection | null>(null)
+  const cacheRowSelection = useCallback((messageKey: string, row: Element | null) => {
+    const text = getScopedSelectionText(row)
+    activeSelectionRef.current = text ? { messageKey, text } : null
+  }, [])
+
   const handleBubbleContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>, message: ChatMessage) => {
       if (message.streaming) return
-      if (typeof window !== 'undefined' && window.getSelection && !window.getSelection()?.isCollapsed) {
-        return
-      }
       event.preventDefault()
+      const selectedText = resolveReplyQuote({
+        targetElement: event.currentTarget,
+        cached: activeSelectionRef.current,
+        messageKey: message.key,
+      })
       setContextMenu({
         x: event.clientX,
         y: event.clientY,
         message,
+        selectedText,
       })
     },
     [],
@@ -599,31 +989,37 @@ const ChatPage = () => {
   const cliQuery = useQuery({
     queryKey: ['cli-agents'],
     queryFn: fetchCliAgents,
+    // #726: CLI agents rarely change — 60s keeps the list fresh enough
+    staleTime: 60_000,
   })
   const teamsQuery = useQuery({
     queryKey: ['team-rosters'],
     queryFn: fetchTeamRosters,
+    staleTime: 60_000,
   })
   const remotesQuery = useQuery({
     queryKey: ['configured-remotes'],
     queryFn: fetchConfiguredRemotes,
-    retry: 1,
+    staleTime: 60_000,
   })
   const llmProfilesQuery = useQuery({
     queryKey: ['llm-profiles'],
     queryFn: fetchLlmProfiles,
-    retry: 1,
+    // #726: LLM profiles are user-configured and rarely change
+    staleTime: 120_000,
   })
   const remotesListQuery = useQuery({
     queryKey: ['remotes-list'],
+    // #581: coalesced GET /v1/remotes/ — same network call as the
+    // 'configured-remotes' query, no duplicate volley on seat selection.
     queryFn: fetchRemotes,
-    retry: 1,
+    staleTime: 60_000,
   })
   const speechQuery = useQuery({
     queryKey: SPEECH_QUERY_KEY,
     queryFn: () => fetchSpeechSettings(false),
-    staleTime: 30_000,
-    retry: 1,
+    // #726: speech probe result is stable — 2 min is fine
+    staleTime: 120_000,
   })
   const blueprints = exampleRoleAgents(blueprintsQuery.data?.data ?? [])
   const cliAgents = cliQuery.data?.rail ?? []
@@ -634,9 +1030,27 @@ const ChatPage = () => {
     ? declaredRosterForTeam(selectedTeam, blueprintsQuery.data?.data ?? [])
     : null
   const selectedRemote = remotes.find((remote) => remote.id === remoteFromUrl) ?? null
+  // #528: a team selection loses the navbar avatar that single agents get. The
+  // member to show is "the one you are talking to": the navbar's explicit member
+  // when one is targeted, else `defaultSessionForTeam`'s rule (chief_of_staff_id,
+  // else CoS role, else first) — the same rule the rail's team row reads, so the
+  // two surfaces cannot disagree about which face represents the team.
+  const teamChatMemberId =
+    teamFromUrl && selectedTeam
+      ? memberTarget && memberTarget !== ALL_MEMBERS_TARGET
+        ? memberTarget
+        : (defaultSessionForTeam(selectedTeam)?.memberId ?? '')
+      : ''
+  const headerFaceAgentId = teamFromUrl
+    ? teamChatMemberId || teamFromUrl
+    : agentIdFromBlueprint(selectedBlueprint) || selectedBlueprint || ''
   const selectedRemoteSession = selectedRemote?.agents.find((agent) => agent.id === sessionFromUrl)
   const selectedTeamSession = selectedTeam?.members.find((member) => member.id === sessionFromUrl)
-  const selectedCli = cliAgents.find((row) => row.id === selectedBlueprint)
+  // #108: only rail rows whose kind is actually 'cli' may drive the CLI
+  // picker. api_agent is a rail row too (kind 'api') and must never match.
+  const selectedCli = cliAgents.find(
+    (row) => row.id === selectedBlueprint && row.kind !== 'api',
+  )
   const selectedAgent = blueprints.find((bp) => bp.id === selectedBlueprint)
   const runtimeBlueprint = teamFromUrl ? '' : assignedBlueprintId(selectedBlueprint)
   const fallbackAgentName =
@@ -646,11 +1060,30 @@ const ChatPage = () => {
   const selectedAgentName = teamFromUrl
     ? selectedTeamSession?.name || selectedTeam?.name || teamFromUrl
     : remoteFromUrl
-          ? selectedRemoteSession?.name || selectedRemote?.title || remoteFromUrl
+          ? // #543: a herdr session names the herdr AGENT being talked to —
+            // surface it as the seat name, not just the provider.
+            selectedRemoteSession?.name ||
+            (isHerdrKind(remoteFromUrl) && sessionFromUrl
+              ? sessionFromUrl
+              : selectedRemote?.title || remoteFromUrl)
           : editedAgentLabel({
               id: selectedBlueprint,
               name: fallbackAgentName,
             })
+  const workspaceSubtitle =
+    teamFromUrl || remoteFromUrl ? '' : navbarWorkspaceSubtitle(selectedBlueprint)
+  // #69: the top bar shows the agent NAME; an assigned role rides beside it as
+  // its own badge so a role seat can never look like it renamed the agent.
+  const headerRole = agentRole({
+    id: selectedBlueprint,
+    name: selectedAgentName,
+    role: selectedAgent?.role,
+  })
+  const headerRoleLabel = roleBadgeLabel(headerRole)
+  const showHeaderRole =
+    !teamFromUrl &&
+    !remoteFromUrl &&
+    agentHasRole({ id: selectedBlueprint, name: selectedAgentName, role: selectedAgent?.role })
   const showRoleTip = shouldShowRoleAgentTip({
     teamId: teamFromUrl,
     remoteId: remoteFromUrl,
@@ -664,6 +1097,10 @@ const ChatPage = () => {
   const dismissRoleTip = useCallback(() => {
     void persistRoleAgentTipDismissed()
     setRoleTipDismissed(true)
+  }, [])
+  const dismissDefaultLlmTip = useCallback(() => {
+    void persistDefaultLlmTipDismissed()
+    setDefaultLlmTipDismissed(true)
   }, [])
   useEffect(() => {
     if (!showRoleTip) return
@@ -681,12 +1118,16 @@ const ChatPage = () => {
   const notifyCtxRef = useRef({
     agentId: activeChatAgentId,
     agentName: selectedAgentName,
+    agentKind,
+    blueprintId: selectedBlueprint,
   })
   notifyCtxRef.current = {
     agentId: activeChatAgentId,
     agentName: remoteFromUrl
       ? remoteDisplayName(selectedRemote || { id: remoteFromUrl, title: selectedAgentName })
       : selectedAgentName,
+    agentKind,
+    blueprintId: selectedBlueprint,
   }
   const signInHref = chatLoginHref(searchParams)
 
@@ -713,8 +1154,21 @@ const ChatPage = () => {
     tags: (selectedAgent as { tags?: string[] })?.tags,
   }) || Boolean(selectedRemote)
 
-  const showRemotesControl = isRemoteAgent || isRemoteBackedTeam
-  const bindingAgentId = remoteFromUrl || (showRemotesControl ? selectedBlueprint : '')
+  const isHerdrSeat =
+    isHerdrKind(remoteFromUrl) ||
+    isHerdrKind(selectedRemote?.kind) ||
+    isHerdrKind(selectedRemoteId) ||
+    isHerdrAgent(selectedAgent as { id?: string; kind?: string }) ||
+    Boolean(selectedBlueprint && isHerdrAgent({ id: selectedBlueprint }))
+
+  /* #736: product-modes gating is retired — surfaces are always-on if
+     configured. The remote control shows for any remote-backed seat. */
+  const showRemotesControl =
+    Boolean(remoteFromUrl) || Boolean(isRemoteAgent || isRemoteBackedTeam)
+  // REQ-904 / #502: the binding subject is the agent — never the provider.
+  // With `?remote=X` in the URL the user is viewing a remote *seat*; there is
+  // no named agent in context, so nothing may be written under X itself.
+  const bindingAgentId = resolveAgentBindingSubject({ remoteFromUrl, selectedBlueprint })
   const persistedRemote = bindingAgentId ? loadAgentRemoteBinding(bindingAgentId) : null
   const remotesCatalog = remotesListForSelect(
     remotesListQuery.data,
@@ -731,12 +1185,104 @@ const ChatPage = () => {
   const remotesCatalogReady = !remotesListQuery.isPending && !remotesQuery.isPending
   const showEmptyRemoteChrome =
     showRemotesControl && remotesCatalogReady && configuredRemoteRows.length === 0
+  // #504: the cross-kind union the routing palette's "show all" reveals. Each
+  // row declares its kind so a pick outside the current scope navigates (#502)
+  // instead of rebinding the current seat.
+  const allPaletteAgents = useMemo(() => {
+    const rows: Array<{ id: string; label: string; kind: 'api' | 'cli' | 'remote' | 'team' }> = []
+    for (const bp of blueprints) {
+      rows.push({ id: bp.id, label: bp.name || bp.id, kind: 'api' })
+    }
+    for (const cli of cliAgents) {
+      rows.push({ id: cli.id, label: cli.name || cli.id, kind: 'cli' })
+    }
+    for (const remote of remotes) {
+      rows.push({ id: remote.id, label: remote.title || remote.id, kind: 'remote' })
+    }
+    for (const team of teams) {
+      rows.push({ id: team.id, label: team.name || team.id, kind: 'team' })
+    }
+    return rows
+  }, [blueprints, cliAgents, remotes, teams])
+  // #502 doctrine: choosing an out-of-scope agent navigates to it — it never
+  // rewrites the current seat's provider/model binding.
+  // #804: the destination kind decides which seat param gets written —
+  // ?blueprint= for api, ?cli= for cli (the param the CLI resolution chain
+  // actually consumes), ?remote=/ ?team= as before — and every other kind's
+  // marker plus per-seat state (?session=, ?model=) is dropped so nothing
+  // bleeds across. The old code wrote a dead ?agent= that nothing read.
+  const navigateToPaletteAgent = useCallback(
+    (
+      targetId: string,
+      kind?: RoutingSeatKind | 'team',
+      detail?: { apiModel?: string },
+    ) => {
+      const pickKind: SeatPickKind =
+        kind === 'cli' ? 'cli' : kind === 'remote' ? 'remote' : kind === 'team' ? 'team' : 'api'
+      const patch = seatParamsForPick(pickKind, targetId, { apiModel: detail?.apiModel })
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        for (const key of patch.delete) next.delete(key)
+        for (const [key, value] of Object.entries(patch.set)) next.set(key, value)
+        return next
+      })
+    },
+    [setSearchParams],
+  )
+  const ombRemoteId = isOpenMousBotKind(selectedRemoteId)
+    ? selectedRemoteId
+    : isOpenMousBotKind(remoteFromUrl)
+      ? remoteFromUrl
+      : ''
+  const activeRemoteId = (selectedRemoteId || remoteFromUrl || '').trim()
+  const remoteAgentsQuery = useQuery({
+    queryKey: ['remote-operate-list', activeRemoteId],
+    queryFn: () => operateRemote(activeRemoteId, { op: 'list' }, { timeoutMs: 12000 }),
+    enabled: showRemotesControl && Boolean(activeRemoteId),
+    retry: 1,
+  })
+  const remoteNavbarAgents = useMemo(
+    () => (activeRemoteId ? remoteAgentsFromOperate(remoteAgentsQuery.data?.data) : []),
+    [activeRemoteId, remoteAgentsQuery.data],
+  )
+  const remoteAgentWarning = !activeRemoteId
+    ? null
+    : remoteAgentsQuery.isError
+      ? remoteAgentsQuery.error instanceof Error
+        ? // #581: throttle errors get a friendly toast (see effect below) and
+          // never raw throttler prose in the picker warning.
+          isThrottleError(remoteAgentsQuery.error)
+          ? ''
+          : remoteAgentsQuery.error.message
+        : 'Remote agent list failed'
+      : remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
+        ? remoteAgentsQuery.data.detail || 'No agents listed on this remote'
+        : remoteAgentsQuery.isSuccess && remoteNavbarAgents.length === 0 && ombRemoteId
+          ? OMB_NO_AGENTS_WARNING
+          : null
+  const ombSelectedBotId = ombSendTarget(sessionFromUrl, ombRemoteId || remoteFromUrl)
+  // #581: any failed remote query that trips the throttle shows one friendly
+  // retry toast with the countdown — never the raw DRF line.
+  const throttleToastRef = useRef(0)
+  useEffect(() => {
+    const err = remoteAgentsQuery.error
+    if (!isThrottleError(err)) return
+    const now = Date.now()
+    if (now - throttleToastRef.current < 10_000) return
+    throttleToastRef.current = now
+    addToast({
+      type: 'error',
+      title: 'Slow down a moment',
+      message: err.message,
+    })
+  }, [remoteAgentsQuery.error, addToast])
 
   const isCliAgent = Boolean(
     !teamFromUrl &&
       !remoteFromUrl &&
       !isRemoteBackedTeam &&
       !isRemoteAgent &&
+      !isApiBlueprintId(selectedBlueprint) &&
       (selectedCli ||
         agentKind === 'cli' ||
         isCliBlueprintId(selectedBlueprint) ||
@@ -763,6 +1309,29 @@ const ChatPage = () => {
       !isRemoteAgent &&
       !isCliAgent,
   )
+  const showContextUsage = isApiAgent || agentKind === 'blueprint'
+
+  useEffect(() => {
+    if (!showContextUsage || !conversationId) {
+      setContextUsage(null)
+      return
+    }
+    let cancelled = false
+    const agent = teamFromUrl || agentIdFromBlueprint(selectedBlueprint)
+    const modelId = (searchParams.get('model') ?? '').trim() || undefined
+    void fetchContextUsage({ agentId: agent, conversationId, modelId })
+      .then((usage) => {
+        if (cancelled) return
+        publishContextUsage(usage)
+        setContextUsage(usage)
+      })
+      .catch(() => {
+        if (!cancelled) setContextUsage(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showContextUsage, conversationId, teamFromUrl, selectedBlueprint, searchParams])
 
   const dropdownAgentId = teamFromUrl
     ? `team-${teamFromUrl}`
@@ -780,13 +1349,99 @@ const ChatPage = () => {
       ),
     [cliQuery.data, searchParams, persistedDropdown.cli, selectedCli],
   )
-  const currentCli = useMemo(() => {
-    const fromParam = (searchParams.get('cli') ?? '').trim()
-    if (fromParam) return fromParam
-    if (persistedDropdown.cli) return persistedDropdown.cli
-    if (selectedCli?.cli) return selectedCli.cli
-    return preferredChatCli(discoveredClis, '')
-  }, [searchParams, persistedDropdown.cli, selectedCli, discoveredClis])
+  // #566: one resolution chain, shared with the audit log. `cliSource` says
+  // where the value came from — an `inferred` pick is a fallback guess and must
+  // never be presented as the seat's own choice; a non-CLI seat resolves no CLI
+  // at all, so a remote agent can no longer end up labelled with a CLI it does
+  // not use.
+  const cliResolution = useMemo(
+    () =>
+      resolveCurrentCli({
+        isCliSeat: isCliAgent,
+        param: searchParams.get('cli') ?? '',
+        persisted: persistedDropdown.cli ?? '',
+        declared: selectedCli?.cli ?? '',
+        discovered: discoveredClis,
+        preferred: (clis) => preferredChatCli(clis, ''),
+      }),
+    [isCliAgent, searchParams, persistedDropdown.cli, selectedCli, discoveredClis],
+  )
+  const currentCli = cliResolution.cli
+  const currentCliSource = cliResolution.source
+
+  // #550: the composer `+` menu's contents are derived from the seat rather than
+  // hardcoded per item, so an item cannot be added ungated. See lib/composerMenu.
+  // #636: CLI Compact lights up when a default API is configured (the same
+  // `default_llm_ready` signal DefaultLlmTip consumes) or when the seat's CLI
+  // declares a native cli_compact hook in the catalog.
+  // #551: the kind base's published declarations (GET /v1/cli-agents/), when
+  // the backend publishes them. The seat's own kind row wins; older payloads
+  // leave this undefined and the menu falls back to the kind-derived gates.
+  const declaredCapabilities = useMemo(() => {
+    const payload = cliQuery.data as { seat_capabilities?: Record<string, Record<string, { enabled: boolean; reason: string }>> } | undefined
+    const published = payload?.seat_capabilities
+    if (!published) return undefined
+    const kindKey = isCliAgent ? 'cli' : isRemoteAgent || isRemoteBackedTeam ? 'remote' : 'api'
+    return published[kindKey]
+  }, [cliQuery.data, isCliAgent, isRemoteAgent, isRemoteBackedTeam])
+
+  const composerMenu = composerMenuCapabilities({
+    isApi: isApiAgent,
+    isCli: isCliAgent,
+    isRemote: isRemoteAgent || isRemoteBackedTeam,
+    defaultLlmReady: llmProfilesQuery.data?.default_llm_ready === true,
+    cliCompactCapable: Boolean(
+      isCliAgent &&
+        currentCli &&
+        (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[currentCli],
+    ),
+    // #830: the reason names the PROVIDER ("not implemented for Herdr"), and
+    // a remote that declares a native compact hook gains the action — the
+    // remote analogue of #636's cli_compact. No catalog payload carries a
+    // compact flag yet, so nothing lights up until a provider ships one.
+    providerName: selectedRemote ? remoteDisplayName(selectedRemote) : undefined,
+    remoteCompactCapable: Boolean(
+      (selectedRemote?.capabilities as { compact?: boolean } | undefined)?.compact,
+    ),
+    // #516: the same swarm-owned reading the rail's Plugins entry gates on,
+    // using the exact seat pair ChatPage publishes (id + kind) so the composer
+    // menu cannot disagree with the badge.
+    pluginsSwarmOwned: isSwarmOwnedAgent(activeChatAgentId || '', agentKind),
+    // #551: declarations outrank kind-derived gates (one channel, ADR-005).
+    declaredCapabilities,
+  })
+
+  /** The agent's own configured remote endpoint, if any. */
+  const agentRemote = useMemo(
+    () => loadAgentEdit(selectedBlueprint).remote,
+    [selectedBlueprint],
+  )
+
+  /**
+   * #570: choices for the CLI session's remote box.
+   *
+   * There is deliberately **no `Local` row**. An empty value means "follow the
+   * agent's own endpoint", which is also the state the select falls back to, so a
+   * `Local` row duplicated the agent's endpoint in the common case — and was the
+   * *only* row when the agent has no remote, i.e. a control offering a choice of
+   * one. Instead:
+   *
+   *  - the agent's own endpoint is the default row (labelled with the endpoint, or
+   *    `This host` when the agent has none), so the default is named by what it
+   *    actually is rather than by a synonym for "not remote";
+   *  - the listed boxes exclude that endpoint, so nothing is offered twice;
+   *  - the picker is only rendered when at least one *other* box is discovered,
+   *    because otherwise there is nothing to choose.
+   *
+   * This also fixes a silent misreport: the previous option value was
+   * `remote.box || remoteEndpointLabel(remote)` while the select's value was
+   * `remote.box || ''`, so an agent with `remote.host` and no `remote.box` had a
+   * value matching no option and the browser displayed the first row (`Local`).
+   */
+  const cliRemoteSession = useMemo(
+    () => cliRemoteSessionChoices(agentRemote, cliQuery.data?.remote_boxes),
+    [agentRemote, cliQuery.data],
+  )
 
   const cliModelsQuery = useQuery({
     queryKey: ['cli-models', currentCli],
@@ -808,6 +1463,7 @@ const ChatPage = () => {
   }, [cliModelProbe.models, persistedDropdown.model])
   const cliModelWarning = useMemo(() => {
     if (availableCliModels.length > 0) return cliModelProbe.warning
+    if (cliModelsQuery.isFetching || cliModelsQuery.isLoading) return null
     if (cliModelProbe.warning) return cliModelProbe.warning
     if (cliModelsQuery.isError) return 'Model probe failed'
     if (cliModelsQuery.isFetched && currentCli) return 'No models discovered'
@@ -817,6 +1473,8 @@ const ChatPage = () => {
     cliModelProbe.warning,
     cliModelsQuery.isError,
     cliModelsQuery.isFetched,
+    cliModelsQuery.isFetching,
+    cliModelsQuery.isLoading,
     currentCli,
   ])
 
@@ -851,11 +1509,63 @@ const ChatPage = () => {
         agent,
         { role: 'status', content: statusText },
         conversationIdRef.current || undefined,
-      ).catch(() => {})
+      ).catch(warnStatusPersistFailure)
     },
     [threadKey, teamFromUrl, remoteFromUrl, selectedBlueprint],
   )
 
+  // #899/#900: a cross-kind provider pick reconfigures the CURRENT seat's
+  // backend and carries the conversation context with it — a real hop, not a
+  // seat jump and not a mere notice. The pending seed is stored under the
+  // destination backend record on the same conversation id; the first turn on
+  // the new backend injects it (CLI: prompt seed; api: system turn; remote:
+  // merged into the user prompt).
+  const reconfigureProviderForSeat = useCallback(
+    (profile: string) => {
+      const kind: 'api' | 'cli' | 'remote' | 'team' =
+        isRemoteAgent || isRemoteBackedTeam ? 'remote' : isCliAgent ? 'cli' : 'api'
+      const spec = crossKindHopForReconfigure({
+        seatId: activeChatAgentId,
+        conversationId: conversationIdRef.current || '',
+        fromCli: kind === 'cli' ? (currentCli || 'prior') : kind === 'remote' ? (activeRemoteId || 'prior') : 'api',
+        toCli: profile,
+        toKind: 'api',
+        toBackendId: profile,
+      })
+      const appendStatus = (text: string) => {
+        const statusMsg: ChatMessage = {
+          key: `provider-reconfigure-${Date.now()}`,
+          role: 'status',
+          text,
+          streaming: false,
+          ts: new Date().toISOString(),
+        }
+        setThreads((prev) => ({
+          ...prev,
+          [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
+        }))
+      }
+      void hopCliSession({
+        agentId: spec.agentId,
+        fromCli: spec.fromCli,
+        toCli: spec.toCli,
+        conversationId: spec.conversationId,
+        toKind: spec.toKind,
+        toAgent: spec.toAgent,
+        toLabel: spec.toLabel,
+        fromLabel: spec.fromLabel,
+      })
+        .then((hop) => {
+          appendStatus(hop?.status?.trim() || providerReconfigureNotice(profile, kind))
+        })
+        .catch(() => {
+          // Hop failed — keep the honest notice rather than silently dropping
+          // the pick or blocking the seat.
+          appendStatus(providerReconfigureNotice(profile, kind))
+        })
+    },
+    [isRemoteAgent, isRemoteBackedTeam, isCliAgent, threadKey, activeChatAgentId, currentCli, activeRemoteId],
+  )
   const applyCliRoutingChange = useCallback(
     (next: RoutingPathChange) => {
       if (next.changed === 'agent') {
@@ -874,7 +1584,6 @@ const ChatPage = () => {
           },
           { replace: true },
         )
-        recordDropdownChange('cli', next.previous.agent, next.agent)
         const fromCli = (next.previous.agent || '').trim()
         const toCli = (next.agent || '').trim()
         if (fromCli && toCli && fromCli !== toCli) {
@@ -907,9 +1616,30 @@ const ChatPage = () => {
                 agent,
                 { role: 'status', content: hop.status },
                 conversationIdRef.current || undefined,
-              ).catch(() => {})
+              ).catch(warnStatusPersistFailure)
             })
-            .catch(() => {})
+            .catch((err: unknown) => {
+              const reason = err instanceof Error ? err.message : 'Request failed'
+              addToast({
+                type: 'error',
+                title: 'Could not hop CLI session',
+                message: reason,
+              })
+              const statusText = `Could not hop CLI session: ${reason}`
+              const statusMsg: ChatMessage = {
+                key: `hop-fail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                role: 'status',
+                text: statusText,
+                streaming: false,
+                ts: new Date().toISOString(),
+              }
+              setThreads((prev) => ({
+                ...prev,
+                [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
+              }))
+            })
+        } else {
+          recordDropdownChange('cli', next.previous.agent, next.agent)
         }
         return
       }
@@ -931,16 +1661,51 @@ const ChatPage = () => {
       }
       recordDropdownChange('model', next.previous.modelBase || next.previous.model, next.modelBase || next.model)
     },
-    [dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
+    [addToast, dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
+  )
+
+  // #108: API seats route via LLM profiles. A pick lands in the same
+  // ?model= channel the WS send path already reads, plus the per-agent
+  // dropdown memory ('api' field) so the choice survives navigation.
+  const applyApiRoutingChange = useCallback(
+    (next: RoutingPathChange) => {
+      if (next.changed !== 'agent') return
+      const model = next.agent.trim()
+      persistAgentDropdownChoice(dropdownAgentId, {
+        api: model,
+        model: '',
+        effort: '',
+      })
+      setSearchParams(
+        (prevParams) => {
+          const nextParams = new URLSearchParams(prevParams)
+          if (model) nextParams.set('model', model)
+          else nextParams.delete('model')
+          return nextParams
+        },
+        { replace: true },
+      )
+      recordDropdownChange('api', next.previous.agent, model)
+    },
+    [dropdownAgentId, recordDropdownChange, setSearchParams],
   )
 
   useEffect(() => {
     // REQ-28: a selected composition team uses ?team=; do not clobber it
-    // with the Support default (REQ-23 owns send-to-all).
-    if (searchParams.get('team') || searchParams.get('remote')) return
-    if (!searchParams.get('blueprint')) {
-      setSearchParams({ blueprint: SUPPORT_AGENT_ID }, { replace: true })
+    // with the Support default (REQ-23 owns send-to-all). Merge blueprint
+    // onto the existing query so ?cli= / ?model= / ?session= survive.
+    if (searchParams.get('team') || searchParams.get('remote') || searchParams.get('blueprint')) {
+      return
     }
+    setSearchParams(
+      (prev) => {
+        if (prev.get('team') || prev.get('remote') || prev.get('blueprint')) return prev
+        const next = new URLSearchParams(prev)
+        next.set('blueprint', SUPPORT_AGENT_ID)
+        return next
+      },
+      { replace: true },
+    )
   }, [searchParams, setSearchParams])
 
   // #169: remember which team already got the seat default, so roster
@@ -962,10 +1727,16 @@ const ChatPage = () => {
     // configured Chief of Staff, else the first roster member ("First") — the
     // same REQ-130 policy the sidebar picker uses. An explicit pick wins.
     if (teamDefaultedRef.current === teamFromUrl) return
+    // An explicit All members pick outranks the nominated-seat default (#288).
+    if (allMembersFromUrl) {
+      teamDefaultedRef.current = teamFromUrl
+      setMemberTarget(ALL_MEMBERS_TARGET)
+      return
+    }
     if (!selectedTeam) return
     teamDefaultedRef.current = teamFromUrl
     setMemberTarget(defaultSessionForTeam(selectedTeam)?.memberId ?? ALL_MEMBERS_TARGET)
-  }, [teamFromUrl, sessionFromUrl, selectedTeam])
+  }, [teamFromUrl, sessionFromUrl, allMembersFromUrl, selectedTeam])
 
   // #794: persist the selected swarm conversation (CLI or Django) so remount
   // and rail browse-back restore the same id — not the prior default.
@@ -1044,6 +1815,50 @@ const ChatPage = () => {
   ])
 
   useEffect(() => {
+    if (!remoteFromUrl) {
+      setRemoteThreadPicker(null)
+      return
+    }
+    if (sessionFromUrl) {
+      setRemoteThreadPicker(null)
+      return
+    }
+    if (!remoteListsSessions({ id: remoteFromUrl, kind: remoteFromUrl })) return
+    let cancelled = false
+    void fetchRemoteThreadSessions({
+      id: remoteFromUrl,
+      kind: remoteFromUrl,
+      title: remoteFromUrl,
+    })
+      .then((sessions) => {
+        if (cancelled) return
+        // #852: landing on a session-capable remote without a session in the
+        // URL goes to the most recent conversation directly — the picker is
+        // an explicit navbar action, never an automatic modal on click.
+        const latest = mostRecentRemoteSession(sessions)
+        if (latest) {
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev)
+              next.set('remote', remoteFromUrl)
+              next.set('session', String(latest.memberId || latest.id))
+              return next
+            },
+            { replace: true },
+          )
+          return
+        }
+        setRemoteThreadPicker(null)
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteThreadPicker(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [remoteFromUrl, sessionFromUrl])
+
+  useEffect(() => {
     if (!showEmptyRemoteChrome) return
     const key = bindingAgentId || selectedBlueprint
     if (!key || emptyRemoteOpenedForRef.current === key) return
@@ -1055,6 +1870,7 @@ const ChatPage = () => {
     if (teamFromUrl) {
       setNewChatPerTask(false)
       setUseSuggestions(false)
+      setVoiceBind(EMPTY_VOICE_BIND)
       return
     }
     const agent = agentIdFromBlueprint(selectedBlueprint)
@@ -1069,22 +1885,95 @@ const ChatPage = () => {
         if (typeof detail.use_suggestions === 'boolean') {
           setUseSuggestions(detail.use_suggestions)
         }
+        setVoiceBind((prev) => parseVoiceBind({ ...prev, ...detail }))
       }
     }
     window.addEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    let cancelled = false
     void fetchAgentSettings(agent).then((settings) => {
+      if (cancelled) return
+      if (settings.agent_id && settings.agent_id !== agent) return
       setNewChatPerTask(settings.new_chat_per_task)
       setUseSuggestions(settings.use_suggestions)
+      setVoiceBind(parseVoiceBind(settings))
     })
-    return () => window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    return () => {
+      cancelled = true
+      window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
+    }
   }, [selectedBlueprint, teamFromUrl])
 
   useEffect(() => {
-    void fetchUserPrefs().then((server) => {
-      if (!server) return
+    spokenReplyKeysRef.current = new Set()
+    autoSpeakHydratedRef.current = false
+  }, [activeChatAgentId, conversationId])
+
+  useEffect(() => {
+    if (!autoSpeakHydratedRef.current) {
+      for (const message of messages) {
+        if (message.role === 'assistant' && !message.streaming) {
+          spokenReplyKeysRef.current.add(message.key)
+        }
+      }
+      if (threadReady) autoSpeakHydratedRef.current = true
+      return
+    }
+    const next = nextAutoSpeakText({
+      autoSpeak: voiceBind.auto_speak_replies,
+      messages,
+      alreadySpoken: spokenReplyKeysRef.current,
+      hydrated: true,
+    })
+    if (!next) return
+    spokenReplyKeysRef.current.add(next.key)
+    const seatSpeech = applyVoiceBindToSpeechSettings(
+      parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
+      voiceBind,
+    )
+    const path = resolveTtsPath(seatSpeech)
+    if (!path) return
+    void (async () => {
+      try {
+        if (path === 'system') {
+          speakSystem(next.text)
+          return
+        }
+        await speakCustom(next.text, {
+          voice: voiceBind.speech_mode === 'inherit' ? undefined : voiceBind.tts_voice || undefined,
+          instruction:
+            voiceBind.speech_mode === 'inherit'
+              ? undefined
+              : voiceBind.tts_voice_instruction || undefined,
+          agentId: activeChatAgentId,
+        })
+      } catch {
+        /* auto-speak is best-effort */
+      }
+    })()
+  }, [
+    messages,
+    voiceBind,
+    threadReady,
+    speechQuery.data,
+    activeChatAgentId,
+  ])
+
+  useEffect(() => {
+    let cancelled = false
+    const applyPrefs = (server: UserPrefs | null | undefined) => {
+      if (cancelled || !server) return
       setContextStrategy(parseContextStrategy(server.context_strategy))
       setCullTriggerPct(parseCullTriggerPct(server.context_cull_trigger_pct))
-    })
+    }
+    void fetchUserPrefs().then(applyPrefs)
+    const onPrefs = (event: Event) => {
+      applyPrefs((event as CustomEvent<UserPrefs>).detail)
+    }
+    window.addEventListener(USER_PREFS_CHANGED_EVENT, onPrefs)
+    return () => {
+      cancelled = true
+      window.removeEventListener(USER_PREFS_CHANGED_EVENT, onPrefs)
+    }
   }, [])
 
   useEffect(() => {
@@ -1093,10 +1982,27 @@ const ChatPage = () => {
     })
   }, [])
 
+  useEffect(() => {
+    void hydrateDefaultLlmTipDismissed().then((dismissed) => {
+      if (dismissed) setDefaultLlmTipDismissed(true)
+    })
+  }, [])
+
   const noteHydrateFailure = useCallback((bucketKey: string, err: unknown) => {
     const hadMessages = (threadsRef.current[bucketKey] ?? []).length > 0
     const detail = err instanceof Error ? err.message.trim() : ''
     const fallback = 'The transcript could not be fetched.'
+    // #581: a 429 shows the friendly retry toast (with countdown), never
+    // raw throttler prose — the typed message from lib/api is already clean.
+    if (isThrottleError(err)) {
+      addToast({
+        type: 'error',
+        title: 'Slow down a moment',
+        message: err.message,
+      })
+      setThreadReady(true)
+      return
+    }
     addToast({
       type: 'error',
       title: 'Could not load chat',
@@ -1127,6 +2033,9 @@ const ChatPage = () => {
     const switched =
       lastHydratedAgentRef.current !== null && lastHydratedAgentRef.current !== key
     lastHydratedAgentRef.current = key
+    // #604/REQ-171A-4: never pre-wipe the destination rows before the hydrate
+    // fetch — a failed fetch must keep the previous messages on screen with
+    // the keep-toast, not an empty transcript. Freshness comes from flush=1.
     setConversationId(key)
     setEditingKey(null)
     setAgentKind('api')
@@ -1135,7 +2044,7 @@ const ChatPage = () => {
     let cancelled = false
     ;(async () => {
       try {
-        const thread = await fetchAgentThread(key, key)
+        const thread = await fetchAgentThread(key, key, { flush: switched })
         if (cancelled) return
         setHydrateError(null)
         setSummariesByThread((prev) => ({
@@ -1154,7 +2063,7 @@ const ChatPage = () => {
         setRestoreNotice(restoredSessionNotice(thread.messages, 'team'))
         setThreads((prev) => ({
           ...prev,
-          [key]: thread.messages.map(chatMessageFromThreadRow),
+          [key]: hydrateThreadRows(thread.messages),
         }))
         setThreadReady(true)
       } catch (err) {
@@ -1177,6 +2086,7 @@ const ChatPage = () => {
       const switched =
         lastHydratedAgentRef.current !== null && lastHydratedAgentRef.current !== key
       lastHydratedAgentRef.current = key
+      // #604/REQ-171A-4: no pre-wipe (see the API/team hydrate above).
       setConversationId(key)
       setEditingKey(null)
       setAgentKind('remote')
@@ -1186,7 +2096,7 @@ const ChatPage = () => {
       ;(async () => {
         try {
           // Same GET /chat/thread/ path as API/team — do not return early (REQ-171A-4 / #604).
-          const thread = await fetchAgentThread(`remote:${remoteFromUrl}`, key)
+          const thread = await fetchAgentThread(`remote:${remoteFromUrl}`, key, { flush: switched })
           if (cancelled) return
           setHydrateError(null)
           setSummariesByThread((prev) => ({
@@ -1205,7 +2115,7 @@ const ChatPage = () => {
           setRestoreNotice(restoredSessionNotice(thread.messages, 'remote'))
           setThreads((prev) => ({
             ...prev,
-            [key]: thread.messages.map(chatMessageFromThreadRow),
+            [key]: hydrateThreadRows(thread.messages),
           }))
           setThreadReady(true)
         } catch (err) {
@@ -1234,6 +2144,7 @@ const ChatPage = () => {
       lastHydratedAgentRef.current !== null &&
       lastHydratedAgentRef.current !== hydrateKey
     lastHydratedAgentRef.current = hydrateKey
+    // #604/REQ-171A-4: no pre-wipe (see the API/team hydrate above).
     setConversationId(nextId)
     if (resolvedSession) {
       setConversationIdForAgent(agent, nextId)
@@ -1252,7 +2163,7 @@ const ChatPage = () => {
     let cancelled = false
     ;(async () => {
       try {
-        const thread = await fetchAgentThread(agent, resolvedSession || undefined)
+        const thread = await fetchAgentThread(agent, resolvedSession || undefined, { flush: switched })
         if (cancelled) return
         setHydrateError(null)
         setAgentKind(thread.kind ?? classifyAgentKind(selectedBlueprint))
@@ -1291,7 +2202,7 @@ const ChatPage = () => {
         }
         setThreads((prev) => ({
           ...prev,
-          [threadKey]: thread.messages.map(chatMessageFromThreadRow),
+          [threadKey]: hydrateThreadRows(thread.messages),
         }))
         setThreadReady(true)
       } catch (err) {
@@ -1306,6 +2217,8 @@ const ChatPage = () => {
 
   const attachToolToThread = useCallback(
     (tool: ToolCallState) => {
+      const waitAgent = tool.agentId || selectedBlueprint || threadKey
+      notifyApprovalWait(waitAgent, tool.id, Boolean(tool.needsApproval))
       setThreads((prev) => {
         const current = prev[threadKey] ?? []
         const targetIndex = [...current]
@@ -1322,6 +2235,7 @@ const ChatPage = () => {
                 role: 'assistant' as const,
                 text: '',
                 streaming: true,
+                ts: new Date().toISOString(),
                 tools: [tool],
               },
             ],
@@ -1333,7 +2247,7 @@ const ChatPage = () => {
         return { ...prev, [threadKey]: next }
       })
     },
-    [threadKey],
+    [selectedBlueprint, threadKey],
   )
 
   const sendToolDecision = useCallback((id: string, decision: 'allow' | 'always' | 'deny') => {
@@ -1342,6 +2256,50 @@ const ChatPage = () => {
     ws.send(buildToolDecisionFrame(id, decision))
   }, [])
 
+  const sendQuestionAnswer = useCallback((id: string, answer: string) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(buildQuestionAnswerFrame(id, answer))
+  }, [])
+
+  const attachQuestionToThread = useCallback(
+    (question: DecisionQuestion, blocking: boolean) => {
+      setThreads((prev) => {
+        const current = prev[threadKey] ?? []
+        const targetIndex = [...current]
+          .reverse()
+          .findIndex((message) => message.role === 'assistant')
+        const index = targetIndex === -1 ? -1 : current.length - 1 - targetIndex
+        const patch = {
+          question,
+          questionBlocking: blocking,
+          questionAnswered: false,
+        }
+        if (index === -1) {
+          return {
+            ...prev,
+            [threadKey]: [
+              ...current,
+              {
+                key: `question-host-${question.id}`,
+                role: 'assistant' as const,
+                text: '',
+                streaming: true,
+                ts: new Date().toISOString(),
+                ...patch,
+              },
+            ],
+          }
+        }
+        const next = [...current]
+        const host = next[index]!
+        next[index] = { ...host, ...patch }
+        return { ...prev, [threadKey]: next }
+      })
+    },
+    [threadKey],
+  )
+
   const jumpToPrOpener = useCallback(
     (opener: PrOpenedOpener) => {
       setSearchParams(openerChatSearch(opener))
@@ -1349,319 +2307,63 @@ const ChatPage = () => {
     [setSearchParams],
   )
 
-  const handleWsEvent = useCallback(
-    (event: ChatWsEvent) => {
-      if (event.kind === 'unknown') {
-        console.warn('Unrecognised chat websocket frame:', event.raw)
-        return
-      }
-      if (event.kind === 'spa_hello') {
-        publishExpectedSpaVersion(event.spaVersion)
-        return
-      }
-      if (event.kind === 'tool_status') {
-        attachToolToThread({
-          id: event.id,
-          name: event.name,
-          status: event.status,
-          agentId: event.agentId,
-          needsApproval: false,
-        })
-        return
-      }
-      if (event.kind === 'suggestions') {
-        if (!useSuggestions) {
-          setSuggestionChips([])
-          return
-        }
-        setSuggestionChips(event.suggestions)
-        return
-      }
-      if (event.kind === 'pr_opened') {
-        setThreads((prev) => {
-          const current = prev[threadKey] ?? []
-          return {
-            ...prev,
-            [threadKey]: [
-              ...current,
-              {
-                key: `pr-opened-${current.length}-${Date.now()}`,
-                role: 'status' as const,
-                text: '',
-                streaming: false,
-                prOpened: event.event,
-              },
-            ],
-          }
-        })
-        return
-      }
-      if (event.kind === 'teammate_task') {
-        setThreads((prev) => {
-          const current = prev[threadKey] ?? []
-          return {
-            ...prev,
-            [threadKey]: [
-              ...current,
-              {
-                key: `teammate-task-${current.length}-${Date.now()}`,
-                role: 'status' as const,
-                text: '',
-                streaming: false,
-                teammateTask: event.event,
-              },
-            ],
-          }
-        })
-        return
-      }
-      if (event.kind === 'tool_approval') {
-        const agentId = event.agentId || selectedBlueprint || threadKey
-        if (isToolAlwaysAllowed(agentId, event.name)) {
-          sendToolDecision(event.id, 'always')
-          attachToolToThread({
-            id: event.id,
-            name: event.name,
-            status: 'allowed',
-            agentId,
-            needsApproval: false,
-            concerned: true,
-          })
-          return
-        }
-        attachToolToThread({
-          id: event.id,
-          name: event.name,
-          status: 'running',
-          agentId,
-          needsApproval: true,
-          concerned: true,
-        })
-        return
-      }
-      if (event.kind === 'cli_session_update') {
-        // Live qwen/CLI provider session activity (inside OR outside open-swarm).
-        const ownThread =
-          Boolean(event.conversationId) &&
-          event.conversationId === conversationIdRef.current
-        if (ownThread && event.events.length > 0) {
-          setThreads((prev) => {
-            const current = prev[threadKey] ?? []
-            const additions: ChatMessage[] = []
-            if (event.events.some((row) => row.role === 'user')) {
-              additions.push({
-                key: `cliext-${Date.now()}-head`,
-                role: 'status',
-                text: `${event.cli} session updated outside open-swarm (live).`,
-                streaming: false,
-              })
-            }
-            event.events.forEach((row, idx) => {
-              if (row.role === 'user' || row.role === 'assistant') {
-                additions.push({
-                  key: `cliext-${Date.now()}-${idx}`,
-                  role: row.role,
-                  text: row.text,
-                  streaming: false,
-                })
-              } else {
-                additions.push({
-                  key: `cliext-tool-${Date.now()}-${idx}`,
-                  role: 'status',
-                  text: row.text,
-                  streaming: false,
-                })
-              }
-            })
-            return { ...prev, [threadKey]: [...current, ...additions] }
-          })
-        }
-        if (event.state === 'completed') {
-          const lastText = [...event.events]
-            .reverse()
-            .find((row) => row.role === 'assistant')?.text
-          const { agentId: notifyAgentId, agentName: notifyAgentName } = notifyCtxRef.current
-          maybeNotifyAgentTurn({
-            agentId: event.agentId || notifyAgentId || event.cli,
-            agentName: notifyAgentName,
-            snippet: lastText || '',
-            selectedAgentId: notifyAgentId,
-            tabHidden: typeof document !== 'undefined' ? document.hidden : false,
-          })
-        }
-        return
-      }
-      setThreads((prev) => {
-        const current = prev[threadKey] ?? []
-        let next = current
-        switch (event.kind) {
-          case 'user_echo':
-            userKeyCounterRef.current += 1
-            next = [
-              ...current,
-              {
-                key: `user-${userKeyCounterRef.current}-${Date.now()}`,
-                role: 'user',
-                text: event.text,
-                streaming: false,
-              },
-            ]
-            break
-          case 'assistant_start':
-            if (current.some((m) => m.key === event.id)) return prev
-            next = [...current, { key: event.id, role: 'assistant', text: '', streaming: true }]
-            break
-          case 'assistant_chunk':
-            next = current.map((m) =>
-              m.key === event.id ? { ...m, text: m.text + event.text } : m,
-            )
-            break
-          case 'assistant_final':
-            next = current.map((m) =>
-              m.key === event.id ? { ...m, text: event.text, streaming: false } : m,
-            )
-            break
-          case 'status':
-            if (
-              event.text === CLI_TERMINATED_STATUS &&
-              current.some((row) => row.role === 'status' && row.text === CLI_TERMINATED_STATUS)
-            ) {
-              next = current.map((row) => (row.streaming ? { ...row, streaming: false } : row))
-              break
-            }
-            next = insertCliSessionNotice(current, {
-              key: `status-${current.length}-${Date.now()}`,
-              role: 'status',
-              text: event.text,
-              streaming: false,
-              rateLimit: event.rateLimit,
-            })
-            break
-        }
-        return { ...prev, [threadKey]: next }
-      })
-      if (event.kind === 'assistant_final') {
-        const { agentId, agentName } = notifyCtxRef.current
-        if (agentId) {
-          notifyGenerationComplete(agentId, {
-            snippet: event.text,
-            agentName,
-          })
-          maybeNotifyAgentTurn({
-            agentId,
-            agentName,
-            snippet: event.text,
-            selectedAgentId: agentId,
-          })
-        }
-      }
-    },
-    [activeChatAgentId, attachToolToThread, sendToolDecision, threadKey, useSuggestions],
-  )
+  const pinnedToBottomRef = useRef(true)
+
+  // #856 slice 5: the WS frame dispatcher moved verbatim to
+  // features/chat/useChatWsDispatcher.ts.
+  const handleWsEvent = useChatWsDispatcher({
+    activeChatAgentId,
+    attachQuestionToThread,
+    attachToolToThread,
+    sendToolDecision,
+    threadKey,
+    useSuggestions,
+    seatUnread,
+    pinnedToBottomRef,
+    setContextUsage,
+    setAuxTasks,
+    setSuggestionChips,
+    setThreads,
+    setUnreadIds,
+    selectedBlueprint,
+    userKeyCounterRef,
+    notifyCtxRef,
+  })
+
+  // #738: stable ref so the WS effect doesn't list handleWsEvent as a dep.
+  // The socket only rebuilds when connection coords change (conversationId,
+  // runtimeBlueprint, teamFromUrl) — not on every inner state change.
+  const handleWsEventRef = useRef(handleWsEvent)
+
+  // #856 slice 4: chat WebSocket lifecycle (connect/reconnect/interrupt
+  // handling) moved verbatim to features/chat/useChatWebSocket.ts.
+  const wsControls = useChatWebSocket({
+    connectAttempt,
+    conversationId,
+    runtimeBlueprint,
+    teamFromUrl,
+    remoteFromUrl,
+    threadKey,
+    wsRef,
+    handleWsEventRef,
+    notifyCtxRef,
+    setStatus,
+    setAuthRejected,
+    setAwaitingAssistant,
+    setThreads,
+    setConnectAttempt,
+  })
+  const { reconnect } = wsControls
 
   useEffect(() => {
-    let opened = false
-    intentionalCloseRef.current = false
-    setStatus('connecting')
-    setAuthRejected(false)
+    handleWsEventRef.current = handleWsEvent
+  })
 
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
-
-    let ws: WebSocket
-    try {
-      ws = new WebSocket(
-        buildChatWsUrl(conversationId, teamFromUrl ? undefined : runtimeBlueprint || undefined),
-      )
-    } catch {
-      setStatus('failed')
-      const attempt = backoffAttemptRef.current
-      if (shouldAutoReconnect(1006, false, attempt)) {
-        const delay = reconnectBackoffMs(attempt)
-        backoffAttemptRef.current = attempt + 1
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null
-          setConnectAttempt((n) => n + 1)
-        }, delay)
-      }
-      return
-    }
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      opened = true
-      backoffAttemptRef.current = 0
-      setStatus('open')
-    }
-    ws.onmessage = (event: MessageEvent) => {
-      if (typeof event.data === 'string') {
-        handleWsEvent(parseChatWsMessage(event.data))
-      }
-    }
-    ws.onclose = (event: CloseEvent) => {
-      if (wsRef.current === ws) wsRef.current = null
-      setAwaitingAssistant(false)
-      const rejected = event.code === WS_AUTH_REQUIRED_CODE
-      setAuthRejected(rejected)
-      setStatus(opened ? 'closed' : 'failed')
-      let interrupted = false
-      setThreads((prev) => {
-        const current = prev[threadKey]
-        if (!current || !current.some((m) => m.streaming)) return prev
-        interrupted = true
-        return {
-          ...prev,
-          [threadKey]: current.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
-        }
-      })
-      if (interrupted) {
-        const { agentId, agentName } = notifyCtxRef.current
-        if (agentId) {
-          notifyGenerationComplete(agentId, {
-            failed: true,
-            agentName,
-          })
-          maybeNotifyAgentTurn({
-            agentId,
-            agentName,
-            failed: true,
-            selectedAgentId: agentId,
-          })
-        }
-      }
-
-      const attempt = backoffAttemptRef.current
-      if (shouldAutoReconnect(event.code, intentionalCloseRef.current, attempt)) {
-        const delay = reconnectBackoffMs(attempt)
-        backoffAttemptRef.current = attempt + 1
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null
-          setConnectAttempt((n) => n + 1)
-        }, delay)
-      }
-    }
-
-    return () => {
-      intentionalCloseRef.current = true
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-      ws.onopen = null
-      ws.onmessage = null
-      ws.onclose = null
-      ws.close()
-      if (wsRef.current === ws) wsRef.current = null
-    }
-  }, [connectAttempt, handleWsEvent, conversationId, runtimeBlueprint, teamFromUrl])
 
   useEffect(() => {
     publishChatConnection(status)
   }, [status])
 
-  const pinnedToBottomRef = useRef(true)
 
   const applyComposerInset = useCallback(() => {
     const next = measureComposerDockInset(bottomDockRef.current)
@@ -1693,6 +2395,24 @@ const ChatPage = () => {
     return () => observer.disconnect()
   }, [])
 
+  // #678: gate the navbar name's fade on actual truncation. The mask must
+  // not engage while the name fits — the header's other items are not greedy
+  // (shrink-0 clusters aside, the identity card owns the remaining width).
+  const identityTitleRef = useRef<HTMLHeadingElement | null>(null)
+  useLayoutEffect(() => {
+    const title = identityTitleRef.current
+    if (!title) return undefined
+    const apply = () => {
+      const clipped = title.scrollWidth > title.clientWidth
+      title.dataset.truncated = clipped ? 'true' : 'auto'
+    }
+    apply()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(apply)
+    observer.observe(title)
+    return () => observer.disconnect()
+  }, [selectedAgentName, workspaceSubtitle])
+
   useEffect(() => {
     const onUnread = () => setUnreadIds(loadUnreadAgentIds())
     window.addEventListener(UNREAD_CHANGED_EVENT, onUnread)
@@ -1720,8 +2440,37 @@ const ChatPage = () => {
   useEffect(() => {
     if (!activeChatAgentId || seatUnread) return
     if (!pinnedToBottomRef.current) return
+    // #96: a hidden tab never counts as reading the transcript.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
   }, [activeChatAgentId, conversationId, messages, seatUnread])
+
+  // #96: returning to a visible tab while pinned at the bottom counts as
+  // catching up — the scroll handler alone would miss it (no scroll event).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      if (!pinnedToBottomRef.current || !seatUnread || !activeChatAgentId) return
+      setUnreadIds(markAgentRead(activeChatAgentId))
+      saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [seatUnread, activeChatAgentId, conversationId, messages])
+
+  // #96: unread clears only when the seat is visible AND pinned to the
+  // transcript bottom — not merely because a scroll happened.
+  const handleTranscriptScroll = useCallback(
+    (e: React.UIEvent<HTMLElement>) => {
+      const atBottom = isPinnedToTranscriptBottom(e.currentTarget, composerInsetPx)
+      pinnedToBottomRef.current = atBottom
+      if (!atBottom || !seatUnread || !activeChatAgentId) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      setUnreadIds(markAgentRead(activeChatAgentId))
+      saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
+    },
+    [composerInsetPx, seatUnread, activeChatAgentId, conversationId, messages],
+  )
 
   useEffect(() => {
     const wasOpen = prevStatusRef.current === 'open'
@@ -1731,14 +2480,6 @@ const ChatPage = () => {
     }
   }, [status, connectAttempt])
 
-  const reconnect = useCallback(() => {
-    backoffAttemptRef.current = 0
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
-    setConnectAttempt((n) => n + 1)
-  }, [])
 
   useEffect(() => {
     if (status === 'open') {
@@ -1777,24 +2518,106 @@ const ChatPage = () => {
     })
   }, [status, authRejected, signInHref, addToast, dismissByKind, reconnect])
 
-  const hasSendableDraft = input.trim().length > 0
+  // #595: one signal for the composer's trailing controls — the Stop button
+  // swaps into the microphone's slot while a turn is in flight, so the row
+  // keeps a constant control count and never shifts under the pointer.
+  const composerBusy = status === 'open' && generationIsInFlight(messages, awaitingAssistant)
+
+  // #856 slice D: attachment queue moved verbatim to features/chat/useComposerAttachments.
+  const {
+    pendingAttachments,
+    composerDragOver,
+    readyAttachIds,
+    enqueueComposerFiles,
+    handleComposerDragEnter,
+    handleComposerDragOver,
+    handleComposerDragLeave,
+    handleComposerDrop,
+    handleComposerPaste,
+    removeAttachment,
+    clearPendingAttachments,
+  } = useComposerAttachments({
+    addFilesEnabled: composerMenu.addFiles.enabled,
+    addFilesReason: composerMenu.addFiles.reason,
+    addToast,
+  })
+  const hasSendableDraft =
+    !pendingAttachments.some((item) => item.status === 'uploading') &&
+    (input.trim().length > 0 || readyAttachIds.length > 0)
 
   const sendText = useCallback(
     (text: string): boolean => {
       const ws = wsRef.current
-      const trimmed = text.trim()
+      const attachIds = readyAttachmentIds(pendingAttachments)
+      const trimmed =
+        text.trim() ||
+        (attachIds.length > 0
+          ? attachmentCaption(pendingAttachments.map((item) => item.name))
+          : '')
       if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return false
       lastUserTextRef.current = trimmed
       // Team compose adds params { team, target: "all" | memberId }.
-      const pluginParams = enabledToolsParam(conversationIdRef.current)
+      // #516: the allowlist is the **agent's**, keyed by the same seat id the
+      // toggles and the badge read — never the conversation id.
+      const pluginParams = enabledToolsParam(activeChatAgentId || '')
+      const sectionParams = railSectionsParam()
+      const attachArg = attachIds.length > 0 ? attachIds : undefined
       if (teamFromUrl) {
         ws.send(
           buildChatWsFrame(trimmed, undefined, {
             team: teamFromUrl,
             target: memberTarget || ALL_MEMBERS_TARGET,
             ...pluginParams,
-          }),
+            ...sectionParams,
+          }, attachArg),
         )
+        clearPendingAttachments()
+        return true
+      }
+      if (remoteFromUrl) {
+        if (isOpenMousBotKind(remoteFromUrl)) {
+          const target = ombSendTarget(sessionFromUrl, remoteFromUrl)
+          if (!target) {
+            addToast({
+              type: 'warning',
+              title: 'Select an OpenMousBot agent',
+              message: `${OMB_SELECT_AGENT_WARNING} gap=${OMB_BOT_REQUIRED_GAP}`,
+            })
+            return false
+          }
+          ws.send(
+            buildChatWsFrame(trimmed, 'remote_harness', {
+              remote: remoteFromUrl,
+              name: remoteFromUrl,
+              op: 'send',
+              target,
+              ...pluginParams,
+              ...sectionParams,
+            }),
+          )
+          return true
+        }
+        if (remoteListsSessions({ id: remoteFromUrl, kind: remoteFromUrl }) && !sessionFromUrl) {
+          // #852: a session-capable remote with no chosen session sends
+          // fresh instead of blocking the turn behind a picker toast. Users
+          // resume explicitly from the navbar session button.
+          ws.send(
+            buildChatWsFrame(trimmed, 'remote_harness', {
+              ...remoteChatTurnParams(remoteFromUrl, sessionFromUrl),
+              ...pluginParams,
+              ...sectionParams,
+            }, attachArg),
+          )
+          return true
+        }
+        ws.send(
+          buildChatWsFrame(trimmed, 'remote_harness', {
+            ...remoteChatTurnParams(remoteFromUrl, sessionFromUrl),
+            ...pluginParams,
+            ...sectionParams,
+          }, attachArg),
+        )
+        clearPendingAttachments()
         return true
       }
       const supportParams = isSupportAgent({
@@ -1823,15 +2646,23 @@ const ChatPage = () => {
         ...persistedSkills,
         ...parseComposerSkillNames(trimmed),
       ])
-      const cliParams = isCliAgent
+      const seatRemote = loadAgentEdit(agentIdForInference).remote
+      const sessionRemote =
+        (searchParams.get('cli_remote') ?? '').trim() ||
+        (seatRemote?.box || remoteEndpointLabel(seatRemote) || '')
+      const elicitParams =
+        isApiAgent && loadElicitQuestions(agentIdForInference)
+          ? { elicit_questions: true }
+          : undefined
+      const cliParams = isCliAgent && currentCli
         ? {
-            cli: currentCli,
-            ...(selectedModelParam && selectedModelParam !== 'default' ? { model: selectedModelParam } : {}),
+            ...cliAgentChatParams(currentCli, selectedModelParam),
+            ...(sessionRemote ? { cli_remote: sessionRemote } : {}),
           }
         : isApiAgent && selectedModelParam && selectedModelParam !== 'default'
           ? { model: selectedModelParam }
           : selectedCli
-            ? { cli: selectedCli.cli }
+            ? { cli: selectedCli.cli, failover: false }
             : newChatPerTask
               ? { new_session: messages.length === 0 }
               : undefined
@@ -1860,22 +2691,29 @@ const ChatPage = () => {
         buildChatWsFrame(
           trimmed,
           runtimeBlueprint || selectedBlueprint || undefined,
-          supportParams ||
-          cliParams ||
-          inferenceParams ||
-          pluginParams ||
-          folderParams ||
-          Object.keys(skillParams).length              ? {
-                  ...cliParams,
-                  ...inferenceParams,
-                  ...supportParams,
-                  ...pluginParams,
-                  ...folderParams,
-                  ...skillParams,
-                }
-            : undefined,
+          mergeChatSendParams(
+            inferenceParams,
+            supportParams,
+            pluginParams,
+            folderParams,
+            skillParams,
+            sectionParams,
+            elicitParams,
+            cliParams,
+          ),
+          attachArg,
         ),
       )
+      // #566: audit from the value the frame actually carries — the log is a
+      // record of this send, not a parallel derivation of it.
+      recordBackendUse({
+        agentId: agentIdForInference,
+        agentName: selectedAgentName,
+        kind: isCliAgent ? 'cli' : isApiAgent ? 'api' : agentKind,
+        backend: isCliAgent ? (currentCli || '(none)') : (selectedModelParam || 'default'),
+        cliSource: isCliAgent ? currentCliSource : null,
+      })
+      clearPendingAttachments()
       return true
     },
     [
@@ -1884,46 +2722,144 @@ const ChatPage = () => {
       selectedCli,
       isCliAgent,
       currentCli,
+      currentCliSource,
       currentCliModel,
       persistedDropdown.model,
       persistedDropdown.cli,
       persistedDropdown.api,
       isApiAgent,
+      agentKind,
+      selectedAgentName,
       searchParams,
       teamFromUrl,
       memberTarget,
       newChatPerTask,
       messages.length,
+      remoteFromUrl,
+      sessionFromUrl,
+      addToast,
+      pendingAttachments,
+      clearPendingAttachments,
+      activeChatAgentId,
     ],
   )
 
   const submitUserText = useCallback(
     (text: string) => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      const readyAttach = readyAttachmentIds(pendingAttachments)
+      if (!trimmed && readyAttach.length === 0) return
       // REQ-845 / #167: never drop a typed message on a closed/connecting socket. Keep
       // it in the per-conversation queue; the drain effect sends it on reopen.
       if (status !== 'open') {
-        queued.enqueue(trimmed)
-        addToast({
-          type: 'info',
-          title: 'Queued',
-          message: 'Chat is reconnecting — your message will send when the socket is back.',
-        })
+        const fallbackText =
+          trimmed ||
+          (readyAttach.length > 0
+            ? attachmentCaption(pendingAttachments.map((item) => item.name))
+            : '')
+        if (fallbackText) {
+          queued.enqueue(fallbackText)
+          addToast({
+            type: 'info',
+            title: 'Queued',
+            message: 'Chat is reconnecting — your message will send when the socket is back.',
+          })
+        }
         return
       }
       // REQ-171A-3 / #603: queue before assistant_start, not only while
       // streaming. REQ-90 / #447 owns the pane chrome; this only closes
       // the pre-start double-{message} race.
+      // #561: mid-generation queueing is a non-API affordance — a CLI/remote
+      // turn is serial and a typed message must survive it. A proven API seat
+      // takes a concurrent message instead, so only the transport queue above
+      // (the closed-socket branch, kept for every kind) applies to it. Teams
+      // and remotes keep queueing: their members run serially.
+      //
+      // "API" must be *proven*, not defaulted: classifyAgentKind falls back to
+      // 'api' for any unknown id, and treating a stale-catalog CLI seat as
+      // concurrent would corrupt its serial session. Proven = the id itself
+      // (api_agent / api / api:*) or the server-declared blueprint kind. A
+      // false queue merely waits for the drain; a false concurrent send cannot
+      // be undone.
       if (generationIsInFlight(messages, awaitingAssistant)) {
-        queued.enqueue(trimmed)
-        return
+        const apiSeatProven =
+          isApiBlueprintId(selectedBlueprint) ||
+          (selectedAgent as { kind?: string } | undefined)?.kind === 'api'
+        if (!apiSeatProven) {
+          const fallbackText =
+            trimmed ||
+            (readyAttach.length > 0
+              ? attachmentCaption(pendingAttachments.map((item) => item.name))
+              : '')
+          if (fallbackText) {
+            queued.enqueue(fallbackText)
+          }
+          return
+        }
       }
       setAwaitingAssistant(true)
       if (!sendText(trimmed)) setAwaitingAssistant(false)
     },
-    [addToast, awaitingAssistant, messages, queued, sendText, status],
+    [
+      addToast,
+      awaitingAssistant,
+      messages,
+      pendingAttachments,
+      queued,
+      selectedAgent,
+      selectedBlueprint,
+      sendText,
+      status,
+    ],
   )
+
+  const startFreshCliSession = useCallback(() => {
+    const agent = agentIdFromBlueprint(selectedBlueprint)
+    const minted = newConversationId()
+    setConversationIdForAgent(agent, minted)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (agent && agent !== DEFAULT_AGENT_ID) next.set('blueprint', agent)
+      next.set('session', minted)
+      return next
+    })
+  }, [selectedBlueprint, setSearchParams])
+
+  const retryCliSession = useCallback(() => {
+    const lastUser = [...messages].reverse().find((row) => row.role === 'user')
+    const text = (lastUserTextRef.current || lastUser?.text || '').trim()
+    if (text) submitUserText(text)
+  }, [messages, submitUserText])
+
+  const clearCliSessionHistory = useCallback(() => {
+    const agent = agentIdFromBlueprint(selectedBlueprint)
+    const previousId = conversationId
+    setThreads((prev) => ({ ...prev, [threadKey]: [] }))
+    void clearAgentThread(agent, previousId).catch(() => undefined)
+    startFreshCliSession()
+  }, [conversationId, selectedBlueprint, startFreshCliSession, threadKey])
+
+  const showCliSessionRecovery =
+    threadReady && !awaitingAssistant && lastTurnNeedsRecovery(messages)
+  // #499: the banner's primary action opens Settings on the section that can
+  // actually resolve the failure — session actions stay as secondary options.
+  const cliRecoveryConfigTarget = showCliSessionRecovery
+    ? lastRecoveryTarget(messages)
+    : undefined
+
+  /**
+   * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
+   * The drain effect promotes the top queued row automatically once the
+   * cancelled turn closes, so this only needs to request the cancel.
+   */
+  const interruptRunningTurn = useCallback(() => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(buildCancelTurnFrame())
+      setAwaitingAssistant(false)
+    }
+  }, [])
 
   useEffect(() => {
     const onChip = (event: Event) => {
@@ -1986,9 +2922,8 @@ const ChatPage = () => {
   const handleSend = (event: FormEvent) => {
     event.preventDefault()
     if (!hasSendableDraft) return
-    const quotePrefix = replyTarget ? (replyTarget.speaker ? `> **${replyTarget.speaker}**: ` : `> `) : ''
     const textToSend = replyTarget
-      ? `${quotePrefix}${replyTarget.text.replace(/\r\n/g, '\n').split('\n').join('\n> ')}\n\n${input}`
+      ? buildOutboundReplyText(replyTarget, input)
       : input
     submitUserText(textToSend)
     setInput('')
@@ -2019,7 +2954,20 @@ const ChatPage = () => {
     }
   }, [])
 
-  const slashCatalog = useMemo(() => buildSlashCatalog(dynamicSkills), [dynamicSkills])
+  // #641: the CLI seat's own declared slash commands, straight from the
+  // cli-agents catalog (`slash_commands[<cli>]`). A non-CLI seat resolves no
+  // CLI here, so API/team/remote composers keep their existing catalog.
+  const cliSlashCommands = useMemo(() => {
+    if (!isCliAgent) return undefined
+    const cliName = currentCli || selectedCli?.cli || ''
+    if (!cliName) return undefined
+    return cliQuery.data?.slash_commands?.[cliName]
+  }, [isCliAgent, currentCli, selectedCli, cliQuery.data])
+
+  const slashCatalog = useMemo(
+    () => buildSlashCatalog(dynamicSkills, cliSlashCommands),
+    [dynamicSkills, cliSlashCommands],
+  )
   const isSlashOpen = input.startsWith('/') && !slashDismissed
   const slashQuery = input.startsWith('/') ? input.slice(1) : ''
   const filteredSlashItems = useMemo(
@@ -2055,7 +3003,10 @@ const ChatPage = () => {
     setInput(val)
   }
 
-  const speechSettings = parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH)
+  const speechSettings = applyVoiceBindToSpeechSettings(
+    parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
+    voiceBind,
+  )
 
   const handleMic = () => {
     if (sttListening) {
@@ -2111,7 +3062,9 @@ const ChatPage = () => {
           void (async () => {
             try {
               const blob = await session.stop()
-              const spoken = await transcribeCustomBlob(blob)
+              const spoken = await transcribeCustomBlob(blob, 'audio.webm', {
+                agentId: activeChatAgentId,
+              })
               if (spoken) setInput((prev) => appendTranscript(prev, spoken))
             } catch (err) {
               addToast({
@@ -2145,23 +3098,53 @@ const ChatPage = () => {
   }
 
   useEffect(() => {
-    if (!plusOpen) return
+    if (!plusOpen) {
+      // #516: closing the menu returns it to the actions face.
+      setPluginsPanelOpen(false)
+      return
+    }
     const onPointer = (event: Event) => {
       if (plusRef.current && !plusRef.current.contains(event.target as Node)) {
         setPlusOpen(false)
       }
     }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setPlusOpen(false)
+      }
+    }
     window.addEventListener('mousedown', onPointer)
-    return () => window.removeEventListener('mousedown', onPointer)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onPointer)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [plusOpen])
 
   const streamingMessage = messages.find((message) => message.streaming)
   const isWorking = Boolean(streamingMessage) || awaitingAssistant
+  // #224: every tool call this seat has produced in the active context.
+  const seatToolCalls = useMemo<PanelToolCall[]>(
+    () => messages.flatMap((message) => message.tools ?? []),
+    [messages],
+  )
+  const generationContexts = useMemo(
+    () =>
+      conversationId
+        ? [{ id: conversationId, label: selectedAgentName || 'Current context' }]
+        : [],
+    [conversationId, selectedAgentName],
+  )
   const chipsDisabled = status !== 'open'
+  const demoMode = isDemoMode()
+  const demoChips = demoMode ? demoSuggestionChips() : []
   const supportJourneyChips =
     supportSelected && messages.length === 0 ? supportJourneyKickstart() : []
-  const showSupportJourneyChips = supportJourneyChips.length > 0
+  const showSupportJourneyChips = !demoMode && supportJourneyChips.length > 0
+  const showDemoChips = demoMode && demoChips.length > 0
   const showSuggestionChips =
+    !demoMode &&
     !showSupportJourneyChips &&
     shouldShowSuggestionChips({
       enabled: useSuggestions,
@@ -2234,6 +3217,16 @@ const ChatPage = () => {
 
   useEffect(() => {
     if (generationIsInFlight(messages, awaitingAssistant) || status !== 'open') return
+    // #885: a remote seat whose harness has not streamed yet cannot be
+    // trusted to be "not in flight" — the #229 seat reset clears
+    // awaitingAssistant before the harness's first frames arrive, and
+    // draining in that gap removes the row before its pane ever renders.
+    if (
+      drainHoldUntilStreamStarts(isRemoteAgent || isRemoteBackedTeam ? 'remote' : 'api') &&
+      !streamSeenRef.current
+    ) {
+      return
+    }
     const next = nextDrainableQueuedSend(queued.rows, queuedHoldIds)
     if (!next || drainLockRef.current) return
     drainLockRef.current = true
@@ -2244,7 +3237,7 @@ const ChatPage = () => {
       setAwaitingAssistant(false)
       queued.restore(next)
     }
-  }, [awaitingAssistant, messages, queued, queuedHoldIds, sendText, status])
+  }, [awaitingAssistant, messages, queued, queuedHoldIds, sendText, status, isRemoteAgent, isRemoteBackedTeam])
 
   useEffect(() => {
     const onTerminated = (event: Event) => {
@@ -2284,6 +3277,50 @@ const ChatPage = () => {
       })
       return
     }
+    // #636: a CLI seat compacts through the same server-side summary and then
+    // starts a fresh CLI session carrying it. The old provider transcript
+    // stays on disk; the new process starts clean with the summary in context.
+    if (isCliAgent) {
+      const cliName = currentCli || selectedCli?.cli || ''
+      if (!cliName) {
+        addToast({
+          type: 'error',
+          title: 'Compact failed',
+          message: 'No CLI is resolved for this seat.',
+        })
+        return
+      }
+      try {
+        const result = await compactCliThread({
+          conversationId,
+          agentId: selectedBlueprint || '',
+          cli: cliName,
+          messages: messages
+            .filter((message) => message.role === 'user' || message.role === 'assistant')
+            .map((message) => ({ role: message.role, content: message.text })),
+          defaultLlmReady: llmProfilesQuery.data?.default_llm_ready === true,
+          cliCompactCapable: Boolean(
+            (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[cliName],
+          ),
+        })
+        dispatchCliSessionHopped({
+          agentId: selectedBlueprint || '',
+          conversationId: result.newConversationId,
+          status: result.status,
+          fromCli: cliName,
+          toCli: cliName,
+        })
+        setConversationId(result.newConversationId)
+      } catch (err) {
+        const detail = err instanceof Error ? err.message.trim() : ''
+        addToast({
+          type: 'error',
+          title: 'Compact failed',
+          message: detail || 'Could not compact this chat. Sign in and try again.',
+        })
+      }
+      return
+    }
     try {
       const result = await compactAgentThread({
         conversationId,
@@ -2296,6 +3333,10 @@ const ChatPage = () => {
           })),
       })
       setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
+      if (result.usage) {
+        publishContextUsage(result.usage)
+        setContextUsage(result.usage)
+      }
     } catch (err) {
       const detail = err instanceof Error ? err.message.trim() : ''
       addToast({
@@ -2304,7 +3345,7 @@ const ChatPage = () => {
         message: detail || 'Could not compact this chat. Sign in and try again.',
       })
     }
-  }, [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey])
+  }, [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey, isCliAgent, currentCli, selectedCli, llmProfilesQuery.data, cliQuery.data])
 
   const handleCompressToHere = useCallback(
     async (message: ChatMessage) => {
@@ -2334,6 +3375,10 @@ const ChatPage = () => {
           spanEnd,
         })
         setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
+        if (result.usage) {
+          publishContextUsage(result.usage)
+          setContextUsage(result.usage)
+        }
       } catch (err) {
         const detail = err instanceof Error ? err.message.trim() : ''
         addToast({
@@ -2417,6 +3462,16 @@ const ChatPage = () => {
 
   const handleSelectSlashItem = useCallback(
     (item: SlashItem) => {
+      // #641: an unavailable CLI command is never sent as chat text.
+      if (item.unavailableReason) {
+        addToast({
+          type: 'warning',
+          title: item.title,
+          message: item.unavailableReason,
+        })
+        setSlashDismissed(true)
+        return
+      }
       recordRecentSlashId(item.id)
       setRecentSlashIds(getRecentSlashIds())
       setSlashDismissed(true)
@@ -2431,7 +3486,7 @@ const ChatPage = () => {
         composerRef.current?.focus()
       }, 0)
     },
-    [handleCompact],
+    [handleCompact, addToast],
   )
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2470,6 +3525,11 @@ const ChatPage = () => {
     }
 
     if (event.key === 'Escape') {
+      if (plusOpen) {
+        event.preventDefault()
+        setPlusOpen(false)
+        return
+      }
       if (replyTarget) {
         event.preventDefault()
         setReplyTarget(null)
@@ -2488,14 +3548,20 @@ const ChatPage = () => {
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      if (input.trim().length > 0) {
-        const quotePrefix = replyTarget ? (replyTarget.speaker ? `> **${replyTarget.speaker}**: ` : `> `) : ''
+      if (input.trim().length > 0 || readyAttachmentIds(pendingAttachments).length > 0) {
         const textToSend = replyTarget
-          ? `${quotePrefix}${replyTarget.text.replace(/\r\n/g, '\n').split('\n').join('\n> ')}\n\n${input}`
+          ? buildOutboundReplyText(replyTarget, input)
           : input
         submitUserText(textToSend)
         setInput('')
         setReplyTarget(null)
+        return
+      }
+      // #198: enter on an empty composer with a queued send interrupts the
+      // running turn; the drain effect then sends the promoted top row.
+      const nextQueued = nextDrainableQueuedSend(queued.rows, queuedHoldIds)
+      if (nextQueued) {
+        interruptRunningTurn()
       }
     }
   }
@@ -2509,9 +3575,21 @@ const ChatPage = () => {
     llmProfilesQuery.data?.profiles,
     selectedModelId || llmProfilesQuery.data?.default_llm_profile,
   )
+  // #207: API seats on the default profile get a setup tip when the default
+  // LLM is not usable. Explicit model/profile overrides (pinned seats) and
+  // CLI/remote/team seats are exempt by design.
+  // #561: with a queued send waiting, Enter on the empty composer sends that
+  // row now (the interrupt path — see handleComposerKeyDown). Say so on the
+  // input-hover hint instead of the default "Enter to send".
+  const sendNowHint =
+    !input.trim() && nextDrainableQueuedSend(queued.rows, queuedHoldIds) !== null
+  const showDefaultLlmTip = shouldShowDefaultLlmTip({
+    isApiAgent,
+    hasExplicitModelOverride: Boolean(selectedModelId),
+    defaultLlmReady: llmProfilesQuery.data?.default_llm_ready,
+    dismissed: defaultLlmTipDismissed,
+  })
   contextMaxRef.current = contextMax
-  const meterMax = contextMax ?? CONTEXT_METER_TOKENS
-  const tokenPct = Math.min(100, Math.round((tokenCount / meterMax) * 100))
   const [tokenDiagOpen, setTokenDiagOpen] = useState(false)
 
   const userTexts = useMemo(
@@ -2547,10 +3625,465 @@ const ChatPage = () => {
     return 'Disconnected'
   }, [authRejected, status])
 
+  // #681/#682/#683 — the two-stage composer picker's inputs, from the same
+  // live payloads the seat controls already render. A provider with no data
+  // (e.g. a CLI with no resumable sessions) still lists; its stage 2 simply
+  // offers the default row only.
+  // #711: resumable CLI sessions for the picker's stage 2 — fetched when the
+  // picker opens (deferred-fetch doctrine, same as the History switcher),
+  // never on mount.
+  const [composerSessionsOpen, setComposerSessionsOpen] = useState(false)
+  const composerSessionsQuery = useQuery({
+    queryKey: ['cli-sessions-composer', currentCli],
+    queryFn: () => fetchCliSessions(selectedBlueprint, currentCli),
+    enabled: isCliAgent && Boolean(currentCli) && composerSessionsOpen,
+    retry: false,
+  })
+  const composerCliSessions = useMemo<ReadonlyArray<{ id: string; label: string }>>(() => {
+    const list = composerSessionsQuery.data
+    if (!list) return []
+    const out: Array<{ id: string; label: string }> = []
+    const seen = new Set<string>()
+    for (const s of [...(list.sessions ?? []), ...(list.recent ?? [])]) {
+      if (!s?.id || seen.has(s.id)) continue
+      seen.add(s.id)
+      out.push({ id: s.id, label: (s.title || s.snippet || s.id).trim() || s.id })
+    }
+    return out
+  }, [composerSessionsQuery.data])
+
+  // #711: picking a session runs the same REQ-104 flow as the History
+  // switcher — select, persist workspace, announce the switch, land on it.
+  const resumeComposerSession = useCallback(
+    async (sessionId: string) => {
+      if (!isCliAgent || !currentCli) return
+      try {
+        const result = await selectCliSession({
+          agentId: selectedBlueprint,
+          cli: currentCli,
+          sessionId,
+          fromConversationId: conversationIdForAgent(selectedBlueprint),
+        })
+        persistSessionWorkspace(selectedBlueprint, {
+          folder: result.folder ?? undefined,
+          gitBranch: result.git_branch ?? undefined,
+        })
+        dispatchCliSessionSwitched({
+          agentId: selectedBlueprint,
+          conversationId: result.conversation_id,
+          status: result.status,
+        })
+        // #794: the URL owns the selected session — set ?session= so remount
+        // and rail browse-back restore the same conversation.
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev)
+          next.set('session', result.conversation_id)
+          return next
+        })
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message ? err.message : 'Could not switch session'
+        addToast({ type: 'error', title: 'Could not start CLI session', message })
+      }
+    },
+    [isCliAgent, currentCli, selectedBlueprint, setSearchParams, addToast],
+  )
+
+  const composerSources: ComposerSources = useMemo(
+    () => ({
+      api: {
+        profiles: (llmProfilesQuery.data?.profiles ?? []).map((p) => ({
+          id: p.id,
+          label: p.name || p.id,
+        })),
+        defaultProfileId: llmProfilesQuery.data?.default_llm_profile || undefined,
+      },
+      // #682: the probed model list belongs to the *current* CLI (the probe
+      // is per-CLI); other CLIs list without models until selected.
+      // #711: the current CLI also offers its resumable sessions. While that
+      // payload is in flight the CLI is marked optionsPending — #803
+      // auto-pick must not resolve on a partial list.
+      clis: discoveredClis.map((name) => ({
+        name,
+        ...(name === currentCli && composerCliSessions.length
+          ? { sessions: composerCliSessions }
+          : {}),
+        ...(name === currentCli && cliModelsQuery.data?.models?.length
+          ? { models: cliModelsQuery.data.models }
+          : {}),
+        ...(name === currentCli && composerSessionsOpen && composerSessionsQuery.isPending
+          ? { optionsPending: true }
+          : {}),
+      })),
+      // Remote agent lists exist only for the *active* remote (the operate
+      // `list` query is per-remote); others offer their default row only.
+      // While the list is in flight the row is optionsPending (#803).
+      remotes: configuredRemoteRows.map((r) => ({
+        id: r.id,
+        label: r.title || r.id,
+        ...(r.id === activeRemoteId
+          ? {
+              agents: remoteNavbarAgents.map((row) => ({
+                id: row.id,
+                label: row.label || row.id,
+              })),
+              optionsPending: remoteAgentsQuery.isPending,
+            }
+          : {}),
+        // #789: a herdr remote's configured panes (GET /v1/herdr-agents/)
+        // are its stage-2 options — the composer picker replaces the #543
+        // navbar popup, and picking a pane lands in ?session=<name>.
+        ...(isHerdrKind(r.kind) || isHerdrKind(r.id)
+          ? {
+              herdrAgents: (herdrAgentsQuery.data?.data ?? []).map((a) => ({
+                id: a.id,
+                name: a.name,
+              })),
+              ...(herdrAgentsQuery.isPending ? { optionsPending: true } : {}),
+            }
+          : {}),
+      })),
+      teams: parseTeamRosters(teamsQuery.data ?? []).map((t) => ({
+        id: t.id,
+        label: t.name || t.id,
+        members: (t.members ?? []).map((m) => ({ id: m.id, label: m.name || m.id })),
+      })),
+      blueprints: blueprints.map((b) => ({
+        id: b.id,
+        label: b.name || b.id,
+        description: b.description,
+      })),
+    }),
+    [
+      llmProfilesQuery.data,
+      discoveredClis,
+      configuredRemoteRows,
+      teamsQuery.data,
+      blueprints,
+      activeRemoteId,
+      remoteNavbarAgents,
+      currentCli,
+      cliModelsQuery.data,
+      composerCliSessions,
+      herdrAgentsQuery.data,
+      herdrAgentsQuery.isPending,
+    ],
+  )
+  const composerProviders = useMemo(
+    () => buildComposerProviders(composerSources),
+    [composerSources],
+  )
+  // #856 slice F: one props object for the extracted message list —
+  // tsc names every closure identifier the render body touches.
+  const chatMessageListProps = {
+    AgentAvatar,
+    ChatMessageActions,
+    ChatMessageBubble,
+    ChatNewRule,
+    CliSessionRecoveryBanner,
+    DemoTourBanner,
+    IrcNoticeLine,
+    MessageRowActions,
+    PrOpenedCard,
+    QuestionCard,
+    RateLimitStatusLine,
+    ReadAloudButton,
+    SHOW_MESSAGE_ACTIONS,
+    START_CONTEXT_FROM_HERE_LABEL,
+    SubagentFanOutBlock,
+    SuggestionChips,
+    SummaryBlock,
+    SystemPreloadPill,
+    TeammateTaskCard,
+    ToolCallPopup,
+    activeChatAgentId,
+    activeSelectionRef,
+    agentIdFromBlueprint,
+    agentKind,
+    attachToolToThread,
+    awaitingAssistant,
+    blueprints,
+    bubbleTheme,
+    cacheRowSelection,
+    chipsDisabled,
+    chooseSuggestion,
+    clearCliSessionHistory,
+    cliAgents,
+    cliRecoveryConfigTarget,
+    composerRef,
+    configuredRemotes,
+    contextMeta,
+    contextStrategy,
+    conversationId,
+    demoMode,
+    displayItems,
+    editedAgentLabel,
+    editingKey,
+    expandedThinkingKeys,
+    extractThinkingBlock,
+    formatGapLabel,
+    formatRateLimitNotice,
+    getBubbleTheme,
+    handleBubbleContextMenu,
+    handleContextToHere,
+    handleSaveSummary,
+    handleToggleSummaryContext,
+    hiddenMessageKeys,
+    hiddenSummaryIds,
+    hydrateError,
+    isApiAgent,
+    isHerdrSeat,
+    isStatusRole,
+    jumpToPrOpener,
+    lastUserTextRef,
+    listEndRef,
+    messages,
+    messagesEditable,
+    newBeforeKey,
+    nowMs,
+    openSettingsSheet,
+    parseCreatedAtMs,
+    personaForAgentMessage,
+    rawOffsetForMessage,
+    rememberAlwaysAllow,
+    remotesListQuery,
+    resolveReplyQuote,
+    restoreNotice,
+    retryCliSession,
+    saveEditedMessage,
+    selectedAgent,
+    selectedAgentName,
+    selectedBlueprint,
+    selectedTeam,
+    sendQuestionAnswer,
+    sendText,
+    sendToolDecision,
+    setEditingKey,
+    setHiddenMessageKeys,
+    setHiddenSummaryIds,
+    setOpenSkillName,
+    setRawResponseModalText,
+    setReplyTarget,
+    setThreads,
+    settingsTargetForProvider,
+    showCliSessionRecovery,
+    showSupportJourneyChips,
+    skillCatalog,
+    startFreshCliSession,
+    streamingMessage,
+    summaryMap,
+    supportJourneyChips,
+    teamFromUrl,
+    themeUsesIrcGutter,
+    threadKey,
+    threadReady,
+    toggleThinking,
+    voiceBind,
+    workingTip,
+    __self: null as unknown,
+  }
+
+  const renderRoutingPicker = () => {
+    if (!composerShowProvider) return null
+    if (showRemotesControl && !showEmptyRemoteChrome) {
+      return (
+        <NavbarRoutingPicker
+          seatKind="remote"
+          aria-label="Remote"
+          placeholder={remoteSelectPlaceholder(configuredRemoteRows.length, selectedRemoteId)}
+          agents={configuredRemoteRows.map((remote) => ({
+            id: remote.id,
+            label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
+            kind: 'remote' as const,
+          }))}
+          allAgents={allPaletteAgents}
+          onNavigateAgent={navigateToPaletteAgent}
+          onProviderReconfigure={reconfigureProviderForSeat}
+          selectedAgent={selectedRemoteId}
+          models={remoteNavbarAgents.map((row) => row.id)}
+          modelOptions={remoteNavbarAgents}
+          twoStage={{
+            providers: composerProviders,
+            getProviderOptions: (provider) =>
+              composerOptionsForProvider(composerSources, provider),
+          }}
+          selectedModel={ombSelectedBotId || sessionFromUrl}
+          modelWarning={remoteAgentWarning}
+          modelWarningAction={
+            remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
+              ? isRemoteAction(remoteAgentsQuery.data.action)
+                ? remoteAgentsQuery.data.action
+                : null
+              : null
+          }
+          footerAction={{
+            id: ADD_REMOTE_VALUE,
+            // #836: the picker is a cross-provider omnibus — the footer always
+            // names the unified Providers hub, not the active seat's section.
+            label: 'Manage providers',
+            onSelect: () => openSettingsSheet({ section: 'providers' }),
+          }}
+          onChange={(next) => {
+            const nextId = next.agent
+            setSelectedRemoteId(nextId)
+            // REQ-904 / #502: one decision point for both axes. A provider
+            // pick on a named agent is inert on the route; only an identity
+            // pick (viewing a remote seat) may navigate or reset the session.
+            const decision = applyRemoteRoutingChange({
+              next,
+              bindingAgentId,
+              remoteFromUrl,
+              configured: configuredRemoteRows,
+            })
+            if (decision.binding !== undefined) {
+              saveAgentRemoteBinding(bindingAgentId, decision.binding)
+              persistAgentDropdownChoice(bindingAgentId, {
+                remote: decision.binding?.id ?? '',
+              })
+            }
+            setSearchParams((prev) => {
+              const params = new URLSearchParams(prev)
+              if (decision.setRemote) params.set('remote', decision.setRemote)
+              if (decision.setSession) params.set('session', decision.setSession)
+              else if (decision.deleteSession) params.delete('session')
+              return params
+            })
+          }}
+        />
+      )
+    }
+    if (teamFromUrl) {
+      // #755: team member routing is the same composer picker every other
+      // seat uses — the legacy navbar <select> is retired. All members is
+      // the first row (its id is the send-target sentinel 'all'); Manage
+      // Team is the footer action, which never writes a session (#331).
+      const members = selectedTeam?.members ?? []
+      return (
+        <NavbarRoutingPicker
+          seatKind="team"
+          aria-label="Team members"
+          agents={[
+            { id: ALL_MEMBERS_TARGET, label: 'All members', kind: 'team' as const },
+            ...members.map((member) => ({
+              id: member.id,
+              label: memberOptionLabel(member),
+              kind: 'team' as const,
+            })),
+          ]}
+          selectedAgent={memberTarget || ALL_MEMBERS_TARGET}
+          models={[]}
+          selectedModel=""
+          placeholder="Team"
+          footerAction={{
+            id: MANAGE_TEAMS_VALUE,
+            label: 'Manage teams',
+            onSelect: () => {
+              window.location.assign(
+                teamFromUrl
+                  ? `${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}`
+                  : MANAGE_TEAMS_HREF,
+              )
+            },
+          }}
+          onChange={(next) => {
+            const value = next.agent
+            const prev = memberTarget
+            const prevMember = members.find((m) => m.id === prev)
+            const nextMember = members.find((m) => m.id === value)
+            const fromLabel = prev === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(prevMember || { id: prev, name: prev })
+            const toLabel = value === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(nextMember || { id: value, name: value })
+            setMemberTarget(value)
+            setSearchParams(
+              (prevParams) => applyTeamMemberSessionParam(prevParams, teamFromUrl, value),
+              { replace: true },
+            )
+            recordDropdownChange('team', fromLabel, toLabel)
+          }}
+        />
+      )
+    }
+    if (isCliAgent) {
+      return (
+        <NavbarRoutingPicker
+          seatKind="cli"
+          aria-label="CLI"
+          agents={discoveredClis.map((cli) => ({ id: cli, label: cli, kind: 'cli' as const }))}
+          selectedAgent={currentCli}
+          models={availableCliModels}
+          selectedModel={currentCliModel}
+          modelWarning={cliModelWarning}
+          preferredEffort={persistedDropdown.effort}
+          allAgents={allPaletteAgents}
+          onNavigateAgent={navigateToPaletteAgent}
+          onProviderReconfigure={reconfigureProviderForSeat}
+          loading={isCliAgent && (cliModelsQuery.isFetching || cliModelsQuery.isLoading)}
+          onTwoStageOpen={() => setComposerSessionsOpen(true)}
+          twoStage={{
+            providers: composerProviders,
+            getProviderOptions: (provider) =>
+              composerOptionsForProvider(composerSources, provider),
+            onResumeSession: resumeComposerSession,
+          }}
+          footerAction={{
+            id: MANAGE_CLI_VALUE,
+            // #836: unified cross-provider footer (see remote branch above).
+            label: 'Manage providers',
+            onSelect: () => openSettingsSheet({ section: 'providers' }),
+          }}
+          onChange={applyCliRoutingChange}
+        />
+      )
+    }
+    if (isApiAgent) {
+      /* #108, #584: API seats route through LLM profiles, not host CLIs. */
+      return (
+        <NavbarRoutingPicker
+          seatKind="api"
+          aria-label="API"
+          agents={apiModelOptionsFromProfiles(
+            llmProfilesQuery.data?.profiles,
+            llmProfilesQuery.data?.default_llm_profile
+              ? [llmProfilesQuery.data.default_llm_profile]
+              : [],
+          ).map((opt) => ({ id: opt.id, label: opt.label, kind: 'api' as const }))}
+          allAgents={allPaletteAgents}
+          onNavigateAgent={navigateToPaletteAgent}
+          selectedAgent={
+            selectedModelId || llmProfilesQuery.data?.default_llm_profile || ''
+          }
+          models={[]}
+          selectedModel=""
+          defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
+          twoStage={{
+            providers: composerProviders,
+            getProviderOptions: (provider) =>
+              composerOptionsForProvider(composerSources, provider),
+          }}
+          footerAction={{
+            id: '__manage_api__',
+            // #836: unified cross-provider footer (see remote branch above).
+            label: 'Manage providers',
+            onSelect: () => openSettingsSheet({ section: 'providers' }),
+          }}
+          onChange={applyApiRoutingChange}
+        />
+      )
+    }
+    return null
+  }
+
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
-      <header className="os-chat-header">
-        <div className="os-chat-header__identity flex min-w-0 items-center gap-2 group">
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+          header's box (the flyout is an absolutely-positioned child of the
+          picker inside this header), leaving only its first row reachable.
+          Titles still clamp in `.os-navbar-identity-label`. */}
+      <header className="os-chat-header gap-1.5 sm:gap-3">
+        <div className="os-chat-header__identity flex min-w-0 flex-1 items-center gap-2 group">
           {narrow ? (
             <button
               type="button"
@@ -2563,66 +4096,15 @@ const ChatPage = () => {
             </button>
           ) : null}
           <div
-            className="os-navbar-identity-card flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10 cursor-pointer"
+            className="os-navbar-identity-card flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 -my-1 border border-transparent transition-colors hover:bg-base-200/50 hover:border-base-content/10"
             data-testid="selected-agent-header"
-            role="button"
-            tabIndex={0}
-            aria-label={`Agent identity: ${selectedAgentName}`}
-            onClick={() => {
-              if (!teamFromUrl && selectedBlueprint) {
-                openAgentEditor({
-                  agentId: selectedBlueprint,
-                })
-                return
-              }
-              if (teamFromUrl) {
-                openTeamEditor({
-                  teamId: teamFromUrl,
-                  teamName: selectedTeam?.name || teamFromUrl,
-                })
-                return
-              }
-              const role = agentRole({
-                id: selectedBlueprint,
-                name: selectedAgentName,
-                role: selectedAgent?.role,
-              })
-              openSettingsSheet({
-                section: 'definition',
-                definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
-                definitionId: selectedBlueprint,
-                blueprintId: selectedBlueprint,
-              })
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                if (!teamFromUrl && selectedBlueprint) {
-                  openAgentEditor({
-                    agentId: selectedBlueprint,
-                  })
-                  return
-                }
-                if (teamFromUrl) {
-                  openTeamEditor({
-                    teamId: teamFromUrl,
-                    teamName: selectedTeam?.name || teamFromUrl,
-                  })
-                  return
-                }
-                const role = agentRole({
-                  id: selectedBlueprint,
-                  name: selectedAgentName,
-                  role: selectedAgent?.role,
-                })
-                openSettingsSheet({
-                  section: 'definition',
-                  definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
-                  definitionId: selectedBlueprint,
-                  blueprintId: selectedBlueprint,
-                })
-              }
-            }}
+            role="group"
+            aria-label={
+              workspaceSubtitle
+                ? `Agent identity: ${selectedAgentName}. ${workspaceSubtitle}`
+                : `Agent identity: ${selectedAgentName}`
+            }
+
           >
             {teamFromUrl && teamDeclaredRoster ? (
               <PersonaRoster
@@ -2631,49 +4113,98 @@ const ChatPage = () => {
                 label={`${selectedAgentName} declared members`}
                 size="md"
               />
-            ) : !teamFromUrl ? (
-              <AgentAvatar
-                src={selectedAgent?.avatar_path}
-                agentId={agentIdFromBlueprint(selectedBlueprint)}
-                active={isWorking}
-                status={isWorking ? 'working' : 'idle'}
-                size="lg"
-                gl
-                className="os-chat-header__avatar shrink-0"
-              />
-            ) : null}
-            <h1 className="truncate text-base font-semibold tracking-tight">
+            ) : (
+              // #528: a team without a declared roster used to render nothing
+              // here, so the navbar showed a bare name where a single agent gets
+              // an avatar. It now shows the team's chat face. The button form is
+              // only used when there is an agent to open generations *for* —
+              // otherwise a clickable control would lead nowhere.
               <button
                 type="button"
-                className="os-identity-btn truncate text-left"
-                aria-label={`Open ${selectedAgentName} definition`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (teamFromUrl) {
-                    openTeamEditor({
-                      teamId: teamFromUrl,
-                      teamName: selectedTeam?.name || teamFromUrl,
-                    })
-                    return
-                  }
-                  const role = agentRole({
-                    id: selectedBlueprint,
-                    name: selectedAgentName,
-                    role: selectedAgent?.role,
-                  })
-                  openSettingsSheet({
-                    section: 'definition',
-                    definitionKind: isExampleRole(role) || isChiefOfStaff(role) ? 'role' : 'blueprint',
-                    definitionId: selectedBlueprint,
-                    blueprintId: selectedBlueprint,
-                  })
+                className="os-chat-header__avatar-btn shrink-0"
+                aria-label={
+                  teamFromUrl && !teamChatMemberId
+                    ? `${selectedAgentName} team`
+                    : `Show ${selectedAgentName} generations`
+                }
+                {...(teamFromUrl && !teamChatMemberId
+                  ? { 'aria-hidden': true as const, tabIndex: -1, disabled: true }
+                  : { 'aria-haspopup': 'dialog' as const, 'aria-expanded': generationsOpen })}
+                data-testid={teamFromUrl ? 'header-team-avatar' : 'header-avatar-generations'}
+                data-face-agent-id={teamFromUrl ? teamChatMemberId || undefined : undefined}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setGenerationsOpen((prev) => !prev)
                 }}
               >
-                {selectedAgentName}
+                <AgentAvatar
+                  src={teamFromUrl ? undefined : selectedAgent?.avatar_path}
+                  agentId={headerFaceAgentId}
+                  active={isWorking}
+                  status={isWorking ? 'working' : 'idle'}
+                  size="lg"
+                  gl
+                  className="os-chat-header__avatar"
+                  remoteKind={teamFromUrl ? undefined : selectedRemote?.kind}
+                />
               </button>
-            </h1>
+            )}
+            <div className="os-navbar-identity-text min-w-0 flex-1">
+              {/* #678: the fade mask is truncation-gated — the name renders in
+                  full whenever it fits (tablet/desktop give it the space), and
+                  the fade engages only when the text is actually clipped. */}
+              <h1
+                ref={identityTitleRef}
+                className="os-navbar-identity-label min-w-0 flex-1 text-base font-semibold tracking-tight"
+                data-truncated="auto"
+              >
+                <button
+                  type="button"
+                  className="os-identity-btn block w-full text-left"
+                  aria-label={`Open ${selectedAgentName} definition`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (teamFromUrl) {
+                      openTeamEditor({
+                        teamId: teamFromUrl,
+                        teamName: selectedTeam?.name || teamFromUrl,
+                      })
+                      return
+                    }
+                    openSettingsSheet({
+                      section: 'definition',
+                      definitionKind:
+                        isExampleRole(headerRole) || isChiefOfStaff(headerRole) ? 'role' : 'blueprint',
+                      definitionId: selectedBlueprint,
+                      blueprintId: selectedBlueprint,
+                    })
+                  }}
+                >
+                  {selectedAgentName}
+                </button>
+              </h1>
+              {workspaceSubtitle ? (
+                <p
+                  className="os-navbar-identity-subtitle"
+                  data-testid="os-navbar-workspace-subtitle"
+                  title={workspaceSubtitle}
+                >
+                  {workspaceSubtitle}
+                </p>
+              ) : null}
+            </div>
+            {showHeaderRole ? (
+              <span
+                className={`os-agent-role-badge shrink-0 ${roleCssClass(headerRole)}`}
+                data-role={headerRole}
+                data-testid="os-header-role-badge"
+                title={`Role: ${headerRoleLabel}`}
+              >
+                {headerRoleLabel}
+              </span>
+            ) : null}
             {teamFromUrl ? (
-              <div className="tooltip tooltip-bottom shrink-0" data-tip="Edit team">
+              <div className="tooltip tooltip-bottom shrink-0 hidden sm:flex" data-tip="Edit team">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-square os-navbar-edit-btn"
@@ -2690,7 +4221,7 @@ const ChatPage = () => {
                 </button>
               </div>
             ) : selectedBlueprint ? (
-              <div className="tooltip tooltip-bottom shrink-0" data-tip="Edit agent">
+              <div className="tooltip tooltip-bottom shrink-0 hidden sm:flex" data-tip="Edit agent">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-square os-navbar-edit-btn"
@@ -2708,33 +4239,17 @@ const ChatPage = () => {
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Token visibility: only when using API agents (swarm owns the numbers).
-              For remote, CLI, and non-API agent types, the token counter must not exist in the top navbar. */}
-          {isApiAgent && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs h-auto p-1 gap-1.5 font-normal text-inherit hover:bg-base-300/40 normal-case shrink-0"
-              aria-label="Session token usage"
-              data-testid="token-meter-button"
-              onClick={() => setTokenDiagOpen(true)}
-            >
-              <div
-                className="h-1 w-14 overflow-hidden rounded-full bg-base-300"
-                role="meter"
-                aria-label="Tokens in context"
-                aria-valuemin={0}
-                aria-valuemax={meterMax}
-                aria-valuenow={tokenCount}
-              >
-                <div
-                  className="h-full rounded-full bg-base-content/45"
-                  style={{ width: `${Math.max(tokenCount > 0 ? 4 : 0, tokenPct)}%` }}
-                />
-              </div>
-              <span className="tabular-nums whitespace-nowrap text-xs">{formatMeterLabel(tokenCount, contextMax)}</span>
-            </button>
-          )}
+        {/* #773: the navbar token meter was removed — the composer badge is
+            the ONE canonical meter (server-reported, out/in/max shorthand).
+            Two tallies with different sources disagreed. */}
+        <div className="os-chat-header__controls flex items-center shrink-0 gap-1 sm:gap-2">
+          <AuxActivityIndicator
+            tasks={auxTasks}
+            onCancel={(taskId) => {
+              requestAuxCancel(taskId)
+              wsRef.current?.send(JSON.stringify({ type: 'cancel_auxiliary', task_id: taskId }))
+            }}
+          />
           {showEmptyRemoteChrome ? (
             <button
               type="button"
@@ -2743,110 +4258,28 @@ const ChatPage = () => {
             >
               Add remote
             </button>
-          ) : showRemotesControl ? (
-            <NavbarRoutingPicker
-              seatKind="remote"
-              aria-label="Remote"
-              placeholder={remoteSelectPlaceholder(configuredRemoteRows.length, selectedRemoteId)}
-              agents={configuredRemoteRows.map((remote) => ({
-                id: remote.id,
-                label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
-              }))}
-              selectedAgent={selectedRemoteId}
-              models={[]}
-              selectedModel=""
-              footerAction={{
-                id: ADD_REMOTE_VALUE,
-                label: 'Add remote',
-                onSelect: () => openSettingsSheet({ section: 'remotes' }),
-              }}
-              onChange={(next) => {
-                const nextId = next.agent
-                setSelectedRemoteId(nextId)
-                const remote = configuredRemoteRows.find((row) => row.id === nextId)
-                if (bindingAgentId && remote) {
-                  saveAgentRemoteBinding(bindingAgentId, {
-                    id: remote.id,
-                    kind: remote.kind || remote.id,
-                  })
-                  persistAgentDropdownChoice(bindingAgentId, { remote: remote.id })
-                } else if (bindingAgentId && !nextId) {
-                  saveAgentRemoteBinding(bindingAgentId, null)
-                  persistAgentDropdownChoice(bindingAgentId, { remote: '' })
-                }
-                if (remoteFromUrl && nextId && nextId !== remoteFromUrl) {
-                  setSearchParams((prev) => {
-                    const params = new URLSearchParams(prev)
-                    params.set('remote', nextId)
-                    params.delete('session')
-                    return params
-                  })
-                }
+          ) : null}
+          {showRemotesControl && activeRemoteId ? (
+            <RemoteSessionSwitcher
+              remoteId={activeRemoteId}
+              remoteKind={selectedRemote?.kind || activeRemoteId}
+              remoteTitle={
+                configuredRemoteRows.find((row) => row.id === activeRemoteId)?.title ||
+                selectedRemote?.title ||
+                activeRemoteId
+              }
+              onSelectSession={(sessionId) => {
+                setSearchParams((prev) => {
+                  const params = new URLSearchParams(prev)
+                  params.set('remote', activeRemoteId)
+                  params.set('session', sessionId)
+                  return params
+                }, { replace: true })
               }}
             />
           ) : null}
-          {teamFromUrl ? (
-            <select
-              className="select select-sm h-8 max-w-[12rem] border border-base-300 bg-base-100"
-              value={memberTarget}
-              aria-label="Team members"
-              onChange={(e) => {
-                const value = e.target.value
-                if (value === MANAGE_TEAMS_VALUE) {
-                  if (teamFromUrl) {
-                    window.location.assign(`${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}`)
-                  } else {
-                    window.location.assign(MANAGE_TEAMS_HREF)
-                  }
-                  return
-                }
-                const prev = memberTarget
-                const prevMember = (selectedTeam?.members ?? []).find((m) => m.id === prev)
-                const nextMember = (selectedTeam?.members ?? []).find((m) => m.id === value)
-                const fromLabel = prev === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(prevMember || { id: prev, name: prev })
-                const toLabel = value === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(nextMember || { id: value, name: value })
-                setMemberTarget(value)
-                if (teamFromUrl) {
-                  setSearchParams(
-                    (prevParams) => applyTeamMemberSessionParam(prevParams, teamFromUrl, value),
-                    { replace: true },
-                  )
-                }
-                recordDropdownChange('team', fromLabel, toLabel)
-              }}
-            >
-              <option value={ALL_MEMBERS_TARGET}>All members</option>
-              {(selectedTeam?.members ?? []).map((member) => (
-                <option key={member.id} value={member.id}>
-                  {memberOptionLabel(member)}
-                </option>
-              ))}
-              <option disabled aria-hidden="true">
-                ──────────
-              </option>
-              <option value={MANAGE_TEAMS_VALUE}>Manage Team</option>
-            </select>
-          ) : null}
-          {isCliAgent ? (
-            <NavbarRoutingPicker
-              seatKind="cli"
-              aria-label="CLI"
-              agents={discoveredClis.map((cli) => ({ id: cli, label: cli }))}
-              selectedAgent={currentCli}
-              models={availableCliModels}
-              selectedModel={currentCliModel}
-              modelWarning={cliModelWarning}
-              preferredEffort={persistedDropdown.effort}
-              footerAction={{
-                id: MANAGE_CLI_VALUE,
-                label: 'Manage Cli',
-                onSelect: () => {
-                  window.location.assign(MANAGE_CLI_HREF)
-                },
-              }}
-              onChange={applyCliRoutingChange}
-            />
-          ) : null}
+          {/* #755: the legacy team members <select> is retired — the composer
+              routing picker (seatKind=team) owns member routing now. */}
           {isCliAgent && currentCli ? (
             <CliSessionSwitcher
               agentId={selectedBlueprint}
@@ -2854,20 +4287,81 @@ const ChatPage = () => {
               agentName={selectedAgentName}
             />
           ) : null}
+          {isApiAgent ? (
+            /* #580: the rail offers Select/New session on API seats — the
+               navbar now keeps that promise via the same declared capability
+               (seatCapabilities), not a re-derived per-surface predicate. */
+            <ApiSessionSwitcher
+              agentId={selectedBlueprint}
+              agentName={selectedAgentName}
+            />
+          ) : null}
+          {isCliAgent &&
+          currentCli &&
+          isRemoteCapableCli(currentCli, cliQuery.data?.remote) &&
+          cliRemoteSession.hasChoice ? (
+            <label className="flex items-center gap-1 min-w-0">
+              <span className="sr-only">CLI remote box</span>
+              <select
+                className="select select-xs select-bordered h-7 min-h-0 max-w-[12rem] font-medium"
+                aria-label="CLI remote box"
+                data-testid="select-cli-session-remote"
+                /* #570: value always resolves to exactly one listed option — the
+                   override if set, otherwise the agent's own endpoint (the empty
+                   row), never a bare `''` that matches nothing. */
+                value={(searchParams.get('cli_remote') ?? '').trim() || cliRemoteSession.defaultTarget}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setSearchParams(
+                    (prevParams) => {
+                      const nextParams = new URLSearchParams(prevParams)
+                      if (next) nextParams.set('cli_remote', next)
+                      else nextParams.delete('cli_remote')
+                      return nextParams
+                    },
+                    { replace: true },
+                  )
+                }}
+              >
+                {/* #570: the default row replaces the old `Local` row. Selecting it
+                    clears `?cli_remote` and returns the session to the agent's own
+                    endpoint — so the default stays reachable without a synonym row. */}
+                <option value="">{cliRemoteSession.defaultLabel}</option>
+                {cliRemoteSession.boxes.map((box) => (
+                  <option key={box.value} value={box.value}>
+                    {box.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div
-            className="flex items-center gap-2"
+            className="flex items-center shrink-0 gap-1 sm:gap-2"
             role="toolbar"
             aria-label="Chat tools"
           >
             <ComputerControlStub
               agentId={activeChatAgentId}
               agentName={selectedAgentName}
+              agentDetails={
+                selectedAgent
+                  ? {
+                      id: selectedAgent.id,
+                      name: selectedAgent.name,
+                      kind: (selectedAgent as { kind?: string | null }).kind ?? null,
+                      instructions: (selectedAgent as { instructions?: string | null }).instructions ?? null,
+                      provider: (selectedAgent as { provider?: string | null }).provider ?? null,
+                      model: (selectedAgent as { model?: string | null }).model ?? null,
+                    }
+                  : null
+              }
             />
-            {/* #182: Compose team moved to the rail footer, above Plugins. */}
-            <ThemeToggle />
+            {/* #752: hide the dark/light toggle first on narrow viewports so the
+                agent identity and search stay prominent. */}
+            <ThemeToggle className="hidden sm:inline-flex" />
             <button
               type="button"
-              className="btn btn-ghost btn-sm btn-square"
+              className="btn btn-ghost btn-sm btn-square shrink-0"
               aria-label="Open settings"
               aria-haspopup="dialog"
               onClick={() => window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT))}
@@ -2878,7 +4372,9 @@ const ChatPage = () => {
         </div>
       </header>
 
+      <ConsumerPills providerId={activeChatAgentId} />
       {showRoleTip ? <RoleAgentTip onDismiss={dismissRoleTip} /> : null}
+      {showDefaultLlmTip ? <DefaultLlmTip onDismiss={dismissDefaultLlmTip} /> : null}
 
       <span role="status" aria-live="polite" aria-atomic="true" aria-label="Connection status" className="sr-only">
         {statusLabel}
@@ -2887,7 +4383,17 @@ const ChatPage = () => {
       <div
         ref={scrollBoxRef}
         className="os-chat-transcript min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-3 sm:px-3 select-none outline-none focus:outline-none flex flex-col justify-between relative"
-        style={composerInsetCustomProperty(composerInsetPx) as CSSProperties}
+        data-composer-inset={composerInsetPx}
+        data-bubble-theme={bubbleTheme}
+        style={
+          {
+            ...((composerInsetCustomProperty(composerInsetPx) as CSSProperties) ?? {}),
+            ...(themeUsesIrcGutter(bubbleTheme)
+              ? ({ ['--irc-gutter-px' as string]: `${ircGutterPx}px` } as React.CSSProperties)
+              : {}),
+          } as React.CSSProperties
+        }
+        data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
         aria-live="polite"
         role="log"
         aria-label="Conversation"
@@ -2899,364 +4405,47 @@ const ChatPage = () => {
               : agentKind
         }
         data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
-        data-composer-inset={composerInsetPx}
+        data-timestamp-placement={getBubbleTheme(bubbleTheme).timestampPlacement}
+        data-action-row-placement={getBubbleTheme(bubbleTheme).actionRowPlacement}
         tabIndex={0}
-        onScroll={(e) => {
-          const atBottom = isPinnedToTranscriptBottom(e.currentTarget, composerInsetPx)
-          pinnedToBottomRef.current = atBottom
-          if (atBottom && seatUnread && activeChatAgentId) {
-            setUnreadIds(markAgentRead(activeChatAgentId))
-            saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
-          }
-        }}
+        onScroll={handleTranscriptScroll}
       >
-        <div className="os-chat-messages space-y-1 flex-1" data-testid="chat-messages-container">
-        {restoreNotice ? (
-          <p className="os-chat-status" data-role="status" data-testid="chat-status">
-            <span>{restoreNotice}</span>
-          </p>
-        ) : null}
-        {messages.length === 0 && threadReady && hydrateError ? (
-          <div
-            className="flex h-full min-h-64 flex-col items-center justify-center gap-3 text-center text-base-content/70"
-            data-testid="chat-hydrate-error"
-            role="alert"
-          >
-            <p className="text-sm font-medium">Could not load this chat</p>
-            <p className="max-w-sm text-xs text-base-content/50">{hydrateError}</p>
-          </div>
-        ) : messages.length === 0 && threadReady ? (
-          <div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 text-center text-base-content/45">
-            <p className="text-sm">Message {selectedAgentName}</p>
-            {showSupportJourneyChips ? (
-              <>
-                <p className="max-w-sm text-xs text-base-content/50">
-                  Start with a team, a remote, or a CLI — one pane, no Settings maze.
-                </p>
-                <SuggestionChips
-                  chips={supportJourneyChips}
-                  disabled={chipsDisabled}
-                  onChoose={chooseSuggestion}
-                />
-              </>
-            ) : null}
-          </div>
-        ) : messages.length === 0 ? null : (
-          <>
-          {displayItems.map((item, idx) => {
-            if (item.kind === 'summary') {
-              if (hiddenSummaryIds.includes(item.summary.id)) return null
-              return (
-                <SummaryBlock
-                  key={`sum-${item.summary.id}`}
-                  summary={item.summary}
-                  byId={summaryMap}
-                  hiddenIds={hiddenSummaryIds}
-                  onHide={(id) =>
-                    setHiddenSummaryIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
-                  }
-                />
-              )
-            }
-            const message = item.message
-            if (hiddenMessageKeys.includes(message.key)) return null
-            const liveMessage = messages.find((row) => row.key === message.key)
-            const teammateTask = liveMessage?.teammateTask
-            if (teammateTask) {
-              return (
-                <div key={message.key} className="os-teammate-task-wrap my-2">
-                  <TeammateTaskCard
-                    event={teammateTask}
-                    context={{
-                      teamId: teamFromUrl,
-                      team: selectedTeam,
-                      remotes: configuredRemotes(remotesListQuery.data),
-                    }}
-                  />
-                </div>
-              )
-            }
-            const prOpened = liveMessage?.prOpened
-            if (prOpened) {
-              const openerId = prOpened.opener?.agentId
-              const openerAgent = openerId
-                ? blueprints.find((bp) => bp.id === openerId) ||
-                  cliAgents.find((row) => row.id === openerId)
-                : undefined
-              const openerLabel =
-                prOpened.opener?.name ||
-                (openerAgent
-                  ? editedAgentLabel({
-                      id: openerId || '',
-                      name: openerAgent.name || openerId,
-                    })
-                  : openerId)
-              return (
-                <div key={message.key} className="os-pr-opened-wrap my-2">
-                  <PrOpenedCard
-                    event={prOpened}
-                    currentAgentId={activeChatAgentId}
-                    currentConversationId={conversationId}
-                    openerName={openerLabel}
-                    openerAvatarSrc={(openerAgent as { avatar_path?: string } | undefined)?.avatar_path}
-                    onJumpToOpener={jumpToPrOpener}
-                  />
-                </div>
-              )
-            }
-            if (message.kind === 'prior_history') {
-              return (
-                <SystemPreloadPill
-                  key={message.key}
-                  text={message.text}
-                  label="Prior history"
-                  onRemove={() =>
-                    setHiddenMessageKeys((prev) =>
-                      prev.includes(message.key) ? prev : [...prev, message.key],
-                    )
-                  }
-                />
-              )
-            }
-            if (isStatusRole(message.role)) {
-              const statusMs = parseCreatedAtMs(message.ts)
-              if (message.rateLimit) {
-                return (
-                  <RateLimitStatusLine
-                    key={message.key}
-                    wait={message.rateLimit}
-                    nowMs={nowMs}
-                    ts={message.ts}
-                    timeLabel={statusMs != null ? formatGapLabel(statusMs) : undefined}
-                  />
-                )
-              }
-              return (
-                <p
-                  key={message.key}
-                  className="os-chat-status"
-                  data-role="status"
-                  data-testid="chat-status"
-                  data-ts={message.ts || undefined}
-                >
-                  <span>{message.text}</span>
-                  {statusMs != null ? (
-                    <time dateTime={message.ts} data-testid="chat-status-time">
-                      {formatGapLabel(statusMs)}
-                    </time>
-                  ) : null}
-                </p>
-              )
-            }
-            const isLast = idx === displayItems.length - 1
-            const retryEnabled =
-              SHOW_MESSAGE_ACTIONS &&
-              isLast &&
-              message.role === 'assistant' &&
-              !message.streaming &&
-              lastUserTextRef.current.length > 0
-            const messageIndex = messages.findIndex((row) => row.key === message.key)
-            const canEditThis =
-              messagesEditable &&
-              !message.streaming &&
-              (message.role === 'user' || message.role === 'assistant')
-            const isStreamingAssistant = message.role === 'assistant' && Boolean(message.streaming)
-            const bubbleAvatar =
-              message.role === 'assistant' ? (
-                isStreamingAssistant ? (
-                  <div
-                    className="os-composer-working os-inline-working"
-                    data-testid="composer-working-indicator"
-                    role="status"
-                    aria-live="polite"
-                    aria-label={workingTip}
-                  >
-                    <span
-                      className="tooltip tooltip-right os-composer-working__tip"
-                      data-tip={workingTip}
-                    >
-                      <span className="os-composer-working__avatar os-inline-working__avatar">
-                        <AgentAvatar
-                          src={selectedAgent?.avatar_path}
-                          agentId={teamFromUrl || agentIdFromBlueprint(selectedBlueprint)}
-                          active={true}
-                          status="working"
-                          size="xs"
-                          className="shrink-0"
-                        />
-                      </span>
-                    </span>
-                  </div>
-                ) : (
-                  <AgentAvatar
-                    src={selectedAgent?.avatar_path}
-                    agentId={teamFromUrl || agentIdFromBlueprint(selectedBlueprint)}
-                    active={false}
-                    status="idle"
-                    size="xs"
-                    className="shrink-0"
-                  />
-                )
-              ) : undefined
-            const rawOffset = rawOffsetForMessage(messages, message.key)
-            const showStartMarker =
-              contextMeta.start_offset > 0 && rawOffset === contextMeta.start_offset
-            return (
-              <div
-                key={message.key}
-                className="group/osrow"
-                onContextMenu={(e) => {
-                  if (message.role === 'system') return
-                  handleBubbleContextMenu(e, message)
-                }}
-              >
-                {newBeforeKey === message.key ? <ChatNewRule /> : null}
-                {showStartMarker ? (
-                  <div
-                    className="my-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-base-content/50"
-                    data-testid="context-starts-here"
-                    role="separator"
-                    aria-label={START_CONTEXT_FROM_HERE_LABEL}
-                  >
-                    <span className="h-px flex-1 bg-base-300" />
-                    <span>{START_CONTEXT_FROM_HERE_LABEL}</span>
-                    <span className="h-px flex-1 bg-base-300" />
-                  </div>
-                ) : null}
-                <ChatMessageBubble
-                  role={message.role}
-                  agentName={selectedAgentName}
-                  text={message.text}
-                  streaming={message.streaming}
-                  edited={message.edited}
-                  avatar={bubbleAvatar}
-                  skillCatalog={skillCatalog}
-                  onOpenSkill={setOpenSkillName}
-                  onRemoveCard={() =>
-                    setHiddenMessageKeys((prev) =>
-                      prev.includes(message.key) ? prev : [...prev, message.key],
-                    )
-                  }
-                  canEdit={canEditThis}
-                  canCompress={
-                    (isApiAgent || agentKind === 'blueprint') &&
-                    !message.streaming &&
-                    (message.role === 'user' || message.role === 'assistant') &&
-                    rawOffsetForMessage(messages, message.key) >= 0
-                  }
-                  contextStrategy={contextStrategy}
-                  editing={editingKey === message.key}
-                  onStartEdit={() => setEditingKey(message.key)}
-                  onCancelEdit={() => setEditingKey(null)}
-                  onSaveEdit={(next) => {
-                    if (messageIndex >= 0) void saveEditedMessage(messageIndex, next)
-                  }}
-                  onCompressToHere={() => {
-                    handleContextToHere(message)
-                  }}
-                >
-                  {(message.tools ?? []).map((tool) => (
-                    <ToolCallPopup
-                      key={tool.id}
-                      tool={tool}
-                      onDecision={(decision) => {
-                        const agentId = tool.agentId || selectedBlueprint || threadKey
-                        if (decision === 'always') rememberAlwaysAllow(agentId, tool.name)
-                        sendToolDecision(tool.id, decision)
-                        attachToolToThread({
-                          ...tool,
-                          needsApproval: false,
-                          status:
-                            decision === 'deny'
-                              ? 'denied'
-                              : decision === 'always' || decision === 'allow'
-                                ? 'allowed'
-                                : tool.status,
-                        })
-                      }}
-                    />
-                  ))}
-                </ChatMessageBubble>
-                {message.role === 'assistant' && !message.streaming && (message.text.trim() || retryEnabled) ? (
-                  <MessageRowActions text={message.text}>
-                    {message.text.trim() ? <ReadAloudButton text={message.text} /> : null}
-                    {SHOW_MESSAGE_ACTIONS && (
-                      <ChatMessageActions
-                        text={message.text}
-                        onRetry={
-                          retryEnabled
-                            ? () => {
-                                sendText(lastUserTextRef.current)
-                              }
-                            : undefined
-                        }
-                      />
-                    )}
-                  </MessageRowActions>
-                ) : null}
-              </div>
-            )
-          })}
-          </>
-        )}
-        {awaitingAssistant && !streamingMessage && (
-          <div
-            className="os-chat-message os-chat-message--assistant group/osrow flex flex-col gap-1 items-start my-2"
-            role="status"
-            aria-live="polite"
-            aria-label={workingTip}
-          >
-            <div className="flex items-center gap-2.5 py-1 px-1">
-              <div
-                className="os-composer-working os-inline-working"
-                data-testid="composer-working-indicator"
-                role="status"
-                aria-live="polite"
-                aria-label={workingTip}
-              >
-                <span className="tooltip tooltip-right os-composer-working__tip" data-tip={workingTip}>
-                  <span className="os-composer-working__avatar os-inline-working__avatar">
-                    <AgentAvatar
-                      src={selectedAgent?.avatar_path}
-                      agentId={teamFromUrl || agentIdFromBlueprint(selectedBlueprint)}
-                      active={true}
-                      status="working"
-                      size="xs"
-                      className="shrink-0"
-                    />
-                  </span>
-                </span>
-              </div>
-              <span className="inline-flex items-center gap-2 text-xs text-base-content/70 italic">
-                <span>{workingTip || 'Thinking…'}</span>
-                <span className="loading loading-dots loading-xs opacity-70" />
-              </span>
-            </div>
-          </div>
-        )}
-        <div ref={listEndRef} />
-        </div>
-
-        <QueuedSendPane
-          rows={queued.rows}
-          maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
-          onChangeText={queued.update}
-          onDelete={queued.remove}
-          onHoldIdsChange={setQueuedHoldIds}
-        />
-
+          {themeUsesIrcGutter(bubbleTheme) ? (
+            <span
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize IRC name column"
+              className="os-irc-gutter-rail"
+              data-testid="irc-gutter-rail"
+              data-dragging={ircGutterDragging ? 'true' : 'false'}
+              onPointerDown={onIrcRailPointerDown}
+              onPointerMove={onIrcRailPointerMove}
+              onPointerUp={onIrcRailPointerUp}
+              onPointerCancel={onIrcRailPointerUp}
+              onDoubleClick={onIrcRailDoubleClick}
+            />
+          ) : null}
+<ChatMessageList {...chatMessageListProps} />
         <div
           ref={bottomDockRef}
           className="os-chat-bottom-dock sticky bottom-0 z-20 -mx-2 sm:-mx-3 -mb-3 bg-base-100 border-t border-base-content/5"
           data-testid="chat-bottom-dock"
         >
-          {showSuggestionChips ? (
+
+          {showDemoChips ? (
+            <SuggestionChips
+              chips={demoChips}
+              disabled={chipsDisabled}
+              onChoose={chooseSuggestion}
+            />
+          ) : showSuggestionChips ? (
             <SuggestionChips
               chips={suggestionChips}
               disabled={chipsDisabled}
               onChoose={chooseSuggestion}
             />
           ) : null}
+          <ComposerPluginsBadge />
           {status !== 'open' ? (
             <div
               className="os-conn-status"
@@ -3271,6 +4460,17 @@ const ChatPage = () => {
               </span>
             </div>
           ) : null}
+          {showContextUsage && contextUsage ? (
+            <div
+              className="flex justify-end px-3 pt-1.5"
+              data-testid="context-usage-badge-slot"
+            >
+              <ContextUsageBadge
+                usage={contextUsage}
+                onOpenDetail={() => setTokenDiagOpen(true)}
+              />
+            </div>
+          ) : null}
           <form onSubmit={handleSend} className="os-composer-wrap">
             <div className="relative" ref={composerWrapRef}>
               <ComposerSlashPopup
@@ -3282,7 +4482,34 @@ const ChatPage = () => {
                 onSelectItem={handleSelectSlashItem}
                 recentIds={recentSlashIds}
               />
-              <div className={`os-composer ${replyTarget ? 'os-composer--reply flex-col items-stretch !rounded-2xl !p-2' : ''}`}>
+              <div className="os-composer-row">
+              <div
+                className={`os-composer ${
+                  replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0
+                    ? 'flex-col items-stretch !rounded-2xl !p-2'
+                    : ''
+                } ${replyTarget ? 'os-composer--reply' : ''} ${
+                  queued.rows.length > 0 ? 'os-composer--queued' : ''
+                } ${composerDragOver ? 'os-composer--drag-over' : ''}`}
+                onDragEnter={handleComposerDragEnter}
+                onDragOver={handleComposerDragOver}
+                onDragLeave={handleComposerDragLeave}
+                onDrop={handleComposerDrop}
+              >
+                {/* #925: the queued pane mounts INSIDE .os-composer at the very
+                    top, extending directly out of the message input box above
+                    the reply and attachment preview strips. */}
+                <QueuedSendPane
+                  rows={queued.rows}
+                  maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
+                  onChangeText={queued.update}
+                  onDelete={queued.remove}
+                  onClearAll={queued.clearAll}
+                  onHoldIdsChange={setQueuedHoldIds}
+                  interruptible={
+                    status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
+                  }
+                />
                 {replyTarget && (
                   <div
                     className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs text-base-content/70 border-b border-base-content/10 mb-1 w-full"
@@ -3312,19 +4539,37 @@ const ChatPage = () => {
                     </button>
                   </div>
                 )}
-                <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget ? 'w-full' : 'flex-1'}`}>
+                <ComposerAttachChips
+                  attachments={pendingAttachments}
+                  onRemove={removeAttachment}
+                />
+                <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0 ? 'w-full' : 'flex-1'}`}>
                   <div className="relative" ref={plusRef}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      data-testid="composer-file-input"
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      onChange={(event) => {
+                        enqueueComposerFiles(filesFromList(event.target.files))
+                        event.target.value = ''
+                      }}
+                    />
                     <button
                       type="button"
                       className="os-composer__icon"
                       aria-label="Add"
                       aria-haspopup="menu"
                       aria-expanded={plusOpen}
+                      data-testid="composer-plus-button"
                       onClick={() => setPlusOpen((value) => !value)}
                     >
                       <Plus className="h-4 w-4" aria-hidden="true" />
                     </button>
-                    {plusOpen && (
+                    {plusOpen && !pluginsPanelOpen && (
                       <ul
                         role="menu"
                         aria-label="Chat actions"
@@ -3334,8 +4579,65 @@ const ChatPage = () => {
                           <button
                             type="button"
                             role="menuitem"
-                            className="os-plus-menu__item"
+                            aria-disabled={!composerMenu.addFiles.enabled}
+                            className={`os-plus-menu__item ${
+                              !composerMenu.addFiles.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
+                            title={
+                              composerMenu.addFiles.enabled
+                                ? 'Add files to this chat'
+                                : composerMenu.addFiles.reason
+                            }
                             onClick={() => {
+                              if (!composerMenu.addFiles.enabled) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Add files',
+                                  message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
+                              setPlusOpen(false)
+                              fileInputRef.current?.click()
+                            }}
+                          >
+                            <Paperclip className="h-4 w-4" aria-hidden="true" />
+                            Add files
+                          </button>
+                        </li>
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            // #550: Compact summarises server-side history, so a
+                            // CLI/remote seat has nothing for it to act on. Kept
+                            // visible-but-disabled with the reason (the same read
+                            // `Add files` uses one item above, and #511's
+                            // precedent) rather than vanishing silently.
+                            // #636: CLI seats now light up when a default API is
+                            // configured or the provider declares cli_compact; a
+                            // greyed CLI item's hover says the API is missing.
+                            data-testid="composer-compact-button"
+                            aria-disabled={!composerMenu.compact.enabled}
+                            className={`os-plus-menu__item ${
+                              !composerMenu.compact.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
+                            title={
+                              composerMenu.compact.enabled
+                                ? 'Summarise this conversation and reclaim context'
+                                : composerMenu.compact.reason
+                            }
+                            onClick={() => {
+                              if (!composerMenu.compact.enabled) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Compact',
+                                  message: composerMenu.compact.reason,
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
                               void handleCompact()
                             }}
                           >
@@ -3347,19 +4649,67 @@ const ChatPage = () => {
                           <button
                             type="button"
                             role="menuitem"
-                            className="os-plus-menu__item"
+                            // #516: Plugins ride the swarm-owned gate (#511) —
+                            // visible-but-disabled with the reason on CLI/remote
+                            // seats, opening the per-agent panel on swarm seats.
+                            data-testid="composer-plugins-button"
+                            aria-disabled={!composerMenu.plugins.enabled}
+                            aria-haspopup="menu"
+                            className={`os-plus-menu__item ${
+                              !composerMenu.plugins.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
+                            title={
+                              composerMenu.plugins.enabled
+                                ? 'Toggle this agent’s plugins'
+                                : composerMenu.plugins.reason
+                            }
                             onClick={() => {
-                              setPlusOpen(false)
-                              window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))
+                              if (!composerMenu.plugins.enabled) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Plugins',
+                                  message: composerMenu.plugins.reason,
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
+                              setPluginsPanelOpen(true)
                             }}
                           >
-                            <Users className="h-4 w-4" aria-hidden="true" />
-                            Compose team
+                            <Plug className="h-4 w-4" aria-hidden="true" />
+                            Plugins
                           </button>
                         </li>
                       </ul>
                     )}
+                    {plusOpen && pluginsPanelOpen && <ComposerPluginsPanel onClose={() => setPlusOpen(false)} />}
                   </div>
+                  {/* #858/#860: API seats get the enhanced composer — inline
+                      ghost-text autocomplete + sparkle enhance. Other kinds
+                      keep the plain textarea (autocomplete is API-model
+                      backed; CLI/remote input would need per-provider wiring). */}
+                  {isApiAgent ? (
+                    <ChatMessageInput
+                      textareaRef={composerRef}
+                      value={input}
+                      onApplyText={setInput}
+                      agentId={selectedBlueprint || undefined}
+                      conversationId={conversationId || undefined}
+                      textareaProps={{
+                        rows: 1,
+                        className: 'os-composer__input',
+                        placeholder: composerPlaceholder,
+                        value: input,
+                        onChange: handleInputChange,
+                        onPaste: handleComposerPaste,
+                        onKeyDown: handleComposerKeyDown,
+                        'aria-label': 'Chat message',
+                        'aria-haspopup': 'listbox',
+                        'aria-expanded': isSlashOpen,
+                        'aria-controls': isSlashOpen ? 'composer-slash-menu' : undefined,
+                      }}
+                    />
+                  ) : (
                   <textarea
                     ref={composerRef}
                     rows={1}
@@ -3368,28 +4718,48 @@ const ChatPage = () => {
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleComposerKeyDown}
+                    onPaste={handleComposerPaste}
                     aria-label="Chat message"
                     aria-haspopup="listbox"
                     aria-expanded={isSlashOpen}
                     aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
                   />
-                  {!input ? (
-                    <kbd
-                      className="os-composer__hint kbd kbd-xs"
-                      data-testid="composer-send-hint"
-                      title="Enter to send"
-                    >
-                      ↵
-                    </kbd>
-                  ) : (
-                    <kbd
-                      className="os-composer__hint kbd kbd-xs"
-                      data-testid="composer-clear-hint"
-                      title="Esc to clear"
-                    >
-                      Esc
-                    </kbd>
                   )}
+                  {/* #732: ONE permanently mounted slot — the kbd used to
+                      mount/unmount with the draft, re-flowing the pill on the
+                      first and last keystroke. The glyph swaps in place; the
+                      node (and its reserved width) never changes. */}
+                  <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
+                    {sendNowHint ? (
+                      /* #631: the ↵ reveal exists ONLY to announce the interrupt-
+                         send action while a queued send waits. No queue → no hint. */
+                      <kbd
+                        className="os-composer__hint kbd kbd-xs"
+                        data-testid="composer-send-hint"
+                        title="Send Now! ↵"
+                      >
+                        ↵
+                      </kbd>
+                    ) : input ? (
+                      <kbd
+                        className="os-composer__hint kbd kbd-xs"
+                        data-testid="composer-clear-hint"
+                        title="Esc to clear"
+                      >
+                        Esc
+                      </kbd>
+                    ) : (
+                      <kbd
+                        className="os-composer__hint kbd kbd-xs"
+                        data-testid="composer-hint-placeholder"
+                        title=""
+                        aria-hidden="true"
+                      >
+                        ↵
+                      </kbd>
+                    )}
+                  </span>
+                  {renderRoutingPicker()}
                   <button
                     type="button"
                     className="os-composer__icon"
@@ -3406,17 +4776,36 @@ const ChatPage = () => {
                       Voice input used {describeSpeechPath(sttPathUsed, 'stt')}
                     </span>
                   ) : null}
-                  {hasSendableDraft ? (
-                    <button
-                      type="submit"
-                      className="os-composer__send"
-                      aria-label="Send"
-                    >
-                      <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
-                    </button>
-                  ) : null}
                 </div>
-              </div>
+                </div>{/* /os-composer */}
+                {/* #632: the primary action lives OUTSIDE the input box, to its
+                    right. Idle: send (↑) when there is a draft. Busy: square
+                    stop (□) — and the send stays beside it when a draft is
+                    typed, because clicking Send mid-flight is exactly how a
+                    send gets QUEUED (#603); removing it would kill queueing.
+                    The mic stays inside the input regardless. */}
+                {composerBusy ? (
+                  <button
+                    type="button"
+                    className="os-composer__send os-composer__send--stop"
+                    aria-label="Stop generating"
+                    title="Stop the generation in flight (queued sends stay queued)"
+                    data-testid="composer-stop"
+                    onClick={interruptRunningTurn}
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                  </button>
+                ) : null}
+                {hasSendableDraft ? (
+                  <button
+                    type="submit"
+                    className="os-composer__send"
+                    aria-label="Send"
+                  >
+                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>{/* /os-composer-row */}
             </div>
           </form>
         </div>
@@ -3454,14 +4843,35 @@ const ChatPage = () => {
                   role: contextMenu.message.role,
                   speaker:
                     contextMenu.message.role === 'user' ? 'You' : selectedAgentName,
-                  text: contextMenu.message.text,
+                  text: contextMenu.selectedText || contextMenu.message.text,
                 })
                 setContextMenu(null)
                 composerRef.current?.focus()
               }}
             >
               <Reply className="h-4 w-4 opacity-70" aria-hidden="true" />
-              Reply
+              {/* #846: label names the target — a partial selection is a quote. */}
+              {contextMenu.selectedText ? 'Reply to quote' : 'Reply'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
+              data-testid="context-menu-copy"
+              onClick={() => {
+                const textToCopy = contextMenu.selectedText || contextMenu.message.text
+                setContextMenu(null)
+                void copyTextToClipboard(textToCopy).then((result) => {
+                  if (result === 'empty') {
+                    toastError(COPY_EMPTY_TITLE, COPY_EMPTY_MESSAGE)
+                  } else if (result === 'failed') {
+                    toastError(COPY_FAILED_TITLE, COPY_FAILED_MESSAGE)
+                  }
+                })
+              }}
+            >
+              <Copy className="h-4 w-4 opacity-70" aria-hidden="true" />
+              {contextMenu.selectedText ? 'Copy selection' : 'Copy'}
             </button>
             {(isApiAgent || agentKind === 'blueprint') &&
             (contextMenu.message.role === 'user' || contextMenu.message.role === 'assistant') &&
@@ -3486,6 +4896,9 @@ const ChatPage = () => {
                 {contextStrategy === 'cull' ? START_CONTEXT_FROM_HERE_LABEL : 'Compress to here'}
               </button>
             ) : null}
+            {/* #724: the bubble-theme picker moved to the rail agent
+                right-click menu — presentation is an agent-level choice, not
+                a message-level action. */}
           </div>
         </>
       )}
@@ -3515,6 +4928,12 @@ const ChatPage = () => {
         catalog={skillCatalog}
       />
 
+      <RawResponseModal
+        isOpen={rawResponseModalText !== null}
+        onClose={() => setRawResponseModalText(null)}
+        text={rawResponseModalText ?? ''}
+      />
+
       <ConfirmModal
         isOpen={startFromHereWarning != null}
         onClose={() => setStartFromHereWarning(null)}
@@ -3533,46 +4952,42 @@ const ChatPage = () => {
           {startFromHereWarning?.copy}
         </p>
       </ConfirmModal>
-    </div>
-  )
-}
 
-function SummaryBlock({
-  summary,
-  byId,
-  depth = 0,
-  hiddenIds = [],
-  onHide,
-}: {
-  summary: ConversationSummary
-  byId: Record<number, ConversationSummary>
-  depth?: number
-  hiddenIds?: number[]
-  onHide?: (id: number) => void
-}) {
-  const parent =
-    summary.parent_summary_id != null ? byId[summary.parent_summary_id] : undefined
-  const replaced =
-    summary.replaced_count ?? summary.span.end - summary.span.start + 1
-  return (
-    <CompactSummaryCard
-      title="Summary"
-      body={summary.body}
-      meta={`Replaced ${replaced} turns`}
-      className={depth > 0 ? 'chat-summary chat-summary--nested' : 'chat-summary'}
-      onRemove={() => onHide?.(summary.id)}
-      nested={
-        parent && !hiddenIds.includes(parent.id) ? (
-          <SummaryBlock
-            summary={parent}
-            byId={byId}
-            depth={depth + 1}
-            hiddenIds={hiddenIds}
-            onHide={onHide}
-          />
-        ) : null
-      }
-    />
+      <GenerationsPanel
+        open={generationsOpen}
+        onClose={() => setGenerationsOpen(false)}
+        agentId={headerFaceAgentId}
+        agentName={selectedAgentName || 'Agent'}
+        contexts={generationContexts}
+        activeContextId={conversationId}
+        onSwitchContext={() => {
+          /* Single-context today; multi-context switching lands with session history UI. */
+        }}
+        toolCalls={seatToolCalls}
+      />
+
+
+      <SessionPicker
+        open={remoteThreadPicker !== null}
+        title={remoteFromUrl || 'Remote'}
+        sessions={remoteThreadPicker ?? []}
+        onClose={() => setRemoteThreadPicker(null)}
+        onSelect={(session) => {
+          const resumeId = String(session.memberId || session.id || '').trim()
+          if (!resumeId || !remoteFromUrl) return
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev)
+              next.set('remote', remoteFromUrl)
+              next.set('session', resumeId)
+              return next
+            },
+            { replace: true },
+          )
+          setRemoteThreadPicker(null)
+        }}
+      />
+    </div>
   )
 }
 

@@ -1,10 +1,10 @@
-# Open Swarm — Vision
+# Operating Swarm — Vision
 
-> **One sentence:** Open Swarm is a Grok-like WebUI and an OpenAI-compatible
+> **One sentence:** Operating Swarm is a Grok-like WebUI and an OpenAI-compatible
 > API that seats four kinds of agents — **CLI**, **API** (true inference),
 > **Blueprint** (programmatic / openai-agents), and **Remote** (Hermes /
 > OpenMousBot / Rakazo / Herdr) — and composes them with **handoff** and
-> **agent-as-tool**. The same blueprint runs from `swarm-cli` and from
+> **agent-as-tool**. The same blueprint runs from `os-cli` and from
 > `/v1/chat/completions`.
 
 This document is the front door. It states where we are going, then gives an
@@ -25,10 +25,10 @@ The agent world is not one CLI and not one SDK. People already run **host
 CLIs** (`claude`, `gemini`, `grok`, `codex`, …), **OpenAI-compatible
 inference** (a base URL, a model, a key-env), **coded recipes** (handoff
 graphs, MoA, custom Python), and **other harnesses** (Hermes, OpenMousBot,
-Rakazo, Herdr, another Open Swarm). Those seats do not share a chrome, and
+Rakazo, Herdr, another Operating Swarm). Those seats do not share a chrome, and
 they do not share a graph.
 
-Open Swarm closes that gap on three axes:
+Operating Swarm closes that gap on three axes:
 
 1. **Seat** — four user-facing kinds (Matthew lock): **CLI | API | Blueprint |
    Remote**. Each kind is a different *how this agent runs*, not a different
@@ -41,15 +41,15 @@ Open Swarm closes that gap on three axes:
    `ApiKindBase` class.
 3. **Surface** — a **Grok-like WebUI** (rail, remotes, sessions) is
    first-class, and the same work is reachable as an OpenAI-compatible API
-   (`/v1/chat/completions`, `/v1/responses`, `/v1/models`) and as `swarm-cli`.
-   The CLI TUI (`swarm-cli tui`, [REQ-111](https://github.com/matthewhand/open-swarm/issues/481)
+   (`/v1/chat/completions`, `/v1/responses`, `/v1/models`) and as `os-cli`.
+   The CLI TUI (`os-cli tui`, [REQ-111](https://github.com/matthewhand/open-swarm/issues/481)
    / [ADR-012](./adr/012-swarm-cli-tui.md)) is another **client of that API**,
    not a second runtime and not Herdr’s SSH TUI.
 
 The thesis: **you do not need one model, one CLI, or one harness to be best
 at everything.** You need a cheap inference seat to triage, a strong CLI or
 remote when the work is native to that tool, and a blueprint when the
-topology must be enforced. Open Swarm is the place that wires those together
+topology must be enforced. Operating Swarm is the place that wires those together
 without pretending they are the same kind.
 
 Announce spiel (Grok-agnostic UI + remote harness bridge):
@@ -64,7 +64,7 @@ Announce spiel (Grok-agnostic UI + remote harness bridge):
 | **CLI** | Host executable (`grok`, `agy`, `claude`, `gemini`, …). Native session. | Name, command, optional folder. |
 | **API** | **True inference seat** — OpenAI-compatible chat completions. Not a graph. | Name, base URL, model, key-env name (or an existing LLM profile). |
 | **Blueprint** | **Programmatic recipe** — `BlueprintBase` / openai-agents handoffs, MoA, custom Python. May *use* inference underneath; the seat is the recipe. | Pick or write a recipe. Same id via CLI and API. |
-| **Remote** | **Abstract harness.** Another agentic framework. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr** (and nested Open Swarm). Variants are adapters, not extra top-level kinds. | Kind + base URL (+ auth-env name). |
+| **Remote** | **Abstract harness.** Another agentic framework. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr** (and nested Operating Swarm). Variants are adapters, not extra top-level kinds. | Kind + base URL (+ auth-env name). |
 
 Kinds are **how a seat runs**. Strategies on a Blueprint (MoA, persona swarm,
 `cli_fusion`, `sdlc_handoff`, …) are **not** new kinds. See
@@ -136,11 +136,11 @@ and virtualized history are still open. Evidence:
 **openai-agents handoff / agent-as-tool**, and **the same blueprint via CLI
 and API**.
 
-| What others do | What Open Swarm does |
+| What others do | What Operating Swarm does |
 |---|---|
 | Grok Bot / Rakazo / OpenMousBot: many **concurrent seats** in one chrome | One programmatic **graph** (forced sequence, circular skeptic, as-tool specialists) **inside Blueprint seats** |
 | CLI wrappers that only expose one binary | CLI is a kind; fusion/MoA patterns are blueprints you can also `curl` |
-| “Teams” as a second product noun | Team = Blueprint composition, runnable as `swarm-cli launch …` or `model:` on `/v1/chat/completions` |
+| “Teams” as a second product noun | Team = Blueprint composition, runnable as `os-cli launch …` or `model:` on `/v1/chat/completions` |
 
 Limit (up front): the graph runs **inside Blueprint seats** (today’s leftover
 `api` bucket). CLI and Remote stay **native sessions** — we do not inject
@@ -161,12 +161,12 @@ SaaS product is claimed here.
 
 | Capability | Status | Notes |
 |---|---|---|
-| OpenAI-compatible API — `/v1/chat/completions` (+SSE), `/v1/models`, stateful `/v1/responses` | ✅ | Same `model` id as `swarm-cli launch` |
+| OpenAI-compatible API — `/v1/chat/completions` (+SSE), `/v1/models`, stateful `/v1/responses` | ✅ | Same `model` id as `os-cli launch` |
 | Blueprint discovery + `BlueprintBase.run` + openai-agents SDK | ✅ | Handoff graphs: `sdlc_handoff` + tests |
 | Kind-base stubs (`ApiKindBase` / `CliKindBase` / `RemoteKindBase`) | ✅ | Docs + Support prefer these; wizard still emits `BlueprintBase` |
 | CLI kind — adapter, autodiscovery, auth probe, session resume | ✅ | `cli_agent` and the CLI-fusion / MoA family |
 | CLI orchestration examples (`cli_fusion`, `cli_orchestrator`, `cli_map`, `cli_pipeline`, `cli_roundtable`, `cli_planner`) | ✅ | Patterns + [proofs](./proofs/); `cli_fusion` is also a MoA alias |
-| Remote catalog (opt-in) — Hermes / OpenMousBot / Rakazo / Herdr / nested swarm | 🟡 | Hermes list/send ✅; OMB HTTP ✅; Rakazo send 🟡 (Better Auth 401); Herdr CLI ✅. Not a concurrent-seat clone. |
+| Remote catalog (opt-in) — Hermes / OpenMousBot / Rakazo / Herdr / nested swarm | 🟡 | Hermes list/send ✅; OMB HTTP ✅; Rakazo list/send 🟡 (Better Auth via `RAKAZO_SESSION_COOKIE` / `RAKAZO_API_KEY` env); Herdr CLI ✅. Not a concurrent-seat clone. |
 | Team roster + place remotes + isolation | 🟡 | `/v1/agent-team/`, `/v1/team-rosters/`; Django `/teams/` stays Profiles |
 | WebUI — Grok-like SPA chrome + Django operator | 🟡 | First-class product; WS needs session cookie |
 | Skills (`SKILL.md`) + inference profiles | ✅ | Discover `skills/**/SKILL.md`; attach via `skill` / `skills` on CLI and today's Blueprint-backed API seats; chat chips + popup. Not a kind. True inference-only API: N/A until ADR-006 Phase 2. [docs/SKILLS.md](./SKILLS.md) |
@@ -174,7 +174,7 @@ SaaS product is claimed here.
 | Cross-conversation memory (mem0) | 🟡 | Wired, not validated against a live mem0 |
 | True **API** inference seat (no `BlueprintBase`) | 📋 | ADR-006 Phase 2; today’s “API” tab writes a blueprint |
 | Desktop zip (pywebview) | 📋 | [ADR-003](./adr/003-desktop-packaging.md) — no installer |
-| `swarm-cli tui` (REQ-111 / #481) | 🟡 | [ADR-012](./adr/012-swarm-cli-tui.md). Interactive client of the same API. Landed: `--once` ASCII dump (CI), Textual rail with kind sections, Bearer REST + honest API-down, `GET /chat/thread/` hydrate, REST SSE send + streaming, composer, `n`/`s` sessions. Wave 3b (WS cookie jar) decided-skip — REST SSE covers the SPA-chat seats. Wave 4a documented interactive front door + 4b `/` rail search/filter. |
+| `os-cli tui` (REQ-111 / #481) | 🟡 | [ADR-012](./adr/012-swarm-cli-tui.md). Interactive client of the same API. Landed: `--once` ASCII dump (CI), Textual rail with kind sections, Bearer REST + honest API-down, `GET /chat/thread/` hydrate, REST SSE send + streaming, composer, `n`/`s` sessions. Wave 3b (WS cookie jar) decided-skip — REST SSE covers the SPA-chat seats. Wave 4a documented interactive front door + 4b `/` rail search/filter. |
 | Hosted Fly / public live demo | — | **Not claimed.** Deploy workflow exists; this doc does not sell a running cloud. |
 
 ### Proof the CLI path is real (not mocks)
@@ -213,7 +213,7 @@ network.
 - **Memory** — mem0 opt-in, not live-validated; `langmem` / `papr` are
   placeholders.
 - **Desktop** — ADR only; no installer.
-- **CLI TUI (#481)** — Waves 0–3a landed: `swarm-cli tui` is an interactive
+- **CLI TUI (#481)** — Waves 0–3a landed: `os-cli tui` is an interactive
   rail + chat client of the same REST/SSE API (hydrate, send + stream,
   sessions); `--once` dump stays for CI. Wave 3b (cookie jar) decided-skip in
   [ADR-012](./adr/012-swarm-cli-tui.md). Not Herdr SSH.
@@ -229,10 +229,10 @@ stay on FEATURE_STATUS / ROADMAP.
 flowchart TB
   subgraph surfaces [First-class surfaces]
     UI["WebUI — Grok-like rail + chat"]
-    CLI_UX["swarm-cli + TUI"]
+    CLI_UX["os-cli + TUI"]
     CLIENT["OpenAI client — SDK, curl, Open WebUI"]
   end
-  OS[Open Swarm]
+  OS[Operating Swarm]
   UI --> OS
   CLI_UX --> OS
   CLIENT -->|"/v1 chat or responses"| OS
@@ -259,7 +259,7 @@ stays Blueprint. Adding a CLI or a remote does not invent a new kind.
 
 1. **Four kinds, named honestly.** CLI, API (inference), Blueprint
    (programmatic), Remote (abstract). Team is composition, not a kind.
-2. **Same blueprint, two doors.** `swarm-cli launch <id>` and
+2. **Same blueprint, two doors.** `os-cli launch <id>` and
    `model: "<id>"` on the OpenAI-compatible API are the same recipe.
 3. **WebUI is a product, not a demo.** Grok-like chrome, remotes, and
    sessions are in scope; Django remains the operator dump.

@@ -510,6 +510,15 @@ async def run_persona_swarm_with_runner(
             seed_files=None,  # already seeded into tools workspace
         )
 
+    # #737: bare Agent(...)s inherit the SDK's gpt-4o /responses default —
+    # pin the framework chat model before handing them to Runner.
+    try:
+        from swarm.core.blueprint_base import apply_agent_model_defaults
+
+        apply_agent_model_defaults(coordinator)
+    except Exception:
+        pass
+
     try:
         result = await Runner.run(coordinator, user_message, max_turns=max_turns)
         final = str(getattr(result, "final_output", None) or result)

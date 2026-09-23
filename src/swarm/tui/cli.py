@@ -1,4 +1,4 @@
-"""``swarm-cli tui`` — REQ-111 Wave 1a: Textual chrome with a --once CI dump."""
+"""``os-cli tui`` — REQ-111: Textual chrome with a --once CI dump."""
 
 from __future__ import annotations
 
@@ -62,6 +62,17 @@ def _fetch_seats(base_url: str) -> list[RailSeat]:
         raise typer.Exit(code=1) from exc
 
 
+def _selected_seat_id(seats: list[RailSeat], agent: str | None) -> str | None:
+    """Resolve ``--agent`` to a rail id. Unknown ids are an error, not a fallback."""
+    if agent is None:
+        return seats[0].id if seats else None
+    for seat in seats:
+        if seat.id == agent:
+            return seat.id
+    typer.echo(f"Unknown --agent {agent!r}: not in the rail.", err=True)
+    raise typer.Exit(code=1)
+
+
 def _interactive(*, base_url: str | None, agent: str | None) -> None:
     if not sys.stdout.isatty():
         typer.echo(
@@ -85,7 +96,7 @@ def _interactive(*, base_url: str | None, agent: str | None) -> None:
 
     resolved = resolve_base_url(base_url)
     seats = _fetch_seats(resolved)
-    run_tui_app(seats, base_url=resolved, selected_id=agent)
+    run_tui_app(seats, base_url=resolved, selected_id=_selected_seat_id(seats, agent))
 
 
 def _non_interactive(
@@ -96,14 +107,19 @@ def _non_interactive(
 ) -> None:
     resolved = resolve_base_url(base_url)
     seats = _fetch_seats(resolved)
+    selected = _selected_seat_id(seats, agent)
 
     if as_json:
         payload = {
             "object": "tui.rail",
             "base_url": resolved,
-            # Wave 1c: is a Bearer token attached? (boolean only — no value).
-            "auth": resolve_token() is not None,
-            "selected": agent or (seats[0].id if seats else None),
+            # Bearer is attached for /v1/* listing. GET /chat/thread/ is
+            # login-gated; TUI v1 has no cookie jar (Wave 3b skipped).
+            "auth": {
+                "bearer": resolve_token() is not None,
+                "chat": False,
+            },
+            "selected": selected,
             "data": [
                 {
                     "id": seat.id,
@@ -122,11 +138,12 @@ def _non_interactive(
         typer.echo(json.dumps(payload, indent=2))
         return
 
-    typer.echo(render_scaffold(seats, selected_id=agent, base_url=resolved), nl=False)
+    typer.echo(render_scaffold(seats, selected_id=selected, base_url=resolved), nl=False)
 
 
 def register_tui(app: typer.Typer) -> None:
     app.command(name="tui")(tui_cmd)
+    app.command(name="chat")(tui_cmd)
 
 
 # Re-export default for tests that assert we never bake :8001.

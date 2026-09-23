@@ -10,6 +10,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SPA_APP = REPO / "webui" / "frontend" / "src" / "App.tsx"
 SETTINGS_SHEET = REPO / "webui" / "frontend" / "src" / "components" / "SettingsSheet.tsx"
+REMOTES_CATALOG_PANE = (
+    REPO / "webui" / "frontend" / "src" / "components" / "settings" / "panes" / "RemotesCatalogPane.tsx"
+)
 REMOTES_LIB = REPO / "webui" / "frontend" / "src" / "lib" / "remotes.ts"
 SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 PLUGINS_POPUP = REPO / "webui" / "frontend" / "src" / "components" / "PluginsPopup.tsx"
@@ -32,7 +35,7 @@ def test_spa_mounts_overlays_as_siblings_of_chat_routes():
 
 def test_settings_remotes_are_opt_in_not_live_lan():
     """REQ-59: remotes are opt-in; no default kind cards; no live LAN hosts in the sheet."""
-    sheet = SETTINGS_SHEET.read_text(encoding="utf-8")
+    sheet = SETTINGS_SHEET.read_text(encoding="utf-8") + REMOTES_CATALOG_PANE.read_text(encoding="utf-8")
     assert "Add remote" in sheet
     assert "fetchRemotes" in sheet
     assert "RemoteOperatePane" in sheet
@@ -63,9 +66,9 @@ def test_rail_plugins_overlay_is_empty_honest():
 
 
 def test_search_palette_has_bots_and_actions_tabs():
-    """REQ-17 / #322: Search overlay tabs include Bots + Actions."""
+    """REQ-17 / #322 + #677: Search overlay tabs — Bots relabelled Agents, Groups → Teams."""
     search = SEARCH.read_text(encoding="utf-8")
-    for tab in ("All", "Messages", "Bots", "Groups", "Files", "Links", "Routines", "Actions"):
+    for tab in ("All", "Messages", "Agents", "Teams", "Files", "Links", "Routines", "Actions"):
         assert f"'{tab}'" in search
     assert "Toggle theme" in search
     assert "overlay: 'blueprints'" in search

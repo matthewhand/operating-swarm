@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { Check, Copy, FoldVertical, RotateCcw, ScrollText, Smile } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { Check, Copy, FoldVertical, Pencil, Reply, RotateCcw, ScrollText, Smile } from 'lucide-react'
 import type { Agent, ChatMessage } from '../../types/agent'
 import { AgentAvatar } from '../AgentSidebar/AgentAvatar'
-import { useToast } from '../DaisyUI'
+import { Textarea, useToast } from '../DaisyUI'
 import { roleMeta } from '../../lib/agent-roles'
 import {
   COPY_EMPTY_MESSAGE,
@@ -29,8 +29,11 @@ interface AgentMessageBubbleProps {
   onRegenerateSummary?: (steer: string) => void
   onResolveApproval?: (status: 'approved' | 'rejected') => void
   onAddReaction?: (messageKey: string, emoji?: string) => void
+  onReply?: () => void
   /** REQ-213: view-only hide. Raw transcript stays on disk. */
   onRemoveCard?: () => void
+  /** Persist an in-place summary edit (draft → save). */
+  onSaveEdit?: (text: string) => void
 }
 
 export function AgentMessageBubble({
@@ -44,7 +47,9 @@ export function AgentMessageBubble({
   onRegenerateSummary,
   onResolveApproval,
   onAddReaction,
+  onReply,
   onRemoveCard,
+  onSaveEdit,
 }: AgentMessageBubbleProps) {
   const isUser = message.role === 'user'
   const isSummary = message.kind === 'summary'
@@ -53,10 +58,18 @@ export function AgentMessageBubble({
   const [steer, setSteer] = useState('')
   const [summaryExpanded, setSummaryExpanded] = useState(true)
   const [summaryRemoved, setSummaryRemoved] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(message.text)
+  const [savedText, setSavedText] = useState<string | null>(null)
+  const [localEdited, setLocalEdited] = useState(Boolean(message.edited))
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const { error } = useToast()
-  const canCopy = messageHasCopyableText(message.text)
+  const summaryBody = savedText ?? message.text
+  const summaryEdited = Boolean(message.edited) || localEdited
+  const displayText = isSummary ? summaryBody : message.text
+  const canCopy = messageHasCopyableText(displayText)
   const summaryCopyText = compactedCardCopyText({
-    text: message.text,
+    text: summaryBody,
     compacted: message.compacted,
   })
   const summaryMenu = useCompactedCardMenu({
@@ -69,6 +82,19 @@ export function AgentMessageBubble({
       else setSummaryRemoved(true)
     },
   })
+
+  useEffect(() => {
+    setSavedText(null)
+    setLocalEdited(Boolean(message.edited))
+    setDraft(message.text)
+    setEditing(false)
+  }, [message.text, message.edited])
+
+  useEffect(() => {
+    if (!editing) return undefined
+    const id = window.setTimeout(() => textareaRef.current?.focus(), 0)
+    return () => window.clearTimeout(id)
+  }, [editing])
 
   if (message.kind === 'system' || message.isSystemPreload || (message.role as string) === 'system') {
     const source =
@@ -84,8 +110,38 @@ export function AgentMessageBubble({
     )
   }
 
+  const startSummaryEdit = () => {
+    setDraft(summaryBody)
+    setEditing(true)
+  }
+
+  const cancelSummaryEdit = () => {
+    setDraft(summaryBody)
+    setEditing(false)
+  }
+
+  const saveSummaryEdit = () => {
+    setSavedText(draft)
+    setLocalEdited(true)
+    setEditing(false)
+    onSaveEdit?.(draft)
+  }
+
+  const handleSummaryEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      cancelSummaryEdit()
+      return
+    }
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      saveSummaryEdit()
+    }
+  }
+
   const handleCopy = async () => {
-    const result = await copyTextToClipboard(message.text)
+    const result = await copyTextToClipboard(displayText)
     if (result === 'copied') {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
@@ -179,17 +235,36 @@ export function AgentMessageBubble({
       >
         <div className="relative max-w-[85%] w-full rounded-none border border-base-content/25 bg-base-300/50 px-3.5 py-2.5 text-sm shadow-xs">
           <div className="flex items-center justify-between gap-2 mb-1.5">
-            <button
-              type="button"
-              className="text-[11px] font-bold uppercase tracking-wider text-base-content/55 text-left"
-              aria-expanded={summaryExpanded}
-              aria-label="Conversation summary"
-              onClick={() => setSummaryExpanded((prev) => !prev)}
-              onKeyDown={summaryMenu.onKeyDown}
-            >
-              Conversation summary
-            </button>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                type="button"
+                className="text-[11px] font-bold uppercase tracking-wider text-base-content/55 text-left"
+                aria-expanded={summaryExpanded}
+                aria-label="Conversation summary"
+                onClick={() => setSummaryExpanded((prev) => !prev)}
+                onKeyDown={summaryMenu.onKeyDown}
+              >
+                Conversation summary
+              </button>
+              {summaryEdited ? (
+                <span className="font-normal opacity-70" data-testid="edited-hint">
+                  edited
+                </span>
+              ) : null}
+            </div>
+            {editing ? null : (
             <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 group-hover:md:opacity-100 group-focus-within:md:opacity-100 transition-opacity">
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs gap-1"
+                aria-label="Edit message"
+                title="Edit"
+                disabled={regenerating}
+                onClick={startSummaryEdit}
+              >
+                <Pencil className="h-3 w-3" aria-hidden="true" />
+                Edit
+              </button>
               <button
                 type="button"
                 className="btn btn-ghost btn-xs btn-square"
@@ -222,10 +297,32 @@ export function AgentMessageBubble({
                 <ScrollText className="w-3.5 h-3.5" />
               </button>
             </div>
+            )}
           </div>
           {summaryExpanded ? (
+            editing ? (
+              <>
+                <Textarea
+                  ref={textareaRef}
+                  aria-label="Edit message"
+                  size="sm"
+                  className="w-full min-h-24 rounded-none"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={handleSummaryEditorKeyDown}
+                />
+                <div className="mt-2 flex justify-end gap-1">
+                  <button type="button" className="btn btn-ghost btn-xs" onClick={cancelSummaryEdit}>
+                    Cancel
+                  </button>
+                  <button type="button" className="btn btn-primary btn-xs" onClick={saveSummaryEdit}>
+                    Save
+                  </button>
+                </div>
+              </>
+            ) : (
             <>
-          <p className="whitespace-pre-wrap">{regenerating ? 'Regenerating summary…' : message.text}</p>
+          <p className="whitespace-pre-wrap">{regenerating ? 'Regenerating summary…' : summaryBody}</p>
           <label className="mt-2 block">
             <span className="sr-only">Steer next regenerate</span>
             <input
@@ -236,6 +333,7 @@ export function AgentMessageBubble({
             />
           </label>
             </>
+            )
           ) : null}
         </div>
         {summaryMenu.menuNode}
@@ -351,6 +449,18 @@ export function AgentMessageBubble({
               }
             >
               <Smile className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onReply && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs btn-circle"
+              aria-label="Reply to message"
+              title="Reply to message"
+              data-testid="message-reply-action"
+              onClick={onReply}
+            >
+              <Reply className="w-3.5 h-3.5" />
             </button>
           )}
           <button

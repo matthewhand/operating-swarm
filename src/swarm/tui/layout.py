@@ -1,11 +1,11 @@
-"""ASCII two-pane dump: left agent rail + placeholder chat (Wave 0)."""
+"""ASCII two-pane dump: left agent rail + placeholder chat (--once)."""
 
 from __future__ import annotations
 
 from swarm.tui.client import RailSeat, sectioned_seats
 
 CHAT_PLACEHOLDER = (
-    "Chat pane — Wave 1 loads and sends on the selected agent's session.\n"
+    "Chat pane — --once lists the rail only; interactive TUI hydrates and sends.\n"
     "This is a placeholder. No messages are invented."
 )
 
@@ -26,7 +26,7 @@ def render_scaffold(
     chat_width = 48
     total = rail_width + chat_width + 3
 
-    header = f" Open Swarm TUI (Wave 0 scaffold)  {base_url}".rstrip()
+    header = f" Operating Swarm TUI  {base_url}".rstrip()
     lines = [header, "┌" + "─" * rail_width + "┬" + "─" * chat_width + "┐"]
 
     rail_rows = _rail_rows(seats, selected, rail_width)
@@ -39,7 +39,7 @@ def render_scaffold(
         lines.append(f"│{left}│{right}│")
 
     lines.append("└" + "─" * rail_width + "┴" + "─" * chat_width + "┘")
-    lines.append(" j/k select · q quit · Wave 0 — list only, no send")
+    lines.append(" j/k select · q quit · --once — rail list only")
     # Keep a machine-stable width note for tests without depending on wcwidth.
     _ = total
     return "\n".join(lines) + "\n"

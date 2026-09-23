@@ -101,19 +101,28 @@ def test_library_source_page_is_pretty_python(client, test_user):
 
 
 @pytest.mark.django_db
-def test_bundled_source_put_is_forbidden(client):
+def test_bundled_source_put_forks_to_user_library(client, tmp_path, monkeypatch):
+    """REQ-919: editing a bundled recipe forks it to the user library —
+    the copy shadows the original and the response says a copy was made."""
+    monkeypatch.setenv("SWARM_USER_DATA_DIR", str(tmp_path))
+    (tmp_path / "blueprints").mkdir(parents=True, exist_ok=True)
     before = client.get("/v1/blueprints/cli_fusion/source").json()["content"]
     resp = client.put(
         "/v1/blueprints/cli_fusion/source",
-        data={"content": "print('nope')\n"},
+        data={"content": "class CliFusionBlueprint:\n    forked = True\n"},
         content_type="application/json",
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 200
     body = resp.json()
-    assert body["editable"] is False
-    assert "Bundled" in body["error"]
-    after = client.get("/v1/blueprints/cli_fusion/source").json()["content"]
-    assert after == before
+    assert body["forked"] is True
+    assert (tmp_path / "blueprints" / "cli_fusion").is_dir()
+    after = client.get("/v1/blueprints/cli_fusion/source").json()
+    assert after["origin"] == "user"
+    assert after["editable"] is True
+    # The checkout file's bytes are untouched.
+    reread = client.get("/v1/blueprints/cli_fusion/source").json()
+    assert "forked = True" in reread["content"]
+    assert before is not None
 
 
 @pytest.mark.django_db
@@ -298,3 +307,53 @@ def test_cli_agent_models_all(client, monkeypatch):
     data = resp.json()
     assert data[0]["models"] == []
     assert data[1] == {"cli": "opencode", "models": ["opencode/big-pickle"]}
+
+
+# --- #537: POST /v1/blueprints/<id>/source/format — a proposal, not a save ---
+
+
+@pytest.mark.django_db
+def test_format_endpoint_pretty_prints_a_proposal(client, monkeypatch):
+    """Formatting fills the draft — it must never write to disk."""
+    monkeypatch.setenv("SWARM_USER_DATA_DIR", "/tmp/format-537-must-not-exist")
+    from swarm.core.paths import get_user_blueprints_dir
+
+    bp_dir = get_user_blueprints_dir() / "user_recipe_fmt"
+    bp_dir.mkdir(parents=True, exist_ok=True)
+    target = bp_dir / "blueprint_user_recipe_fmt.py"
+    original = "def f( a,b ):\n  return a+b  # keep\n"
+    target.write_text(original)
+
+    resp = client.post(
+        "/v1/blueprints/user_recipe_fmt/source/format",
+        data={"content": original, "file": "blueprint_user_recipe_fmt.py"},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["formatted"] != original
+    assert "def f(a, b):" in body["formatted"]
+    assert "# keep" in body["formatted"]
+    # Proposal, not a save:
+    assert target.read_text() == original
+
+
+@pytest.mark.django_db
+def test_format_endpoint_rejects_non_python_files(client):
+    resp = client.post(
+        "/v1/blueprints/cli_fusion/source/format",
+        data={"content": "# md", "file": "README.md"},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400
+    assert "python" in resp.json()["error"].lower()
+
+
+@pytest.mark.django_db
+def test_format_endpoint_requires_content(client):
+    resp = client.post(
+        "/v1/blueprints/cli_fusion/source/format",
+        data={},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400

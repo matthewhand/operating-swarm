@@ -18,7 +18,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.kind_bases import CliKindBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import run_consensus, safe_json
 
@@ -38,7 +38,7 @@ Question:
 """
 
 
-class CliOrchestratorBlueprint(BlueprintBase):
+class CliOrchestratorBlueprint(CliKindBase):
     """Single-inference router that escalates hard questions to consensus."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -101,8 +101,7 @@ class CliOrchestratorBlueprint(BlueprintBase):
         router, panel_names, judge_name = self._resolve(params, registry)
         if not router:
             yield support.message_chunk(
-                "No router CLI is configured. Add a 'cli_orchestrator' block (or a "
-                "'cli_fusion.default_cli') to your swarm config (see docs/CLI_FUSION.md).",
+                support.unconfigured_cli_message("No router CLI is configured"),
                 final=True,
             )
             return

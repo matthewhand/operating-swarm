@@ -1,4 +1,8 @@
 name: Visual Regression
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 # Golden-journey browser suite (tests/e2e_visual). Exists because a green
 # build has shipped an unstyled UI twice (Tailwind v4 emitting a 2kB CSS
@@ -10,10 +14,6 @@ name: Visual Regression
 # does not need browsers or a frontend build.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: webui/frontend/package-lock.json
 

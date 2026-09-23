@@ -1,11 +1,19 @@
 /**
  * REQ-116: Left rail resizer constants and persistence helpers.
+ *
+ * #765 adds a third rail state below avatar-only: fully collapsed (0px,
+ * divider-only). Snap physics on drag are: < collapse threshold → 0px,
+ * else ≤ avatar threshold → avatar rail, else smooth continuous width.
  */
 
 export const MIN_RAIL_WIDTH = 68
 export const MAX_RAIL_WIDTH = 420
 export const DEFAULT_RAIL_WIDTH = 256
 export const AVATAR_ONLY_THRESHOLD = 96
+/** #765: below this dragged width the rail snaps fully shut (0px). */
+export const COLLAPSE_SNAP_THRESHOLD = 52
+/** #765: the fully collapsed divider-only state — border + pill only. */
+export const COLLAPSED_RAIL_WIDTH = 0
 export const RAIL_WIDTH_STORAGE_KEY = 'swarm_rail_width'
 
 export function clampRailWidth(width: number, viewportWidth?: number): number {
@@ -19,6 +27,10 @@ export function loadRailWidth(): number {
     if (raw) {
       const parsed = Number(raw)
       if (!Number.isNaN(parsed)) {
+        // #765: 0 is a legal persisted state (fully collapsed); anything
+        // below it is garbage and normalizes to collapsed rather than
+        // falling back to the default.
+        if (parsed <= COLLAPSED_RAIL_WIDTH) return COLLAPSED_RAIL_WIDTH
         return clampRailWidth(parsed)
       }
     }
@@ -34,4 +46,23 @@ export function saveRailWidth(width: number): void {
 
 export function isAvatarOnlyWidth(width: number): boolean {
   return width <= AVATAR_ONLY_THRESHOLD
+}
+
+/** #765: true only for the exact divider-only state. */
+export function isFullyCollapsedWidth(width: number): boolean {
+  return width <= COLLAPSED_RAIL_WIDTH
+}
+
+/**
+ * #806: clamp plus an avatar-only snap; #765 adds the edge-collapse snap.
+ * Dragging into the avatar-only zone (width <= AVATAR_ONLY_THRESHOLD) snaps
+ * straight to MIN_RAIL_WIDTH so there is no floating dead zone between the
+ * collapsed avatar rail and labeled rails; dragging below the collapse
+ * threshold snaps fully shut so the edge is a firm detent, not a fight.
+ */
+export function snapRailWidth(width: number, viewportWidth?: number): number {
+  if (width <= COLLAPSE_SNAP_THRESHOLD) return COLLAPSED_RAIL_WIDTH
+  const clamped = clampRailWidth(width, viewportWidth)
+  if (clamped <= AVATAR_ONLY_THRESHOLD) return MIN_RAIL_WIDTH
+  return clamped
 }

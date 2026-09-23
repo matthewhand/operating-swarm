@@ -59,7 +59,8 @@ export function normalizeInferenceList(raw: unknown): InferenceSeat[] {
   return out
 }
 
-export function serializeInferenceList(seats: InferenceSeat[]): string[] {
+/** Serializes anything the normalizer accepts (seats or raw string keys). */
+export function serializeInferenceList(seats: InferenceSeat[] | string[]): string[] {
   return normalizeInferenceList(seats).map(seatKey)
 }
 

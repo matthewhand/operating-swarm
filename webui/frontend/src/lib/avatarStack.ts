@@ -16,22 +16,127 @@ export const STACK_FACE_LIMIT = 3
 /** Team rail stacks show this many faces; extras become a +N remainder. */
 export const TEAM_STACK_FACE_LIMIT = 2
 
-/** Team stacks show every member up to this count — no +N chip. */
-export const TEAM_STACK_ALL_MAX = 4
+/** Team stacks show every member up to this count — no +N chip (#57). */
+export const TEAM_STACK_ALL_MAX = 3
+
+/** #523: the pinned team tile's front-face size in px. #639: 48 so the wide
+ * rail's 80/20 layout (large face + mini row) keeps faces readable. */
+export const PIN_STACK_BASE_PX = 48
+
+/** #523: the size step per depth behind the front face. */
+export const PIN_STACK_STEP_PX = 6
+
+/** #523: chat stacking preference — the idle ordering for pinned team stacks. */
+export type StackOrderPreference = 'first' | 'last'
 
 /**
- * Team sidepane stack plan (Matthew's rule): a roster of 4 or fewer shows
- * every member with no remainder; a crowded roster (>4) collapses to the
- * first 2 members plus a +N chip. Roster order is preserved — unlike
- * {@link selectStackedFaces} this does not re-sort by recency, because a
- * team roster is a stable list, not an activity feed.
+ * #523: order the pin's faces most-recently-active first. With no activity
+ * (every `startedAt` at/below 0) fall back to the chat stacking preference:
+ * `first` keeps roster order, `last` reverses it. Non-mutating.
+ */
+export function orderedFacesByRecency<T extends StackFace>(
+  faces: readonly T[],
+  preference: StackOrderPreference = 'first',
+): T[] {
+  const hasActivity = faces.some((face) => face.startedAt > 0)
+  if (!hasActivity) {
+    return preference === 'last' ? [...faces].reverse() : [...faces]
+  }
+  return [...faces].sort((a, b) => b.startedAt - a.startedAt)
+}
+
+/**
+ * #523: graduated sizes for a pinned team stack — front face is
+ * {@link PIN_STACK_BASE_PX}, each depth behind steps down by
+ * {@link PIN_STACK_STEP_PX}, never below 12px so faces stay readable.
+ */
+export function pinStackSizes(count: number): number[] {
+  const sizes: number[] = []
+  for (let depth = 0; depth < count; depth += 1) {
+    sizes.push(Math.max(12, PIN_STACK_BASE_PX - depth * PIN_STACK_STEP_PX))
+  }
+  return sizes
+}
+
+/**
+ * Team **ordering** helper (#458): while any member is working, order faces
+ * most-recently-active first; when idle, preserve stable roster order.
+ *
+ * #438 moved the rail off fanning a team into overlapping faces — it now shows
+ * one face plus a `+N` via {@link teamChatFaceStack}. This helper is still the
+ * owner of the *ordering* rule, so callers that need a list (the member
+ * sessions picker, and `teamChatFaceStack`'s default when no chat target is
+ * supplied) sort through it rather than re-deriving the rule.
  */
 export function teamSidepaneStack<T extends StackFace>(
   faces: readonly T[],
+  anyWorking?: boolean,
 ): { faces: T[]; remainder: number } {
+  const isWorking = anyWorking !== undefined ? anyWorking : faces.some((face) => Boolean(face.working))
   const all = [...faces]
-  if (all.length <= TEAM_STACK_ALL_MAX) return { faces: all, remainder: 0 }
-  return { faces: all.slice(0, TEAM_STACK_FACE_LIMIT), remainder: all.length - TEAM_STACK_FACE_LIMIT }
+  const ordered = isWorking
+    ? all.sort((a, b) => {
+        if (b.startedAt !== a.startedAt) return b.startedAt - a.startedAt
+        return 0
+      })
+    : all
+  return {
+    faces: ordered.slice(0, STACK_FACE_LIMIT),
+    remainder: 0,
+  }
+}
+
+/**
+ * #438: the team's **rail face** — the member the operator will actually chat
+ * with, plus a `+N` for everyone else.
+ *
+ * The rail used to fan a team into overlapping faces: all of them for 1–3
+ * members (`TEAM_STACK_ALL_MAX`) and `2 faces + +(n-2)` for 4+. At rail sizes a
+ * pinned 3-member team rendered as overlapping slivers that were not
+ * individually readable (Live Demo Team read as a red blob with extra marks),
+ * and the row's job is not to enumerate the roster — it is to say *who you are
+ * talking to* and *how many others there are*.
+ *
+ * `chatTargetId` is the team's default talk-to member, or the navbar's current
+ * member when one is targeted specifically. If it names nobody in `faces` (a
+ * stale id, or a roster read that has not settled) the first face is used rather
+ * than inventing one — see `#438`'s "do not invent members".
+ *
+ * Remainder is `max(0, faces.length - 1)`: a one-member team has no `+N`.
+ */
+export function teamChatFaceStack<T extends StackFace>(
+  faces: readonly T[],
+  chatTargetId?: string | null,
+): { face: T | null; remainder: number } {
+  const target = (chatTargetId ?? '').trim()
+  const face =
+    (target ? faces.find((item) => item.id === target || item.agentId === target) : undefined) ??
+    // #791: with no explicit target the MOST RECENTLY ACTIVE member leads —
+    // the stack face reflects who is working now, not just roster position.
+    orderedFacesByRecency(faces)[0] ??
+    null
+  return { face, remainder: Math.max(0, faces.length - 1) }
+}
+
+/** #639: faces per team row when the rail is collapsed to avatar width. */
+export const RAIL_TEAM_COLLAPSED_FACES = 1
+
+/**
+ * #817 (supersedes the #639 multi-face ruling): a team avatar is ALWAYS one
+ * face — the most recently active member — plus a `+N` remainder sticker for
+ * everyone else, in every rail state. The mini-face row is retired.
+ */
+export function railTeamStackLayout(
+  faces: readonly StackFace[],
+  collapsed: boolean,
+): { faces: StackFace[]; count: number; collapsed: boolean; remainder: number } {
+  const ordered = orderedFacesByRecency(faces)
+  return {
+    faces: ordered.slice(0, RAIL_TEAM_COLLAPSED_FACES),
+    count: RAIL_TEAM_COLLAPSED_FACES,
+    collapsed,
+    remainder: Math.max(0, ordered.length - RAIL_TEAM_COLLAPSED_FACES),
+  }
 }
 
 /** Matches `.os-scale-out-pulse` / `.os-stacked-avatar--pulse` (1.4s). */
@@ -115,4 +220,17 @@ export function selectStackedFaces<T extends StackFace>(
 /** A single face is not a stack (no overlap, no remainder chip). */
 export function isAvatarStack(faceCount: number, remainder = 0): boolean {
   return faceCount > 1 || remainder > 0
+}
+
+/** Overlay live run-state onto stacked faces (pinned team workers, #432). */
+export function markStackWorking<T extends StackFace>(
+  faces: readonly T[],
+  isRunning: (id: string) => boolean,
+): { faces: T[]; anyWorking: boolean } {
+  const next = faces.map((face) => {
+    const ids = [face.id, face.agentId].filter((id): id is string => Boolean(id))
+    const working = Boolean(face.working) || ids.some((id) => isRunning(id))
+    return { ...face, working }
+  })
+  return { faces: next, anyWorking: next.some((face) => face.working) }
 }

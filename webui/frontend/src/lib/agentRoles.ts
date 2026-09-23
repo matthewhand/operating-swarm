@@ -1,6 +1,7 @@
 import type { AgentRole, Blueprint, BlueprintWorkflow } from './api'
 import { loadAgentEdit, saveAgentEdit, type AgentEdit } from './agentEdits'
 import { SUPPORT_AGENT_ID, SYNTHETIC_SUPPORT, isSupportAgent } from './supportAgent'
+import { findCustomRole } from './customRoles'
 
 /** Example roles that demonstrate blueprint design (REQ-25). */
 export const EXAMPLE_ROLES = ['support', 'gate', 'skeptic'] as const
@@ -15,6 +16,9 @@ const ROLE_ALIASES: Record<string, AgentRole> = {
   worker: 'default',
   agent: 'default',
   coordinator: 'default',
+  admin: 'admin',
+  administrator: 'admin',
+  sysadmin: 'admin',
   support: 'support',
   helper: 'support',
   gate: 'gate',
@@ -24,6 +28,9 @@ const ROLE_ALIASES: Record<string, AgentRole> = {
   toolgate: 'gate',
   skeptic: 'skeptic',
   reviewer: 'skeptic',
+  advisor: 'advisor',
+  adviser: 'advisor',
+  mentor: 'advisor',
   chief_of_staff: 'chief_of_staff',
   'chief-of-staff': 'chief_of_staff',
   chiefofstaff: 'chief_of_staff',
@@ -136,13 +143,16 @@ export function normalizeAgentRole(value: unknown): AgentRole {
   if (value == null) return 'default'
   const key = String(value).trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_')
   if (!key) return 'default'
-  return ROLE_ALIASES[key] ?? 'default'
+  if (ROLE_ALIASES[key]) return ROLE_ALIASES[key]
+  const custom = findCustomRole(key)
+  if (custom) return custom.name
+  return 'default'
 }
 
 export function agentRole(agent: {
   id?: string | null
   name?: string | null
-  role?: string | null
+  role?: unknown
 }): AgentRole {
   const edited = agent.id ? loadAgentEdit(agent.id).role : undefined
   if (edited) return normalizeAgentRole(edited)
@@ -177,15 +187,22 @@ export function agentRole(agent: {
 }
 
 export const ROLE_CHIEF_OF_STAFF = 'chief_of_staff'
+export const ROLE_ADVISOR = 'advisor'
 
 export const ROLE_BADGE_LABELS: Record<AgentRole, string> = {
   default: '',
+  admin: 'Admin',
   support: 'Support',
   gate: 'Gate',
   skeptic: 'Skeptic',
+  advisor: 'Advisor',
   chief_of_staff: 'CoS',
   engineer: 'Engineer',
   suggestions: 'Suggest',
+}
+
+export function isAdvisor(role: unknown): boolean {
+  return normalizeAgentRole(role) === ROLE_ADVISOR
 }
 
 export function isChiefOfStaff(role: unknown): boolean {
@@ -193,10 +210,18 @@ export function isChiefOfStaff(role: unknown): boolean {
 }
 
 export function roleBadgeLabel(role: unknown): string {
-  return ROLE_BADGE_LABELS[normalizeAgentRole(role)]
+  const norm = normalizeAgentRole(role)
+  if (ROLE_BADGE_LABELS[norm]) return ROLE_BADGE_LABELS[norm]
+  const custom = findCustomRole(norm)
+  if (custom) return custom.label || custom.name.charAt(0).toUpperCase() + custom.name.slice(1)
+  return ''
 }
 
-export function roleFromAgent(agent: { role?: unknown; id?: string; name?: string | null }): AgentRole {
+export function roleFromAgent(agent: {
+  role?: unknown
+  id?: string | null
+  name?: string | null
+}): AgentRole {
   return agentRole(agent)
 }
 
@@ -223,7 +248,10 @@ export function showsBlueprintEdit(agent: {
 }
 
 export function roleCssClass(role: AgentRole | string): string {
-  return `os-agent-role-${normalizeAgentRole(role)}`
+  const norm = normalizeAgentRole(role)
+  const custom = findCustomRole(norm)
+  if (custom && custom.css_class) return custom.css_class
+  return `os-agent-role-${norm}`
 }
 
 export function isExampleRoleAgent(agent: {
@@ -361,9 +389,10 @@ export function applyBlueprintAssignment(
   blueprint: { id: string; role?: string | null; workflow?: string | null },
 ): AgentEdit {
   const current = loadAgentEdit(agentId)
+  const workflow = normalizeWorkflow(blueprint.workflow)
   const patch: AgentEdit = {
     blueprintId: blueprint.id,
-    workflow: normalizeWorkflow(blueprint.workflow),
+    ...(workflow ? { workflow } : {}),
   }
   if (!current.roleOverridden) {
     patch.role = normalizeAgentRole(blueprint.role)

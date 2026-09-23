@@ -89,6 +89,9 @@ ENABLE_WEBUI = os.getenv('ENABLE_WEBUI', 'true').lower() in ('true', '1', 'yes')
 WEBUI_STATIC_DIR = BASE_DIR.parent / 'staticfiles' / 'webui'
 # --- End Custom Swarm Settings ---
 
+# CORS: django-cors-headers is not installed. Production is same-origin (no
+# Access-Control-Allow-Origin). Do not add CorsMiddleware without an explicit
+# CORS_ALLOWED_ORIGINS allowlist — never CORS_ALLOW_ALL_ORIGINS = True.
 INSTALLED_APPS = [
     # 'daphne' must come first so its ASGI-aware `runserver` (which serves
     # websocket routes via ASGI_APPLICATION) overrides the default command.
@@ -138,6 +141,7 @@ if ENABLE_MCP_SERVER:
 # Optional GitHub marketplace discovery (disabled by default)
 ENABLE_GITHUB_MARKETPLACE = is_enable_github_marketplace()
 GITHUB_TOKEN = get_github_token()  # optional, for higher rate limits
+GITHUB_WEBHOOK_SECRET = (os.environ.get("GITHUB_WEBHOOK_SECRET") or "").strip()
 
 def _csv_env(name: str, default: str = '') -> list[str]:
     val = os.getenv(name, default)
@@ -150,12 +154,20 @@ GITHUB_MARKETPLACE_ORG_ALLOWLIST = _csv_env('GITHUB_MARKETPLACE_ORG_ALLOWLIST', 
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # #423: serve /static/ in production, not only under DEBUG. WhiteNoise reads
+    # STATIC_ROOT (what collectstatic fills) and, with WHITENOISE_USE_FINDERS,
+    # the checked-in app static dirs too — so a deploy that has not run
+    # collectstatic still gets styled pages. Django's own static view is
+    # DEBUG-only and not meant to face a network, so it is not used.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     # Add custom middleware to handle async user loading after standard auth
     'swarm.middleware.AsyncAuthMiddleware',
+    # #800: observe request cadence into the 429 burst-forensics window.
+    'swarm.middleware.RequestTelemetryMiddleware',
     'swarm.middleware.AllowAnonymousPreviewMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -185,8 +197,9 @@ WSGI_APPLICATION = 'swarm.wsgi.application'
 ASGI_APPLICATION = 'swarm.asgi.application'
 
 # Database — REQ-123 / #508. DATABASE_URL (or POSTGRES_HOST + POSTGRES_*)
-# selects Postgres. Otherwise SQLite for pytest / desktop / tiny native demos.
-# Compose wires local Postgres; no Neon hostname is a default.
+# selects Postgres. Otherwise SQLite under the user data dir (XDG) for desktop
+# / tiny native demos. Pytest uses an isolated temp file (not XDG, not
+# /tmp/db.sqlite3). Compose wires local Postgres; no Neon hostname is a default.
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip() or None
 DATABASES = django_databases(os.environ)
 
@@ -210,6 +223,15 @@ STATICFILES_DIRS = [
 ]
 if (BASE_DIR.parent / "staticfiles" / "webui").exists():
     STATICFILES_DIRS.append(BASE_DIR.parent / "staticfiles" / "webui")
+
+# #423: uvicorn serves the ASGI app directly, so nothing upstream would answer
+# /static/*.css unless we do. Serving from the finders as well as STATIC_ROOT
+# keeps the docker/LAN deployment (which has no collectstatic step) styled;
+# collectstatic into STATIC_ROOT remains the cheaper production path, since
+# finders walk every static directory at boot to build the file map.
+# WhiteNoise's middleware defaults are already DEBUG-aware (autorefresh, and
+# max-age 0 in DEBUG / 60s otherwise).
+WHITENOISE_USE_FINDERS = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -242,6 +264,8 @@ REST_FRAMEWORK = {
         }
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # #800: log forensic burst telemetry when a client trips a 429.
+    'EXCEPTION_HANDLER': 'swarm.views.exception_handlers.swarm_exception_handler',
 }
 
 # Max concurrent in-flight blueprint executions for /v1/responses background work.
@@ -268,9 +292,9 @@ LOGGING = {
     'loggers': {
         'django': { 'handlers': ['console'], 'level': get_django_log_level(), 'propagate': False, },
         'swarm': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
-        'swarm.auth': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
-        'swarm.views': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
-        'swarm.extensions': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
+        'swarm.auth': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
+        'swarm.views': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
+        'swarm.extensions': { 'handlers': ['console'], 'level': get_swarm_log_level(), 'propagate': False, },
         'print_debug': { 'handlers': ['console'], 'level': 'DEBUG', 'propagate': False, },
     },
     'root': { 'handlers': ['console'], 'level': 'WARNING', },
@@ -313,6 +337,24 @@ _SWARM_CSP_POLICY = (
     "connect-src 'self' ws: wss:"
 )
 CONTENT_SECURITY_POLICY = None  # set below when DEBUG=False (unless SWARM_CSP=false)
+
+# #766: Django 4+ emits ``Cross-Origin-Opener-Policy: same-origin`` via
+# SecurityMiddleware *regardless of DEBUG*. On plain-HTTP LAN origins the
+# browser discards it with a console warning (untrustworthy origin) — pure
+# noise for a deployment that cannot be HTTPS. Default the header off; opt
+# back in with SWARM_COOP=same-origin (or any other policy) once the origin
+# is HTTPS/localhost. Unconditional: the middleware ignores DEBUG, so the
+# opt-out cannot live in the production block below.
+_SWARM_COOP_ENV = os.getenv("SWARM_COOP", "").strip().lower()
+if _SWARM_COOP_ENV in ("false", "0", "no", "n", "off"):
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = None
+elif _SWARM_COOP_ENV:
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = _SWARM_COOP_ENV
+else:
+    # Unset → None as well: the LAN/HTTP default (warning suppression) wins
+    # unless an operator explicitly re-enables COOP. Django's global default
+    # is "same-origin", so this must be assigned, not left to the default.
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 
 if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True

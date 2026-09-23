@@ -32,8 +32,9 @@ def test_sidebar_integrates_spill_hotkeys():
     assert "computeRailHotkeyTargets" in sidebar
     assert "hotkeyTargets" in sidebar
 
-    # Must preserve visiblePins[idx] for backward compat and contract tests
-    assert "visiblePins[idx]" in sidebar
+    # Index the spill-aware target list, which itself walks visiblePins in order
+    assert "hotkeyTargets[idx]" in sidebar
+    assert "visiblePins," in sidebar
 
     # Must navigate via target.href
     assert "target.href" in sidebar

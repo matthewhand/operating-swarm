@@ -43,7 +43,10 @@ export function restoreKindForAgent(agentId: string): RestoreKind {
   }
   if (id === 'api_agent') return 'api'
   if (isCliBlueprintId(id) || id === 'cli_agent' || /_agent$/.test(id)) return 'cli'
-  return classifyAgentKind(id)
+  // Generic blueprint seats are API-backed; the kind classifier's 'blueprint'
+  // value has no distinct restore wording, so it shares the API banner.
+  const kind = classifyAgentKind(id)
+  return kind === 'blueprint' ? 'api' : kind
 }
 
 export function isRestoreStatusText(text: string | null | undefined): boolean {

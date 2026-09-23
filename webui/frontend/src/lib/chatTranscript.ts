@@ -34,6 +34,20 @@ function lastUserIndex(messages: TranscriptRow[]): number {
   return last
 }
 
+function isShortNewSessionNotice(text: string): boolean {
+  return /^Started a new \S+ session\.?$/i.test(text)
+}
+
+function hopNoticeCovers(blob: string, needle: string): boolean {
+  if (!blob || !needle || !isShortNewSessionNotice(needle)) return false
+  const prefix = needle.replace(/\.$/, '')
+  return blob.startsWith(prefix) && blob.includes(' → ')
+}
+
+function sameTurnNotice(blob: string, needle: string): boolean {
+  return blob === needle || hopNoticeCovers(blob, needle)
+}
+
 export function transcriptAlreadyHasNotice<T extends TranscriptRow>(
   messages: T[],
   text: string,
@@ -41,9 +55,16 @@ export function transcriptAlreadyHasNotice<T extends TranscriptRow>(
   const needle = text.trim()
   if (!needle) return false
   const lastUser = lastUserIndex(messages)
-  return messages
-    .slice(lastUser + 1)
-    .some((row) => row.role === 'status' && rowText(row) === needle)
+  if (
+    messages
+      .slice(lastUser + 1)
+      .some((row) => row.role === 'status' && sameTurnNotice(rowText(row), needle))
+  ) {
+    return true
+  }
+  if (!isShortNewSessionNotice(needle)) return false
+  const prior = lastUser >= 0 ? messages.slice(0, lastUser + 1) : messages
+  return prior.some((row) => row.role === 'status' && hopNoticeCovers(rowText(row), needle))
 }
 
 /** Insert a CLI session notice immediately before this turn's assistant row. */

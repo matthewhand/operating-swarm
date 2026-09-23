@@ -1,21 +1,50 @@
 import { describe, expect, it } from 'vitest'
 import {
   addMember,
+  addToolSlot,
+  applySlotMemberChange,
+  assignableMembersForSlot,
+  canAddRoleSlot,
   childTeamIds,
+  COMPOSABLE_TEAM_ROLES,
+  deriveRoleMatrix,
+  deriveToolMatrix,
+  toggleToolMatrixCell,
   cosBriefForMember,
   DEFAULT_COS_STARTER,
+  deriveWiresFromTools,
+  DRAG_MIME,
   emptyRosterDraft,
   encodeDragAgent,
+  encodeDragRole,
+  encodeDragTool,
+  FIRST_AGENT_VALUE,
+  firstAgentLeadId,
   isCosEligibleMember,
+  memberKey,
   nestRosters,
   parseDragAgent,
+  parseDragRole,
+  parseDragRosterIndex,
+  parseDragTool,
   parseRosterMember,
   parseTeamRoster,
   parseTeamRosterList,
+  parseTeamTool,
+  pruneToolSlots,
+  reorderMembers,
   restoreCosId,
+  ROLE_DRAG_MIME,
+  ROSTER_DRAG_MIME,
   runtimeBriefForTarget,
+  serializeToolSlots,
+  setMemberRole,
+  slotsFromMembers,
   stampCosRole,
+  TOOL_DRAG_MIME,
+  unassignedMembers,
 } from '../teamRoster'
+import type { RoleSlot } from '../teamRoster'
 
 describe('teamRoster (REQ-28)', () => {
   it('parses kind=remote Hermes/OMB/Rakazo members (PR #318 / REQ-28)', () => {
@@ -104,7 +133,8 @@ describe('teamRoster CoS + composer helpers (REQ-107)', () => {
     expect(isCosEligibleMember(remote)).toBe(false)
     expect(isCosEligibleMember(jeeves)).toBe(true)
     const stamped = stampCosRole([jeeves, remote], 'jeeves')
-    expect(stamped[0].role).toBe('chief_of_staff')
+    // #739: stamps are demoted, never written — leadership lives on chief_of_staff_id.
+    expect(stamped[0].role).toBe('default')
     const teamA = {
       chief_of_staff_id: 'jeeves',
       chief_of_staff_instructions: 'prefer grok_agent for revision control',
@@ -131,5 +161,257 @@ describe('teamRoster CoS + composer helpers (REQ-107)', () => {
     })
     expect(roster?.chief_of_staff_id).toBe('jeeves')
     expect(roster?.chief_of_staff_instructions).toBe('coordinate the roster')
+  })
+})
+
+// #181 — advisor selectable as a team member role
+describe('advisor in TEAM_MEMBER_ROLES (#181)', () => {
+  it('offers advisor alongside skeptic and CoS', async () => {
+    const { TEAM_MEMBER_ROLES } = await import('../teamRoster')
+    expect(TEAM_MEMBER_ROLES).toContain('advisor')
+    expect(TEAM_MEMBER_ROLES).toContain('skeptic')
+  })
+})
+
+describe('teamRoster role slots (issue #104)', () => {
+  const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves', role: 'default' }
+  const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok', role: 'default' }
+  const acp = { id: 'acp', name: 'ACP', kind: 'remote' as const, source: 'placeholder:remote:acp', role: 'default' }
+
+  it('lists canonical composer roles without default (#739: CoS/engineer retired)', () => {
+    expect(COMPOSABLE_TEAM_ROLES).toEqual(['support', 'gate', 'skeptic', 'suggestions'])
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('default')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('advisor')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('chief_of_staff')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('engineer')
+  })
+
+  it('uses a distinct MIME from agent drags', () => {
+    expect(ROLE_DRAG_MIME).toBe('application/x-swarm-team-role')
+    expect(ROLE_DRAG_MIME).not.toBe(DRAG_MIME)
+    expect(parseDragRole(encodeDragRole('skeptic'))).toBe('skeptic')
+    expect(parseDragRole(encodeDragAgent(jeeves))).toBeNull()
+    expect(parseDragAgent(encodeDragRole('gate'))).toBeNull()
+    expect(parseDragRole(encodeDragRole('default' as never))).toBeNull()
+  })
+
+  it('treats default as unassigned and builds slots from assigned members', () => {
+    const members = [jeeves, { ...grok, role: 'skeptic' }]
+    expect(unassignedMembers(members).map((m) => m.id)).toEqual(['jeeves'])
+    const slots = slotsFromMembers(members)
+    expect(slots).toHaveLength(1)
+    expect(slots[0]).toMatchObject({ role: 'skeptic', memberKey: memberKey(grok) })
+  })
+
+  it('dropdown options skip members already in another slot, keeping the current pick', () => {
+    const members = [
+      { ...jeeves, role: 'skeptic' },
+      grok,
+      acp,
+    ]
+    const slot = { id: 's1', role: 'skeptic' as const, memberKey: memberKey(jeeves) }
+    const options = assignableMembersForSlot(members, slot)
+    expect(options.map((m) => m.id)).toEqual(['jeeves', 'grok', 'acp'])
+    const empty = { id: 's2', role: 'gate' as const, memberKey: null }
+    expect(assignableMembersForSlot(members, empty).map((m) => m.id)).toEqual(['grok', 'acp'])
+  })
+
+  it('CoS is not a composable slot (#739); remotes stay ineligible', () => {
+    const members = [jeeves, grok, acp]
+    const legacy = {
+      id: 'cos',
+      role: 'chief_of_staff' as unknown as RoleSlot['role'],
+      memberKey: null,
+    }
+    // Legacy slot objects only guard: CoS can never be re-added.
+    expect(canAddRoleSlot([], legacy.role)).toBe(false)
+    expect(assignableMembersForSlot(members, legacy).map((m) => m.id)).toEqual([
+      'jeeves',
+      'grok',
+    ])
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('chief_of_staff')
+    expect(canAddRoleSlot([], 'skeptic')).toBe(true)
+  })
+
+  it('assigning or clearing a slot returns the previous agent to unassigned', () => {
+    const members = [jeeves, grok]
+    const slot = { id: 's1', role: 'skeptic' as const, memberKey: null }
+    const assigned = applySlotMemberChange(members, slot, grok)
+    expect(assigned.find((m) => m.id === 'grok')?.role).toBe('skeptic')
+    const moved = applySlotMemberChange(
+      assigned,
+      { ...slot, memberKey: memberKey(grok) },
+      jeeves,
+    )
+    expect(moved.find((m) => m.id === 'grok')?.role).toBe('default')
+    expect(moved.find((m) => m.id === 'jeeves')?.role).toBe('skeptic')
+    const cleared = applySlotMemberChange(moved, { ...slot, memberKey: memberKey(jeeves) }, null)
+    expect(cleared.every((m) => m.role === 'default')).toBe(true)
+    expect(setMemberRole(cleared, jeeves, 'support')[0].role).toBe('support')
+  })
+})
+
+describe('teamRoster First agent lead (issue #105)', () => {
+  it('reorders members and firstAgentLeadId tracks roster index 0', () => {
+    const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves' }
+    const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok' }
+    const remote = { id: 'acp', name: 'ACP', kind: 'remote' as const, role: 'default', source: 'placeholder:remote:acp' }
+    const members = addMember(addMember([], jeeves), grok)
+    expect(firstAgentLeadId(members)).toBe('jeeves')
+    const moved = reorderMembers(members, 1, 0)
+    expect(moved.map((row) => row.id)).toEqual(['grok', 'jeeves'])
+    expect(firstAgentLeadId(moved)).toBe('grok')
+    expect(reorderMembers(members, 0, 0)).toBe(members)
+    expect(reorderMembers(members, -1, 0)).toBe(members)
+    expect(firstAgentLeadId([
+      { id: 'acp', kind: 'remote', role: 'default', source: 'placeholder:remote:acp' },
+    ])).toBeNull()
+    expect(firstAgentLeadId(addMember([remote], jeeves))).toBeNull()
+    expect(parseDragRosterIndex('1')).toBe(1)
+    expect(parseDragRosterIndex('nope')).toBeNull()
+    expect(ROSTER_DRAG_MIME).not.toBe(DRAG_MIME)
+    expect(FIRST_AGENT_VALUE).toBe('__first__')
+  })
+})
+
+describe('teamRoster Tools pane (issue #107)', () => {
+  const jeeves = { id: 'jeeves', name: 'Jeeves', kind: 'api' as const, source: 'blueprint:jeeves', role: 'default' }
+  const grok = { id: 'grok', name: 'grok', kind: 'cli' as const, source: 'cli:grok', role: 'default' }
+
+  it('parses tools and derives wires, rejecting unknown types and secret MCP fields', () => {
+    const roster = parseTeamRoster({
+      id: 'lab',
+      object: 'team_roster',
+      name: 'Lab',
+      members: [jeeves, grok],
+      tools: [
+        { type: 'handoff', to: 'grok' },
+        { type: 'as_tool', agent: 'jeeves' },
+        { type: 'mcp', server: 'github', agents: [] },
+      ],
+    })
+    expect(roster?.tools).toEqual([
+      { type: 'handoff', to: 'grok' },
+      { type: 'as_tool', agent: 'jeeves' },
+      { type: 'mcp', server: 'github', agents: [] },
+    ])
+    expect(roster?.wires).toEqual({ handoff: true, as_tool: true })
+    expect(parseTeamTool({ type: 'nope', to: 'x' })).toBeNull()
+    expect(parseTeamTool({ type: 'mcp', server: 'github', agents: [], env: { API_KEY: 'sk-live' } })).toBeNull()
+    expect(parseTeamTool({ type: 'mcp', server: 'github', agents: ['jeeves'] })).toEqual({
+      type: 'mcp',
+      server: 'github',
+      agents: ['jeeves'],
+    })
+    expect(deriveWiresFromTools([])).toEqual({ handoff: false, as_tool: false })
+    expect(emptyRosterDraft().tools).toEqual([])
+    expect(emptyRosterDraft().wires).toEqual({ handoff: false, as_tool: false })
+  })
+
+  it('keeps incomplete slots in the UI and serializes only complete tools', () => {
+    expect(TOOL_DRAG_MIME).toBe('application/x-swarm-team-tool')
+    expect(TOOL_DRAG_MIME).not.toBe(DRAG_MIME)
+    expect(parseDragTool(encodeDragTool({ type: 'handoff' }))).toEqual({ type: 'handoff' })
+    expect(parseDragTool(encodeDragTool({ type: 'mcp', server: 'github' }))).toEqual({
+      type: 'mcp',
+      server: 'github',
+    })
+    expect(parseDragTool(encodeDragRole('skeptic'))).toBeNull()
+    let slots = addToolSlot([], { type: 'handoff' })
+    slots = addToolSlot(slots, { type: 'mcp', server: 'github' })
+    expect(serializeToolSlots(slots)).toEqual([{ type: 'mcp', server: 'github', agents: [] }])
+    slots = [
+      { id: 'h', tool: { type: 'handoff', to: 'grok', from: 'jeeves' } },
+      { id: 'm', tool: { type: 'mcp', server: 'github', agents: ['grok', 'missing'] } },
+    ]
+    const pruned = pruneToolSlots(slots, [jeeves])
+    expect(pruned[0].tool).toEqual({ type: 'handoff', to: '', from: 'jeeves' })
+    expect(pruned[1].tool).toEqual({ type: 'mcp', server: 'github', agents: [] })
+  })
+})
+
+// #840 — tabulated mapping matrices with single-axis exclusivity.
+describe('#840 matrix derivation', () => {
+  const jeeves = { id: 'jeeves', kind: 'api' as const, role: 'default' as const, source: 'blueprint:jeeves' }
+  const grok = { id: 'grok', kind: 'cli' as const, role: 'default' as const, source: 'cli:grok' }
+  const ada = { id: 'ada', kind: 'api' as const, role: 'default' as const, source: 'blueprint:ada' }
+
+  it('deriveRoleMatrix covers every composable role and flags assignments', () => {
+    const slots = [{ id: 's1', role: 'skeptic' as const, memberKey: memberKey(grok) }]
+    const matrix = deriveRoleMatrix([jeeves, grok, ada], slots)
+    expect(matrix.rows.map((r) => r.role)).toEqual(COMPOSABLE_TEAM_ROLES)
+    const skeptic = matrix.rows.find((r) => r.role === 'skeptic')
+    expect(skeptic?.assignedKey).toBe(memberKey(grok))
+    expect(matrix.rows.find((r) => r.role === 'gate')?.assignedKey).toBeNull()
+  })
+
+  it('single-axis: role holders vanish from the role-matrix columns', () => {
+    const slots = [{ id: 's1', role: 'skeptic' as const, memberKey: memberKey(grok) }]
+    const matrix = deriveRoleMatrix([jeeves, grok, ada], slots)
+    expect(matrix.columns.map(memberKey)).toEqual([memberKey(jeeves), memberKey(ada)])
+    // An unassigned role slot removes nobody.
+    const open = deriveRoleMatrix([jeeves, grok], [{ id: 's2', role: 'gate' as const, memberKey: null }])
+    expect(open.columns).toHaveLength(2)
+  })
+
+  it('single-axis: as_tool specialists vanish from tool-matrix columns', () => {
+    const slots = [
+      { id: 't1', tool: { type: 'as_tool' as const, agent: 'grok' } },
+      { id: 't2', tool: { type: 'mcp' as const, server: 'github', agents: ['jeeves'] } },
+    ]
+    const matrix = deriveToolMatrix([jeeves, grok, ada], slots)
+    expect(matrix.columns.map((m) => m.id)).toEqual(['jeeves', 'ada'])
+    const mcp = matrix.rows.find((r) => r.key === 'mcp:github')
+    expect(mcp?.allSelected).toBe(false)
+  })
+
+  it('empty mcp agents means all-selected (everyone contract)', () => {
+    const slots = [{ id: 't1', tool: { type: 'mcp' as const, server: 'fetch', agents: [] } }]
+    const matrix = deriveToolMatrix([jeeves, grok], slots)
+    expect(matrix.rows[0].allSelected).toBe(true)
+  })
+
+  it('toggleToolMatrixCell materialises and collapses the everyone set', () => {
+    const tool = { type: 'mcp' as const, server: 'fetch', agents: [] }
+    const cols = ['jeeves', 'grok']
+    // Unchecking one member materialises the explicit set minus that member.
+    const after = toggleToolMatrixCell(tool, 'grok', cols)
+    expect(after.agents).toEqual(['jeeves'])
+    // Re-checking the last explicit member collapses back to [] (everyone).
+    const restored = toggleToolMatrixCell(after, 'grok', cols)
+    expect(restored.agents).toEqual([])
+    // Re-checking the last unchecked member restores full coverage → collapses to [] (everyone).
+    const grown = toggleToolMatrixCell(after, 'grok', cols)
+    expect(grown.agents).toEqual([])
+    // Appending within a partial set does not collapse.
+    const partial = toggleToolMatrixCell({ type: 'mcp', server: 'fetch', agents: ['jeeves', 'ada'] }, 'grok', cols)
+    expect(partial.agents.sort()).toEqual(['ada', 'grok', 'jeeves'])
+  })
+})
+
+describe('#739 — CoS designation is roster-level', () => {
+  const jeeves = { id: 'jeeves', kind: 'api' as const, role: 'default' as const, source: 'blueprint:jeeves' }
+  const grok = { id: 'grok', kind: 'cli' as const, role: 'default' as const, source: 'cli:grok' }
+
+  it('stampCosRole demotes legacy tags and never writes them', () => {
+    const legacyTagged = { ...jeeves, role: 'chief_of_staff' as const }
+    const scrubbed = stampCosRole([legacyTagged, grok], 'jeeves')
+    expect(scrubbed.map((m) => m.role)).toEqual(['default', 'default'])
+    // Selecting a CoS must NOT stamp the member role.
+    const selected = stampCosRole([jeeves, grok], 'jeeves')
+    expect(selected.map((m) => m.role)).toEqual(['default', 'default'])
+  })
+
+  it('restoreCosId prefers chief_of_staff_id and falls back to a single legacy tag', () => {
+    expect(restoreCosId({ members: [jeeves, grok], chief_of_staff_id: 'grok' })).toBe('grok')
+    expect(restoreCosId({ members: [jeeves], chief_of_staff_id: null })).toBeNull()
+    const legacy = { ...jeeves, role: 'chief_of_staff' as const }
+    expect(restoreCosId({ members: [legacy, grok], chief_of_staff_id: null })).toBe('jeeves')
+  })
+
+  it('composer roles exclude chief_of_staff and engineer', () => {
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('chief_of_staff')
+    expect(COMPOSABLE_TEAM_ROLES).not.toContain('engineer')
+    expect(COMPOSABLE_TEAM_ROLES).toEqual(['support', 'gate', 'skeptic', 'suggestions'])
   })
 })

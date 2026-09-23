@@ -65,10 +65,13 @@ def test_harness_and_module_never_invent_url():
 
 def test_consumer_and_make_agent_wiring():
     consumers = CONSUMERS.read_text(encoding="utf-8")
+    # #855 slice 2: the call site moved with respond_with_blueprint into the
+    # stubs mixin; the def stayed on the kernel class (hot-path helper).
+    stubs = (REPO / "src" / "swarm" / "chat" / "stubs_mixin.py").read_text(encoding="utf-8")
     base = BLUEPRINT_BASE.read_text(encoding="utf-8")
     assert "async def _emit_pr_opened_from_text" in consumers
     assert "parse_cli_pr_opened" in consumers
-    assert "await self._emit_pr_opened_from_text(full_message)" in consumers
+    assert "await self._emit_pr_opened_from_text(full_message)" in stubs
     assert "REQ-79: unused tools must not crash" in base
     assert "tools = list(tools or [])" in base
 

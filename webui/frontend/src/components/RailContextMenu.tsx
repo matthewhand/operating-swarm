@@ -16,12 +16,15 @@ import {
   FolderInput,
   FolderPlus,
   History,
+  Lock,
   MessageSquarePlus,
   Pencil,
   Pin,
   PinOff,
   Trash2,
   Users,
+  CircleCheck,
+  Palette,
 } from 'lucide-react'
 import type { RailMenuItemId, RailMenuItemSpec, RailMenuSubItemSpec } from '../lib/railContextMenu'
 
@@ -43,12 +46,16 @@ const ICONS: Record<RailMenuItemId, LucideIcon> = {
   delete: Trash2,
   'section-create': FolderPlus,
   'section-rename': Pencil,
+  'section-talk-lock': Lock,
   'section-move-up': ArrowUp,
   'section-move-down': ArrowDown,
   'section-delete': Trash2,
   expand: ChevronDown,
   collapse: ChevronUp,
   copy: ClipboardCopy,
+  include_context: CircleCheck,
+  exclude_context: EyeOff,
+  'bubble-theme': Palette,
 }
 
 export interface RailMenuItemProps {
@@ -67,23 +74,36 @@ function SubMenuItem({
   onSubSelect?: (parentId: RailMenuItemId, childId: string) => void
 }) {
   return (
-    <li>
-      <button
-        type="button"
-        role="menuitem"
-        data-menu-id={parentId}
-        data-move-to={child.id}
-        aria-checked={child.checked || undefined}
-        onClick={() => onSubSelect?.(parentId, child.id)}
-      >
-        <Check
-          className={`h-4 w-4 ${child.checked ? '' : 'opacity-0'}`}
+    <Fragment>
+      {/* #497: submenus could not express grouping at all, so 'New section' ran
+          together with the section list it follows. */}
+      {child.dividerBefore ? (
+        <li
           aria-hidden="true"
-          data-menu-icon={child.checked ? 'checked' : 'unchecked'}
-        />
-        {child.label}
-      </button>
-    </li>
+          className="pointer-events-none px-2 py-0.5"
+          data-testid="rail-menu-submenu-divider"
+        >
+          <hr className="border-base-300" />
+        </li>
+      ) : null}
+      <li>
+        <button
+          type="button"
+          role="menuitem"
+          data-menu-id={parentId}
+          data-move-to={child.id}
+          aria-checked={child.checked || undefined}
+          onClick={() => onSubSelect?.(parentId, child.id)}
+        >
+          <Check
+            className={`h-4 w-4 ${child.checked ? '' : 'opacity-0'}`}
+            aria-hidden="true"
+            data-menu-icon={child.checked ? 'checked' : 'unchecked'}
+          />
+          {child.label}
+        </button>
+      </li>
+    </Fragment>
   )
 }
 
@@ -101,14 +121,14 @@ export function RailMenuItem({ spec, onSelect, onSubSelect }: RailMenuItemProps)
           aria-haspopup="menu"
           aria-expanded={open}
           data-menu-id={spec.id}
-          data-testid="rail-menu-move-to"
+          data-testid={`rail-menu-${spec.id}`}
           onClick={() => setOpen((current) => !current)}
         >
           <Icon className="h-4 w-4" aria-hidden="true" data-menu-icon={spec.id} />
           {spec.label}
         </button>
         {open ? (
-          <ul className="os-rail-menu-submenu" data-testid="rail-menu-move-to-submenu">
+          <ul className="os-rail-menu-submenu" data-testid={`rail-menu-${spec.id}-submenu`}>
             {spec.children.map((child) => (
               <SubMenuItem
                 key={child.id}
@@ -201,7 +221,7 @@ export default function RailContextMenu({
       ref={(node) => {
         nodeRef.current = node
         if (typeof menuRef === 'function') menuRef(node)
-        else if (menuRef) menuRef.current = node
+        else if (menuRef) (menuRef as { current: HTMLUListElement | null }).current = node
       }}
       role="menu"
       aria-label={`Actions for ${agentName}`}

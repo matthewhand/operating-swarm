@@ -31,6 +31,20 @@ describe('Speech-bubble tails stay visible and symmetric (#166)', () => {
     return block!
   }
 
+  /** The sm media block whose body styles `.os-chat-transcript` (#607). */
+  function transcriptSmMediaBlock(): string {
+    // One nesting level is enough for this stylesheet's media blocks.
+    const re = /@media \(min-width: 640px\)\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g
+    let match: RegExpExecArray | null
+    while ((match = re.exec(css)) !== null) {
+      const body = match[1] ?? ''
+      if (body.includes('.os-chat-transcript') && body.includes('padding-left')) {
+        return body
+      }
+    }
+    return ''
+  }
+
   function paddingPair(block: string): [number, number] {
     const left = block.match(/padding-left:\s*([^;]+);/)
     const right = block.match(/padding-right:\s*([^;]+);/)
@@ -47,9 +61,13 @@ describe('Speech-bubble tails stay visible and symmetric (#166)', () => {
   })
 
   it('keeps the equal-room gutters at the sm breakpoint', () => {
-    const start = css.indexOf('@media (min-width: 640px)')
-    expect(start).toBeGreaterThanOrEqual(0)
-    const [left, right] = paddingPair(css.slice(start, start + 400))
+    // #607: several sm media blocks exist (chat header, transcript, …); the
+    // first global indexOf grabbed the header's and found no padding. Locate
+    // the media block that actually encloses the transcript rule.
+    const block = transcriptSmMediaBlock()
+    // Missing block means the transcript lost its sm gutter entirely.
+    expect(block).toBeTruthy()
+    const [left, right] = paddingPair(block)
     expect(left).toBe(right)
     expect(left).toBeGreaterThanOrEqual(0.75)
   })

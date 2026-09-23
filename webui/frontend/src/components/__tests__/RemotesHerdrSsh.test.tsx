@@ -29,7 +29,10 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
         const url = String(input)
-        if (url.includes('/v1/remotes/') && init?.method === 'POST') {
+        // Only the create call is the subject here. #453 added a target list on
+        // pane mount, which POSTs to /v1/remotes/<id>/operate/ right after a
+        // save selects the new remote — capturing that would clobber the payload.
+        if (url.includes('/v1/remotes/') && !url.includes('/operate/') && init?.method === 'POST') {
           postPayload = JSON.parse(String(init.body))
           return {
             ok: true,
@@ -78,16 +81,20 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Add remote/i }))
 
-    const kindSelect = screen.getByLabelText(/Kind/i)
-    fireEvent.change(kindSelect, { target: { value: 'herdr' } })
+    // #573: kind is picked in the popup now
+    fireEvent.click(screen.getByTestId('remote-kind-herdr'))
 
     expect(screen.getByText(/not HTTP/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/^URL$/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/^API key$/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/Herdr location/i), { target: { value: 'ssh' } })
-    fireEvent.change(screen.getByLabelText(/SSH host/i), { target: { value: 'herdr.example.test' } })
-    fireEvent.change(screen.getByLabelText(/SSH user/i), { target: { value: 'herdr' } })
+    // #849 close-out: one flexible target input — host, user@host:port, or
+    // ssh:// URI all land split on the server. Advanced fields are collapsed.
+    fireEvent.change(screen.getByLabelText(/Remote target/i), {
+      target: { value: 'herdr@herdr.example.test' },
+    })
+    fireEvent.click(screen.getByText(/Advanced SSH options/i))
     fireEvent.change(screen.getByLabelText(/SSH identity env/i), {
       target: { value: 'HERDR_SSH_IDENTITY' },
     })
@@ -97,11 +104,11 @@ describe('REQ-100 Herdr remotes are SSH-shaped', () => {
     await waitFor(() => {
       expect(postPayload).not.toBeNull()
     })
-    expect(postPayload?.kind).toBe('herdr')
-    expect(postPayload?.herdr_mode).toBe('ssh')
-    expect(postPayload?.ssh_host).toBe('herdr.example.test')
-    expect(postPayload?.ssh_user).toBe('herdr')
-    expect(postPayload?.ssh_identity_env).toBe('HERDR_SSH_IDENTITY')
+    const payload = postPayload as unknown as Record<string, unknown>
+    expect(payload.kind).toBe('herdr')
+    expect(payload.herdr_mode).toBe('ssh')
+    expect(payload.ssh_target).toBe('herdr@herdr.example.test')
+    expect(payload.ssh_identity_env).toBe('HERDR_SSH_IDENTITY')
     expect(postPayload).not.toHaveProperty('api_key')
     expect(JSON.stringify(postPayload)).not.toMatch(/BEGIN .*PRIVATE KEY/)
   })

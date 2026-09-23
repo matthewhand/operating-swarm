@@ -31,6 +31,7 @@ export const MANAGE_SENTINELS = new Set([
   '__manage__',
   '__manage_cli__',
   '__manage_model__',
+  '__manage_api__',
 ])
 
 export const MANAGE_CLI_VALUE = '__manage_cli__'
@@ -65,7 +66,7 @@ export function isStatusRole(role: string | undefined): role is StatusChromeRole
 }
 
 /** Persist/render chrome lines as `status` so one presentation path covers the family. */
-export function asTranscriptRole(role: string | undefined): ChatTranscriptRole {
+export function asTranscriptRole(role: string | undefined): 'user' | 'assistant' | typeof STATUS_ROLE {
   if (role === 'user' || role === 'assistant') return role
   if (isStatusRole(role)) return STATUS_ROLE
   return 'assistant'

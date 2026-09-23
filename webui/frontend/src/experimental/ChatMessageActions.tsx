@@ -1,4 +1,5 @@
 import { RotateCcw } from 'lucide-react'
+import { useActionRowLabels } from '../lib/actionRowLabelsContext'
 
 /**
  * EXPERIMENTAL: per-message actions for assistant chat bubbles.
@@ -20,6 +21,7 @@ export function ChatMessageActions({
   onRetry?: () => void
   className?: string
 }) {
+  const labels = useActionRowLabels()
   if (!onRetry) return null
 
   return (
@@ -29,9 +31,10 @@ export function ChatMessageActions({
         className="btn btn-ghost btn-xs gap-1"
         onClick={onRetry}
         aria-label="Resend the previous message"
+        title="Resend the previous message"
       >
         <RotateCcw className="h-3 w-3" aria-hidden="true" />
-        Retry
+        {labels ? 'Retry' : null}
       </button>
     </div>
   )

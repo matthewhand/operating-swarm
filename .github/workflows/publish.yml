@@ -1,4 +1,8 @@
 name: Publish to PyPI
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 # Release-driven publishing: the version is whatever pyproject.toml says.
 # Cut a GitHub Release (tag v<version>) to publish to PyPI, or run the

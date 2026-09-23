@@ -28,7 +28,11 @@ def test_edits_persist_inference_list():
 
 def test_backend_failover_and_429_policy():
     py = CORE.read_text(encoding="utf-8")
-    cons = CONSUMER.read_text(encoding="utf-8")
+    # #855 slice 2: the failover loop moved with respond_with_blueprint into
+    # the stubs mixin; the doctrine spans both homes.
+    cons = CONSUMER.read_text(encoding="utf-8") + CONSUMER.parents[2].joinpath(
+        "src", "swarm", "chat", "stubs_mixin.py"
+    ).read_text(encoding="utf-8")
     assert "is_rate_limit" in py
     assert "is_config_failure" in py
     assert "pick_scale_out" in py

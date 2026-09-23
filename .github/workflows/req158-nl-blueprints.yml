@@ -1,59 +1,11 @@
 name: REQ-158 Support NL blueprints
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 
 on:
-  pull_request:
-    paths:
-      - "skills/support-session-ownership/SKILL.md"
-      - "src/swarm/core/support_nl_blueprint.py"
-      - "src/swarm/core/support_journey.py"
-      - "src/swarm/core/support_agent.py"
-      - "src/swarm/blueprints/support/blueprint_support.py"
-      - "tests/core/test_support_nl_blueprint.py"
-      - "tests/unit/test_req158_nl_blueprints.py"
-      - "tests/blueprints/test_support.py"
-      - "tests/core/test_support_agent.py"
-      - "tests/core/test_support_journey.py"
-      - "webui/frontend/src/lib/supportNlBlueprint.ts"
-      - "webui/frontend/src/lib/supportJourney.ts"
-      - "webui/frontend/src/lib/support-briefing.ts"
-      - "webui/frontend/src/components/SupportCreatedBlueprintCard.tsx"
-      - "webui/frontend/src/components/ChatMessageBubble.tsx"
-      - "webui/frontend/src/lib/__tests__/supportNlBlueprint.test.ts"
-      - "webui/frontend/src/lib/__tests__/supportJourney.test.ts"
-      - "webui/frontend/src/components/__tests__/SupportCreatedBlueprintCard.test.tsx"
-      - "webui/frontend/src/components/__tests__/ChatMessageBubble.nlBlueprint.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.supportOnboard.test.tsx"
-      - "docs/SUPPORT_NL_BLUEPRINTS.md"
-      - "docs/requirements/REQ-158.md"
-      - "README.md"
-      - ".github/workflows/req158-nl-blueprints.yml"
-  push:
-    branches: [main]
-    paths:
-      - "skills/support-session-ownership/SKILL.md"
-      - "src/swarm/core/support_nl_blueprint.py"
-      - "src/swarm/core/support_journey.py"
-      - "src/swarm/core/support_agent.py"
-      - "src/swarm/blueprints/support/blueprint_support.py"
-      - "tests/core/test_support_nl_blueprint.py"
-      - "tests/unit/test_req158_nl_blueprints.py"
-      - "tests/blueprints/test_support.py"
-      - "tests/core/test_support_agent.py"
-      - "tests/core/test_support_journey.py"
-      - "webui/frontend/src/lib/supportNlBlueprint.ts"
-      - "webui/frontend/src/lib/supportJourney.ts"
-      - "webui/frontend/src/lib/support-briefing.ts"
-      - "webui/frontend/src/components/SupportCreatedBlueprintCard.tsx"
-      - "webui/frontend/src/components/ChatMessageBubble.tsx"
-      - "webui/frontend/src/lib/__tests__/supportNlBlueprint.test.ts"
-      - "webui/frontend/src/lib/__tests__/supportJourney.test.ts"
-      - "webui/frontend/src/components/__tests__/SupportCreatedBlueprintCard.test.tsx"
-      - "webui/frontend/src/components/__tests__/ChatMessageBubble.nlBlueprint.test.tsx"
-      - "webui/frontend/src/pages/__tests__/ChatPage.supportOnboard.test.tsx"
-      - "docs/SUPPORT_NL_BLUEPRINTS.md"
-      - "docs/requirements/REQ-158.md"
-      - "README.md"
-      - ".github/workflows/req158-nl-blueprints.yml"
+  workflow_dispatch:
 
 jobs:
   own-diff:
@@ -86,7 +38,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: webui/frontend/package-lock.json
 

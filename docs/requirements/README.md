@@ -59,10 +59,12 @@ Oracle from anything in this tree.
 | [REQ-157](./REQ-157.md) | [CLI agents — empty until added; startup discover+prepopulate (no auth check)](https://github.com/matthewhand/open-swarm/issues/565) |
 | [REQ-159](./REQ-159.md) | [Three kind bases (API/CLI/remote) — Support builds from these](https://github.com/matthewhand/open-swarm/issues/570) |
 | [REQ-203](./REQ-203.md) | [Remote as abstract harness spec — Hermes/OMB/Rakazo/Herdr implement](https://github.com/matthewhand/open-swarm/issues/680) |
+| [REQ-814](./REQ-814.md) | [Slack (NemoHermes) remote — threads as sessions via RemoteHarness](https://github.com/matthewhand/open-swarm-private/issues/97) |
 | [REQ-170](./REQ-170.md) | [Stop listing blueprints as agents; redundant name/blueprint pairing](https://github.com/matthewhand/open-swarm/issues/595) |
 | [REQ-171A](./REQ-171A.md) | [Hydrate chat threads honestly — do not fail-open empty; hydrate remotes](https://github.com/matthewhand/open-swarm/issues/604) |
 | [REQ-171B](./REQ-171B.md) | [Add-agent CLI/API must create a rail-visible seat](https://github.com/matthewhand/open-swarm/issues/607) |
 | [REQ-171C](./REQ-171C.md) | [Wire Chat CLI/API model dropdowns to a real pin contract](https://github.com/matthewhand/open-swarm/issues/612) |
+| [REQ-811](./REQ-811.md) | [Prove auxiliary vision: paste image in chat pane](https://github.com/matthewhand/open-swarm-private/issues/94) |
 
 ## Archived transcripts
 

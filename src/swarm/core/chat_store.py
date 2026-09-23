@@ -242,6 +242,13 @@ def _normalize_messages(raw: Any) -> list[dict[str, Any]]:
         seq = item.get("seq")
         if isinstance(seq, int) and not isinstance(seq, bool):
             msg["seq"] = seq
+        if item.get("fatal_config_error") is True:
+            msg["fatal_config_error"] = True
+            # #499: the classified Settings section survives rehydrate so the
+            # recovery banner can deep-link to the fix, not just reshuffle.
+            target = item.get("config_target")
+            if isinstance(target, dict) and isinstance(target.get("section"), str):
+                msg["config_target"] = {"section": target["section"]}
         out.append(msg)
     return out
 
@@ -503,6 +510,117 @@ def list_sessions(
         )
     items.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
     return items
+
+
+def rail_activity_index(
+    *,
+    base_dir: Path | None = None,
+    user_key: str = "u0",
+) -> dict[str, str]:
+    """Newest ``updated_at`` per seat id across every persisted thread (#601).
+
+    One directory listing serves the whole rail: keys are the thread ids the
+    store already uses (``team:<id>``, ``remote:<id>``, bare agent ids),
+    values are the ISO-8601 ``updated_at`` each ``save()`` stamps. Sessions
+    of one seat (``<id>__<sid>`` files) collapse into the newest. Honest
+    absence — a seat with no persisted thread is simply not in the map;
+    callers must not fabricate "now".
+    """
+    uk = _safe_id(user_key)
+    if uk is None:
+        return {}
+    root = store_dir(base_dir=base_dir) / "active" / uk
+    if not root.is_dir():
+        return {}
+    newest: dict[str, tuple[float, str]] = {}
+    for path in root.glob("*.json"):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        seat = path.stem.split("__", 1)[0]
+        record = _read_json(path) or {}
+        updated = record.get("updated_at")
+        if not (isinstance(updated, str) and updated.strip()):
+            continue
+        instant = _parse_iso(updated)
+        rank = instant.timestamp() if instant is not None else mtime
+        current = newest.get(seat)
+        if current is None or rank >= current[0]:
+            newest[seat] = (rank, updated)
+    return {seat: updated for seat, (_rank, updated) in newest.items()}
+
+
+# #844: rail snippets are one short line — bounded at write time so the
+# catalog payload cannot balloon with long transcripts.
+SNIPPET_MAX_CHARS = 160
+
+
+def _snippet_from_turns(turns: Any) -> str:
+    """Newest human-visible turn text, flattened and capped (#844).
+
+    Chrome (status/system chatter) never becomes the snippet: the rail row
+    should read like the conversation, not like telemetry.
+    """
+    if not isinstance(turns, list):
+        return ""
+    try:
+        from swarm.core.transcript_roles import is_chrome_message
+
+        candidates = [t for t in reversed(turns) if not is_chrome_message(t)]
+    except Exception:
+        candidates = [t for t in reversed(turns) if isinstance(t, dict)]
+    for turn in candidates:
+        if not isinstance(turn, dict):
+            continue
+        text = str(turn.get("content") or "").strip()
+        if not text:
+            continue
+        flattened = " ".join(text.split())
+        if len(flattened) > SNIPPET_MAX_CHARS:
+            flattened = flattened[: SNIPPET_MAX_CHARS - 1].rstrip() + "…"
+        return flattened
+    return ""
+
+
+def rail_activity_summaries(
+    *,
+    base_dir: Path | None = None,
+    user_key: str = "u0",
+) -> dict[str, dict[str, str]]:
+    """Newest instant **and** snippet per seat across persisted threads (#844).
+
+    Same sweep as :func:`rail_activity_index` but each value carries the
+    newest human-visible turn text alongside the ISO instant:
+    ``{seat: {"at": iso, "text": snippet}}``. Seats with only chrome turns
+    still surface (the instant is real) with an empty snippet. Feeds the
+    catalog's ``last_message_at`` / ``last_message`` so every rail row can
+    hydrate its activity line on first paint, whatever the agent kind.
+    """
+    uk = _safe_id(user_key)
+    if uk is None:
+        return {}
+    root = store_dir(base_dir=base_dir) / "active" / uk
+    if not root.is_dir():
+        return {}
+    newest: dict[str, tuple[float, str, str]] = {}
+    for path in root.glob("*.json"):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        seat = path.stem.split("__", 1)[0]
+        record = _read_json(path) or {}
+        updated = record.get("updated_at")
+        if not (isinstance(updated, str) and updated.strip()):
+            continue
+        instant = _parse_iso(updated)
+        rank = instant.timestamp() if instant is not None else mtime
+        snippet = _snippet_from_turns(record.get("messages"))
+        current = newest.get(seat)
+        if current is None or rank >= current[0]:
+            newest[seat] = (rank, updated, snippet)
+    return {seat: {"at": updated, "text": text} for seat, (_r, updated, text) in newest.items()}
 
 
 def normalize_cli_sessions(raw: Any) -> dict[str, str]:

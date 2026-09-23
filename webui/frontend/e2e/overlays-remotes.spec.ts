@@ -124,7 +124,7 @@ test('settings / search / plugins overlays keep chat mounted (REQ-72 / #364 / #3
   await expect(settings).toBeHidden()
   await expect(composer).toBeVisible()
 
-  await page.getByRole('searchbox', { name: 'Search' }).click()
+  await page.getByRole('button', { name: 'Search' }).click()
   const search = page.getByRole('dialog', { name: 'Search' })
   await expect(search).toBeVisible()
   await expect(composer).toBeVisible()
@@ -164,11 +164,11 @@ test('Search Bots tab lists agents; Actions stay operator links (REQ-17 / #322)'
 }) => {
   await stubChromeApis(page)
   await page.goto('/chat')
-  await page.getByRole('searchbox', { name: 'Search' }).click()
+  await page.getByRole('button', { name: 'Search' }).click()
   const palette = page.getByRole('dialog', { name: 'Search' })
   await expect(palette).toBeVisible()
 
-  await palette.getByRole('tab', { name: 'Bots' }).click()
+  await palette.getByRole('tab', { name: 'Agents' }).click()
   await expect(palette.getByRole('option', { name: /Support/ })).toBeVisible()
   await expect(palette.getByRole('option', { name: /Codey/ })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Chat message' })).toBeVisible()
@@ -177,7 +177,8 @@ test('Search Bots tab lists agents; Actions stay operator links (REQ-17 / #322)'
   await expect(palette.getByRole('option', { name: /Toggle theme/ })).toBeVisible()
   await expect(palette.getByRole('option', { name: /Blueprints/ })).toBeVisible()
   await expect(palette.getByRole('option', { name: /Teams/ })).toBeVisible()
-  await expect(palette.getByRole('option', { name: /Settings/ })).toBeVisible()
+  // Several actions mention Settings (rail/system/MCP/CLI), so target the row.
+  await expect(palette.locator('#os-search-row-action-settings')).toBeVisible()
 })
 
 test('team dropdown lists configured remotes as kind=remote members (PR #318 / REQ-23)', async ({
@@ -196,7 +197,8 @@ test('team dropdown lists configured remotes as kind=remote members (PR #318 / R
     'Hermes (remote/default)',
     'OpenMousBot (remote/default)',
     'Rakazo (remote/default)',
-    'Manage Teams',
+    '──────────',
+    'Manage Team',
   ])
   await expect(page.getByRole('textbox', { name: 'Chat message' })).toBeVisible()
 })

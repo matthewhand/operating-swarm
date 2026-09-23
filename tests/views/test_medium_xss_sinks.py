@@ -13,7 +13,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 REST_JS = ROOT / "src" / "swarm" / "static" / "rest_mode" / "js"
 TOAST_JS = REST_JS / "toast.js"
-SLACK_LOGIC = REST_JS / "slackLogic.js"
 CHAT_LOGIC = REST_JS / "chatLogic.js"
 SIMPLE_LOGIC = REST_JS / "simpleLogic.js"
 MESSENGER_LOGIC = REST_JS / "messengerLogic.js"
@@ -65,14 +64,6 @@ def test_profiles_base_url_href_gated_to_http_https():
     assert 'u|slice:":7" == "http://"' in source
     # Non-http(s) values render as text, not a link.
     assert '<span class="prof-url">{{ p.base_url }}</span>' in source
-
-
-def test_slack_logic_appends_messages_via_textcontent():
-    """Legacy rest_mode slackLogic.js (template removed) must use textContent, not innerHTML."""
-    source = SLACK_LOGIC.read_text(encoding="utf-8")
-    assert "appendMessage" in source
-    assert "textContent" in source
-    assert _INNERHTML_MESSAGE_SINK.search(source) is None
 
 
 def test_chat_logic_exports_initializer_and_uses_textcontent():

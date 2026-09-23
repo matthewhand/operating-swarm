@@ -38,4 +38,5 @@ def test_adr011_is_indexed_and_docs_table_exists():
     assert "| **OpenMousBot**" in table
     assert "| **Rakazo**" in table
     assert "| **Herdr**" in table
+    assert "| **Slack (NemoHermes)**" in table
     assert "not a fifth kind" in table.lower()

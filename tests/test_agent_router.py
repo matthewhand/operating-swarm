@@ -15,6 +15,19 @@ def blueprint():
     return AgentRouterBlueprint()
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_llm_env(monkeypatch):
+    """The router registers its Agent only if the AsyncOpenAI client builds.
+
+    ``_create_router_agent`` failure is caught (specialists stay available),
+    so on hosts without ``OPENAI_API_KEY`` the ``router`` seat silently
+    vanished from /v1/agents/ and the Runner path was unreachable. Tests
+    here never touch the network (Runner.run is monkeypatched), so a
+    placeholder key makes them host-independent.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-hermetic")
+
+
 @pytest.mark.django_db
 def test_llm_profiles_lists_named_providers(client, tmp_path, monkeypatch):
     # After #775/#786 the live file is not committed. Point at a fixture SoT

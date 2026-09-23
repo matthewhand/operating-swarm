@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useAgentStore } from '../agent-store'
 import { STARTER_API_ID, STARTER_CLI_ID, STARTER_REMOTE_ID, STARTER_SUPPORT_ID } from '../starter-agents'
-import { AVATAR_THEME_STORAGE_KEY, dispatchAvatarTheme } from '../avatarTheme'
+import {
+  AVATAR_THEME_STORAGE_KEY,
+  dispatchAvatarTheme,
+  saveEnabledAvatarThemes,
+} from '../avatarTheme'
 import type { Agent } from '../../types/agent'
 
 const mockAgents: Agent[] = [
@@ -61,12 +65,27 @@ describe('useAgentStore avatar themes', () => {
     expect(useAgentStore.getState().avatarThemeByAgent.coder).toBeUndefined()
   })
 
-  it('assigns unique looks when the roster is loaded', () => {
+  it('assigns unique looks from the installed set when the roster fits the deck (#128)', () => {
+    // The deck is the installed set × eye styles now, so install a second family
+    // to cover the fixture roster (6 eye styles per family).
+    saveEnabledAvatarThemes(['blobs', 'bee'])
     useAgentStore.getState().setAgents([...mockAgents])
     const { avatarThemeByAgent, avatarEyesByAgent, agents } = useAgentStore.getState()
     const pairs = agents.map((a) => `${avatarThemeByAgent[a.agent_id]}:${avatarEyesByAgent[a.agent_id]}`)
     expect(pairs.every((p) => !p.includes('undefined'))).toBe(true)
     expect(new Set(pairs).size).toBe(agents.length)
+    // …and never a pack the operator did not install.
+    expect(pairs.every((p) => p.startsWith('blobs:') || p.startsWith('bee:'))).toBe(true)
+  })
+
+  it('repeats looks only after the installed deck is exhausted (#128)', () => {
+    saveEnabledAvatarThemes(['blobs'])
+    useAgentStore.getState().setAgents([...mockAgents])
+    const { avatarThemeByAgent, agents } = useAgentStore.getState()
+    const themes = agents.map((a) => avatarThemeByAgent[a.agent_id])
+    // Only Blobs is installed: every agent is Blobs, and the roster is longer than
+    // the 6-style deck, so looks repeat rather than borrowing a disabled pack.
+    expect(themes.every((theme) => theme === 'blobs')).toBe(true)
   })
 
   it('persists googly eye style', () => {
@@ -101,8 +120,22 @@ describe('useAgentStore does not auto-hide agents on initial load', () => {
 
   it('cleans up legacy agent_sidebar_starters without auto-hiding', () => {
     localStorage.setItem('agent_sidebar_starters', 'support-cli-api-remote')
-    localStorage.setItem('agent_hidden_ids', JSON.stringify(Array.from({ length: 96 }, (_, i) => `agent-${i}`)))
     localStorage.setItem('agent_favourite_ids', JSON.stringify([STARTER_SUPPORT_ID, STARTER_CLI_ID, STARTER_API_ID, STARTER_REMOTE_ID]))
+
+    useAgentStore.getState().setAgents([...mockAgents])
+    const { hiddenAgentIds, favouriteIds } = useAgentStore.getState()
+    expect(localStorage.getItem('agent_sidebar_starters')).toBeNull()
+    expect(hiddenAgentIds).toEqual([])
+    expect(favouriteIds).toEqual([])
+  })
+
+  it('#548: the >50-id starter-layout guard reads the canonical list, not the retired key', () => {
+    localStorage.setItem('agent_sidebar_starters', 'support-cli-api-remote')
+    localStorage.setItem('agent_favourite_ids', JSON.stringify([STARTER_SUPPORT_ID, STARTER_CLI_ID, STARTER_API_ID, STARTER_REMOTE_ID]))
+    // The signature now lives in the canonical store — the legacy key is
+    // migrated away and retired at init, so reading it here would find nothing.
+    const many = Array.from({ length: 96 }, (_, i) => `agent-${i}`)
+    useAgentStore.setState({ hiddenAgentIds: many })
 
     useAgentStore.getState().setAgents([...mockAgents])
     const { hiddenAgentIds, favouriteIds } = useAgentStore.getState()
@@ -289,6 +322,11 @@ describe('useAgentStore save as team', () => {
           avatarThemeByAgent: {},
           avatarEyesByAgent: {},
           roleAssignments: {},
+          defaultLlmProfile: '',
+          llmProfileByAgent: {},
+          cliModelByAgent: {},
+          remoteMemberByAgent: {},
+          frameworkByAgent: {},
         },
       ],
       activeTeamId: 'unsaved',

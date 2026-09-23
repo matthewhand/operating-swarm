@@ -26,6 +26,22 @@ import AgentWorkspaceBinding from './AgentWorkspaceBinding'
 import { RemoteSelect } from './RemoteSelect'
 import { addAgentRemoteImpls, configuredRemotes } from '../lib/remotes'
 import { remotesListForSelect, saveAgentRemoteBinding } from '../lib/agentRemote'
+import {
+  agentCliProvider,
+  filterByOrigin,
+  filterCliAgents,
+  filterRemotesByImpl,
+  groupByOrigin,
+  groupCliAgents,
+  groupRemotesByImpl,
+  toggleGroupFilter,
+} from '../lib/addAgentGroups'
+import {
+  isRemoteCapableCli,
+  normalizeRemoteEndpoint,
+  remoteCapability,
+  type CliRemoteEndpoint,
+} from '../lib/cliRemote'
 
 export type AgentKind = 'cli' | 'api' | 'remote' | 'blueprint'
 
@@ -47,14 +63,18 @@ export interface ManageAgentItem {
   description?: string
   prompt?: string
   isCustom: boolean
+  /** CLI provider id used for Add-agent group rows (#68). */
+  provider?: string
+  remote?: CliRemoteEndpoint | null
 }
 
 /**
  * REQ-184 / REQ-109 / REQ-164 / REQ-165 / REQ-167 / REQ-166: Add agent popup wizard.
  *
- * - Tabs: CLI | API | Remote. Remote lists impls (Hermes / OpenMousBot /
- *   Rakazo / Herdr / nested swarm) — not a parallel Herdr kind (REQ-203).
- * - Under each tab: shows existing list (empty state when none) AND create/edit fields on the same view.
+ * - Tabs: CLI | API | Blueprint | Remote. Remote lists impls (Hermes /
+ *   OpenMousBot / Rakazo / Herdr / nested swarm) — not a parallel Herdr kind (REQ-203).
+ * - Under each tab: provider/origin/impl groups with counts; click filters
+ *   the existing list (clearable). Create/edit fields stay on the same view.
  * - Esc / backdrop / close cancels without creating.
  * - Completing create bumps to top of unpinned and navigates.
  */
@@ -82,6 +102,11 @@ export default function AddAgentWizard({
   const [cliGithubRepo, setCliGithubRepo] = useState('')
   const [cliWorkspacesEnabled, setCliWorkspacesEnabled] = useState(false)
   const [cliDescription, setCliDescription] = useState('')
+  const [cliRemoteBox, setCliRemoteBox] = useState('')
+  const [cliRemoteHost, setCliRemoteHost] = useState('')
+  const [cliRemotePort, setCliRemotePort] = useState('')
+  const [cliRemoteUsername, setCliRemoteUsername] = useState('')
+  const [cliRemoteAuthEnv, setCliRemoteAuthEnv] = useState('')
   const [folderError, setFolderError] = useState<string | null>(null)
   const [repoError, setRepoError] = useState<string | null>(null)
 
@@ -100,6 +125,7 @@ export default function AddAgentWizard({
   const [remoteBaseUrl, setRemoteBaseUrl] = useState('')
   const [remoteApiKey, setRemoteApiKey] = useState('')
   const [pickedRemoteId, setPickedRemoteId] = useState('')
+  const [groupFilter, setGroupFilter] = useState<string | null>(null)
 
   // Queries for existing agents
   const blueprintsQuery = useQuery({
@@ -132,6 +158,10 @@ export default function AddAgentWizard({
   const remotesCatalog = remotesListForSelect(remotesQuery.data)
   const configuredRemoteRows = configuredRemotes(remotesCatalog)
   const remoteImpls = addAgentRemoteImpls(remotesQuery.data)
+  const cliRemoteCatalog = cliQuery.data?.remote
+  const cliRemoteBoxes = cliQuery.data?.remote_boxes ?? []
+  const cliRemoteCapable = isRemoteCapableCli(cliCommand, cliRemoteCatalog)
+  const cliRemoteHow = remoteCapability(cliCommand, cliRemoteCatalog)
 
   const resetFormFields = () => {
     setError(null)
@@ -144,6 +174,11 @@ export default function AddAgentWizard({
     setCliGithubRepo('')
     setCliWorkspacesEnabled(false)
     setCliDescription('')
+    setCliRemoteBox('')
+    setCliRemoteHost('')
+    setCliRemotePort('')
+    setCliRemoteUsername('')
+    setCliRemoteAuthEnv('')
     setApiName('')
     setApiDescription('')
     setApiPrompt('')
@@ -156,6 +191,7 @@ export default function AddAgentWizard({
     setPickedRemoteId('')
     setEditingAgentId(null)
     setEditingAgentName('')
+    setGroupFilter(null)
   }
 
   const handleClose = () => {
@@ -170,6 +206,7 @@ export default function AddAgentWizard({
     setError(null)
     setFolderError(null)
     setRepoError(null)
+    setGroupFilter(null)
     if (mode === 'edit') {
       resetFormFields()
       setMode('create')
@@ -204,6 +241,11 @@ export default function AddAgentWizard({
           githubRepo: edits.githubRepo || '',
           description: item.description,
           isCustom: true,
+          provider: agentCliProvider({ command }),
+          remote:
+            normalizeRemoteEndpoint(item.remote as Partial<CliRemoteEndpoint>) ||
+            normalizeRemoteEndpoint(edits.remote) ||
+            null,
         })
       }
     }
@@ -224,6 +266,7 @@ export default function AddAgentWizard({
         githubRepo: edits.githubRepo || '',
         description: item.description,
         isCustom: false,
+        provider: agentCliProvider({ provider: item.cli, command }),
       })
     }
 
@@ -244,6 +287,7 @@ export default function AddAgentWizard({
           githubRepo: edits.githubRepo || '',
           description: item.description,
           isCustom: false,
+          provider: agentCliProvider({ command }),
         })
       }
     }
@@ -354,6 +398,12 @@ export default function AddAgentWizard({
       setCliGithubRepo(agent.githubRepo || stored.githubRepo)
       setCliWorkspacesEnabled(stored.workspacesEnabled)
       setCliDescription(agent.description || '')
+      const remote = agent.remote || loadAgentEdit(agent.id).remote
+      setCliRemoteBox(remote?.box || '')
+      setCliRemoteHost(remote?.host || '')
+      setCliRemotePort(remote?.port ? String(remote.port) : '')
+      setCliRemoteUsername(remote?.username || '')
+      setCliRemoteAuthEnv(remote?.password_env || '')
     } else if (selectedKind === 'api' || selectedKind === 'blueprint') {
       if (selectedKind === 'blueprint') {
         setBpName(agent.name)
@@ -426,6 +476,18 @@ export default function AddAgentWizard({
         const description = cliDescription.trim()
         if (!name) throw new Error('Agent name is required')
         if (!command) throw new Error('CLI command or binary is required')
+        const remote = cliRemoteCapable
+          ? normalizeRemoteEndpoint({
+              host: cliRemoteHost.trim(),
+              port: cliRemotePort ? Number(cliRemotePort) : undefined,
+              username: cliRemoteUsername.trim(),
+              password_env: cliRemoteAuthEnv.trim(),
+              box: cliRemoteBox.trim(),
+            })
+          : null
+        if (cliRemoteHost.trim() && !remote) {
+          throw new Error('Remote host/port is invalid')
+        }
 
         const folderComment = folder ? `# Folder: ${folder}
 ` : ''
@@ -444,6 +506,7 @@ ${folderComment}`
             command,
             rail: true,
             source: 'add-agent',
+            ...(remote ? { remote } : {}),
           })
 
           saveAgentEdit(created.id, {
@@ -452,6 +515,7 @@ ${folderComment}`
             folder,
             githubRepo,
             workspacesEnabled: false,
+            ...(remote ? { remote } : { remote: undefined }),
           })
           await saveAgentSettings(created.id, { folder })
 
@@ -467,6 +531,7 @@ ${folderComment}`
             folder,
             githubRepo,
             workspacesEnabled: false,
+            ...(remote ? { remote } : { remote: undefined }),
           })
           await saveAgentSettings(editingAgentId, { folder })
 
@@ -478,6 +543,7 @@ ${folderComment}`
               kind: 'cli',
               command,
               rail: true,
+              ...(remote ? { remote } : {}),
             })
           } catch {
             // Local edits already saved via saveAgentEdit
@@ -551,7 +617,7 @@ ${folderComment}`
             kind: created.kind || created.id,
           })
           await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-          await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+          await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           const implLabel =
             remoteImpls.find((row) => row.id === implId)?.label || created.id
@@ -585,7 +651,7 @@ ${folderComment}`
             kind: created.kind || created.id,
           })
           await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-          await queryClient.invalidateQueries({ queryKey: ['settings-remotes'] })
+          await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
           onCreated?.({
             id: created.id,
@@ -609,15 +675,64 @@ ${folderComment}`
   const currentAgents =
     selectedKind === 'cli' ? cliAgents : selectedKind === 'blueprint' ? blueprintAgents : apiAgents
 
+  const groups = useMemo(() => {
+    if (selectedKind === 'cli') return groupCliAgents(cliAgents, cliQuery.data)
+    if (selectedKind === 'api') return groupByOrigin(apiAgents)
+    if (selectedKind === 'blueprint') return groupByOrigin(blueprintAgents)
+    return groupRemotesByImpl(configuredRemoteRows, remoteImpls)
+  }, [
+    selectedKind,
+    cliAgents,
+    cliQuery.data,
+    apiAgents,
+    blueprintAgents,
+    configuredRemoteRows,
+    remoteImpls,
+  ])
+
+  const visibleAgents = useMemo(() => {
+    if (selectedKind === 'cli') return filterCliAgents(cliAgents, groupFilter)
+    if (selectedKind === 'api') return filterByOrigin(apiAgents, groupFilter)
+    if (selectedKind === 'blueprint') return filterByOrigin(blueprintAgents, groupFilter)
+    return currentAgents
+  }, [selectedKind, cliAgents, apiAgents, blueprintAgents, currentAgents, groupFilter])
+
+  const visibleRemotes = useMemo(
+    () => filterRemotesByImpl(configuredRemoteRows, groupFilter),
+    [configuredRemoteRows, groupFilter],
+  )
+
+  const kindLabel =
+    selectedKind === 'cli'
+      ? 'CLI'
+      : selectedKind === 'api'
+        ? 'API'
+        : selectedKind === 'blueprint'
+          ? 'Blueprint'
+          : 'Remote'
+
+  const showEmptyState =
+    selectedKind === 'remote'
+      ? configuredRemoteRows.length === 0 && groups.length === 0
+      : currentAgents.length === 0 && groups.length === 0
+
+  const handleSelectGroup = (id: string) => {
+    setGroupFilter((current) => toggleGroupFilter(current, id))
+  }
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      size="lg"
+      size="wizard"
       placement="middle"
       aria-label="Add agent wizard"
     >
-      <div className="space-y-4 max-h-[82vh] overflow-y-auto pr-1" data-testid="add-agent-wizard">
+      {/* #798: the modal box is pinned to a fixed viewport box; only this
+          inner content area scrolls, so switching agent kinds never moves the
+          outer dialog or its buttons. */}
+      <div className="flex flex-col h-full min-h-0 space-y-4" data-testid="add-agent-wizard">
+        <div className="overflow-y-auto pr-1 min-h-0 flex-1">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-base-300 pb-3">
           <div className="flex items-center gap-2.5">
@@ -715,83 +830,59 @@ ${folderComment}`
         {/* Tab content: 1. Existing List (Manage) */}
         <hr className="border-base-300" data-testid="manage-surface-divider" />
         <div className="space-y-3" data-testid="manage-agent-surface">
-          {selectedKind === 'remote' ? (
-            configuredRemoteRows.length === 0 ? (
-              <div
-                className="rounded-xl border border-dashed border-base-300 py-6 text-center"
-                data-testid="empty-manage-state"
-              >
-                <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-base-200 text-base-content/50">
-                  <Globe className="h-4.5 w-4.5" />
-                </div>
-                <p className="mt-2 text-sm font-medium">No remotes configured yet</p>
-                <p className="mt-1 text-xs text-base-content/60">
-                  Connect Hermes, {OPENMOUSBOT_LABEL}, Rakazo, Herdr, or nested
-                  open-swarm — implementations of Remote, not extra kinds.
-                </p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="mt-2"
-                  onClick={handleStartAddNew}
-                  data-testid="empty-add-btn"
-                >
-                  Add Remote Agent
-                </Button>
+          {groups.length > 0 ? (
+            <div className="space-y-1.5" data-testid="manage-agent-groups">
+              <div className="flex items-center justify-between text-xs font-semibold text-base-content/70">
+                <span>
+                  {selectedKind === 'cli'
+                    ? 'CLI providers'
+                    : selectedKind === 'remote'
+                      ? 'Remote implementations'
+                      : `${kindLabel} groups`}
+                </span>
+                {groupFilter ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setGroupFilter(null)}
+                    data-testid="clear-group-filter"
+                  >
+                    Clear filter
+                  </Button>
+                ) : null}
               </div>
-            ) : (
-              <div className="space-y-2.5" data-testid="manage-agent-list">
-                <div className="flex items-center justify-between text-xs font-semibold text-base-content/70">
-                  <span>Configured Remotes ({configuredRemoteRows.length})</span>
-                </div>
-                <RemoteSelect
-                  remotes={remotesCatalog}
-                  value={pickedRemoteId}
-                  onChange={setPickedRemoteId}
-                  label="Remote"
-                />
-                <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
-                  {configuredRemoteRows.map((row) => (
-                    <div
-                      key={row.id}
-                      className="flex items-center justify-between rounded-lg border border-base-300 bg-base-100 p-2.5 hover:bg-base-200/40"
-                      data-testid={`agent-row-${row.id}`}
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {groups.map((group) => {
+                  const pressed = groupFilter === group.id
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      aria-pressed={pressed}
+                      className={`flex items-center justify-between rounded-lg border px-2.5 py-2 text-left text-xs transition ${
+                        pressed
+                          ? 'border-primary bg-primary/10 font-semibold'
+                          : 'border-base-300 bg-base-100 hover:bg-base-200/40'
+                      }`}
+                      onClick={() => handleSelectGroup(group.id)}
+                      data-testid={`agent-group-${group.id}`}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-purple-500/10 text-purple-500">
-                          <Globe className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold truncate leading-tight">
-                            {row.label || row.title || row.id}
-                          </p>
-                          <p className="text-[11px] text-base-content/60 truncate font-mono mt-0.5">
-                            {row.base_url || row.id}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          onClick={() =>
-                            handleConnectRemote(row.id, row.label || row.title || row.id)
-                          }
-                          data-testid={`open-agent-${row.id}`}
-                          aria-label={`Open ${row.label || row.title || row.id}`}
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                          Connect
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                      <span className="truncate">{group.label}</span>
+                      <span
+                        className="ml-2 tabular-nums text-base-content/60"
+                        data-testid={`agent-group-count-${group.id}`}
+                      >
+                        {group.count}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
-            )
-          ) : currentAgents.length === 0 ? (
+            </div>
+          ) : null}
+
+          {showEmptyState ? (
             <div
               className="rounded-xl border border-dashed border-base-300 py-6 text-center"
               data-testid="empty-manage-state"
@@ -801,6 +892,8 @@ ${folderComment}`
                   <Terminal className="h-4.5 w-4.5" />
                 ) : selectedKind === 'blueprint' ? (
                   <Layers className="h-4.5 w-4.5" />
+                ) : selectedKind === 'remote' ? (
+                  <Globe className="h-4.5 w-4.5" />
                 ) : (
                   <Bot className="h-4.5 w-4.5" />
                 )}
@@ -810,12 +903,14 @@ ${folderComment}`
                   ? 'No CLI agents yet'
                   : selectedKind === 'blueprint'
                     ? 'No Blueprint agents yet'
-                    : 'No API agents yet'}
+                    : selectedKind === 'remote'
+                      ? 'No remotes configured yet'
+                      : 'No API agents yet'}
               </p>
               <p className="mt-1 text-xs text-base-content/60">
-                Get started by creating your first{' '}
-                {selectedKind === 'cli' ? 'CLI' : selectedKind === 'blueprint' ? 'Blueprint' : 'API'}{' '}
-                agent below.
+                {selectedKind === 'remote'
+                  ? `Connect Hermes, ${OPENMOUSBOT_LABEL}, Rakazo, Herdr, or nested open-swarm — implementations of Remote, not extra kinds.`
+                  : `Get started by creating your first ${kindLabel} agent below.`}
               </p>
               <Button
                 type="button"
@@ -825,16 +920,74 @@ ${folderComment}`
                 onClick={handleStartAddNew}
                 data-testid="empty-add-btn"
               >
-                Add{' '}
-                {selectedKind === 'cli' ? 'CLI' : selectedKind === 'blueprint' ? 'Blueprint' : 'API'}{' '}
-                Agent
+                Add {kindLabel} Agent
               </Button>
             </div>
+          ) : selectedKind === 'remote' && configuredRemoteRows.length === 0 ? (
+            <p className="text-xs text-base-content/60" data-testid="group-filter-empty">
+              No remotes configured yet.
+            </p>
+          ) : selectedKind === 'remote' ? (
+            <div className="space-y-2.5" data-testid="manage-agent-list">
+              <div className="flex items-center justify-between text-xs font-semibold text-base-content/70">
+                <span>Configured Remotes ({visibleRemotes.length})</span>
+              </div>
+              <RemoteSelect
+                remotes={remotesCatalog}
+                value={pickedRemoteId}
+                onChange={setPickedRemoteId}
+                label="Remote"
+              />
+              <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                {visibleRemotes.map((row) => (
+                  <div
+                    key={row.id}
+                    className="flex items-center justify-between rounded-lg border border-base-300 bg-base-100 p-2.5 hover:bg-base-200/40"
+                    data-testid={`agent-row-${row.id}`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-purple-500/10 text-purple-500">
+                        <Globe className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold truncate leading-tight">
+                          {row.label || row.title || row.id}
+                        </p>
+                        <p className="text-[11px] text-base-content/60 truncate font-mono mt-0.5">
+                          {row.base_url || row.id}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() =>
+                          handleConnectRemote(row.id, row.label || row.title || row.id)
+                        }
+                        data-testid={`open-agent-${row.id}`}
+                        aria-label={`Open ${row.label || row.title || row.id}`}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        Connect
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : visibleAgents.length === 0 ? (
+            <p className="text-xs text-base-content/60" data-testid="group-filter-empty">
+              {groupFilter
+                ? `No ${kindLabel} agents in this group.`
+                : `No ${kindLabel} agents yet.`}
+            </p>
           ) : (
             <div className="space-y-2" data-testid="manage-agent-list">
               <div className="flex items-center justify-between text-xs font-semibold text-base-content/70">
                 <span>
-                  Existing {selectedKind === 'cli' ? 'CLI' : 'API'} Agents ({currentAgents.length})
+                  Existing {kindLabel} Agents ({visibleAgents.length})
                 </span>
                 <Button
                   type="button"
@@ -848,7 +1001,7 @@ ${folderComment}`
                 </Button>
               </div>
               <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
-                {currentAgents.map((agent) => (
+                {visibleAgents.map((agent) => (
                   <div
                     key={agent.id}
                     className="flex items-center justify-between rounded-lg border border-base-300 bg-base-100 p-2.5 hover:bg-base-200/40"
@@ -1020,6 +1173,114 @@ ${folderComment}`
                     aria-label="Description"
                   />
                 </div>
+                {cliRemoteCapable ? (
+                  <fieldset
+                    className="space-y-2 rounded-box border border-base-300 p-3"
+                    data-testid="cli-remote-connection"
+                  >
+                    <legend className="px-1 text-sm font-semibold">
+                      Remote connection (optional)
+                    </legend>
+                    <p className="text-xs text-base-content/70">
+                      {cliCommand.trim() || 'This CLI'} supports headless{' '}
+                      <span className="font-mono">{cliRemoteHow}</span> mode.
+                      Leave blank to run locally. Auth is an env-var name — never
+                      a password.
+                    </p>
+                    {cliRemoteBoxes.length > 0 ? (
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Fleet box
+                        </label>
+                        <select
+                          className="select select-sm select-bordered w-full"
+                          value={cliRemoteBox}
+                          onChange={(e) => {
+                            const id = e.target.value
+                            setCliRemoteBox(id)
+                            const box = cliRemoteBoxes.find((row) => (row.id || row.box) === id)
+                            if (box?.host) {
+                              setCliRemoteHost(box.host)
+                              setCliRemotePort(box.port ? String(box.port) : '')
+                              setCliRemoteUsername(box.username || '')
+                              setCliRemoteAuthEnv(box.password_env || '')
+                            }
+                          }}
+                          aria-label="CLI remote box"
+                          data-testid="select-cli-remote-box"
+                        >
+                          <option value="">Custom host…</option>
+                          {cliRemoteBoxes.map((box) => (
+                            <option key={box.id || box.host} value={box.id || box.box || ''}>
+                              {box.id || box.box} ({box.host}:{box.port})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Host
+                        </label>
+                        <input
+                          type="text"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          placeholder="dev-box.lan"
+                          value={cliRemoteHost}
+                          onChange={(e) => setCliRemoteHost(e.target.value)}
+                          aria-label="CLI remote host"
+                          data-testid="input-cli-remote-host"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Port
+                        </label>
+                        <input
+                          type="number"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          placeholder="4096"
+                          min={1}
+                          max={65535}
+                          value={cliRemotePort}
+                          onChange={(e) => setCliRemotePort(e.target.value)}
+                          aria-label="CLI remote port"
+                          data-testid="input-cli-remote-port"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Username (optional)
+                        </label>
+                        <input
+                          type="text"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          value={cliRemoteUsername}
+                          onChange={(e) => setCliRemoteUsername(e.target.value)}
+                          aria-label="CLI remote username"
+                          data-testid="input-cli-remote-username"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-base-content/80">
+                          Auth env (optional)
+                        </label>
+                        <input
+                          type="text"
+                          className="input input-sm input-bordered w-full font-mono text-xs"
+                          placeholder="OPENCODE_SERVER_PASSWORD"
+                          value={cliRemoteAuthEnv}
+                          onChange={(e) => setCliRemoteAuthEnv(e.target.value)}
+                          aria-label="CLI remote auth env"
+                          data-testid="input-cli-remote-auth-env"
+                        />
+                      </div>
+                    </div>
+                  </fieldset>
+                ) : null}
               </>
             ) : null}
 
@@ -1214,6 +1475,7 @@ ${folderComment}`
               </Button>
             </div>
           </form>
+        </div>
         </div>
       </div>
     </Modal>

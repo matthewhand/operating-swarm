@@ -189,3 +189,88 @@ def test_persist_default_picker_writes_existing_settings_key(tmp_path: Path):
     assert raw["settings"]["task_llm_profiles"]["auxiliary"] == "gpt-4o-mini"
     assert cfg["settings"]["default_llm_profile"] == "gpt-5.6-terra"
     assert "sk-" not in path.read_text(encoding="utf-8")
+
+
+# ------------------------------------------------- REQ-853 / #207 default readiness
+
+
+def _llm_config(profile: dict) -> dict:
+    return {"settings": {}, "llm": {"default": profile}}
+
+
+def test_default_llm_ready_true_for_literal_profile(monkeypatch):
+    monkeypatch.setenv("TEST_LLM_KEY_207", "sk-test")
+    config = _llm_config(
+        {"provider": "openai", "model": "gpt-4o-mini", "api_key": "${TEST_LLM_KEY_207}"}
+    )
+    payload = settings_public_payload(config)
+    assert payload["default_llm_ready"] is True
+    # No secret values leak through the new flag.
+    assert "sk-test" not in json.dumps(payload)
+
+
+def test_default_llm_ready_false_when_key_env_missing(monkeypatch):
+    monkeypatch.delenv("TEST_LLM_KEY_207_ABSENT", raising=False)
+    config = _llm_config(
+        {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "api_key": "${TEST_LLM_KEY_207_ABSENT}",
+        }
+    )
+    payload = settings_public_payload(config)
+    assert payload["default_llm_ready"] is False
+
+
+def test_default_llm_ready_false_when_no_key_and_no_base_url():
+    config = _llm_config({"provider": "openai", "model": "gpt-4o-mini"})
+    assert settings_public_payload(config)["default_llm_ready"] is False
+
+
+def test_default_llm_ready_true_with_custom_base_url_only():
+    config = _llm_config(
+        {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "base_url": "http://litellm.internal:8000",
+        }
+    )
+    assert settings_public_payload(config)["default_llm_ready"] is True
+
+
+def test_default_llm_ready_false_when_base_url_env_unresolvable(monkeypatch):
+    monkeypatch.delenv("TEST_LLM_URL_207_ABSENT", raising=False)
+    config = _llm_config(
+        {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "base_url": "${TEST_LLM_URL_207_ABSENT}",
+        }
+    )
+    assert settings_public_payload(config)["default_llm_ready"] is False
+
+
+def test_default_llm_ready_true_with_resolvable_model_template(monkeypatch):
+    monkeypatch.setenv("TEST_LLM_MODEL_207", "gpt-4o-mini")
+    config = _llm_config(
+        {"provider": "openai", "model": "${TEST_LLM_MODEL_207}", "api_key": "sk-literal"}
+    )
+    assert settings_public_payload(config)["default_llm_ready"] is True
+
+
+def test_default_llm_ready_unresolved_default_profile_stays_true():
+    """Unknown default id mirrors runtime: literal-id fallback, different error path."""
+    config = {"settings": {"default_llm_profile": "does-not-exist"}, "llm": {}}
+    assert settings_public_payload(config)["default_llm_ready"] is True
+
+
+def test_default_llm_ready_env_template_default_fallback(monkeypatch):
+    monkeypatch.delenv("TEST_LLM_KEY_207_ABSENT", raising=False)
+    config = _llm_config(
+        {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "api_key": "${TEST_LLM_KEY_207_ABSENT:-sk-fallback}",
+        }
+    )
+    assert settings_public_payload(config)["default_llm_ready"] is True

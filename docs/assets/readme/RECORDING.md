@@ -27,7 +27,7 @@
 - **No `:8001`** — use local `docker compose` at `localhost:8000` unless capture host is explicitly approved. Do not show Neon or any cloud DB in frame
 
 ### Slot 1: CLI agents
-**Command:** `uv run swarm-cli cli-agents --init --write --check-auth`
+**Command:** `uv run os cli-agents --init --write --check-auth`
 **Show:** Agent discovery, list, and `swarm-cli launch cli_agent --message "What CLIs can you see?"`
 
 ### Slot 2: API agents
@@ -75,6 +75,9 @@ ls -lh *.gif
 - [ ] Commit with message: `docs(readme): REQ-97b live demo GIFs for CLI/API/Remote/Combined slots`
 
 ---
+
+Live SPA recapture (this tree): `uv run python scripts/record_readme_demos.py`
+writes `assets/readme/{cli,api,remote}-agents.gif` and `combined-team.gif`.
 
 ## Regeneration from open-swarm Captures
 

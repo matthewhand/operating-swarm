@@ -2,7 +2,12 @@
 
 Exposes the ``application`` referenced by ``settings.ASGI_APPLICATION``:
 
-- ``http``      -> the regular Django ASGI application
+- ``http``      -> Django ASGI. Static is served by
+  ``whitenoise.middleware.WhiteNoiseMiddleware`` (see ``settings.MIDDLEWARE``),
+  which works with ``DEBUG=false`` as well as in development — so uvicorn
+  answers ``/static/*.css`` whether or not a proxy sits in front of it.
+  Before #423 this branch was wrapped in ``ASGIStaticFilesHandler`` only when
+  ``DEBUG``, which left production with a Django 404 HTML page for every asset.
 - ``websocket`` -> Channels routing for the chat consumer, wrapped in
   ``SwarmWebsocketOriginValidator`` (same-origin LAN Host/Origin, plus
   concrete ALLOWED_HOSTS; cross-site Origins are denied even when ``*``
@@ -16,6 +21,10 @@ Run it with any ASGI server, e.g.::
 
 ``manage.py runserver`` also serves it (including /ws/ routes) because
 ``daphne`` is registered in ``INSTALLED_APPS``.
+
+``build_application()`` builds a fresh stack; the module-level ``application``
+is one such stack. Tests use the factory to exercise the app under settings
+(``DEBUG``, ``STATIC_ROOT``) the single module-level instance cannot take on.
 """
 
 import os
@@ -27,7 +36,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "swarm.settings")
 # Initialise Django (apps/settings) *before* importing anything that touches
 # the ORM or settings — swarm.routing imports the chat consumer, which
 # imports models.
-django_asgi_app = get_asgi_application()
+get_asgi_application()
 
 from channels.auth import AuthMiddlewareStack  # noqa: E402
 from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
@@ -35,11 +44,23 @@ from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
 from swarm.routing import websocket_urlpatterns  # noqa: E402
 from swarm.ws_origin import SwarmWebsocketOriginValidator  # noqa: E402
 
-application = ProtocolTypeRouter(
-    {
-        "http": django_asgi_app,
-        "websocket": SwarmWebsocketOriginValidator(
-            AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
-        ),
-    }
-)
+
+def build_application() -> ProtocolTypeRouter:
+    """Build the http + websocket ASGI stack.
+
+    A fresh Django ASGI handler is created per call, which is what makes the
+    result reflect the settings in force *now* — ``ASGIHandler.__init__`` is
+    where the middleware chain (and therefore WhiteNoise's view of DEBUG and
+    STATIC_ROOT) is resolved.
+    """
+    return ProtocolTypeRouter(
+        {
+            "http": get_asgi_application(),
+            "websocket": SwarmWebsocketOriginValidator(
+                AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
+            ),
+        }
+    )
+
+
+application = build_application()

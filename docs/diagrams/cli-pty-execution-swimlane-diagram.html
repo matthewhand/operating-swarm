@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Swarm · CLI PTY Execution &amp; Streaming Swimlane</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1060px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Swimlane · Open Swarm</p>
+    <h1>CLI PTY Execution &amp; Bidirectional Stream Transport</h1>
+
+    <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="cli-swimlane-title cli-swimlane-desc">
+      <title id="cli-swimlane-title">CLI PTY Execution &amp; Bidirectional Stream Transport</title>
+      <desc id="cli-swimlane-desc">Cross-functional swimlane diagram tracking data flow and lifecycle across WebUI, WebSocket Gateway, PTY Session Manager, and Native CLI Subprocesses.</desc>
+      <defs>
+        <pattern id="grid-dots-cli" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.08)"/>
+        </pattern>
+        <marker id="arrow-cli" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="arrow-cli-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#grid-dots-cli)" opacity="0.6"/>
+
+      <!-- 4 Horizontal Swimlanes -->
+      <!-- Lane 1: WebUI Frontend -->
+      <rect x="20" y="20" width="960" height="120" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.15)" stroke-width="1"/>
+      <rect x="20" y="20" width="160" height="120" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+      <text x="36" y="70" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">WebUI Frontend</text>
+      <text x="36" y="88" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">React / Xterm.js</text>
+
+      <!-- Lane 2: WebSocket & ASGI -->
+      <rect x="20" y="155" width="960" height="120" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.15)" stroke-width="1"/>
+      <rect x="20" y="155" width="160" height="120" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+      <text x="36" y="205" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">ASGI Gateway</text>
+      <text x="36" y="223" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Channels /ws/cli-sessions</text>
+
+      <!-- Lane 3: PTY Session Manager (Focal) -->
+      <rect x="20" y="290" width="960" height="130" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.15)" stroke-width="1"/>
+      <rect x="20" y="290" width="160" height="130" rx="8" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+      <text x="36" y="345" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">PTY Manager</text>
+      <text x="36" y="363" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">pty.fork &amp; Worker IO</text>
+
+      <!-- Lane 4: Native CLI Runtime -->
+      <rect x="20" y="435" width="960" height="120" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.15)" stroke-width="1"/>
+      <rect x="20" y="435" width="160" height="120" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+      <text x="36" y="485" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="14" font-weight="600">CLI Runtimes</text>
+      <text x="36" y="503" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">agy | grok | codex</text>
+
+      <!-- Steps across time (Left to Right) -->
+      <!-- Step 1: Attach & Connect -->
+      <g transform="translate(200, 48)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">1. Mount Seat &amp; Connect</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">ws.connect(?agent=grok)</text>
+      </g>
+
+      <g transform="translate(200, 183)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">2. Route WebSocket</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">CliSessionConsumer.bind</text>
+      </g>
+
+      <g transform="translate(200, 323)">
+        <rect width="175" height="64" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">3. Fork Master PTY</text>
+        <text x="12" y="44" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">pid, fd = pty.fork()</text>
+      </g>
+
+      <g transform="translate(200, 463)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">4. Exec Binary</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">execvp("grok", ["-i"])</text>
+      </g>
+
+      <!-- Step 2: Input & Resize -->
+      <g transform="translate(430, 48)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">5. Keystroke / Resize</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">send({"type":"stdin"})</text>
+      </g>
+
+      <g transform="translate(430, 183)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">6. Frame Parser</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">io_chunk validation</text>
+      </g>
+
+      <g transform="translate(430, 323)">
+        <rect width="175" height="64" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">7. Write Master FD</text>
+        <text x="12" y="44" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">os.write(master_fd, data)</text>
+      </g>
+
+      <!-- Step 3: Stream Output & Detach -->
+      <g transform="translate(680, 463)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">8. Process Emits ANSI</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">stdout / escape sequences</text>
+      </g>
+
+      <g transform="translate(680, 323)">
+        <rect width="185" height="64" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">9. Async Reader Thread</text>
+        <text x="12" y="44" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="10">select() &amp; ring-buffer cache</text>
+      </g>
+
+      <g transform="translate(680, 183)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">10. Push WS Event</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">{"type":"stdout", "chunk"}</text>
+      </g>
+
+      <g transform="translate(680, 48)">
+        <rect width="160" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">11. Render Terminal</text>
+        <text x="12" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">xterm.write(chunk)</text>
+      </g>
+
+      <!-- Connections: Step 1 Initiation -->
+      <line x1="280" y1="112" x2="280" y2="177" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-cli-accent)"/>
+      <line x1="280" y1="247" x2="280" y2="317" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-cli-accent)"/>
+      <line x1="280" y1="387" x2="280" y2="457" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-cli-accent)"/>
+
+      <!-- Connections: Step 2 Input Downward -->
+      <line x1="510" y1="112" x2="510" y2="177" stroke="#bfc0c0" stroke-width="1.5" marker-end="url(#arrow-cli)"/>
+      <line x1="510" y1="247" x2="510" y2="317" stroke="#bfc0c0" stroke-width="1.5" marker-end="url(#arrow-cli)"/>
+      <line x1="517" y1="387" x2="517" y2="457" stroke="#bfc0c0" stroke-dasharray="3,3" stroke-width="1.5" marker-end="url(#arrow-cli)"/>
+
+      <!-- Connections: Step 3 Output Upward (Coral Return Stream) -->
+      <line x1="760" y1="463" x2="760" y2="393" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-cli-accent)"/>
+      <line x1="760" y1="323" x2="760" y2="253" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-cli-accent)"/>
+      <line x1="760" y1="183" x2="760" y2="118" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-cli-accent)"/>
+
+      <!-- Session Persistence / Detach Note -->
+      <g transform="translate(860, 310)">
+        <rect width="110" height="90" rx="4" fill="rgba(240,138,89,0.08)" stroke="#f08a59" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="10" y="24" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" font-weight="600">SEAT SURVIVES</text>
+        <text x="10" y="42" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10">Worker stays alive</text>
+        <text x="10" y="58" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10">when WS detaches.</text>
+        <text x="10" y="74" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">Reattaches on tab</text>
+      </g>
+
+      <!-- Footer Legend -->
+      <g transform="translate(20, 580)">
+        <line x1="16" y1="14" x2="52" y2="14" stroke="#f08a59" stroke-width="2" marker-end="url(#arrow-cli-accent)"/>
+        <text x="64" y="18" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="500">Active IO Stream (Pty Lifecycle &amp; Output)</text>
+
+        <line x1="380" y1="14" x2="416" y2="14" stroke="#bfc0c0" stroke-width="1.5" marker-end="url(#arrow-cli)"/>
+        <text x="428" y="18" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Client input &amp; window resize payload</text>
+
+        <rect x="720" y="6" width="16" height="16" rx="3" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="746" y="18" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11">Core PTY Host Engine</text>
+      </g>
+    </svg>
+  </div>
+</body>
+</html>

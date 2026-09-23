@@ -27,8 +27,9 @@ from swarm.core.support_context import (
 )
 from swarm.core.support_nl_blueprint import (
     create_nl_blueprint,
+    nl_create_or_socratic,
+    synthesize_from_roster_payload,
     wants_code_reveal,
-    wants_nl_create,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,11 +43,17 @@ Goals:
 - Guide the open-swarm journey in natural language + kickstart chips
   (Create a team, Create a BA → Engineer → Tester workflow, Add a remote,
   Wire a CLI) — not a form maze.
-- Happy path: when they ask to create a team or workflow, call
-  create_blueprint_from_nl. They do **not** write Python. Do **not** dump
-  a ```python fence unless they ask to view / edit code.
+- Happy path: underspecified “create a team” → one Socratic ```question
+  (purpose/shape). Read get_quickstart(section="team") and list_create_paths
+  (ADR-005 kind bases) before drafting. Specified asks (BA → Engineer →
+  Tester, skeptic loop) may draft immediately. Call create_blueprint_from_nl
+  only after you know the shape — it returns a **draft** card, not a rail
+  seat. They do **not** write Python. Do **not** dump a ```python fence
+  unless they ask to view / edit code.
+- The card CTAs are **Add as agent** (rail) and **Save as blueprint**
+  (library). Do not tell them to Open in chat.
 - Under the hood a team is a Python ApiKindBase class (ADR-005). Say that
-  briefly. Code stays hidden; the UI offers View / edit code.
+  briefly. Code stays hidden; the UI offers View code.
 - Help them create a local team: personas, optional Chief of Staff (CoS).
 - Power-user path only: if they ask to write or see the Python, consult
   blueprint_coder and show a fenced ```python block (ApiKindBase /
@@ -61,7 +68,8 @@ Goals:
   overlay /profiles/ — never invent credentials, ports, or a live host.
 
 Tools:
-- create_blueprint_from_nl: persist a usable team/workflow from NL (no user Python).
+- create_blueprint_from_nl: draft a team/workflow from NL (no user Python;
+  persist is Add as agent / Save as blueprint on the card).
 - get_live_context: current agents + inference status.
 - get_quickstart: existing quickstart excerpts (inference / team / blueprint / run).
 - list_create_paths: in-product paths to create agents, blueprints, and teams.
@@ -145,6 +153,39 @@ def _function_tool(fn):
         return fn
 
 
+def build_create_blueprint_tool():
+    """#750: the create_blueprint tool handler, unwrapped for direct testing.
+
+    The coordinator registers ``_create_blueprint_from_json`` (below) as the
+    LLM-facing tool; tests call this raw handler with a parsed payload dict.
+    """
+    return synthesize_from_roster_payload
+
+
+@_function_tool
+def _create_blueprint_from_json(spec_json: str) -> str:
+    """Create a team blueprint from the discussion's design.
+
+    Pass a JSON object: {"title": str, "description": str,
+    "roster": [{"name": str, "instructions": str}],
+    "edges": [["<member name>", "<member name>"]]}.
+    Edges must reference roster names; a sequential chain reads
+    [[A, B], [B, C]]. This validates the design, generates the ApiKindBase
+    class, persists the seat so it is immediately usable in chat, and
+    returns the confirmation card with its /chat link. You never write
+    Python — design the roster and graph from what the user asked for.
+    """
+    import json
+
+    try:
+        payload = json.loads(spec_json)
+    except Exception:
+        return "Error: spec_json must be valid JSON."
+    if not isinstance(payload, dict):
+        return "Error: spec_json must be a JSON object with title/roster/edges."
+    return synthesize_from_roster_payload(payload)
+
+
 @_function_tool
 def get_live_context() -> str:
     """Current agents list and whether inference is configured. No secrets."""
@@ -174,9 +215,63 @@ def list_create_paths() -> str:
 
 @_function_tool
 def create_blueprint_from_nl(request: str) -> str:
-    """Create a usable team/workflow from natural language. User does not write Python."""
-    created = create_nl_blueprint(request)
+    """Draft a team/workflow from natural language. User does not write Python.
+
+    Does not persist. The chat card offers Add as agent / Save as blueprint.
+    """
+    created = create_nl_blueprint(request, persist=False)
     return created.user_reply(include_code_fence=False)
+
+
+@_function_tool
+def list_config_targets() -> str:
+    """Survey every configurable domain: providers, settings, MCP servers,
+    teams, blueprints. Read-only; secret values redacted to env-var names.
+    Call this before update_config to discover target ids.
+    """
+    from swarm.core.support_config import list_config_targets as _list
+
+    return _list()
+
+
+@_function_tool
+def update_config_tool(domain: str, target_id: str, patch_json: str) -> str:
+    """Apply a configuration write in one of the listed domains.
+
+    Args:
+        domain: "provider" | "settings" | "mcp_servers" | "teams" | "blueprints".
+        target_id: Profile name, setting key, server id, team or blueprint id.
+        patch_json: JSON object of fields to merge, e.g.
+            {"base_url": "https://api.example.com/v1", "model": "gpt-5-mini"}.
+            For settings, {"value": <any>}.
+
+    Writes that touch the ACTIVE provider powering this session are
+    intercepted: they return a denial explaining the approval requirement
+    instead of executing. Never claim a write succeeded when the result
+    reports denied or an error.
+    """
+    import json as _json
+
+    try:
+        patch = _json.loads(patch_json)
+    except Exception:
+        return "Error: patch_json must be valid JSON."
+    if not isinstance(patch, dict):
+        return "Error: patch_json must be a JSON object."
+    from swarm.core.support_config import (
+        active_provider_descriptor,
+    )
+    from swarm.core.support_config import (
+        update_config as _update,
+    )
+
+    result = _update(
+        domain=domain,
+        target_id=target_id,
+        patch=patch,
+        active=active_provider_descriptor(),
+    )
+    return _json.dumps(result, indent=2, default=str)
 
 
 class SupportBlueprint(BlueprintBase):
@@ -199,11 +294,29 @@ class SupportBlueprint(BlueprintBase):
         self._params = dict(params or {})
 
     def system_prompt(self, messages: list[dict[str, Any]] | None = None) -> str:
-        """Skill-injected system/prompt for this turn (includes the fixture)."""
+        """Skill-injected system/prompt for this turn (includes the fixture).
+
+        #854: appends the self-preservation directives and the active
+        inference identifier so Support always knows which provider this
+        session runs on — and what modifying it would do.
+        """
         params = getattr(self, "_params", {}) or {}
         session_kind = resolve_session_kind(params, messages)
         live = model_context_block(live_context())
-        return support_turn_context(session_kind, live)
+        base = support_turn_context(session_kind, live)
+        try:
+            from swarm.core.support_config import (
+                SELF_PRESERVATION_DIRECTIVES,
+                active_inference_identifier,
+            )
+
+            return (
+                f"{base}\n\n{SELF_PRESERVATION_DIRECTIVES}"
+                f"\n\n{active_inference_identifier(self)}"
+            )
+        except Exception:  # pragma: no cover - guardrail block is additive
+            logger.debug("support_config block unavailable", exc_info=True)
+            return base
 
     def create_starting_agent(self, mcp_servers=None):  # noqa: ARG002
         """Coordinator + as_tool specialists (no Grok/OMB/Rakazo seats)."""
@@ -225,6 +338,8 @@ class SupportBlueprint(BlueprintBase):
             get_quickstart,
             list_create_paths,
             create_blueprint_from_nl,
+            list_config_targets,
+            update_config_tool,
         ]
         coordinator = Agent(
             name="Support",
@@ -253,15 +368,33 @@ class SupportBlueprint(BlueprintBase):
                         ),
                     )
                 )
+            # #750: the LLM designs teams from the discussion itself — this
+            # tool executes the design (validate → generate → persist).
+            try:
+                coordinator.tools.append(_create_blueprint_from_json)
+            except Exception as exc:  # pragma: no cover
+                logger.debug("create_blueprint tool wiring skipped: %s", exc)
         except Exception as exc:  # pragma: no cover
             logger.debug("Support as_tool wiring skipped: %s", exc)
         return coordinator
 
-    def _deterministic_reply(self, user_text: str, session_kind: str = "api") -> str:
+    def _deterministic_reply(
+        self,
+        user_text: str,
+        session_kind: str = "api",
+        messages: list[dict[str, Any]] | None = None,
+    ) -> str:
         if session_kind in ("cli", "remote"):
             return support_turn_reply(None, session_kind)
         if not user_text:
             return create_paths_markdown()
+        designed = nl_create_or_socratic(
+            user_text,
+            messages,
+            include_code_fence=wants_code_reveal(user_text),
+        )
+        if designed:
+            return designed
         lowered = user_text.lower()
         parts = [user_text]
         if "create a team" in lowered or "first team" in lowered:
@@ -292,9 +425,6 @@ class SupportBlueprint(BlueprintBase):
                     "Open Swarm — no click-to-edit.",
                 ]
             )
-        if wants_nl_create(user_text):
-            created = create_nl_blueprint(user_text)
-            return created.user_reply(include_code_fence=wants_code_reveal(user_text))
         if wants_code_reveal(user_text) or any(
             word in lowered for word in ("blueprint", "code", "python", "write")
         ):
@@ -309,7 +439,8 @@ class SupportBlueprint(BlueprintBase):
         # Chat-load / empty turn and test mode never hit a live model.
         if os.environ.get("SWARM_TEST_MODE") or not user_text:
             yield fusion.message_chunk(
-                self._deterministic_reply(user_text, session_kind), final=True
+                self._deterministic_reply(user_text, session_kind, messages),
+                final=True,
             )
             return
 
@@ -329,5 +460,5 @@ class SupportBlueprint(BlueprintBase):
             yield fusion.message_chunk(text, final=True)
         except Exception as exc:
             logger.warning("Support LLM path failed; falling back to welcome: %s", exc)
-            fallback = self._deterministic_reply(user_text, session_kind)
+            fallback = self._deterministic_reply(user_text, session_kind, messages)
             yield fusion.message_chunk(fallback, final=True)

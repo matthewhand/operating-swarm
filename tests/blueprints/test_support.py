@@ -81,6 +81,9 @@ def test_support_instructions_cover_the_journey():
     assert "wire a cli" in lowered
     assert "SUPPORT_NL_BLUEPRINT_NO_USER_PYTHON" in text
     assert "create_blueprint_from_nl" in text
+    assert "socratic" in lowered or "```question" in lowered
+    assert "add as agent" in lowered
+    assert "save as blueprint" in lowered
     assert "chief of staff" in lowered
     assert "hermes" in lowered
     assert "openmousbot" in lowered
@@ -93,10 +96,10 @@ async def test_journey_prompts_include_honest_hints():
     bp = SupportBlueprint(blueprint_id="support")
     team = await _collect(bp.run([{"role": "user", "content": "Create a team"}]))
     team_text = _final_content(team)
-    assert "you did not write python" in team_text.lower()
-    assert "```swarm-nl-blueprint" in team_text
+    assert "```question" in team_text
+    assert "team-purpose" in team_text
+    assert "```swarm-nl-blueprint" not in team_text
     assert "```python" not in team_text
-    assert "View / edit code" in team_text
     assert "Chief of Staff" in SUPPORT_INSTRUCTIONS or "Chief of Staff" in team_text
     remote = await _collect(bp.run([{"role": "user", "content": "Add a remote"}]))
     remote_text = _final_content(remote)
@@ -126,6 +129,10 @@ async def test_ba_eng_tester_nl_create_hides_python():
     assert "```swarm-nl-blueprint" in text
     assert "```python" not in text
     assert '"userWrotePython": false' in text
+    assert '"persisted": false' in text
+    assert "Add as agent" in text
+    assert "Save as blueprint" in text
+    assert "Open in chat" not in text
     assert "ba" in text and "engineer" in text and "tester" in text
 
 
@@ -147,7 +154,8 @@ def test_skill_is_discoverable_and_carries_fixture():
     assert "ONBOARD_JOURNEY_CLI_API_REMOTE" in skill.instructions
     assert "create a team" in skill.instructions.lower()
     assert "engineer" in skill.instructions.lower()
-    assert "view / edit code" in skill.instructions.lower()
+    # #879 renamed the label to 'View code' (authority: PR #879 / #735).
+    assert "view code" in skill.instructions.lower()
     assert "add a remote" in skill.instructions.lower()
     assert "wire a cli" in skill.instructions.lower()
     assert "SUPPORT_NL_BLUEPRINT_NO_USER_PYTHON" in skill.instructions
