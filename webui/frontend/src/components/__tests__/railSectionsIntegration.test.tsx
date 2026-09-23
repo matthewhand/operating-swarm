@@ -99,7 +99,8 @@ function mockFetch() {
 }
 
 function renderRail() {
-  window.innerWidth = 1920
+  // #1098: defineProperty — innerWidth is a getter-only accessor here.
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1920 })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>

@@ -33,6 +33,10 @@ export interface AgentSidebarProps {
   onPick?: () => void
   onOpenSearch?: () => void
   blueprints?: Blueprint[]
+  /** #1073: tablet tier pinned in-flow — no backdrop, X hidden, no auto-dismiss. */
+  tabletDocked?: boolean
+  /** #1073: toggle for the tablet pin button in the drawer header. */
+  onToggleTabletDock?: () => void
 }
 
 export interface ContextMenuState {

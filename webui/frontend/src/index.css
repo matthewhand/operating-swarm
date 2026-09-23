@@ -383,6 +383,18 @@ html:not([data-theme="light"]) .os-composer-wrap,
   }
 }
 
+/* #1073: a pinned tablet rail renders as in-flow chrome, like desktop:
+   no overlay backdrop, no translate, and it participates in the flex row
+   so the chat area shares the width instead of being covered. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .os-agent-sidebar--tablet-docked {
+    position: static;
+    transform: none;
+    transition: none;
+    box-shadow: none;
+  }
+}
+
 /* REQ-116: Left rail resizer affordance */
 .os-rail-resizer {
   position: absolute;

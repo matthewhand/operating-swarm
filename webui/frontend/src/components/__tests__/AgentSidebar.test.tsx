@@ -321,13 +321,11 @@ function renderSidebar(
   onOpenSearch = () => undefined,
   viewportWidth?: number,
 ) {
-  if (viewportWidth !== undefined) {
-    window.innerWidth = viewportWidth
-  } else if (window.innerWidth === 1024) {
-    // jsdom defaults to 1024 (a laptop viewport <= 1440).
-    // Desktop integration suites test against the standard 1920px desktop view unless overridden.
-    window.innerWidth = 1920
-  }
+  // #1098: innerWidth is a getter-only accessor here; bare assignment throws
+  // 'read only' once any test has redefined it via defineProperty. Always go
+  // through defineProperty (configurable so later resets keep working).
+  const desired = viewportWidth ?? (window.innerWidth === 1024 ? 1920 : window.innerWidth)
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: desired })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -2708,12 +2706,18 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
     expect(rail).toHaveClass('os-agent-sidebar--avatar-only')
   })
 
-  it('defaults to avatar-only mode on laptop viewports (<= 1440px) when not configured in localStorage (#1083)', async () => {
+  it('defaults to a compact (non-avatar-only) rail on laptop viewports (<= 1440px) when not configured (#1083, adjusted by #1098)', async () => {
+    // #1083 originally asserted avatar-only here, but that floor (68px) sits
+    // below AVATAR_ONLY_THRESHOLD (96) — avatar-only CSS hides section
+    // headers/labels, which made the #1094 Subagents section unreachable for
+    // real laptop users. The laptop default is now the threshold+1 compact
+    // rail: same narrow footprint, headers and labels intact.
     renderSidebar('/chat?narrow=false', undefined, 1280)
     const rail = await screen.findByTestId('os-agent-rail')
-    expect(rail).toHaveAttribute('data-avatar-only', 'true')
-    expect(rail).toHaveClass('os-agent-sidebar--avatar-only')
-    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+    expect(rail).toHaveAttribute('data-avatar-only', 'false')
+    expect(rail).not.toHaveClass('os-agent-sidebar--avatar-only')
+    // still compact: the width persisted below is the small laptop default
+    expect(Number(localStorage.getItem('swarm_rail_width'))).toBeLessThanOrEqual(1280 * 0.45)
   })
 
   it('defaults to expanded mode on desktop viewports (> 1440px) when not configured in localStorage (#1083)', async () => {

@@ -21,47 +21,16 @@ afterEach(() => {
     resetRemotesFetchCacheForTests()
 })
 
-// #1098: some Node + jsdom combinations ship `window.innerWidth` (and its
-// innerHeight/outerWidth/outerHeight siblings) as getter-only accessors, so
-// the widespread test idiom `window.innerWidth = N` throws
-// "Cannot assign to read only property" and dozens of suites fail for
-// environment reasons, not code reasons. Normalizing via defineProperty here
-// makes every viewport assignment in the suite legal again; a test that
-// defineProperty'd a custom value still wins (configurable: true).
-if (typeof window !== 'undefined') {
-    for (const prop of ['innerWidth', 'innerHeight', 'outerWidth', 'outerHeight'] as const) {
-        // The getter-only accessor may be an own property of `window` or live on
-        // its prototype chain — find it wherever it is, then shadow it with an
-        // own, writable, configurable data property on `window` itself.
-        let holder: object | null = window
-        while (holder && !Object.getOwnPropertyDescriptor(holder, prop)) {
-            holder = Object.getPrototypeOf(holder)
-        }
-        if (!holder) continue
-        const desc = Object.getOwnPropertyDescriptor(holder, prop)
-        const current = (window as unknown as Record<typeof prop, number>)[prop]
-        if (!desc || (desc.configurable === false && !('value' in desc))) continue
-        Object.defineProperty(window, prop, {
-            configurable: true,
-            writable: true,
-            value: current,
-        })
-    }
-}
-
 afterEach(() => {
     resetChatConnection();
     resetExpectedSpaVersion();
     resetGithubReleaseCache();
     setBakedSpaVersionForTests(null);
     if (typeof window !== 'undefined') {
-        // #1098: a bare assignment throws on getter-only innerWidth accessors
-        // (jsdom/Node combos + tests that defineProperty'd it). defineProperty
-        // works in both cases.
-        Object.defineProperty(window, 'innerWidth', {
-            configurable: true,
-            value: 1024,
-        });
+        // #1098: innerWidth is a getter-only accessor in this jsdom/Node pair.
+        // defineProperty survives tests that redefined it (clamp/viewport
+        // tests) where a bare assignment throws 'read only'.
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
     }
 });
 

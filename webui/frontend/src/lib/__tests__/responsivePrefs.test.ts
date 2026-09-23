@@ -10,6 +10,12 @@
  */
 import { renderHook, act } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// #1098: innerWidth is a getter-only accessor in this jsdom/Node pair; bare
+// assignment throws once anything redefines it. Always defineProperty.
+function setInnerWidth(px: number) {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: px })
+}
 import {
   DEFAULT_ACTIONS_ALWAYS_VISIBLE,
   DEFAULT_SIDEPANE_PLACEMENT,
@@ -35,17 +41,17 @@ describe('#833 — viewport tier detection', () => {
     const { result } = renderHook(() => useViewportTier())
     expect(result.current).toBe('desktop') // jsdom default 1024
     act(() => {
-      window.innerWidth = 390
+      setInnerWidth(390)
       window.dispatchEvent(new Event('resize'))
     })
     expect(result.current).toBe('mobile')
     act(() => {
-      window.innerWidth = 768
+      setInnerWidth(768)
       window.dispatchEvent(new Event('resize'))
     })
     expect(result.current).toBe('tablet')
     act(() => {
-      window.innerWidth = 1440
+      setInnerWidth(1440)
       window.dispatchEvent(new Event('resize'))
     })
     expect(result.current).toBe('desktop')
@@ -57,7 +63,7 @@ describe('#833 — viewport tier detection', () => {
     )
     expect(result.current).toBe(false) // desktop default: hover-reveal
     act(() => {
-      window.innerWidth = 390
+      setInnerWidth(390)
       window.dispatchEvent(new Event('resize'))
     })
     expect(result.current).toBe(true) // mobile: always visible
@@ -82,7 +88,7 @@ describe('#833 — viewport tier detection', () => {
   })
 
   afterEach(() => {
-    window.innerWidth = 1024
+    setInnerWidth(1024)
     vi.restoreAllMocks()
   })
 })

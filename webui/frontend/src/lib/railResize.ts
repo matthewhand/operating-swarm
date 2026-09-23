@@ -25,7 +25,13 @@ export const LAPTOP_MAX_WIDTH = 1440
 
 export function defaultRailWidth(viewportWidth?: number): number {
   if (typeof viewportWidth === 'number' && viewportWidth > 0 && viewportWidth <= LAPTOP_MAX_WIDTH) {
-    return MIN_RAIL_WIDTH
+    // #1083 regression guard (#1098): MIN_RAIL_WIDTH (68) is below
+    // AVATAR_ONLY_THRESHOLD (96), so a laptop default *is* avatar-only mode
+    // and avatar-only CSS hides every section header — the #1094 Dynamic
+    // Subagents header disappeared for real users on laptops, not just
+    // jsdom. Floor the laptop default at the threshold: still the compact
+    // rail, but with headers/labels intact.
+    return Math.max(MIN_RAIL_WIDTH, AVATAR_ONLY_THRESHOLD + 1)
   }
   return DEFAULT_RAIL_WIDTH
 }

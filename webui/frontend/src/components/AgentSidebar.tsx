@@ -17,6 +17,8 @@ import {
   Plus,
   Search,
   Server,
+  Pin,
+  PinOff,
   Trash2,
   Users,
   X,
@@ -271,6 +273,8 @@ export default function AgentSidebar({
   onPick,
   onOpenSearch,
   blueprints: propBlueprints,
+  tabletDocked = false,
+  onToggleTabletDock,
 }: AgentSidebarProps) {
   const [dynamicSubagents, setDynamicSubagents] = useState<DynamicSubagent[]>(() =>
     loadDynamicSubagents(),
@@ -1719,13 +1723,16 @@ export default function AgentSidebar({
 
   return (
     <>
-      <button
-        type="button"
-        className={`fixed inset-0 z-30 bg-black/50 lg:hidden ${open ? '' : 'hidden'}`}
-        hidden={!open}
-        aria-label="Close agents sidebar"
-        onClick={onClose}
-      />
+      {/* #1073: a docked tablet rail is in-flow chrome — no overlay backdrop. */}
+      {!tabletDocked && (
+        <button
+          type="button"
+          className={`fixed inset-0 z-30 bg-black/50 lg:hidden ${open ? '' : 'hidden'}`}
+          hidden={!open}
+          aria-label="Close agents sidebar"
+          onClick={onClose}
+        />
+      )}
 
       <aside
         className={`os-agent-sidebar os-agent-sidebar--${railSide} fixed inset-y-0 ${
@@ -1737,7 +1744,7 @@ export default function AgentSidebar({
               ? 'translate-x-full'
               : '-translate-x-full'            } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''} ${
           isCollapsed ? 'os-agent-sidebar--collapsed' : ''
-        }`}
+        } ${tabletDocked ? 'os-agent-sidebar--tablet-docked' : ''}`}
         style={
           !narrow
             ? isCollapsed
@@ -1824,15 +1831,31 @@ export default function AgentSidebar({
         {/* #555: the top of the pane is content now (search, sections, rows).
             Only the narrow-overlay drawer keeps a header, and only for its
             dismiss affordance. */}
-        <div className="flex items-center justify-end gap-2 px-3 pt-3 lg:hidden">
+        {/* #1073: drawer header — X on the LEFT; the tablet pin toggle sits
+            on the RIGHT (hidden on mobile: no room to dock). Desktop hides
+            the whole header; collapse lives on the divider pill (#555). */}
+        <div className="flex items-center justify-between gap-2 px-3 pt-3 lg:hidden">
           <button
             type="button"
             className="btn btn-ghost btn-xs btn-circle lg:hidden"
             aria-label="Close agents sidebar"
+            data-testid="rail-drawer-close"
             onClick={onClose}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
+          {onToggleTabletDock ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs btn-circle hidden sm:inline-flex"
+              aria-label={tabletDocked ? 'Unpin agents sidebar' : 'Pin agents sidebar'}
+              aria-pressed={tabletDocked}
+              data-testid="rail-tablet-dock-toggle"
+              onClick={onToggleTabletDock}
+            >
+              {tabletDocked ? <PinOff className="h-4 w-4" aria-hidden="true" /> : <Pin className="h-4 w-4" aria-hidden="true" />}
+            </button>
+          ) : null}
         </div>
 
         <div className="os-rail-search-row flex items-center gap-1.5 px-3 pb-2 pt-3">
