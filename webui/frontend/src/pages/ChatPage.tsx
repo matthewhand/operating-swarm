@@ -4,6 +4,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
+  type FormEvent,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChatBottomDock } from '../features/chat/ChatBottomDock'
@@ -34,6 +36,7 @@ import {
   resolveReplyQuote,
   type CachedBubbleSelection,
 } from '../lib/bubbleSelection'
+import { buildOutboundReplyText } from '../lib/replyQuote'
 import {
   copyTextToClipboard,
   COPY_EMPTY_MESSAGE,
@@ -127,10 +130,14 @@ import { composerMenuCapabilities } from '../lib/composerMenu'
 import { applyRemoteRoutingChange } from '../lib/remoteRouting'
 import { ComposerPluginsPanel } from '../components/ComposerPluginsPanel'
 import {
+  buildSlashCatalog,
+  filterSlashItems,
   getRecentSlashIds,
 } from '../lib/slashMenu'
 import {
   EMPTY_SPEECH,
+  fetchConfigOptions,
+  fetchSkills,
   type SkillRecord,
   fetchBlueprints,
   fetchCliAgents,
@@ -196,13 +203,15 @@ import {
 
 import type { DecisionQuestion } from '../lib/decisionQuestion'
 
-import GenerationsPanel from '../components/GenerationsPanel'
+import GenerationsPanel, { type PanelToolCall } from '../components/GenerationsPanel'
 
 
 import { SuggestionChips } from '../components/SuggestionChips'
 import ConsumerPills from '../components/ConsumerPills'
 import ComposerPluginsBadge from '../components/ComposerPluginsBadge'
 
+import { isDemoMode } from '../lib/demo/mode'
+import { demoSuggestionChips } from '../lib/demo/scenarios'
 import {
   openerChatSearch,
   type PrOpenedOpener,
@@ -217,10 +226,15 @@ import {
   upsertToolCall,
   type ToolCallState,
 } from '../lib/safety'
+import { notifyGenerationComplete } from '../lib/railOrder'
 import {
+  CLI_TERMINATED_EVENT,
+  CLI_TERMINATED_STATUS,
+  cliTerminatedFromEvent,
   notifyCliRunState,
 } from '../lib/cliRunState'
 import { notifyApprovalWait } from '../lib/agentAttention'
+import { maybeNotifyAgentTurn } from '../lib/agentNotifications'
 import {
   ALL_MEMBERS_PARAM,
   ALL_MEMBERS_TARGET,
@@ -277,7 +291,6 @@ import { useChatTurnOps } from '../features/chat/useChatTurnOps'
 import { useComposerControls } from '../features/chat/useComposerControls'
 import { useTranscriptLayout } from '../features/chat/useTranscriptLayout'
 import { useChatDerived } from '../features/chat/useChatDerived'
-import { useSlashLifecycle } from '../features/chat/useSlashLifecycle'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
@@ -345,8 +358,10 @@ import {
   isAgentUnread,
   loadUnreadAgentIds,
 } from '../lib/unreadAgents'
+import { fetchAgentSuggestions, shouldShowSuggestionChips } from '../lib/suggestions'
 import {
   isSupportJourneyConsumer,
+  supportJourneyKickstart,
 } from '../lib/supportJourney'
 import {
   missingSessionNotice,
@@ -362,7 +377,9 @@ import {
 } from '../lib/cliSessionHop'
 // #636: CLI-seat compact orchestration (summary + fresh session carrying it).
 import {
+  drainHoldUntilStreamStarts,
   generationIsInFlight,
+  nextDrainableQueuedSend,
   queuedPaneMaxHeightPx,
   useQueuedSends,
 } from '../lib/chatQueue'
@@ -2267,78 +2284,6 @@ const ChatPage = () => {
     ],
   )
 
-  // #856 slice 20: slash catalog & streaming-lifecycle wiring moved
-  // verbatim to features/chat/useSlashLifecycle.ts.
-  const {
-    isSlashOpen,
-    slashQuery,
-    filteredSlashItems,
-    handleInputChange,
-    speechSettings,
-    streamingMessage,
-    isWorking,
-    seatToolCalls,
-    generationContexts,
-    chipsDisabled,
-    demoMode,
-    demoChips,
-    supportJourneyChips,
-    showSupportJourneyChips,
-    showDemoChips,
-    showSuggestionChips,
-    chooseSuggestion,
-    handleSend,
-  } = useSlashLifecycle({
-    hasSendableDraft,
-    replyTarget,
-    setReplyTarget,
-    setSkillCatalog,
-    setDynamicSkills,
-    isCliAgent,
-    currentCli,
-    selectedCli,
-    cliQueryData: cliQuery.data,
-    dynamicSkills,
-    recentSlashIds,
-    input,
-    slashDismissed,
-    composerWrapRef,
-    setInput,
-    setSlashSelectedIndex,
-    setSlashDismissed,
-    voiceBind,
-    speechQueryData: speechQuery.data,
-    plusOpen,
-    plusRef,
-    setPlusOpen,
-    setPluginsPanelOpen,
-    messages,
-    awaitingAssistant,
-    conversationId,
-    selectedAgentName,
-    status,
-    activeChatAgentId,
-    threadKey,
-    threadReady,
-    teamFromUrl,
-    selectedBlueprint,
-    useSuggestions,
-    supportSelected,
-    suggestionChips,
-    setSuggestionChips,
-    isRemoteAgent,
-    isRemoteBackedTeam,
-    queued,
-    queuedHoldIds,
-    drainLockRef,
-    streamSeenRef,
-    sendText,
-    setAwaitingAssistant,
-    setThreads,
-    conversationIdRef,
-    submitUserText,
-  })
-
   const showCliSessionRecovery =
     threadReady && !awaitingAssistant && lastTurnNeedsRecovery(messages)
   // #499: the banner's primary action opens Settings on the section that can
@@ -2372,6 +2317,265 @@ const ChatPage = () => {
     setEditingKey,
     addToast,
   })
+
+  const handleSend = (event: FormEvent) => {
+    event.preventDefault()
+    if (!hasSendableDraft) return
+    const textToSend = replyTarget
+      ? buildOutboundReplyText(replyTarget, input)
+      : input
+    submitUserText(textToSend)
+    setInput('')
+    setReplyTarget(null)
+  }
+
+  // Dynamic skills loading for slash catalog (REQ-169)
+  useEffect(() => {
+    let unmounted = false
+    void Promise.all([fetchConfigOptions(), fetchSkills().catch(() => null)])
+      .then(([opts, listed]) => {
+        if (unmounted) return
+        const rows = listed?.data?.length ? listed.data : opts?.skills || []
+        if (rows.length) {
+          setSkillCatalog(rows)
+          setDynamicSkills(rows.map((s) => ({ name: s.name, description: s.description })))
+        } else if (opts?.skills) {
+          setDynamicSkills(
+            opts.skills.map((s) => ({ name: s.name, description: s.description })),
+          )
+        }
+      })
+      .catch(() => {
+        // Silently ignore if config options endpoint is unavailable
+      })
+    return () => {
+      unmounted = true
+    }
+  }, [])
+
+  // #641: the CLI seat's own declared slash commands, straight from the
+  // cli-agents catalog (`slash_commands[<cli>]`). A non-CLI seat resolves no
+  // CLI here, so API/team/remote composers keep their existing catalog.
+  const cliSlashCommands = useMemo(() => {
+    if (!isCliAgent) return undefined
+    const cliName = currentCli || selectedCli?.cli || ''
+    if (!cliName) return undefined
+    return cliQuery.data?.slash_commands?.[cliName]
+  }, [isCliAgent, currentCli, selectedCli, cliQuery.data])
+
+  const slashCatalog = useMemo(
+    () => buildSlashCatalog(dynamicSkills, cliSlashCommands),
+    [dynamicSkills, cliSlashCommands],
+  )
+  const isSlashOpen = input.startsWith('/') && !slashDismissed
+  const slashQuery = input.startsWith('/') ? input.slice(1) : ''
+  const filteredSlashItems = useMemo(
+    () => filterSlashItems(slashCatalog, slashQuery, recentSlashIds),
+    [slashCatalog, slashQuery, recentSlashIds],
+  )
+
+  useEffect(() => {
+    setSlashSelectedIndex(0)
+  }, [slashQuery])
+
+  useEffect(() => {
+    if (!isSlashOpen) return
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      if (composerWrapRef.current && !composerWrapRef.current.contains(event.target as Node)) {
+        setSlashDismissed(true)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('touchstart', onPointerDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('touchstart', onPointerDown)
+    }
+  }, [isSlashOpen])
+
+  const handleInputChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    if (val.startsWith('/') && !input.startsWith('/')) {
+      setSlashDismissed(false)
+      setSlashSelectedIndex(0)
+    }
+    setInput(val)
+  }
+
+  const speechSettings = applyVoiceBindToSpeechSettings(
+    parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
+    voiceBind,
+  )
+
+  useEffect(() => {
+    if (!plusOpen) {
+      // #516: closing the menu returns it to the actions face.
+      setPluginsPanelOpen(false)
+      return
+    }
+    const onPointer = (event: Event) => {
+      if (plusRef.current && !plusRef.current.contains(event.target as Node)) {
+        setPlusOpen(false)
+      }
+    }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setPlusOpen(false)
+      }
+    }
+    window.addEventListener('mousedown', onPointer)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onPointer)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [plusOpen])
+
+  const streamingMessage = messages.find((message) => message.streaming)
+  const isWorking = Boolean(streamingMessage) || awaitingAssistant
+  // #224: every tool call this seat has produced in the active context.
+  const seatToolCalls = useMemo<PanelToolCall[]>(
+    () => messages.flatMap((message) => message.tools ?? []),
+    [messages],
+  )
+  const generationContexts = useMemo(
+    () =>
+      conversationId
+        ? [{ id: conversationId, label: selectedAgentName || 'Current context' }]
+        : [],
+    [conversationId, selectedAgentName],
+  )
+  const chipsDisabled = status !== 'open'
+  const demoMode = isDemoMode()
+  const demoChips = demoMode ? demoSuggestionChips() : []
+  const supportJourneyChips =
+    supportSelected && messages.length === 0 ? supportJourneyKickstart() : []
+  const showSupportJourneyChips = !demoMode && supportJourneyChips.length > 0
+  const showDemoChips = demoMode && demoChips.length > 0
+  const showSuggestionChips =
+    !demoMode &&
+    !showSupportJourneyChips &&
+    shouldShowSuggestionChips({
+      enabled: useSuggestions,
+      chips: suggestionChips,
+    })
+
+  useEffect(() => {
+    if (!useSuggestions) {
+      setSuggestionChips([])
+      return
+    }
+    if (!threadReady || isWorking || teamFromUrl) return
+    const agent = agentIdFromBlueprint(selectedBlueprint)
+    if (!agent) return
+    let cancelled = false
+    const mode = messages.length === 0 ? 'kickstart' : 'continue'
+    void fetchAgentSuggestions(agent, mode, conversationId).then((chips) => {
+      if (!cancelled && chips.length > 0) setSuggestionChips(chips)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    useSuggestions,
+    threadReady,
+    isWorking,
+    teamFromUrl,
+    selectedBlueprint,
+    messages.length,
+    threadKey,
+    conversationId,
+  ])
+
+  const chooseSuggestion = useCallback(
+    (text: string) => {
+      if (status !== 'open') return
+      submitUserText(text)
+    },
+    [status, submitUserText],
+  )
+
+  const wasStreamingRef = useRef(false)
+  useEffect(() => {
+    if (streamingMessage) {
+      wasStreamingRef.current = true
+      setAwaitingAssistant(false)
+      drainLockRef.current = false
+    } else if (wasStreamingRef.current) {
+      wasStreamingRef.current = false
+      if (activeChatAgentId) {
+        const lastAssistant = [...messages]
+          .reverse()
+          .find((message) => message.role === 'assistant' && message.text)
+        notifyGenerationComplete(activeChatAgentId, {
+          snippet: lastAssistant?.text,
+          agentName: selectedAgentName,
+        })
+        maybeNotifyAgentTurn({
+          agentId: activeChatAgentId,
+          agentName: selectedAgentName,
+          snippet: lastAssistant?.text,
+          selectedAgentId: activeChatAgentId,
+        })
+      }
+    }
+    if (activeChatAgentId) {
+      notifyCliRunState(activeChatAgentId, isWorking)
+    }
+  }, [streamingMessage, awaitingAssistant, isWorking, activeChatAgentId, messages, selectedAgentName, isCliAgent])
+
+  useEffect(() => {
+    if (generationIsInFlight(messages, awaitingAssistant) || status !== 'open') return
+    // #885: a remote seat whose harness has not streamed yet cannot be
+    // trusted to be "not in flight" — the #229 seat reset clears
+    // awaitingAssistant before the harness's first frames arrive, and
+    // draining in that gap removes the row before its pane ever renders.
+    if (
+      drainHoldUntilStreamStarts(isRemoteAgent || isRemoteBackedTeam ? 'remote' : 'api') &&
+      !streamSeenRef.current
+    ) {
+      return
+    }
+    const next = nextDrainableQueuedSend(queued.rows, queuedHoldIds)
+    if (!next || drainLockRef.current) return
+    drainLockRef.current = true
+    setAwaitingAssistant(true)
+    queued.remove(next.id)
+    if (!sendText(next.text)) {
+      drainLockRef.current = false
+      setAwaitingAssistant(false)
+      queued.restore(next)
+    }
+  }, [awaitingAssistant, messages, queued, queuedHoldIds, sendText, status, isRemoteAgent, isRemoteBackedTeam])
+
+  useEffect(() => {
+    const onTerminated = (event: Event) => {
+      const detail = cliTerminatedFromEvent(event)
+      if (!detail) return
+      const matchesAgent = detail.agentId === activeChatAgentId
+      const matchesConversation =
+        Boolean(detail.conversationId) && detail.conversationId === conversationIdRef.current
+      if (!matchesAgent && !matchesConversation) return
+      const statusMsg: ChatMessage = {
+        key: `status-terminated-${Date.now()}`,
+        role: 'status',
+        text: CLI_TERMINATED_STATUS,
+        streaming: false,
+        ts: new Date().toISOString(),
+      }
+      setThreads((prev) => {
+        const current = prev[threadKey] ?? []
+        const stopped = current.map((row) => (row.streaming ? { ...row, streaming: false } : row))
+        if (stopped.some((row) => row.role === 'status' && row.text === CLI_TERMINATED_STATUS)) {
+          return { ...prev, [threadKey]: stopped }
+        }
+        return { ...prev, [threadKey]: [...stopped, statusMsg] }
+      })
+    }
+    window.addEventListener(CLI_TERMINATED_EVENT, onTerminated)
+    return () => window.removeEventListener(CLI_TERMINATED_EVENT, onTerminated)
+  }, [activeChatAgentId, threadKey])
 
   // #856 slice 15: compact/summary turn commands moved verbatim to
   // features/chat/useChatCompact.ts.
