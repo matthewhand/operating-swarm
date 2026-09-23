@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,7 +18,6 @@ import AgentAvatar from '../components/AgentAvatar'
 import ChatMessageInput from '../components/ChatMessageInput'
 import {
   ConfirmModal,
-  TOAST_KIND_WS_DISCONNECT,
   useToast,
 } from '../components/DaisyUI'
 import ThemeToggle from '../components/ThemeToggle'
@@ -172,9 +170,6 @@ import {
 import { canEditAgentMessages, classifyAgentKind, isSwarmOwnedAgent, type AgentKind } from '../lib/agentKind'
 import {
   composerInsetCustomProperty,
-  isPinnedToTranscriptBottom,
-  measureComposerDockInset,
-  scrollTranscriptToBottom,
 } from '../lib/composerInset'
 import {
   initialComposerShowProvider,
@@ -295,6 +290,7 @@ import { useComposerCommands } from '../features/chat/useComposerCommands'
 import { useChatCompact } from '../features/chat/useChatCompact'
 import { useChatTurnOps } from '../features/chat/useChatTurnOps'
 import { useComposerControls } from '../features/chat/useComposerControls'
+import { useTranscriptLayout } from '../features/chat/useTranscriptLayout'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
@@ -359,12 +355,10 @@ import {
   effectiveUnreadWatermark,
   firstUnreadMessageKey,
 } from '../lib/chatLog'
-import { loadLastRead, saveLastRead } from '../lib/chatLastRead'
+import { loadLastRead } from '../lib/chatLastRead'
 import {
-  UNREAD_CHANGED_EVENT,
   isAgentUnread,
   loadUnreadAgentIds,
-  markAgentRead,
 } from '../lib/unreadAgents'
 import { fetchAgentSuggestions, shouldShowSuggestionChips } from '../lib/suggestions'
 import {
@@ -833,7 +827,6 @@ const ChatPage = () => {
   const queued = useQueuedSends(conversationId)
   /** Monotonic counter for collision-free user-echo keys. */
   const userKeyCounterRef = useRef(0)
-  const prevStatusRef = useRef<ConnectionStatus>('connecting')
   /** Consecutive auto-reconnect attempts since last successful open. */
   const lastUserTextRef = useRef('')
   /** Last hydrated agent or team thread; used to detect switch vs remount. */
@@ -2081,6 +2074,7 @@ const ChatPage = () => {
 
   const pinnedToBottomRef = useRef(true)
 
+
   // #856 slice 5: the WS frame dispatcher moved verbatim to
   // features/chat/useChatWsDispatcher.ts.
   const handleWsEvent = useChatWsDispatcher({
@@ -2127,6 +2121,37 @@ const ChatPage = () => {
   })
   const { reconnect } = wsControls
 
+  // #856 slice 18: transcript layout & read-state effects moved verbatim to
+  // features/chat/useTranscriptLayout.tsx.
+  const { handleTranscriptScroll, composerBusy, identityTitleRef } = useTranscriptLayout({
+    messages,
+    replyTarget,
+    input,
+    awaitingAssistant,
+    selectedAgentName,
+    workspaceSubtitle,
+    status,
+    connectAttempt,
+    authRejected,
+    signInHref,
+    seatUnread,
+    activeChatAgentId,
+    conversationId,
+    newBeforeKey,
+    bottomDockRef,
+    scrollBoxRef,
+    listEndRef,
+    composerRef,
+    pinnedToBottomRef,
+    composerInsetPx,
+    setComposerInsetPx,
+    setTranscriptHeightPx,
+    setUnreadIds,
+    addToast,
+    dismissByKind,
+    reconnect,
+  })
+
   useEffect(() => {
     handleWsEventRef.current = handleWsEvent
   })
@@ -2137,163 +2162,10 @@ const ChatPage = () => {
   }, [status])
 
 
-  const applyComposerInset = useCallback(() => {
-    const next = measureComposerDockInset(bottomDockRef.current)
-    setComposerInsetPx((prev) => (prev === next ? prev : next))
-  }, [])
-
-  useLayoutEffect(() => {
-    applyComposerInset()
-  }, [applyComposerInset, messages, replyTarget, input])
-
-  useLayoutEffect(() => {
-    const dock = bottomDockRef.current
-    if (!dock || typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(() => {
-      applyComposerInset()
-    })
-    observer.observe(dock)
-    return () => observer.disconnect()
-  }, [applyComposerInset])
-
-  useLayoutEffect(() => {
-    const box = scrollBoxRef.current
-    if (!box) return undefined
-    const apply = () => setTranscriptHeightPx(box.clientHeight)
-    apply()
-    if (typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(apply)
-    observer.observe(box)
-    return () => observer.disconnect()
-  }, [])
-
-  // #678: gate the navbar name's fade on actual truncation. The mask must
-  // not engage while the name fits — the header's other items are not greedy
-  // (shrink-0 clusters aside, the identity card owns the remaining width).
-  const identityTitleRef = useRef<HTMLHeadingElement | null>(null)
-  useLayoutEffect(() => {
-    const title = identityTitleRef.current
-    if (!title) return undefined
-    const apply = () => {
-      const clipped = title.scrollWidth > title.clientWidth
-      title.dataset.truncated = clipped ? 'true' : 'auto'
-    }
-    apply()
-    if (typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(apply)
-    observer.observe(title)
-    return () => observer.disconnect()
-  }, [selectedAgentName, workspaceSubtitle])
-
-  useEffect(() => {
-    const onUnread = () => setUnreadIds(loadUnreadAgentIds())
-    window.addEventListener(UNREAD_CHANGED_EVENT, onUnread)
-    window.addEventListener('storage', onUnread)
-    return () => {
-      window.removeEventListener(UNREAD_CHANGED_EVENT, onUnread)
-      window.removeEventListener('storage', onUnread)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (newBeforeKey) {
-      const marker = scrollBoxRef.current?.querySelector('[data-testid="chat-new-divider"]')
-      if (marker) {
-        marker.scrollIntoView({ block: 'center', inline: 'nearest' })
-        pinnedToBottomRef.current = false
-        return
-      }
-    }
-    if (pinnedToBottomRef.current) {
-      scrollTranscriptToBottom(scrollBoxRef.current, listEndRef.current)
-    }
-  }, [messages, composerInsetPx, newBeforeKey, awaitingAssistant])
-
-  useEffect(() => {
-    if (!activeChatAgentId || seatUnread) return
-    if (!pinnedToBottomRef.current) return
-    // #96: a hidden tab never counts as reading the transcript.
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-    saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
-  }, [activeChatAgentId, conversationId, messages, seatUnread])
-
-  // #96: returning to a visible tab while pinned at the bottom counts as
-  // catching up — the scroll handler alone would miss it (no scroll event).
-  useEffect(() => {
-    const onVisibility = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-      if (!pinnedToBottomRef.current || !seatUnread || !activeChatAgentId) return
-      setUnreadIds(markAgentRead(activeChatAgentId))
-      saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [seatUnread, activeChatAgentId, conversationId, messages])
-
-  // #96: unread clears only when the seat is visible AND pinned to the
-  // transcript bottom — not merely because a scroll happened.
-  const handleTranscriptScroll = useCallback(
-    (e: React.UIEvent<HTMLElement>) => {
-      const atBottom = isPinnedToTranscriptBottom(e.currentTarget, composerInsetPx)
-      pinnedToBottomRef.current = atBottom
-      if (!atBottom || !seatUnread || !activeChatAgentId) return
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      setUnreadIds(markAgentRead(activeChatAgentId))
-      saveLastRead(activeChatAgentId, conversationId, countableChatCount(messages))
-    },
-    [composerInsetPx, seatUnread, activeChatAgentId, conversationId, messages],
-  )
-
-  useEffect(() => {
-    const wasOpen = prevStatusRef.current === 'open'
-    prevStatusRef.current = status
-    if (status === 'open' && !wasOpen && connectAttempt > 0) {
-      composerRef.current?.focus()
-    }
-  }, [status, connectAttempt])
-
-
-  useEffect(() => {
-    if (status === 'open') {
-      dismissByKind(TOAST_KIND_WS_DISCONNECT)
-      return
-    }
-    if (status !== 'failed' && status !== 'closed') return
-    const title = authRejected
-      ? 'Chat unavailable — sign in required'
-      : status === 'failed'
-        ? 'Chat websocket unreachable'
-        : 'Chat disconnected'
-    const detail = authRejected
-      ? 'Live chat needs a Django session cookie. Sign in, then reconnect.'
-      : status === 'failed'
-        ? 'ASGI is not serving /ws/ or Origin does not match ALLOWED_HOSTS.'
-        : 'The chat websocket closed. Message history is kept.'
-    addToast({
-      kind: TOAST_KIND_WS_DISCONNECT,
-      type: 'error',
-      title,
-      message: (
-        <span>
-          {detail}{' '}
-          {authRejected ? (
-            <a href={signInHref} className="link">
-              Sign in
-            </a>
-          ) : null}{' '}
-          <button type="button" className="link" onClick={reconnect}>
-            Reconnect
-          </button>
-        </span>
-      ),
-      position: 'bottom-right',
-    })
-  }, [status, authRejected, signInHref, addToast, dismissByKind, reconnect])
-
   // #595: one signal for the composer's trailing controls — the Stop button
   // swaps into the microphone's slot while a turn is in flight, so the row
   // keeps a constant control count and never shifts under the pointer.
-  const composerBusy = status === 'open' && generationIsInFlight(messages, awaitingAssistant)
+
 
   // #856 slice D: attachment queue moved verbatim to features/chat/useComposerAttachments.
   const {
