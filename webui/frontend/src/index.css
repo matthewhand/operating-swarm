@@ -1384,15 +1384,18 @@ html:not([data-theme="light"]) .os-composer-wrap,
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  /* #829/#902: fixed squares. The tile must NOT derive its height from the
-     fluid `1fr` column width (aspect-ratio + stretch coupling made pinned
+  /* #829/#902: fixed-width squares. The tile must NOT derive its height from
+     the fluid `1fr` column width (ratio coupling + stretch made pinned
      tiles balloon/shrink as the rail resized). Fixed 5.25rem, centred in the
      column; `flex: 0 0 auto` keeps the row's height width-independent.
      #934: 4.5rem clipped most agent names mid-word — the square is sized
-     for its content (avatar + a two-line label) instead. */
+     for its content (avatar + a two-line label) instead.
+     #1071/#1074: 5.25rem as a hard height left only ~17.6px for a ~26.9px
+     two-line label, clipping the second line mid-glyph. min-height makes
+     the square a *floor*: single-line names keep the clean square, wrapped
+     names grow the tile to fit. */
   width: 5.25rem;
-  height: 5.25rem;
-  aspect-ratio: 1 / 1;
+  min-height: 5.25rem;
   justify-self: center;
   flex: 0 0 auto;
   padding: 0.45rem 0.3rem 0.4rem;
@@ -1441,6 +1444,9 @@ html:not([data-theme="light"]) .os-composer-wrap,
   font-weight: 650;
   line-height: 1.2;
   text-align: center;
+  /* #1071: long tokens (no spaces) overflow the clamp box without this —
+     break-word wraps them instead of painting past the tile edge. */
+  word-break: break-word;
 }
 .os-fav-tile__attention {
   position: absolute;
@@ -1895,6 +1901,9 @@ button.os-agent-row {
   padding: 0.25rem 0.15rem;
 }
 .os-agent-sidebar--avatar-only .os-fav-tile {
+  /* #1074: the rail is 68px here; the 84px square overflowed the rail on
+     both sides. Width follows the column, height stays content-driven. */
+  width: auto;
   min-height: auto;
   padding: 0.35rem 0;
   background: transparent;
@@ -1906,7 +1915,12 @@ button.os-agent-row {
 }
 .os-agent-sidebar--avatar-only .os-rail-search-row {
   /* #764: collapsed rail stacks the search trigger and the Add agent button
-     vertically — the + stays reachable under search instead of display:none. */
+     vertically — the + stays reachable under search instead of display:none.
+     #1075: the stacked pair is ~76px, taller than the 3.5rem chrome strip,
+     which centred it into y<0 and clipped the search icon. The row grows to
+     its content instead (chrome height stays the floor for single-row). */
+  height: auto;
+  min-height: var(--os-top-chrome-h);
   flex-direction: column;
   padding-left: 0.35rem;
   padding-right: 0.35rem;
