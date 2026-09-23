@@ -17,6 +17,8 @@ D. A provider's chat shows consumer pills (``ConsumerPills``) wired into
 import re
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO = Path(__file__).resolve().parents[2]
 
 CHATPAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
@@ -65,7 +67,8 @@ def test_suggestions_demand_exactly_three():
 
 
 def test_consumer_pills_wired_into_chat():
-    chat = _read(CHATPAGE)
+    # #856 slice M: the pills mount inside ChatTranscriptShell.
+    chat = chat_surface()
     pills = _read(PILLS)
     assert "ConsumerPills" in chat and "providerId={activeChatAgentId}" in chat
     assert 'data-testid="consumer-pills"' in pills

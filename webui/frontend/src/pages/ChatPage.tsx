@@ -4,13 +4,13 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ChangeEvent,
   type FormEvent,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChatBottomDock } from '../features/chat/ChatBottomDock'
 import { ChatOverlays } from '../features/chat/ChatOverlays'
+import { ChatTranscriptShell } from '../features/chat/ChatTranscriptShell'
 import { renderRoutingPickerImpl } from '../features/chat/renderRoutingPicker'
 import { ChatHeader } from '../features/chat/ChatHeader'
 import { useQuery } from '@tanstack/react-query'
@@ -3213,74 +3213,48 @@ const ChatPage = () => {
     userMessageCount,
   }
 
+  const chatShellProps = {
+    ChatBottomDock,
+    ChatMessageList,
+    ConsumerPills,
+    DefaultLlmTip,
+    RoleAgentTip,
+    activeChatAgentId,
+    agentKind,
+    bubbleTheme,
+    chatBottomDockProps,
+    chatMessageListProps,
+    composerInsetCustomProperty,
+    composerInsetPx,
+    dismissDefaultLlmTip,
+    dismissRoleTip,
+    getBubbleTheme,
+    handleTranscriptScroll,
+    ircGutterDragging,
+    ircGutterPx,
+    isCliAgent,
+    isRemoteAgent,
+    messagesEditable,
+    onIrcRailDoubleClick,
+    onIrcRailPointerDown,
+    onIrcRailPointerMove,
+    onIrcRailPointerUp,
+    remoteFromUrl,
+    scrollBoxRef,
+    showDefaultLlmTip,
+    showRoleTip,
+    statusLabel,
+    themeUsesIrcGutter,
+  }
+
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
       {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
           header's box (the flyout is an absolutely-positioned child of the
           picker inside this header), leaving only its first row reachable.
           Titles still clamp in `.os-navbar-identity-label`. */}
-      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
-          header's box (the flyout is an absolutely-positioned child of the
-          picker inside this header), leaving only its first row reachable.
-          Titles still clamp in `.os-navbar-identity-label`. */}
-          <ChatHeader {...chatHeaderProps} />
-
-      <ConsumerPills providerId={activeChatAgentId} />
-      {showRoleTip ? <RoleAgentTip onDismiss={dismissRoleTip} /> : null}
-      {showDefaultLlmTip ? <DefaultLlmTip onDismiss={dismissDefaultLlmTip} /> : null}
-
-      <span role="status" aria-live="polite" aria-atomic="true" aria-label="Connection status" className="sr-only">
-        {statusLabel}
-      </span>
-
-      <div
-        ref={scrollBoxRef}
-        className="os-chat-transcript min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-3 sm:px-3 select-none outline-none focus:outline-none flex flex-col justify-between relative"
-        data-composer-inset={composerInsetPx}
-        data-bubble-theme={bubbleTheme}
-        style={
-          {
-            ...((composerInsetCustomProperty(composerInsetPx) as CSSProperties) ?? {}),
-            ...(themeUsesIrcGutter(bubbleTheme)
-              ? ({ ['--irc-gutter-px' as string]: `${ircGutterPx}px` } as React.CSSProperties)
-              : {}),
-          } as React.CSSProperties
-        }
-        data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
-        aria-live="polite"
-        role="log"
-        aria-label="Conversation"
-        data-agent-kind={
-          remoteFromUrl || isRemoteAgent || agentKind === 'remote'
-            ? 'remote'
-            : isCliAgent
-              ? 'cli'
-              : agentKind
-        }
-        data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
-        data-timestamp-placement={getBubbleTheme(bubbleTheme).timestampPlacement}
-        data-action-row-placement={getBubbleTheme(bubbleTheme).actionRowPlacement}
-        tabIndex={0}
-        onScroll={handleTranscriptScroll}
-      >
-          {themeUsesIrcGutter(bubbleTheme) ? (
-            <span
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize IRC name column"
-              className="os-irc-gutter-rail"
-              data-testid="irc-gutter-rail"
-              data-dragging={ircGutterDragging ? 'true' : 'false'}
-              onPointerDown={onIrcRailPointerDown}
-              onPointerMove={onIrcRailPointerMove}
-              onPointerUp={onIrcRailPointerUp}
-              onPointerCancel={onIrcRailPointerUp}
-              onDoubleClick={onIrcRailDoubleClick}
-            />
-          ) : null}
-<ChatMessageList {...chatMessageListProps} />
-          <ChatBottomDock {...chatBottomDockProps} />
-      </div>
+      <ChatHeader {...chatHeaderProps} />
+      <ChatTranscriptShell {...chatShellProps} />
       <ChatOverlays {...chatOverlaysProps} />
 
     </div>
