@@ -166,12 +166,10 @@ import { SPEECH_QUERY_KEY, describeSpeechPath, parseSpeechSettings } from '../li
 import {
   AGENT_CONVERSATION_EVENT,
   agentIdFromBlueprint,
-  clearAgentThread,
   conversationIdForAgent,
   conversationIdForTask,
   DEFAULT_AGENT_ID,
   fetchAgentThread,
-  patchAgentMessage,
   peekConversationIdForAgent,
   setConversationIdForAgent,
   toggleSummaryInContext,
@@ -195,13 +193,9 @@ import {
   rawOffsetForMessage,
   summariesById,
 } from '../lib/chatCompact'
-import { turnIndexFromDisplay } from '../lib/transcriptReconstruct'
 import {
-  buildCancelTurnFrame,
-  buildChatWsEditFrame,
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
-  newConversationId,
 } from '../lib/chatWs'
 import { ContextUsageBadge } from '../components/ContextUsageBadge'
 import { AuxActivityIndicator } from '../components/AuxActivityIndicator'
@@ -305,6 +299,7 @@ import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
 import { useChatSend } from '../features/chat/useChatSend'
 import { useComposerCommands } from '../features/chat/useComposerCommands'
 import { useChatCompact } from '../features/chat/useChatCompact'
+import { useChatTurnOps } from '../features/chat/useChatTurnOps'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
@@ -396,12 +391,10 @@ import {
 } from '../lib/cliSessionHop'
 // #636: CLI-seat compact orchestration (summary + fresh session carrying it).
 import {
-  SUGGESTION_CHIP_EVENT,
   drainHoldUntilStreamStarts,
   generationIsInFlight,
   nextDrainableQueuedSend,
   queuedPaneMaxHeightPx,
-  suggestionChipText,
   useQueuedSends,
 } from '../lib/chatQueue'
 import { QueuedSendPane } from '../components/QueuedSendPane'
@@ -2427,32 +2420,6 @@ const ChatPage = () => {
     ],
   )
 
-  const startFreshCliSession = useCallback(() => {
-    const agent = agentIdFromBlueprint(selectedBlueprint)
-    const minted = newConversationId()
-    setConversationIdForAgent(agent, minted)
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (agent && agent !== DEFAULT_AGENT_ID) next.set('blueprint', agent)
-      next.set('session', minted)
-      return next
-    })
-  }, [selectedBlueprint, setSearchParams])
-
-  const retryCliSession = useCallback(() => {
-    const lastUser = [...messages].reverse().find((row) => row.role === 'user')
-    const text = (lastUserTextRef.current || lastUser?.text || '').trim()
-    if (text) submitUserText(text)
-  }, [messages, submitUserText])
-
-  const clearCliSessionHistory = useCallback(() => {
-    const agent = agentIdFromBlueprint(selectedBlueprint)
-    const previousId = conversationId
-    setThreads((prev) => ({ ...prev, [threadKey]: [] }))
-    void clearAgentThread(agent, previousId).catch(() => undefined)
-    startFreshCliSession()
-  }, [conversationId, selectedBlueprint, startFreshCliSession, threadKey])
-
   const showCliSessionRecovery =
     threadReady && !awaitingAssistant && lastTurnNeedsRecovery(messages)
   // #499: the banner's primary action opens Settings on the section that can
@@ -2461,76 +2428,31 @@ const ChatPage = () => {
     ? lastRecoveryTarget(messages)
     : undefined
 
-  /**
-   * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
-   * The drain effect promotes the top queued row automatically once the
-   * cancelled turn closes, so this only needs to request the cancel.
-   */
-  const interruptRunningTurn = useCallback(() => {
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(buildCancelTurnFrame())
-      setAwaitingAssistant(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    const onChip = (event: Event) => {
-      const text = suggestionChipText(event)
-      if (text.trim()) submitUserText(text)
-    }
-    window.addEventListener(SUGGESTION_CHIP_EVENT, onChip)
-    return () => {
-      window.removeEventListener(SUGGESTION_CHIP_EVENT, onChip)
-    }
-  }, [submitUserText])
-
-  const saveEditedMessage = useCallback(
-    async (index: number, nextText: string) => {
-      if (!messagesEditable) return
-      const current = threads[threadKey] ?? []
-      const target = current[index]
-      if (!target || target.streaming) return
-      setThreads((prev) => {
-        const list = prev[threadKey] ?? []
-        if (!list[index]) return prev
-        const next = list.slice()
-        next[index] = { ...next[index], text: nextText, edited: true }
-        return { ...prev, [threadKey]: next }
-      })
-      setEditingKey(null)
-      const turnIndex = turnIndexFromDisplay(current, index)
-      const ws = wsRef.current
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(buildChatWsEditFrame(turnIndex, nextText))
-      }
-      try {
-        const patched = await patchAgentMessage(
-          agentIdFromBlueprint(selectedBlueprint),
-          {
-            index: turnIndex,
-            content: nextText,
-            conversation_id: conversationIdRef.current,
-          },
-        )
-        if (patched.cli_session_reset) {
-          addToast({
-            type: 'info',
-            title: 'CLI session restarted',
-            message:
-              'A message was edited and the CLI session cannot rewind. The next message starts a fresh session.',
-          })
-        }
-      } catch {
-        addToast({
-          type: 'error',
-          title: 'Could not save edit',
-          message: 'The message was updated in this view, but persist failed.',
-        })
-      }
-    },
-    [addToast, messagesEditable, selectedBlueprint, threadKey, threads],
-  )
+  // #856 slice 16: CLI session ops, interrupt, chips, edit-save moved
+  // verbatim to features/chat/useChatTurnOps.ts.
+  const {
+    startFreshCliSession,
+    retryCliSession,
+    clearCliSessionHistory,
+    interruptRunningTurn,
+    saveEditedMessage,
+  } = useChatTurnOps({
+    selectedBlueprint,
+    setSearchParams,
+    messages,
+    submitUserText,
+    conversationId,
+    threadKey,
+    threads,
+    setThreads,
+    wsRef,
+    lastUserTextRef,
+    conversationIdRef,
+    messagesEditable,
+    setAwaitingAssistant,
+    setEditingKey,
+    addToast,
+  })
 
   const handleSend = (event: FormEvent) => {
     event.preventDefault()
