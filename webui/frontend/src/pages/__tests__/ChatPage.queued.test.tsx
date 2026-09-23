@@ -588,7 +588,7 @@ describe('ChatPage stop button (#223)', () => {
     })
   })
 
-  it('keeps the Esc-to-clear hint for a non-empty draft alongside the queue', async () => {
+  it('shows the Send ↵ hint for queued sends instead of Esc-to-clear (#1072)', async () => {
     renderChat()
     const ws = await openSocket()
     await act(async () => {
@@ -602,11 +602,12 @@ describe('ChatPage stop button (#223)', () => {
       target: { value: 'a fresh draft' },
     })
 
-    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
-    expect(screen.getByTestId('composer-clear-hint')).toHaveAttribute(
+    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
       'title',
-      'Esc to clear',
+      'Send Now! ↵',
     )
+    expect(screen.getByTestId('composer-send-hint')).toHaveTextContent('Send ↵')
+    expect(screen.queryByTestId('composer-clear-hint')).not.toBeInTheDocument()
   })
 
   // #561 ask 3: queueing mid-generation is a non-API affordance. API seats
