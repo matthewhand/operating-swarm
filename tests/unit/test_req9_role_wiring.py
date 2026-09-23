@@ -11,6 +11,7 @@ DJANGO_CSS = REPO / "src" / "swarm" / "static" / "css" / "rest_mode_style.css"
 SPA_CSS = REPO / "webui" / "frontend" / "src" / "index.css"
 SIDEBAR_JS = REPO / "src" / "swarm" / "static" / "js" / "agent_sidebar.js"
 SIDEBAR_TS = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
+SIDEBAR_TS_ROWS = SIDEBAR_TS.parent / "sidebar" / "RailSections.tsx"
 TEAM_JS = REPO / "src" / "swarm" / "static" / "js" / "team_creator.js"
 
 
@@ -66,7 +67,7 @@ def test_sidepane_css_class_names_exist_django_and_spa():
     django_css = DJANGO_CSS.read_text(encoding="utf-8")
     spa_css = SPA_CSS.read_text(encoding="utf-8")
     js = SIDEBAR_JS.read_text(encoding="utf-8")
-    ts = SIDEBAR_TS.read_text(encoding="utf-8")
+    ts = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TS, SIDEBAR_TS_ROWS))
     team = TEAM_JS.read_text(encoding="utf-8")
     # REQ-67: role colour lives on .os-agent-role-badge[data-role=...], not row classes.
     assert "os-agent-role-badge" in django_css

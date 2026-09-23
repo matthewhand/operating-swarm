@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('#688 Unassigned section visibility', () => {
-  const tsx = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8')
+  const tsx = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8') +
+    readFileSync(join(process.cwd(), 'src/components/sidebar/RailSections.tsx'), 'utf8') // #856 slice I: fav-grid + section markup moved verbatim into sidebar/RailSections.tsx
 
   it('skips empty non-drag Unassigned blocks in the sections list', () => {
     const skip = tsx.match(/#688:[\s\S]{0,600}?return null/)?.[0] ?? ''
@@ -25,7 +26,8 @@ describe('#688 Unassigned section visibility', () => {
 })
 
 describe('#729 Unassigned dead space & drop-zone reach', () => {
-  const tsx = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8')
+  const tsx = readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8') +
+    readFileSync(join(process.cwd(), 'src/components/sidebar/RailSections.tsx'), 'utf8') // #856 slice I: fav-grid + section markup moved verbatim into sidebar/RailSections.tsx
   const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
 
   it('idle scroller reserves no drag-era bottom gap (pb expands only mid-drag)', () => {

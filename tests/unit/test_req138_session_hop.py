@@ -8,6 +8,7 @@ API = REPO / "src" / "swarm" / "views" / "cli_session_hop_api.py"
 URLS = REPO / "src" / "swarm" / "urls.py"
 DOCS = REPO / "docs" / "CLI_FUSION.md"
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+CHAT_ROUTING = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "useChatRouting.ts"
 HOP_TS = REPO / "webui" / "frontend" / "src" / "lib" / "cliSessionHop.ts"
 CI = REPO / ".github" / "workflows" / "req138-session-hop.yml"
 AGENT = REPO / "src" / "swarm" / "blueprints" / "cli_agent" / "blueprint_cli_agent.py"
@@ -40,7 +41,7 @@ def test_cli_agent_consumes_pending_hop():
 
 
 def test_spa_calls_hop_on_cli_dropdown_switch():
-    chat = CHAT.read_text(encoding="utf-8")
+    chat = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT, CHAT_ROUTING))
     hop = HOP_TS.read_text(encoding="utf-8")
     assert "hopCliSession" in chat
     assert "CLI_SESSION_HOPPED_EVENT" in hop
@@ -64,7 +65,7 @@ def test_cross_kind_hop_plumbing_is_wired():
     lib = HOP_TS.read_text(encoding="utf-8")
     core = CORE.read_text(encoding="utf-8")
     api = API.read_text(encoding="utf-8")
-    chat = CHAT.read_text(encoding="utf-8")
+    chat = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT, CHAT_ROUTING))
     consumers = (REPO / "src" / "swarm" / "consumers.py").read_text(encoding="utf-8")
     # #855: the turn-assembly helper moved to swarm/chat/helpers.py; the
     # doctrine spans both files now.
