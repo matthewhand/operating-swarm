@@ -489,37 +489,39 @@ describe('ChatPage stop button (#223)', () => {
     resetConversationThreads()
   })
 
-  it('shows a stop button while generating and sends cancel_turn on click', async () => {
+  // #1096: the stop affordance moved from the composer to the generating
+  // agent's transcript row (agent-row-stop). The cancel frame is unchanged.
+  it('shows a stop button on the working row while generating and sends cancel_turn on click', async () => {
     renderChat()
     const ws = await openSocket()
 
     // Idle: no stop affordance.
-    expect(screen.queryByTestId('composer-stop')).toBeNull()
+    expect(screen.queryByTestId('agent-row-stop')).toBeNull()
 
     await act(async () => {
       startStreaming(ws)
     })
 
-    const stop = screen.getByTestId('composer-stop')
+    const stop = screen.getByTestId('agent-row-stop')
     fireEvent.click(stop)
     expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
       type: 'cancel_turn',
     })
   })
 
-  it('keeps the stop button until the generation finishes, then hides it', async () => {
+  it('keeps the working-row stop until the generation finishes, then hides it', async () => {
     renderChat()
     const ws = await openSocket()
     await act(async () => {
       startStreaming(ws)
     })
-    expect(screen.getByTestId('composer-stop')).toBeTruthy()
+    expect(screen.getByTestId('agent-row-stop')).toBeTruthy()
 
     await act(async () => {
       finishStreaming(ws)
     })
     await waitFor(() => {
-      expect(screen.queryByTestId('composer-stop')).toBeNull()
+      expect(screen.queryByTestId('agent-row-stop')).toBeNull()
     })
   })
 
@@ -535,7 +537,7 @@ describe('ChatPage stop button (#223)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     expect(screen.getByTestId('queued-row')).toBeTruthy()
 
-    fireEvent.click(screen.getByTestId('composer-stop'))
+    fireEvent.click(screen.getByTestId('agent-row-stop'))
     expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
       type: 'cancel_turn',
     })

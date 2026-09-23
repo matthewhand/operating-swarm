@@ -1758,10 +1758,10 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(composer).toHaveValue('')
     // #1070: the send button is permanently mounted — idle renders it disabled, not absent.
     expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled()
-    // #632: the outer send morphs into the square stop; the mic is untouched.
+    // #1096 (supersedes the #632 morph): the composer carries no stop — the
+    // mic is untouched and the stop affordance lives on the agent's row.
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
-    expect(screen.getByTestId('composer-stop')).toBeInTheDocument()
-    expect(screen.getByTestId('composer-stop')).toHaveClass('os-composer__send--stop')
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
   })
 
   it('#631: ghosts composer shortcut chips — the ↵ hint only exists with a queued send', async () => {

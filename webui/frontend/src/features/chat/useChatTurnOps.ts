@@ -82,11 +82,16 @@ export function useChatTurnOps(opts: UseChatTurnOpsOptions) {
    * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
    * The drain effect promotes the top queued row automatically once the
    * cancelled turn closes, so this only needs to request the cancel.
+   *
+   * #1096: an optional `agent` scopes the cancel — the stop button on the
+   * generating agent's transcript row interrupts THAT agent's turn only;
+   * other concurrent turns keep streaming (#1097 seam). Bare calls keep the
+   * legacy behavior (cancel the active turn).
    */
-  const interruptRunningTurn = useCallback(() => {
+  const interruptRunningTurn = useCallback((agent?: string) => {
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(buildCancelTurnFrame())
+      ws.send(buildCancelTurnFrame(agent))
       setAwaitingAssistant(false)
     }
   }, [])

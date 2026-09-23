@@ -2555,6 +2555,7 @@ const ChatPage = () => {
     formatRateLimitNotice,
     getBubbleTheme,
     handleBubbleContextMenu,
+    interruptRunningTurn,
     handleContextToHere,
     handleSaveSummary,
     handleToggleSummaryContext,

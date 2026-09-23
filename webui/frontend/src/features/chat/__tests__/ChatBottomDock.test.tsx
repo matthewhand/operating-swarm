@@ -130,13 +130,16 @@ describe('#856 slice H — ChatBottomDock', () => {
     expect(screen.getByTestId('chips')).toHaveTextContent('alpha,beta')
   })
 
-  it('stop button replaces send state visibility when busy', () => {
+  // #1096: the composer carries exactly ONE action — the submit. Stop moved
+  // to the generating agent's transcript row (pinned in ChatMessageList and
+  // ChatPage.queued tests); the dock never renders a stop, busy or not.
+  it('#1096 the dock renders no stop button — submit only, busy or not', () => {
     render(
       <ChatBottomDock
-        {...baseProps({ composerBusy: true, hasSendableDraft: true }) as React.ComponentProps<typeof ChatBottomDock>}
+        {...baseProps({ hasSendableDraft: true }) as React.ComponentProps<typeof ChatBottomDock>}
       />,
     )
-    expect(screen.getByTestId('composer-stop')).toBeTruthy()
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
     expect(screen.getByLabelText('Send')).toBeTruthy()
   })
 
@@ -165,14 +168,14 @@ describe('#856 slice H — ChatBottomDock', () => {
     expect(onSendNow).toHaveBeenCalledTimes(1)
   })
 
-  it('#1070 busy keeps the stop button and the disabled/active send slots consistent', () => {
+  it('#1070/#1096 the disabled/active send slots stay consistent while busy', () => {
     render(
       <ChatBottomDock
-        {...baseProps({ composerBusy: true }) as React.ComponentProps<typeof ChatBottomDock>}
+        {...baseProps({ composerBusy: true, hasSendableDraft: true }) as React.ComponentProps<typeof ChatBottomDock>}
       />,
     )
-    expect(screen.getByTestId('composer-stop')).toBeTruthy()
-    expect((screen.getByLabelText('Send') as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
+    expect((screen.getByLabelText('Send') as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('ChatPage consumes the module (no inline bottom-dock JSX)', () => {

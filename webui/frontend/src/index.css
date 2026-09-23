@@ -3087,15 +3087,25 @@ pre:focus-within .os-code-copy {
   background: var(--color-base-content);
   color: var(--color-base-100);
 }
-/* #632: while a response is in flight the outer button morphs into a square
-   stop — same slot, same size, unmistakable shape change. */
-.os-composer__send--stop {
-  border-radius: 0.55rem;
+/* #1096: the stop affordance lives on the generating agent's transcript row,
+   beside its animated avatar — a quiet square that turns loud on hover. The
+   composer itself carries no stop (#632 morph retired). */
+.os-agent-row__stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-error, #e11d48) 45%, transparent);
+  color: var(--color-error, #e11d48);
+  background: transparent;
+  flex-shrink: 0;
+}
+.os-agent-row__stop:hover {
   background: var(--color-error, #e11d48);
   color: white;
-}
-.os-composer__send--stop:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.05);
 }
 .os-composer__send:hover {
   opacity: 0.92;

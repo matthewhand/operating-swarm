@@ -69,8 +69,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
     handleBubbleContextMenu,
     handleContextToHere,
     handleSaveSummary,
-    handleToggleSummaryContext,
-    hiddenMessageKeys,
+    handleToggleSummaryContext,    hiddenMessageKeys,
     hiddenSummaryIds,
     hydrateError,
     isApiAgent,
@@ -122,6 +121,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
     toggleThinking,
     voiceBind,
     workingTip,
+    interruptRunningTurn,
   } = props as Record<string, any>
 
     return (
@@ -377,6 +377,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
             const bubbleAvatar =
               message.role === 'assistant' ? (
                 isStreamingAssistant ? (
+                  <>
                   <div
                     className="os-composer-working os-inline-working"
                     data-testid="composer-working-indicator"
@@ -400,6 +401,22 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
                       </span>
                     </span>
                   </div>
+                  {/* #1096: per-agent stop beside the streaming avatar. */}
+                  {interruptRunningTurn ? (
+                    <button
+                      type="button"
+                      className="os-agent-row__stop"
+                      aria-label="Stop generating"
+                      title="Stop this agent's generation (other turns keep running)"
+                      data-testid="agent-row-stop"
+                      onClick={() => interruptRunningTurn()}
+                    >
+                      <svg viewBox="0 0 16 16" className="h-3 w-3 fill-current" aria-hidden="true" focusable="false">
+                        <rect x="3" y="3" width="10" height="10" rx="1.5" />
+                      </svg>
+                    </button>
+                  ) : null}
+                  </>
                 ) : (
                   <AgentAvatar
                     src={selectedAgent?.avatar_path}
@@ -647,6 +664,29 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
                 <span>{workingTip || 'Thinking…'}</span>
                 <span className="loading loading-dots loading-xs opacity-70" />
               </span>
+              {/* #1096: the stop affordance lives HERE — on the generating
+                  agent's transcript row, beside its animated avatar — not in
+                  the composer. Clicking interrupts this agent's turn; other
+                  turns keep streaming (per-agent interrupt, #1097 seam). */}
+              {interruptRunningTurn ? (
+                <button
+                  type="button"
+                  className="os-agent-row__stop"
+                  aria-label="Stop generating"
+                  title="Stop this agent's generation (other turns keep running)"
+                  data-testid="agent-row-stop"
+                  onClick={() => interruptRunningTurn()}
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    className="h-3 w-3 fill-current"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <rect x="3" y="3" width="10" height="10" rx="1.5" />
+                  </svg>
+                </button>
+              ) : null}
             </div>
           </div>
         )}
