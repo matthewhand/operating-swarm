@@ -19,16 +19,14 @@ import ChatPage from '../../pages/ChatPage'
 import { ToastProvider } from '../../components/DaisyUI'
 import { __resetUserPrefsCacheForTests } from '../../lib/userPrefs'
 
-type Method = 'GET' | 'PATCH'
-
-const calls: { method: Method; url: string }[] = []
+const calls: { method: string; url: string }[] = []
 
 function installFetch() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      const method = ((init?.method as Method) || 'GET').toUpperCase()
+      const method = (init?.method as string | undefined)?.toUpperCase() || 'GET'
       calls.push({ method, url })
       if (url.includes('/v1/preferences')) {
         return new Response(

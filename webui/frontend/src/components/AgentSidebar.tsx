@@ -140,7 +140,7 @@ import {
   unpinAgent,
   writeAgentDragPayload,
 } from '../lib/pinnedAgents'
-import { hydrateRailPrefs, persistAgentDropdownChoice, saveUserPrefs } from '../lib/userPrefs'
+import { hydrateRailPrefs, saveUserPrefs } from '../lib/userPrefs'
 import {
   loadAllAgentSessions,
   SCALE_OUT_SESSIONS_EVENT,
@@ -194,12 +194,10 @@ import {
   loadLocalNewChatPerTask,
   openAgentEditor,
 } from '../lib/agentSettings'
-import { createAgentSession, loadPickerSessions } from '../lib/agentSessions'
 import {
   AGENT_CONVERSATION_EVENT,
   activeTaskSessionCount,
   agentChatHref,
-  conversationIdForAgent,
   setConversationIdForAgent,
 } from '../lib/agentChat'
 import {
@@ -247,7 +245,6 @@ import {
   loadAgentEdit,
   saveAgentEdit,
 } from '../lib/agentEdits'
-import { persistSessionWorkspace } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { declaredRosterForTeam,   } from '../lib/declaredRoster'
 import { openTeamEditor } from './TeamEditor'
@@ -255,15 +252,10 @@ import PersonaRoster from './PersonaRoster'
 import SessionPicker from './SessionPicker'
 import CliSessionPicker from './CliSessionPicker'
 import {
-  dispatchCliSessionSwitched,
   fetchCliSessions,
   latestCliActivityMs,
-  selectCliSession,
-  type CliProviderSession,
 } from '../lib/cliSessions'
 import {
-  dispatchCliSessionHopped,
-  hopCliSession,
   hopContinueTargets,
 } from '../lib/cliSessionHop'
 import { FALLBACK_CLIS } from '../lib/chatStatus'
@@ -307,6 +299,7 @@ import {
   toSidebarDynamic,
   toSidebarHerdr,
 } from '../features/sidebar/rows'
+import { useRailSessionCommands } from '../features/sidebar/useRailSessionCommands'
 import { useRailResize } from './sidebar/useRailResize'
 import type { AgentKind } from './AddAgentWizard'
 import { RailOverlays } from './sidebar/RailOverlays'
@@ -1310,179 +1303,14 @@ export default function AgentSidebar({
     openSearchPalette({ hiddenIds: resolvedHiddenIds, hiddenRows: hiddenRailRows })
   }, [onOpenSearch, resolvedHiddenIds, hiddenRailRows])
 
-  const openGroupPicker = useCallback((title: string, sessions: MemberSession[]) => {
-    setPicker({ title, sessions })
-  }, [])
-
-  // #748: the rail no longer hosts a remote session browser — rows navigate
-  // immediately and the chat header owns session switching.
-  const closePicker = useCallback(() => setPicker(null), [])
-
-  const openCliSessionPicker = useCallback(
-    async (agentId: string, agentName: string, cli: string) => {
-      const cliName = cli || 'grok'
-      setCliPicker({
-        agentId,
-        agentName,
-        cli: cliName,
-        sessions: [],
-        canList: false,
-        emptyReason: null,
-        loading: true,
-      })
-      try {
-        const list = await fetchCliSessions(agentId, cliName)
-        setCliPicker({
-          agentId,
-          agentName,
-          cli: list.cli || cliName,
-          sessions: list.sessions,
-          canList: list.can_list,
-          emptyReason: list.empty_reason,
-          loading: false,
-        })
-      } catch (err) {
-        const message = err instanceof Error && err.message
-          ? err.message
-          : "This CLI can't list sessions"
-        const folderFailed = /folder/i.test(message)
-        if (folderFailed) {
-          toast?.error('Could not list CLI sessions', message)
-        }
-        setCliPicker({
-          agentId,
-          agentName,
-          cli: cliName,
-          sessions: [],
-          canList: false,
-          emptyReason: folderFailed ? message : "This CLI can't list sessions",
-          loading: false,
-        })
-      }
-    },
-    [toast],
-  )
-
-  const applyCliSession = useCallback(
-    async (opts: {
-      agentId: string
-      cli: string
-      session?: CliProviderSession
-      startNew?: boolean
-    }) => {
-      try {
-        const hintFolder = (opts.session?.folder || '').trim()
-        // Provider folder hints may be escaped slugs (qwen), not real paths —
-        // only forward/persist values that look like paths; the backend
-        // resolves the session cwd otherwise.
-        const sessionFolder =
-          hintFolder.startsWith('/') || hintFolder.startsWith('~') ? hintFolder : ''
-        const result = await selectCliSession({
-          agentId: opts.agentId,
-          cli: opts.cli,
-          sessionId: opts.session?.id,
-          startNew: opts.startNew,
-          fromConversationId: conversationIdForAgent(opts.agentId),
-          title: opts.session?.title,
-          snippet: opts.session?.snippet,
-          folder: sessionFolder || undefined,
-        })
-        const resultFolder = (result.folder || '').trim()
-        const effectiveFolder = resultFolder || sessionFolder
-        persistSessionWorkspace(opts.agentId, {
-          folder: effectiveFolder,
-          gitBranch: result.git_branch,
-        })
-        dispatchCliSessionSwitched({
-          agentId: opts.agentId,
-          conversationId: result.conversation_id,
-          status: result.status,
-        })
-        navigate(sessionHref(opts.agentId, result.conversation_id))
-        onClose?.()
-      } catch (err) {
-        const message = err instanceof Error && err.message
-          ? err.message
-          : 'Could not switch session'
-        toast?.error('Could not start CLI session', message)
-        setCliPicker((current) =>
-          current
-            ? { ...current, emptyReason: message }
-            : current,
-        )
-      }
-    },
-    [navigate, onClose, toast],
-  )
-
-  const continueCliSessionOn = useCallback(
-    async (opts: { agentId: string; fromCli: string; session: CliProviderSession; toCli: string }) => {
-      try {
-        const hop = await hopCliSession({
-          agentId: opts.agentId,
-          fromCli: opts.fromCli,
-          toCli: opts.toCli,
-          conversationId: conversationIdForAgent(opts.agentId),
-          importSessionId: opts.session.id,
-          kind: 'cli',
-        })
-        dispatchCliSessionHopped({
-          agentId: opts.agentId,
-          conversationId: hop.conversation_id,
-          status: hop.status,
-          fromCli: hop.from_cli,
-          toCli: hop.to_cli,
-        })
-        persistAgentDropdownChoice(opts.agentId, { cli: opts.toCli })
-        const href = sessionHref(
-          opts.agentId,
-          hop.conversation_id || conversationIdForAgent(opts.agentId),
-        )
-        navigate(`${href}&cli=${encodeURIComponent(opts.toCli)}`)
-        onClose?.()
-      } catch {
-        setCliPicker((current) =>
-          current
-            ? {
-                ...current,
-                emptyReason:
-                  current.emptyReason ||
-                  `${opts.fromCli} cannot export that session — try summary hop from the CLI dropdown.`,
-              }
-            : current,
-        )
-      }
-    },
-    [navigate, onClose],
-  )
-
-  const selectSession = useCallback(
-    (session: MemberSession) => {
-      setPicker(null)
-      navigate(session.href)
-      onClose?.()
-    },
-    [navigate, onClose],
-  )
-
-  const openAgentSessionPicker = useCallback(
-    async (agentId: string, agentName: string) => {
-      const sessions = await loadPickerSessions(agentId)
-      setSessionPicker({ agentId, agentName, sessions })
-    },
-    [],
-  )
-
-  const startNewAgentSession = useCallback(
-    async (agentId: string) => {
-      const created = await createAgentSession(agentId)
-      const nextId = created?.id
-      if (!nextId) return
-      navigate(sessionHref(agentId, nextId))
-      onClose?.()
-    },
-    [navigate, onClose],
-  )
+  // #856 slice 10: session-picker commands live in the hook below; the
+  // picker states stay page-owned so the overlay JSX below is unchanged.
+  const railSession = useRailSessionCommands({
+    onClose,
+    setPicker,
+    setCliPicker,
+    setSessionPicker,
+  })
 
   const persistVisibleOrder = useCallback((nextVisible: string[]) => {
     setRailOrder(saveRailOrder(nextVisible))
@@ -1727,6 +1555,17 @@ export default function AgentSidebar({
       longPressRef.current.timer = null
     }
   }
+
+  const {
+    openGroupPicker,
+    closePicker,
+    openCliSessionPicker,
+    applyCliSession,
+    continueCliSessionOn,
+    selectSession,
+    openAgentSessionPicker,
+    startNewAgentSession,
+  } = railSession
 
   const rowMenuHandlers = (
     hideId: string,
