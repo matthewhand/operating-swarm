@@ -128,9 +128,13 @@ describe('#856 slice H — ChatBottomDock', () => {
   it('ChatPage consumes the module (no inline bottom-dock JSX)', () => {
     const fs = require('node:fs')
     const path = require('node:path')
+    // #856 slice M: the dock renders inside the ChatTranscriptShell — the pin
+    // reads the shell for the mount and ChatPage for the absence of inline JSX.
+    // eslint-disable-next-line testing-library/no-node-access -- raw source introspection, not DOM probing
+    const shell = fs.readFileSync(path.join(__dirname, '..', 'ChatTranscriptShell.tsx'), 'utf8')
+    expect(shell).toContain('ChatBottomDock {...chatBottomDockProps}')
     // eslint-disable-next-line testing-library/no-node-access -- raw source introspection, not DOM probing
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'pages', 'ChatPage.tsx'), 'utf8')
-    expect(src).toContain('ChatBottomDock {...chatBottomDockProps}')
     expect(src).not.toContain('os-composer-wrap')
   })
 })

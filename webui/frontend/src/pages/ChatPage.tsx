@@ -4,12 +4,13 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ChangeEvent,
   type FormEvent,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChatBottomDock } from '../features/chat/ChatBottomDock'
+import { ChatOverlays } from '../features/chat/ChatOverlays'
+import { ChatTranscriptShell } from '../features/chat/ChatTranscriptShell'
 import { renderRoutingPickerImpl } from '../features/chat/renderRoutingPicker'
 import { ChatHeader } from '../features/chat/ChatHeader'
 import { useQuery } from '@tanstack/react-query'
@@ -104,10 +105,10 @@ import ReadAloudButton from '../components/ReadAloudButton'
 import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
 
+import SessionPicker from '../components/SessionPicker'
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
 import ApiSessionSwitcher from '../components/ApiSessionSwitcher'
 import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
-import SessionPicker from '../components/SessionPicker'
 import {
   fetchRemoteThreadSessions,
   mostRecentRemoteSession,
@@ -254,8 +255,7 @@ import {
 } from '../lib/ombBots'
 import { isOpenMousBotKind } from '../lib/remoteKinds'
 import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId } from '../lib/remotesCatalog'
-import { buildComposerProviders, composerOptionsForProvider } from '../lib/composerSources'
-import type { ComposerSources } from '../lib/composerSources'
+import { composerOptionsForProvider } from '../lib/composerSources'
 import {
   ADD_REMOTE_VALUE,
   configuredRemotes,
@@ -281,7 +281,6 @@ import {
 } from '../lib/chatConnection'
 import {
   estimateTokensInContext,
-  resolveContextMaxFromProfiles,
 } from '../lib/chatMeter'
 import { useChatWebSocket } from '../features/chat/useChatWebSocket'
 import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
@@ -291,6 +290,7 @@ import { useChatCompact } from '../features/chat/useChatCompact'
 import { useChatTurnOps } from '../features/chat/useChatTurnOps'
 import { useComposerControls } from '../features/chat/useComposerControls'
 import { useTranscriptLayout } from '../features/chat/useTranscriptLayout'
+import { useChatDerived } from '../features/chat/useChatDerived'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
@@ -311,7 +311,6 @@ import { formatRateLimitNotice } from '../lib/statusLineText'
 import { personaForAgentMessage } from '../lib/personaAvatars'
 import { settingsTargetForProvider } from '../lib/providerRateLimits'
 import { formatGapLabel, parseCreatedAtMs } from '../lib/chatTime'
-import { workingLabel } from '../lib/chatBubble'
 import { isExperimentalEnabled } from '../experimental/flags'
 
 import { RoleAgentTip } from '../components/RoleAgentTip'
@@ -328,7 +327,6 @@ import {
   hydrateDefaultLlmTipDismissed,
   persistDefaultLlmTipDismissed,
   isDefaultLlmTipDismissed,
-  shouldShowDefaultLlmTip,
 } from '../lib/defaultLlmTip'
 import {
   agentHasRole,
@@ -373,7 +371,6 @@ import {
 } from '../lib/sessionRestore'
 import {
   CLI_SESSION_SWITCHED_EVENT,
-  fetchCliSessions,
 } from '../lib/cliSessions'
 import {
   CLI_SESSION_HOPPED_EVENT,
@@ -2624,11 +2621,62 @@ const ChatPage = () => {
     composerRef,
     setSearchParams,
   })
-  const resumeHook = slashHook
   // #856: slash-command picking moved verbatim to features/chat/useComposerCommands.ts.
   const handleSelectSlashItem = slashHook.handleSelectSlashItem
+  const resumeComposerSession = slashHook.resumeComposerSession
 
   const tokenCount = estimateTokensInContext(contextTextsForMeter(messages, summaries))
+
+  // #856 slice 19: routing-picker inputs & derived chat metrics moved
+  // verbatim to features/chat/useChatDerived.ts.
+  const {
+    selectedModelId,
+    contextMax,
+    sendNowHint,
+    showDefaultLlmTip,
+    tokenDiagOpen,
+    setTokenDiagOpen,
+    inputTokens,
+    outputTokens,
+    toolCallsCount,
+    userMessageCount,
+    assistantMessageCount,
+    composerPlaceholder,
+    workingTip,
+    statusLabel,
+    setComposerSessionsOpen,
+    composerSources,
+    composerProviders,
+  } = useChatDerived({
+    searchParams,
+    isCliAgent,
+    currentCli,
+    currentCliModel,
+    persistedDropdown,
+    llmProfilesQuery,
+    llmDefaultProfile: llmProfilesQuery.data?.default_llm_profile,
+    input,
+    queuedRows: queued.rows,
+    queuedHoldIds,
+    isApiAgent,
+    defaultLlmTipDismissed,
+    messages,
+    replyTarget,
+    selectedAgentName,
+    status,
+    authRejected,
+    selectedBlueprint,
+    discoveredClis,
+    cliModelsQuery,
+    configuredRemoteRows,
+    activeRemoteId,
+    remoteNavbarAgents,
+    remoteAgentsQuery,
+    herdrAgentsQuery,
+    teamsQuery,
+    blueprints,
+    contextMaxRef,
+  })
 
   // #856 slice 17: composer input controls (handleMic, handleComposerKeyDown)
   // moved verbatim to features/chat/useComposerControls.ts.
@@ -2661,182 +2709,6 @@ const ChatPage = () => {
     interruptRunningTurn,
   })
 
-  const selectedModelId = (
-    (searchParams.get('model') ?? '').trim() ||
-    (isCliAgent ? currentCliModel : (persistedDropdown.model || persistedDropdown.api || ''))
-  ).trim()
-  const contextMax = resolveContextMaxFromProfiles(
-    llmProfilesQuery.data?.profiles,
-    selectedModelId || llmProfilesQuery.data?.default_llm_profile,
-  )
-  // #207: API seats on the default profile get a setup tip when the default
-  // LLM is not usable. Explicit model/profile overrides (pinned seats) and
-  // CLI/remote/team seats are exempt by design.
-  // #561: with a queued send waiting, Enter on the empty composer sends that
-  // row now (the interrupt path — see handleComposerKeyDown). Say so on the
-  // input-hover hint instead of the default "Enter to send".
-  const sendNowHint =
-    !input.trim() && nextDrainableQueuedSend(queued.rows, queuedHoldIds) !== null
-  const showDefaultLlmTip = shouldShowDefaultLlmTip({
-    isApiAgent,
-    hasExplicitModelOverride: Boolean(selectedModelId),
-    defaultLlmReady: llmProfilesQuery.data?.default_llm_ready,
-    dismissed: defaultLlmTipDismissed,
-  })
-  contextMaxRef.current = contextMax
-  const [tokenDiagOpen, setTokenDiagOpen] = useState(false)
-
-  const userTexts = useMemo(
-    () => messages.filter((m) => m.role === 'user').map((m) => m.text),
-    [messages],
-  )
-  const assistantTexts = useMemo(
-    () => messages.filter((m) => m.role === 'assistant').map((m) => m.text),
-    [messages],
-  )
-  const inputTokens = useMemo(() => estimateTokensInContext(userTexts), [userTexts])
-  const outputTokens = useMemo(() => estimateTokensInContext(assistantTexts), [assistantTexts])
-  const toolCallsCount = useMemo(
-    () => messages.reduce((sum, m) => sum + (m.tools?.length ?? 0), 0),
-    [messages],
-  )
-  const userMessageCount = useMemo(
-    () => messages.filter((m) => m.role === 'user').length,
-    [messages],
-  )
-  const assistantMessageCount = useMemo(
-    () => messages.filter((m) => m.role === 'assistant').length,
-    [messages],
-  )
-  const composerPlaceholder = replyTarget ? 'Reply…' : 'Message …'
-  const workingTip = workingLabel(selectedAgentName)
-
-  const statusLabel = useMemo(() => {
-    if (status === 'open') return ''
-    if (status === 'connecting') return 'Connecting…'
-    if (authRejected) return 'Unavailable — sign in required'
-    if (status === 'failed') return 'Unavailable — websocket unreachable'
-    return 'Disconnected'
-  }, [authRejected, status])
-
-  // #681/#682/#683 — the two-stage composer picker's inputs, from the same
-  // live payloads the seat controls already render. A provider with no data
-  // (e.g. a CLI with no resumable sessions) still lists; its stage 2 simply
-  // offers the default row only.
-  // #711: resumable CLI sessions for the picker's stage 2 — fetched when the
-  // picker opens (deferred-fetch doctrine, same as the History switcher),
-  // never on mount.
-  const [composerSessionsOpen, setComposerSessionsOpen] = useState(false)
-  const composerSessionsQuery = useQuery({
-    queryKey: ['cli-sessions-composer', currentCli],
-    queryFn: () => fetchCliSessions(selectedBlueprint, currentCli),
-    enabled: isCliAgent && Boolean(currentCli) && composerSessionsOpen,
-    retry: false,
-  })
-  const composerCliSessions = useMemo<ReadonlyArray<{ id: string; label: string }>>(() => {
-    const list = composerSessionsQuery.data
-    if (!list) return []
-    const out: Array<{ id: string; label: string }> = []
-    const seen = new Set<string>()
-    for (const s of [...(list.sessions ?? []), ...(list.recent ?? [])]) {
-      if (!s?.id || seen.has(s.id)) continue
-      seen.add(s.id)
-      out.push({ id: s.id, label: (s.title || s.snippet || s.id).trim() || s.id })
-    }
-    return out
-  }, [composerSessionsQuery.data])
-
-  // #711: picking a session runs the same REQ-104 flow as the History
-  // switcher — select, persist workspace, announce the switch, land on it.
-  // #856: CLI session resume moved verbatim to features/chat/useComposerCommands.ts.
-  const resumeComposerSession = resumeHook.resumeComposerSession
-
-  const composerSources: ComposerSources = useMemo(
-    () => ({
-      api: {
-        profiles: (llmProfilesQuery.data?.profiles ?? []).map((p) => ({
-          id: p.id,
-          label: p.name || p.id,
-        })),
-        defaultProfileId: llmProfilesQuery.data?.default_llm_profile || undefined,
-      },
-      // #682: the probed model list belongs to the *current* CLI (the probe
-      // is per-CLI); other CLIs list without models until selected.
-      // #711: the current CLI also offers its resumable sessions. While that
-      // payload is in flight the CLI is marked optionsPending — #803
-      // auto-pick must not resolve on a partial list.
-      clis: discoveredClis.map((name) => ({
-        name,
-        ...(name === currentCli && composerCliSessions.length
-          ? { sessions: composerCliSessions }
-          : {}),
-        ...(name === currentCli && cliModelsQuery.data?.models?.length
-          ? { models: cliModelsQuery.data.models }
-          : {}),
-        ...(name === currentCli && composerSessionsOpen && composerSessionsQuery.isPending
-          ? { optionsPending: true }
-          : {}),
-      })),
-      // Remote agent lists exist only for the *active* remote (the operate
-      // `list` query is per-remote); others offer their default row only.
-      // While the list is in flight the row is optionsPending (#803).
-      remotes: configuredRemoteRows.map((r) => ({
-        id: r.id,
-        label: r.title || r.id,
-        ...(r.id === activeRemoteId
-          ? {
-              agents: remoteNavbarAgents.map((row) => ({
-                id: row.id,
-                label: row.label || row.id,
-              })),
-              optionsPending: remoteAgentsQuery.isPending,
-            }
-          : {}),
-        // #789: a herdr remote's configured panes (GET /v1/herdr-agents/)
-        // are its stage-2 options — the composer picker replaces the #543
-        // navbar popup, and picking a pane lands in ?session=<name>.
-        ...(isHerdrKind(r.kind) || isHerdrKind(r.id)
-          ? {
-              herdrAgents: (herdrAgentsQuery.data?.data ?? []).map((a) => ({
-                id: a.id,
-                name: a.name,
-              })),
-              ...(herdrAgentsQuery.isPending ? { optionsPending: true } : {}),
-            }
-          : {}),
-      })),
-      teams: parseTeamRosters(teamsQuery.data ?? []).map((t) => ({
-        id: t.id,
-        label: t.name || t.id,
-        members: (t.members ?? []).map((m) => ({ id: m.id, label: m.name || m.id })),
-      })),
-      blueprints: blueprints.map((b) => ({
-        id: b.id,
-        label: b.name || b.id,
-        description: b.description,
-      })),
-    }),
-    [
-      llmProfilesQuery.data,
-      discoveredClis,
-      configuredRemoteRows,
-      teamsQuery.data,
-      blueprints,
-      activeRemoteId,
-      remoteNavbarAgents,
-      currentCli,
-      cliModelsQuery.data,
-      composerCliSessions,
-      herdrAgentsQuery.data,
-      herdrAgentsQuery.isPending,
-    ],
-  )
-  const composerProviders = useMemo(
-    () => buildComposerProviders(composerSources),
-    [composerSources],
-  )
-  // #856 slice F: one props object for the extracted message list —
-  // tsc names every closure identifier the render body touches.
   const chatMessageListProps = {
     AgentAvatar,
     ChatMessageActions,
@@ -3153,251 +3025,109 @@ const ChatPage = () => {
     wsRef,
     __ctx: null as unknown,
   }
+  const chatOverlaysProps = {
+    COPY_EMPTY_MESSAGE,
+    COPY_EMPTY_TITLE,
+    COPY_FAILED_MESSAGE,
+    COPY_FAILED_TITLE,
+    ConfirmModal,
+    Copy,
+    FoldVertical,
+    GenerationsPanel,
+    RawResponseModal,
+    Reply,
+    START_CONTEXT_FROM_HERE_LABEL,
+    START_CONTEXT_FROM_HERE_TOOLTIP,
+    SessionPicker,
+    SkillPopup,
+    TokenDiagnosticsModal,
+    agentKind,
+    applyStartFromHere,
+    assistantMessageCount,
+    composerRef,
+    contextMax,
+    contextMenu,
+    contextMeta,
+    contextStrategy,
+    conversationId,
+    copyTextToClipboard,
+    generationContexts,
+    generationsOpen,
+    handleContextToHere,
+    headerFaceAgentId,
+    inputTokens,
+    isApiAgent,
+    messages,
+    openSkillName,
+    outputTokens,
+    rawResponseModalText,
+    remoteFromUrl,
+    remoteThreadPicker,
+    seatToolCalls,
+    selectedAgentName,
+    setContextMenu,
+    setGenerationsOpen,
+    setOpenSkillName,
+    setRawResponseModalText,
+    setRemoteThreadPicker,
+    setReplyTarget,
+    setSearchParams,
+    setStartFromHereWarning,
+    setTokenDiagOpen,
+    skillCatalog,
+    startFromHereWarning,
+    summaries,
+    toastError,
+    tokenCount,
+    tokenDiagOpen,
+    toolCallsCount,
+    userMessageCount,
+  }
+
+  const chatShellProps = {
+    ChatBottomDock,
+    ChatMessageList,
+    ConsumerPills,
+    DefaultLlmTip,
+    RoleAgentTip,
+    activeChatAgentId,
+    agentKind,
+    bubbleTheme,
+    chatBottomDockProps,
+    chatMessageListProps,
+    composerInsetCustomProperty,
+    composerInsetPx,
+    dismissDefaultLlmTip,
+    dismissRoleTip,
+    getBubbleTheme,
+    handleTranscriptScroll,
+    ircGutterDragging,
+    ircGutterPx,
+    isCliAgent,
+    isRemoteAgent,
+    messagesEditable,
+    onIrcRailDoubleClick,
+    onIrcRailPointerDown,
+    onIrcRailPointerMove,
+    onIrcRailPointerUp,
+    remoteFromUrl,
+    scrollBoxRef,
+    showDefaultLlmTip,
+    showRoleTip,
+    statusLabel,
+    themeUsesIrcGutter,
+  }
+
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
       {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
           header's box (the flyout is an absolutely-positioned child of the
           picker inside this header), leaving only its first row reachable.
           Titles still clamp in `.os-navbar-identity-label`. */}
-      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
-          header's box (the flyout is an absolutely-positioned child of the
-          picker inside this header), leaving only its first row reachable.
-          Titles still clamp in `.os-navbar-identity-label`. */}
-          <ChatHeader {...chatHeaderProps} />
+      <ChatHeader {...chatHeaderProps} />
+      <ChatTranscriptShell {...chatShellProps} />
+      <ChatOverlays {...chatOverlaysProps} />
 
-      <ConsumerPills providerId={activeChatAgentId} />
-      {showRoleTip ? <RoleAgentTip onDismiss={dismissRoleTip} /> : null}
-      {showDefaultLlmTip ? <DefaultLlmTip onDismiss={dismissDefaultLlmTip} /> : null}
-
-      <span role="status" aria-live="polite" aria-atomic="true" aria-label="Connection status" className="sr-only">
-        {statusLabel}
-      </span>
-
-      <div
-        ref={scrollBoxRef}
-        className="os-chat-transcript min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-3 sm:px-3 select-none outline-none focus:outline-none flex flex-col justify-between relative"
-        data-composer-inset={composerInsetPx}
-        data-bubble-theme={bubbleTheme}
-        style={
-          {
-            ...((composerInsetCustomProperty(composerInsetPx) as CSSProperties) ?? {}),
-            ...(themeUsesIrcGutter(bubbleTheme)
-              ? ({ ['--irc-gutter-px' as string]: `${ircGutterPx}px` } as React.CSSProperties)
-              : {}),
-          } as React.CSSProperties
-        }
-        data-message-layout={getBubbleTheme(bubbleTheme).messageLayout}
-        aria-live="polite"
-        role="log"
-        aria-label="Conversation"
-        data-agent-kind={
-          remoteFromUrl || isRemoteAgent || agentKind === 'remote'
-            ? 'remote'
-            : isCliAgent
-              ? 'cli'
-              : agentKind
-        }
-        data-messages-editable={messagesEditable && agentKind !== 'remote' ? 'true' : 'false'}
-        data-timestamp-placement={getBubbleTheme(bubbleTheme).timestampPlacement}
-        data-action-row-placement={getBubbleTheme(bubbleTheme).actionRowPlacement}
-        tabIndex={0}
-        onScroll={handleTranscriptScroll}
-      >
-          {themeUsesIrcGutter(bubbleTheme) ? (
-            <span
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize IRC name column"
-              className="os-irc-gutter-rail"
-              data-testid="irc-gutter-rail"
-              data-dragging={ircGutterDragging ? 'true' : 'false'}
-              onPointerDown={onIrcRailPointerDown}
-              onPointerMove={onIrcRailPointerMove}
-              onPointerUp={onIrcRailPointerUp}
-              onPointerCancel={onIrcRailPointerUp}
-              onDoubleClick={onIrcRailDoubleClick}
-            />
-          ) : null}
-<ChatMessageList {...chatMessageListProps} />
-          <ChatBottomDock {...chatBottomDockProps} />
-      </div>
-
-      {contextMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            data-testid="context-menu-backdrop"
-            onClick={() => setContextMenu(null)}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              setContextMenu(null)
-            }}
-          />
-          <div
-            role="menu"
-            aria-label="Message actions"
-            data-testid="message-context-menu"
-            className="fixed z-50 min-w-32 rounded-lg border border-base-300 bg-base-100 p-1 shadow-xl text-sm"
-            style={{
-              left: `${Math.min(contextMenu.x, typeof window !== 'undefined' ? window.innerWidth - 150 : 0)}px`,
-              top: `${Math.min(contextMenu.y, typeof window !== 'undefined' ? window.innerHeight - 80 : 0)}px`,
-            }}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
-              data-testid="context-menu-reply"
-              onClick={() => {
-                setReplyTarget({
-                  key: contextMenu.message.key,
-                  role: contextMenu.message.role,
-                  speaker:
-                    contextMenu.message.role === 'user' ? 'You' : selectedAgentName,
-                  text: contextMenu.selectedText || contextMenu.message.text,
-                })
-                setContextMenu(null)
-                composerRef.current?.focus()
-              }}
-            >
-              <Reply className="h-4 w-4 opacity-70" aria-hidden="true" />
-              {/* #846: label names the target — a partial selection is a quote. */}
-              {contextMenu.selectedText ? 'Reply to quote' : 'Reply'}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
-              data-testid="context-menu-copy"
-              onClick={() => {
-                const textToCopy = contextMenu.selectedText || contextMenu.message.text
-                setContextMenu(null)
-                void copyTextToClipboard(textToCopy).then((result) => {
-                  if (result === 'empty') {
-                    toastError(COPY_EMPTY_TITLE, COPY_EMPTY_MESSAGE)
-                  } else if (result === 'failed') {
-                    toastError(COPY_FAILED_TITLE, COPY_FAILED_MESSAGE)
-                  }
-                })
-              }}
-            >
-              <Copy className="h-4 w-4 opacity-70" aria-hidden="true" />
-              {contextMenu.selectedText ? 'Copy selection' : 'Copy'}
-            </button>
-            {(isApiAgent || agentKind === 'blueprint') &&
-            (contextMenu.message.role === 'user' || contextMenu.message.role === 'assistant') &&
-            !contextMenu.message.streaming ? (
-              <button
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-left text-sm hover:bg-base-200 cursor-pointer"
-                data-testid={
-                  contextStrategy === 'cull'
-                    ? 'context-menu-start-from-here'
-                    : 'context-menu-compress-to-here'
-                }
-                title={
-                  contextStrategy === 'cull' ? START_CONTEXT_FROM_HERE_TOOLTIP : 'Compress to here'
-                }
-                onClick={() => {
-                  handleContextToHere(contextMenu.message)
-                }}
-              >
-                <FoldVertical className="h-4 w-4 opacity-70" aria-hidden="true" />
-                {contextStrategy === 'cull' ? START_CONTEXT_FROM_HERE_LABEL : 'Compress to here'}
-              </button>
-            ) : null}
-            {/* #724: the bubble-theme picker moved to the rail agent
-                right-click menu — presentation is an agent-level choice, not
-                a message-level action. */}
-          </div>
-        </>
-      )}
-
-      <TokenDiagnosticsModal
-        isOpen={tokenDiagOpen}
-        onClose={() => setTokenDiagOpen(false)}
-        agentName={selectedAgentName}
-        conversationId={conversationId}
-        tokenCount={tokenCount}
-        contextMax={contextMax}
-        inputTokens={inputTokens}
-        outputTokens={outputTokens}
-        compactsCount={summaries.length}
-        toolCallsCount={toolCallsCount}
-        messageCount={messages.length}
-        userMessageCount={userMessageCount}
-        assistantMessageCount={assistantMessageCount}
-        contextStrategy={contextStrategy}
-        lastContextEvent={contextMeta.last_event}
-      />
-
-      <SkillPopup
-        name={openSkillName}
-        open={openSkillName != null}
-        onClose={() => setOpenSkillName(null)}
-        catalog={skillCatalog}
-      />
-
-      <RawResponseModal
-        isOpen={rawResponseModalText !== null}
-        onClose={() => setRawResponseModalText(null)}
-        text={rawResponseModalText ?? ''}
-      />
-
-      <ConfirmModal
-        isOpen={startFromHereWarning != null}
-        onClose={() => setStartFromHereWarning(null)}
-        onConfirm={async () => {
-          const pending = startFromHereWarning
-          if (!pending) return
-          await applyStartFromHere(pending.message, true)
-        }}
-        title={START_CONTEXT_FROM_HERE_LABEL}
-        confirmText="Confirm"
-        cancelText="Cancel"
-        confirmVariant="warning"
-        aria-label="Start context from here warning"
-      >
-        <p className="text-sm" data-testid="start-from-here-warning">
-          {startFromHereWarning?.copy}
-        </p>
-      </ConfirmModal>
-
-      <GenerationsPanel
-        open={generationsOpen}
-        onClose={() => setGenerationsOpen(false)}
-        agentId={headerFaceAgentId}
-        agentName={selectedAgentName || 'Agent'}
-        contexts={generationContexts}
-        activeContextId={conversationId}
-        onSwitchContext={() => {
-          /* Single-context today; multi-context switching lands with session history UI. */
-        }}
-        toolCalls={seatToolCalls}
-      />
-
-
-      <SessionPicker
-        open={remoteThreadPicker !== null}
-        title={remoteFromUrl || 'Remote'}
-        sessions={remoteThreadPicker ?? []}
-        onClose={() => setRemoteThreadPicker(null)}
-        onSelect={(session) => {
-          const resumeId = String(session.memberId || session.id || '').trim()
-          if (!resumeId || !remoteFromUrl) return
-          setSearchParams(
-            (prev) => {
-              const next = new URLSearchParams(prev)
-              next.set('remote', remoteFromUrl)
-              next.set('session', resumeId)
-              return next
-            },
-            { replace: true },
-          )
-          setRemoteThreadPicker(null)
-        }}
-      />
     </div>
   )
 }
