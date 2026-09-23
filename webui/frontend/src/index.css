@@ -3099,6 +3099,15 @@ pre:focus-within .os-code-copy {
 .os-composer__send--idle:hover {
   opacity: 0.4;
 }
+/* #1093 (1+2): busy state stacks stop over send so the row never widens. */
+.os-composer__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
 /* #223: stop button — square stop icon, danger-tinted so it reads as interrupt. */
 .os-composer__stop {
   color: color-mix(in srgb, var(--color-error) 75%, var(--color-base-content));

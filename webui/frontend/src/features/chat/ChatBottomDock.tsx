@@ -386,21 +386,12 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                     aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
                   />
                   )}
-                  {/* #732: ONE permanently mounted slot — the kbd used to
-                      mount/unmount with the draft, re-flowing the pill on the
-                      first and last keystroke. The glyph swaps in place; the
-                      node (and its reserved width) never changes. */}
-                  <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
-                    {sendNowHint ? (
-                      /* #631/#1072: the ↵ reveal announces the send action while a queued send waits. No queue → no hint. */
-                      <kbd
-                        className="os-composer__hint kbd kbd-xs"
-                        data-testid="composer-send-hint"
-                        title="Send Now! ↵"
-                      >
-                        Send ↵
-                      </kbd>
-                    ) : input ? (
+                  {/* #732/#1093(4): the ↵-hint badge is retired — the queued
+                      pill already carries the enter-interrupt hint, so the
+                      in-input badge duplicated it and spent composer width.
+                      The Esc-to-clear hint stays for typed drafts. */}
+                  {input ? (
+                    <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
                       <kbd
                         className="os-composer__hint kbd kbd-xs"
                         data-testid="composer-clear-hint"
@@ -408,17 +399,8 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                       >
                         Esc
                       </kbd>
-                    ) : (
-                      <kbd
-                        className="os-composer__hint kbd kbd-xs"
-                        data-testid="composer-hint-placeholder"
-                        title=""
-                        aria-hidden="true"
-                      >
-                        Send ↵
-                      </kbd>
-                    )}
-                  </span>
+                    </span>
+                  ) : null}
                   {renderRoutingPicker()}
                   <button
                     type="button"
@@ -444,25 +426,54 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                     typed, because clicking Send mid-flight is exactly how a
                     send gets QUEUED (#603); removing it would kill queueing.
                     The mic stays inside the input regardless. */}
+                {/* #1093 (1+2): when busy the stop and send buttons stack
+                    vertically (stop on top), instead of appearing side by
+                    side and expanding the row horizontally. */}
                 {composerBusy ? (
-                  <button
-                    type="button"
-                    className="os-composer__send os-composer__send--stop"
-                    aria-label="Stop generating"
-                    title="Stop the generation in flight (queued sends stay queued)"
-                    data-testid="composer-stop"
-                    onClick={interruptRunningTurn}
-                  >
-                    <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-                  </button>
-                ) : null}
-                {/* #1070: the primary action is permanently mounted. Idle →
-                    disabled send (greyed, in the DOM so the row's geometry
-                    never changes); queued send waiting → active Send-now
-                    (same contract as Enter-on-empty: interrupt the running
-                    turn, the drain effect promotes the row); a sendable draft
-                    → the real submit. The three states share one slot. */}
-                {hasSendableDraft ? (
+                  <div className="os-composer__stack" data-testid="composer-action-stack">
+                    <button
+                      type="button"
+                      className="os-composer__send os-composer__send--stop"
+                      aria-label="Stop generating"
+                      title="Stop the generation in flight (queued sends stay queued)"
+                      data-testid="composer-stop"
+                      onClick={interruptRunningTurn}
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                    </button>
+                    {/* #1070: the primary action is permanently mounted. */}
+                    {hasSendableDraft ? (
+                      <button
+                        type="submit"
+                        className="os-composer__send"
+                        aria-label="Send"
+                      >
+                        <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                      </button>
+                    ) : sendNowHint ? (
+                      <button
+                        type="button"
+                        className="os-composer__send"
+                        aria-label="Send now"
+                        data-testid="composer-send-now"
+                        onClick={onSendNow}
+                      >
+                        <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="os-composer__send os-composer__send--idle"
+                        aria-label="Send"
+                        aria-disabled="true"
+                        disabled
+                        tabIndex={-1}
+                      >
+                        <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                ) : hasSendableDraft ? (
                   <button
                     type="submit"
                     className="os-composer__send"

@@ -2171,7 +2171,7 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
       MockWebSocket.instances[0]?.open()
     })
     const pill = await screen.findByTestId('routing-pill-agent')
-    expect(pill).toHaveTextContent('Pick a remote')
+    expect(pill).toHaveTextContent('default')
     fireEvent.click(pill)
     // #681: the unbound remote's provider row sits on stage 1; selecting it
     // offers the Use-default row — 'No remotes' chrome never appears.

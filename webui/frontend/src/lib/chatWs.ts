@@ -258,7 +258,8 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
     }
     if (type === 'turn_cancelled') {
       // #198: ack for cancel_turn — styled as a status line in the transcript.
-      return { kind: 'status', text: 'Interrupted — queued message promoted.' }
+      // #1093 (3): plain language; the promotion itself is visible below.
+      return { kind: 'status', text: 'Interrupted by user.' }
     }
     if (type === 'aux_task_started') {
       // #818: background LLM work became visible.

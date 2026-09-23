@@ -542,15 +542,14 @@ describe('ChatPage stop button (#223)', () => {
     expect(screen.getByTestId('queued-row')).toHaveTextContent('still queued')
   })
 
-  // #631: the ↵ hint exists ONLY to announce the interrupt-send action while
-  // a queued send waits — labelled "Send Now! ↵". No queue → no hint at all.
-  it('shows the Send Now! hint only while a queued send waits', async () => {
+  // #1093 (4): the in-input ↵ badge is retired — the queued pill already
+  // carries the enter-interrupt hint, and the badge spent composer width.
+  it('renders no in-input send hint while a queued send waits (#1093)', async () => {
     renderChat()
     const ws = await openSocket()
     await act(async () => {
       startStreaming(ws)
     })
-    // No queue yet → the ↵ kbd is absent entirely (not "Enter to send").
     expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
@@ -558,13 +557,12 @@ describe('ChatPage stop button (#223)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
-      'title',
-      'Send Now! ↵',
-    )
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+    // The Esc hint appears only for a typed draft.
+    expect(screen.queryByTestId('composer-clear-hint')).not.toBeInTheDocument()
   })
 
-  it('removes the hint once the queue drains', async () => {
+  it('keeps no send hint across the queue lifecycle (#1093)', async () => {
     renderChat()
     const ws = await openSocket()
     await act(async () => {
@@ -574,10 +572,7 @@ describe('ChatPage stop button (#223)', () => {
       target: { value: 'drain me' },
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
-    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
-      'title',
-      'Send Now! ↵',
-    )
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
 
     await act(async () => {
       finishStreaming(ws)
@@ -588,7 +583,7 @@ describe('ChatPage stop button (#223)', () => {
     })
   })
 
-  it('shows the Send ↵ hint for queued sends instead of Esc-to-clear (#1072)', async () => {
+  it('a fresh draft over a queued send shows only the Esc hint (#1072 superseded)', async () => {
     renderChat()
     const ws = await openSocket()
     await act(async () => {
@@ -602,12 +597,8 @@ describe('ChatPage stop button (#223)', () => {
       target: { value: 'a fresh draft' },
     })
 
-    expect(screen.getByTestId('composer-send-hint')).toHaveAttribute(
-      'title',
-      'Send Now! ↵',
-    )
-    expect(screen.getByTestId('composer-send-hint')).toHaveTextContent('Send ↵')
-    expect(screen.queryByTestId('composer-clear-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('composer-send-hint')).not.toBeInTheDocument()
+    expect(screen.getByTestId('composer-clear-hint')).toBeInTheDocument()
   })
 
   // #561 ask 3: queueing mid-generation is a non-API affordance. API seats
