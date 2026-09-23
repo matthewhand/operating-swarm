@@ -108,7 +108,11 @@ import {
   type BumpScope,
   saveHostnameOverride,
 } from '../lib/settingsPrefs'
-import { computeRailHotkeyTargets } from '../lib/railHotkeys'
+import {
+  activeRailNavIndex,
+  computeRailNavSequence,
+  stepRailNav,
+} from '../lib/railHotkeys'
 import {
   excludePinnedFromList,
   loadOrSeedPinnedAgents,
@@ -1041,7 +1045,7 @@ export default function AgentSidebar({
     [pins, resolvedHiddenIds, deletedIds, knownRailIds, catalogReady, catalogById],
   )
   const hotkeyTargets = useMemo(
-    () => computeRailHotkeyTargets({ visiblePins, orderedRows }),
+    () => computeRailNavSequence({ visiblePins, orderedRows }),
     [visiblePins, orderedRows],
   )
 
@@ -1317,24 +1321,28 @@ export default function AgentSidebar({
   }, [menu, sectionMenu, paneMenu, closeMenu])
 
   useEffect(() => {
-    const onAltDigit = (event: KeyboardEvent) => {
-      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && /^[1-9]$/.test(event.key)) {
-        const idx = parseInt(event.key, 10) - 1
-        const target = hotkeyTargets[idx]
-        if (target) {
-          event.preventDefault()
-          if (target.isHerdr) {
-            window.location.assign('/teams/#herdr-members')
-          } else {
-            navigate(target.href)
-          }
-          onClose?.()
+    // #1088: Alt+Up / Alt+Down sequential navigation (Herdr parity) replaces
+    // REQ-172's Alt+1..9 slots, which collided with native browser tab
+    // switching. The anchor is whichever row the URL currently points at.
+    const onAltArrow = (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      const dir: 1 | -1 = event.key === 'ArrowDown' ? 1 : -1
+      const currentIdx = activeRailNavIndex(hotkeyTargets, window.location.search)
+      const target = stepRailNav(hotkeyTargets, currentIdx, dir)
+      if (target) {
+        event.preventDefault()
+        if (target.isHerdr) {
+          window.location.assign('/teams/#herdr-members')
+        } else {
+          navigate(target.href)
         }
+        onClose?.()
       }
     }
-    window.addEventListener('keydown', onAltDigit)
-    return () => window.removeEventListener('keydown', onAltDigit)
-  }, [visiblePins, hotkeyTargets, navigate, onClose])
+    window.addEventListener('keydown', onAltArrow)
+    return () => window.removeEventListener('keydown', onAltArrow)
+  }, [hotkeyTargets, navigate, onClose])
 
   const {
     openGroupPicker,

@@ -6,6 +6,7 @@ describe('keybinding shortcut labels', () => {
     const search = searchShortcutLabel()
     const pins = pinsShortcutLabel()
     expect(search === '⌘K' || search === 'Ctrl+K').toBe(true)
-    expect(pins === '⌥1–9' || pins === 'Alt+1–9').toBe(true)
+    // #1088: sequential Alt+↑/↓ replaced the Alt+1–9 slot keys.
+    expect(pins === '⌥↑/↓' || pins === 'Alt+↑/↓').toBe(true)
   })
 })

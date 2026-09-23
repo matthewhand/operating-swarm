@@ -233,7 +233,8 @@ describe('REQ-209 sidepane agent sections', () => {
     await waitFor(() => {
       expect(within(sectionById(UNASSIGNED_SECTION_ID)!).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     })
-    expect(within(list).getAllByTestId('spill-hotkey').length).toBeGreaterThan(0)
+    // #1088: the Alt+N slot tips are gone; the row itself is the assertion.
+    expect(within(list).getAllByTestId('rail-row-slot').length).toBeGreaterThan(0)
   })
 
   it('#497: Move to separates the section list from New section with a divider', async () => {

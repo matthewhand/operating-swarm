@@ -1,3 +1,12 @@
+/**
+ * REQ-208 / #1088 — the rail row's activity stamp.
+ *
+ * REQ-208 pinned a hover-swapped Alt+N hint beside the timestamp. #1088
+ * removed the Alt+1..9 slot model (native tab-switch collision), so the
+ * slot's only tenants now are the unread dot, the role badge, and the
+ * activity timestamp. The #500 layout doctrine it established survives:
+ * the slot shares the name line and nothing in it can add height.
+ */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -5,7 +14,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import AgentSidebar from '../AgentSidebar'
 import { ToastProvider } from '../DaisyUI'
 
-describe('REQ-208: Sidepane — last activity time/day; hover swaps to Alt+N hint', () => {
+describe('REQ-208: sidepane activity stamp (#1088: Alt+N hint retired)', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.stubGlobal(
@@ -30,78 +39,45 @@ describe('REQ-208: Sidepane — last activity time/day; hover swaps to Alt+N hin
     )
   })
 
-  it('renders Alt+N hint with hidden class and timestamp with group-hover:hidden swap classes', async () => {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-
-    render(
-      <QueryClientProvider client={client}>
-        <ToastProvider>
-          <MemoryRouter initialEntries={['/']}>
-            <AgentSidebar />
-          </MemoryRouter>
-        </ToastProvider>
-      </QueryClientProvider>,
-    )
-
-    await waitFor(() => {
-      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
-    })
-
-    const hotkeys = screen.getAllByTestId('spill-hotkey')
-    expect(hotkeys.length).toBeGreaterThan(0)
-    // #500: the tip is revealed by opacity over the slot, NOT by a `hidden` →
-    // `inline-block` display swap. That swap was the regression: on a row whose
-    // slot was otherwise empty the tip created a line box on hover, so the row
-    // grew and pushed everything below it. This test previously asserted the
-    // swap, i.e. it encoded the defect.
-    expect(hotkeys[0].className).toContain('os-rail-shortcut--layered')
-    expect(hotkeys[0]).not.toHaveClass('hidden')
-    expect(hotkeys[0].className).not.toContain('group-hover/row:inline-block')
+  it('renders no Alt+N hint anywhere in the rail (#1088 removes the slot model)', async () => {
+    renderSidebar()
+    await ready()
+    expect(screen.queryByTestId('spill-hotkey')).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/Alt\+\d|⌥\d/)
   })
 
-  it('#500: the tip shares the name line, so revealing it cannot add a line', async () => {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-
-    render(
-      <QueryClientProvider client={client}>
-        <ToastProvider>
-          <MemoryRouter initialEntries={['/']}>
-            <AgentSidebar />
-          </MemoryRouter>
-        </ToastProvider>
-      </QueryClientProvider>,
-    )
-
-    await waitFor(() => {
-      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
-    })
-
-    const tip = screen.getAllByTestId('spill-hotkey')[0]
-    const slot = tip.closest('[data-testid="rail-row-slot"]')
-    const nameLine = tip.parentElement?.parentElement
-    const name = nameLine?.querySelector('[data-testid="rail-agent-name"]')
-
-    // The name and the tip are on ONE flex line (jsdom has no layout engine, so
-    // the invariant asserted is structural, not a measured height).
+  it('#500: the timestamp shares the name line and cannot add a line', async () => {
+    renderSidebar()
+    await ready()
+    const slot = document.querySelector('[data-testid="rail-row-slot"]')
+    expect(slot).toBeTruthy()
+    const nameLine = slot?.parentElement
     expect(nameLine?.className).toContain('os-rail-name-line')
-    expect(nameLine?.contains(name as Node)).toBe(true)
+    const name = nameLine?.querySelector('[data-testid="rail-agent-name"]')
     expect(nameLine?.contains(slot as Node)).toBe(true)
-    // The tip is inside the slot, and the slot is the shrink-0 side.
-    expect(slot?.contains(tip)).toBe(true)
+    expect(nameLine?.contains(name as Node)).toBe(true)
     expect(slot?.className).toContain('shrink-0')
-    // The name is the flexible side, so it keeps the space when width is tight.
     expect(name?.className).toContain('os-rail-row-name')
   })
 
   it('#500: hovering a row adds and removes no element in the slot (visibility only)', async () => {
+    renderSidebar()
+    await ready()
+    const slot = document.querySelector('[data-testid="rail-row-slot"]') as HTMLElement
+    const row = slot.closest('.os-agent-row') as HTMLElement
+    const before = slot.innerHTML
+
+    fireEvent.mouseEnter(row)
+    fireEvent.mouseOver(row)
+
+    expect(slot.innerHTML).toBe(before)
+    expect(row).toBeTruthy()
+  })
+
+  function renderSidebar() {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-
     render(
       <QueryClientProvider client={client}>
         <ToastProvider>
@@ -109,26 +85,13 @@ describe('REQ-208: Sidepane — last activity time/day; hover swaps to Alt+N hin
             <AgentSidebar />
           </MemoryRouter>
         </ToastProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     )
+  }
 
+  async function ready() {
     await waitFor(() => {
       expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
     })
-
-    const tip = screen.getAllByTestId('spill-hotkey')[0]
-    const row = tip.closest('.os-agent-row') as HTMLElement
-    const slot = tip.closest('[data-testid="rail-row-slot"]') as HTMLElement
-    const before = slot.innerHTML
-    const beforeClass = tip.className
-
-    fireEvent.mouseEnter(row)
-    fireEvent.mouseOver(row)
-
-    // Hover is a paint change: same nodes, same classes, so no reflow.
-    expect(slot.innerHTML).toBe(before)
-    expect(tip.className).toBe(beforeClass)
-    // An empty-slot row is the failing case #500 named, and it is a real row.
-    expect(row).toBeTruthy()
-  })
+  }
 })
