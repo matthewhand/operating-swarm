@@ -27,10 +27,10 @@ describe('#556 narrow rail: the row cannot paint outside the pane', () => {
   })
 
   it('the rail row name no longer relies on Tailwind truncate', () => {
-    const sidebar = fs.readFileSync(
-      path.resolve(__dirname, '../AgentSidebar.tsx'),
-      'utf-8',
-    )
+    // #856 slice G: the row markup moved verbatim into sidebar/rowsRender.tsx.
+    const sidebar =
+      fs.readFileSync(path.resolve(__dirname, '../AgentSidebar.tsx'), 'utf-8') +
+      fs.readFileSync(path.resolve(__dirname, '../sidebar/rowsRender.tsx'), 'utf-8')
     expect(sidebar).toContain('os-rail-row-name')
     expect(sidebar).not.toContain('block min-w-0 truncate text-sm font-semibold leading-5')
   })

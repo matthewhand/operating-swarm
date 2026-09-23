@@ -37,7 +37,11 @@ def test_css_has_no_role_row_fill_or_border():
 
 
 def test_spa_rows_do_not_apply_role_fill_classes():
-    tsx = SIDEBAR_TSX.read_text(encoding="utf-8")
+    # #856 slice G: the row markup moved verbatim into sidebar/rowsRender.tsx.
+    tsx = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in (SIDEBAR_TSX, SIDEBAR_TSX.parent / "sidebar" / "rowsRender.tsx")
+    )
     assert "os-agent-row--${role}" not in tsx
     assert "os-agent-row--cos" not in tsx
     assert "roleCssClass(role)" in tsx

@@ -11,7 +11,11 @@ CONCEAL = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SidepaneCon
 
 
 def test_role_badge_sits_on_the_name_row_not_bottom_centered():
-    sidebar = SIDEBAR.read_text(encoding="utf-8")
+    # #856 slice G: the row markup moved verbatim into sidebar/rowsRender.tsx.
+    sidebar = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in (SIDEBAR, SIDEBAR.parent / "sidebar" / "rowsRender.tsx")
+    )
     css = INDEX_CSS.read_text(encoding="utf-8")
     assert "os-agent-row__label-col" in sidebar
     assert "roleBadgeNode" in sidebar
