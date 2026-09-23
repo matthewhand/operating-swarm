@@ -28,15 +28,19 @@ TRANSPARENT = ("rgba(0, 0, 0, 0)", "transparent")
 MIN_CSS_BYTES = 50_000
 
 
-def _computed(page, locator, prop: str) -> str:
+def _computed(locator, prop: str) -> str:
     return locator.evaluate(f"el => getComputedStyle(el)['{prop}']")
 
 
 def test_landing_page_is_styled(page, live_server_url):
-    page.goto(live_server_url + "/", wait_until="networkidle")
+    # #1029: the SPA polls continuously (context usage / rate limit / unread
+    # watermarks), so the network never goes idle — wait for a mounted marker
+    # instead of networkidle, and only then measure computed styles.
+    page.goto(live_server_url + "/", wait_until="domcontentloaded")
+    page.locator(".os-composer").first.wait_for(state="visible", timeout=15_000)
 
     # Browser-default rendering means the stylesheet never applied.
-    font = _computed(page, page.locator("body"), "fontFamily")
+    font = _computed(page.locator("body"), "fontFamily")
     assert "times" not in font.lower() and font.lower() != "serif", (
         f"body font-family is the browser serif default ({font!r}); "
         "the built CSS is not applying"
@@ -51,7 +55,7 @@ def test_landing_page_is_styled(page, live_server_url):
         "button.btn:not(.btn-square):not(.btn-circle)"
     ).locator("visible=true").first
     btn.wait_for(state="visible", timeout=10_000)
-    pad = _computed(page, btn, "paddingLeft")
+    pad = _computed(btn, "paddingLeft")
     assert pad not in ("0px", "0"), (
         f"visible .btn padding-left is {pad!r}; DaisyUI button styles "
         "are missing from the bundle"
@@ -59,7 +63,7 @@ def test_landing_page_is_styled(page, live_server_url):
 
     composer = page.locator(".os-composer").first
     composer.wait_for(state="visible", timeout=10_000)
-    bg = _computed(page, composer, "backgroundColor")
+    bg = _computed(composer, "backgroundColor")
     assert bg not in TRANSPARENT, (
         ".os-composer has a transparent background; theme / DaisyUI "
         "tokens are missing from the bundle"
@@ -109,12 +113,13 @@ def test_chat_websocket_connects(page, live_server_url):
 def test_blueprint_cards_have_borders(page, live_server_url):
     """The card-bordered guard: DaisyUI 5 renamed ``card-bordered`` to
     ``card-border``; with the stale class the cards rendered borderless."""
-    page.goto(live_server_url + "/blueprints", wait_until="networkidle")
+    # #1029: marker wait, not networkidle (SPA polling keeps the wire busy).
+    page.goto(live_server_url + "/blueprints", wait_until="domcontentloaded")
     cards = page.locator(".card")
     cards.first.wait_for(state="visible", timeout=10_000)
     widths = []
     for i in range(cards.count()):
-        w = _computed(page, cards.nth(i), "borderTopWidth")
+        w = _computed(cards.nth(i), "borderTopWidth")
         widths.append(w)
         if w.endswith("px") and float(w[:-2]) >= 1:
             return
@@ -158,7 +163,10 @@ def test_dark_mode_toggle(page, live_server_url):
     After Django-canonical shell (#254), ``/`` may not mount the SPA at all.
     Skip cleanly when the SPA toggle is absent instead of timing out CI.
     """
-    page.goto(live_server_url + "/", wait_until="networkidle")
+    # #1029: give the SPA mount decision a beat before probing the toggle —
+    # with networkidle gone, a short settle keeps the canonical-shell skip path.
+    page.goto(live_server_url + "/", wait_until="domcontentloaded")
+    page.wait_for_timeout(1_000)
     toggle = page.get_by_label("Toggle dark mode")
     if toggle.count() == 0:
         pytest.skip(
@@ -170,13 +178,13 @@ def test_dark_mode_toggle(page, live_server_url):
     themed.wait_for(state="attached", timeout=10_000)
 
     theme_before = themed.get_attribute("data-theme")
-    bg_before = _computed(page, themed, "backgroundColor")
+    bg_before = _computed(themed, "backgroundColor")
 
     toggle.click()
     page.wait_for_timeout(250)  # let React re-render + CSS vars resolve
 
     theme_after = themed.get_attribute("data-theme")
-    bg_after = _computed(page, themed, "backgroundColor")
+    bg_after = _computed(themed, "backgroundColor")
 
     assert theme_after != theme_before, (
         f"data-theme did not change on toggle (still {theme_after!r})"

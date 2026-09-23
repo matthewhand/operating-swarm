@@ -165,7 +165,10 @@ def auth_state(browser, live_server_url: str, tmp_path_factory) -> Path:
     page.locator("input[name='username'], input[type='text']").first.fill(ADMIN_USER)
     page.locator("input[name='password'], input[type='password']").first.fill(ADMIN_PASS)
     page.locator("button[type='submit'], input[type='submit']").first.click()
-    page.wait_for_load_state("networkidle", timeout=15000)
+    # #1029: networkidle never settles on this SPA (react-query polling keeps
+    # the wire busy) — wait for the post-login redirect instead.
+    page.wait_for_url(lambda url: "/accounts/login/" not in url, timeout=15_000)
+    page.wait_for_load_state("domcontentloaded", timeout=15_000)
     assert "login" not in page.url, (
         f"form login with the throwaway superuser failed; still on {page.url}"
     )
