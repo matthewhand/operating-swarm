@@ -30,7 +30,7 @@ export interface UseChatDerivedOptions {
   persistedDropdown: Partial<Record<'remote' | 'cli' | 'api' | 'blueprint' | 'model' | 'effort', string>>
   llmProfilesQuery: { data?: { profiles?: { id: string; name?: string }[]; default_llm_profile?: string; default_llm_ready?: boolean } | undefined }
   llmDefaultProfile: string | undefined
-  input: string
+  input?: string
   queuedRows: QueuedSendRow[]
   queuedHoldIds: string[]
   isApiAgent: boolean
@@ -62,7 +62,6 @@ export function useChatDerived(opts: UseChatDerivedOptions) {
     persistedDropdown,
     llmProfilesQuery,
     llmDefaultProfile,
-    input,
     queuedRows,
     queuedHoldIds,
     isApiAgent,
@@ -96,11 +95,10 @@ export function useChatDerived(opts: UseChatDerivedOptions) {
   // #207: API seats on the default profile get a setup tip when the default
   // LLM is not usable. Explicit model/profile overrides (pinned seats) and
   // CLI/remote/team seats are exempt by design.
-  // #561: with a queued send waiting, Enter on the empty composer sends that
-  // row now (the interrupt path — see handleComposerKeyDown). Say so on the
-  // input-hover hint instead of the default "Enter to send".
+  // #561/#1072: with a queued send waiting, show the 'Send ↵' shortcut hint
+  // so the user knows Enter will drain or send.
   const sendNowHint =
-    !input.trim() && nextDrainableQueuedSend(queuedRows, queuedHoldIds) !== null
+    nextDrainableQueuedSend(queuedRows, queuedHoldIds) !== null
   const showDefaultLlmTip = shouldShowDefaultLlmTip({
     isApiAgent,
     hasExplicitModelOverride: Boolean(selectedModelId),

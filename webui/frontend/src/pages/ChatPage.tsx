@@ -12,7 +12,7 @@ import { ChatTranscriptShell } from '../features/chat/ChatTranscriptShell'
 import { renderRoutingPickerImpl } from '../features/chat/renderRoutingPicker'
 import { ChatHeader } from '../features/chat/ChatHeader'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Settings, Square } from 'lucide-react'
+import { ArrowUp, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Settings, Sparkles, Square } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import ChatMessageInput from '../components/ChatMessageInput'
 import {
@@ -2691,6 +2691,7 @@ const ChatPage = () => {
     Paperclip,
     Plug,
     Plus,
+    Sparkles,
     QueuedSendPane,
     Reply,
     Square,

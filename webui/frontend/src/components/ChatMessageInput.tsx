@@ -8,9 +8,9 @@
  *    `/v1/chat/autocomplete` endpoint is queried; the returned continuation
  *    renders muted text directly after the draft. Tab (or → at end-of-text)
  *    accepts it into the draft; Escape or any further edit dismisses it.
- * 2. Sparkle "Enhance" action (#858): POSTs the draft to
- *    `/v1/assist/enhance-prompt` and replaces the draft with the expanded
- *    prompt. Only offered for non-empty drafts.
+ *
+ * (The prompt rewrite action previously embedded here (#858) has been
+ * relocated to the composer `+` actions menu for a decluttered input area (#1069).)
  *
  * Ownership: the textarea element itself stays owned by ChatPage (via
  * `textareaRef`) so focus, IME, paste, slash-menu, and send handling keep
@@ -18,9 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Sparkles } from 'lucide-react'
-import { enhancePrompt, fetchAutocomplete } from '../lib/api'
-import { useToast } from './DaisyUI'
+import { fetchAutocomplete } from '../lib/api'
 
 export const AUTOCOMPLETE_DEBOUNCE_MS = 250
 
@@ -70,9 +68,7 @@ export function ChatMessageInput({
   agentId,
   conversationId,
 }: ChatMessageInputProps) {
-  const { addToast } = useToast()
   const [ghost, setGhost] = useState('')
-  const [enhancing, setEnhancing] = useState(false)
   const [enabled, setEnabled] = useState(loadAutocompleteEnabled)
   const debounceRef = useRef<number | null>(null)
   const requestIdRef = useRef(0)
@@ -187,29 +183,6 @@ export function ChatMessageInput({
     [acceptGhost, ghost, textareaProps],
   )
 
-  const handleEnhance = useCallback(() => {
-    const draft = value.trim()
-    if (!draft || enhancing) return
-    setEnhancing(true)
-    requestIdRef.current += 1
-    setGhost('')
-    void enhancePrompt(draft)
-      .then((res) => {
-        const enhanced = (res.enhanced || '').trim()
-        if (enhanced) {
-          onApplyText(enhanced)
-        }
-      })
-      .catch(() => {
-        addToast({
-          type: 'error',
-          title: 'Enhance prompt',
-          message: 'The tiny model could not enhance this draft. Try again shortly.',
-        })
-      })
-      .finally(() => setEnhancing(false))
-  }, [addToast, enhancing, onApplyText, value])
-
   return (
     <div className="os-composer-input-wrap" data-testid="chat-message-input">
       <div className="os-composer-ghost-stack">
@@ -227,17 +200,6 @@ export function ChatMessageInput({
           </span>
         ) : null}
       </div>
-      <button
-        type="button"
-        className="os-composer__icon os-composer__icon--enhance"
-        data-testid="composer-enhance-prompt"
-        aria-label="Enhance prompt"
-        title="Enhance this draft with the tiny model (✨)"
-        disabled={enhancing || !value.trim()}
-        onClick={handleEnhance}
-      >
-        <Sparkles className={`h-4 w-4 ${enhancing ? 'animate-pulse' : ''}`} aria-hidden="true" />
-      </button>
     </div>
   )
 }

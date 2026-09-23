@@ -12,9 +12,20 @@
  * 3. ChatPage consumes the module and no longer declares the bottom-dock
  *    JSX inline.
  */
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatBottomDock } from '../ChatBottomDock'
+
+vi.mock('../../../lib/api', async () => {
+  const actual = await vi.importActual<typeof import('../../../lib/api')>('../../../lib/api')
+  return {
+    ...actual,
+    enhancePrompt: vi.fn(),
+  }
+})
+
+import { enhancePrompt } from '../../../lib/api'
+const mockEnhancePrompt = vi.mocked(enhancePrompt)
 
 function baseProps(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -41,7 +52,11 @@ function baseProps(overrides: Record<string, unknown> = {}): Record<string, unkn
     authRejected: false,
     status: 'open',
     composerBusy: false,
-    composerMenu: { plugins: { enabled: false, reason: '' } },
+    composerMenu: {
+      addFiles: { enabled: false, reason: '' },
+      compact: { enabled: false, reason: '' },
+      plugins: { enabled: false, reason: '' },
+    },
     composerPlaceholder: 'Message …',
     composerRef: { current: null },
     composerWrapRef: { current: null },
@@ -136,5 +151,95 @@ describe('#856 slice H — ChatBottomDock', () => {
     // eslint-disable-next-line testing-library/no-node-access -- raw source introspection, not DOM probing
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'pages', 'ChatPage.tsx'), 'utf8')
     expect(src).not.toContain('os-composer-wrap')
+  })
+
+  describe('Prompt rewrite action in + menu (#1069)', () => {
+    beforeEach(() => {
+      mockEnhancePrompt.mockReset()
+    })
+
+    it('renders rewrite prompt action in + menu with disabled state when draft is empty', () => {
+      render(
+        <ChatBottomDock
+          {...baseProps({ plusOpen: true, input: '' }) as React.ComponentProps<typeof ChatBottomDock>}
+        />,
+      )
+      const btn = screen.getByTestId('composer-enhance-button')
+      expect(btn).toBeTruthy()
+      expect(btn.textContent).toContain('Rewrite prompt with AI')
+      expect(btn.getAttribute('aria-disabled')).toBe('true')
+    })
+
+    it('shows info toast and closes menu when clicked with empty draft', () => {
+      const addToast = vi.fn()
+      const setPlusOpen = vi.fn()
+      render(
+        <ChatBottomDock
+          {...baseProps({ plusOpen: true, input: '', addToast, setPlusOpen }) as React.ComponentProps<typeof ChatBottomDock>}
+        />,
+      )
+      const btn = screen.getByTestId('composer-enhance-button')
+      fireEvent.click(btn)
+      expect(addToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'info',
+          title: 'Rewrite prompt',
+        }),
+      )
+      expect(setPlusOpen).toHaveBeenCalledWith(false)
+    })
+
+    it('calls enhancePrompt and updates input when clicked with draft', async () => {
+      const setInput = vi.fn()
+      const setPlusOpen = vi.fn()
+      mockEnhancePrompt.mockResolvedValueOnce({
+        prompt: 'test prompt',
+        enhanced: 'Enhanced test prompt by AI',
+      })
+      render(
+        <ChatBottomDock
+          {...baseProps({
+            plusOpen: true,
+            input: 'test prompt',
+            setInput,
+            setPlusOpen,
+          }) as React.ComponentProps<typeof ChatBottomDock>}
+        />,
+      )
+      const btn = screen.getByTestId('composer-enhance-button')
+      expect(btn.getAttribute('aria-disabled')).toBe('false')
+      fireEvent.click(btn)
+
+      expect(mockEnhancePrompt).toHaveBeenCalledWith('test prompt')
+      expect(setPlusOpen).toHaveBeenCalledWith(false)
+      await waitFor(() => {
+        expect(setInput).toHaveBeenCalledWith('Enhanced test prompt by AI')
+      })
+    })
+
+    it('handles failure with an error toast', async () => {
+      const addToast = vi.fn()
+      mockEnhancePrompt.mockRejectedValueOnce(new Error('Backend error'))
+      render(
+        <ChatBottomDock
+          {...baseProps({
+            plusOpen: true,
+            input: 'failing prompt',
+            addToast,
+          }) as React.ComponentProps<typeof ChatBottomDock>}
+        />,
+      )
+      const btn = screen.getByTestId('composer-enhance-button')
+      fireEvent.click(btn)
+
+      await waitFor(() => {
+        expect(addToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'error',
+            title: 'Enhance prompt',
+          }),
+        )
+      })
+    })
   })
 })
