@@ -77,7 +77,6 @@ import {
   DEFAULT_CULL_TRIGGER_PCT,
   START_CONTEXT_FROM_HERE_LABEL,
   START_CONTEXT_FROM_HERE_TOOLTIP,
-  overFullWarningCopy,
   parseContextStrategy,
   parseCullTriggerPct,
   type ContextMeta,
@@ -168,12 +167,10 @@ import {
   AGENT_CONVERSATION_EVENT,
   agentIdFromBlueprint,
   clearAgentThread,
-  compactAgentThread,
   conversationIdForAgent,
   conversationIdForTask,
   DEFAULT_AGENT_ID,
   fetchAgentThread,
-  startContextFromHere,
   patchAgentMessage,
   peekConversationIdForAgent,
   setConversationIdForAgent,
@@ -307,6 +304,7 @@ import { useChatWebSocket } from '../features/chat/useChatWebSocket'
 import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
 import { useChatSend } from '../features/chat/useChatSend'
 import { useComposerCommands } from '../features/chat/useComposerCommands'
+import { useChatCompact } from '../features/chat/useChatCompact'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
@@ -395,10 +393,8 @@ import {
 } from '../lib/cliSessions'
 import {
   CLI_SESSION_HOPPED_EVENT,
-  dispatchCliSessionHopped,
 } from '../lib/cliSessionHop'
 // #636: CLI-seat compact orchestration (summary + fresh session carrying it).
-import { compactCliThread } from '../lib/cliCompact'
 import {
   SUGGESTION_CHIP_EVENT,
   drainHoldUntilStreamStarts,
@@ -2884,198 +2880,35 @@ const ChatPage = () => {
     return () => window.removeEventListener(CLI_TERMINATED_EVENT, onTerminated)
   }, [activeChatAgentId, threadKey])
 
-  const handleCompact = useCallback(async () => {
-    setPlusOpen(false)
-    if (messages.length === 0) {
-      addToast({
-        type: 'info',
-        title: 'Compact',
-        message: 'Nothing to compact yet.',
-      })
-      return
-    }
-    // #636: a CLI seat compacts through the same server-side summary and then
-    // starts a fresh CLI session carrying it. The old provider transcript
-    // stays on disk; the new process starts clean with the summary in context.
-    if (isCliAgent) {
-      const cliName = currentCli || selectedCli?.cli || ''
-      if (!cliName) {
-        addToast({
-          type: 'error',
-          title: 'Compact failed',
-          message: 'No CLI is resolved for this seat.',
-        })
-        return
-      }
-      try {
-        const result = await compactCliThread({
-          conversationId,
-          agentId: selectedBlueprint || '',
-          cli: cliName,
-          messages: messages
-            .filter((message) => message.role === 'user' || message.role === 'assistant')
-            .map((message) => ({ role: message.role, content: message.text })),
-          defaultLlmReady: llmProfilesQuery.data?.default_llm_ready === true,
-          cliCompactCapable: Boolean(
-            (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[cliName],
-          ),
-        })
-        dispatchCliSessionHopped({
-          agentId: selectedBlueprint || '',
-          conversationId: result.newConversationId,
-          status: result.status,
-          fromCli: cliName,
-          toCli: cliName,
-        })
-        setConversationId(result.newConversationId)
-      } catch (err) {
-        const detail = err instanceof Error ? err.message.trim() : ''
-        addToast({
-          type: 'error',
-          title: 'Compact failed',
-          message: detail || 'Could not compact this chat. Sign in and try again.',
-        })
-      }
-      return
-    }
-    try {
-      const result = await compactAgentThread({
-        conversationId,
-        agentId: teamFromUrl || agentIdFromBlueprint(selectedBlueprint),
-        messages: messages
-          .filter((message) => message.role === 'user' || message.role === 'assistant')
-          .map((message) => ({
-            role: message.role,
-            content: message.text,
-          })),
-      })
-      setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
-      if (result.usage) {
-        publishContextUsage(result.usage)
-        setContextUsage(result.usage)
-      }
-    } catch (err) {
-      const detail = err instanceof Error ? err.message.trim() : ''
-      addToast({
-        type: 'error',
-        title: 'Compact failed',
-        message: detail || 'Could not compact this chat. Sign in and try again.',
-      })
-    }
-  }, [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey, isCliAgent, currentCli, selectedCli, llmProfilesQuery.data, cliQuery.data])
-
-  const handleCompressToHere = useCallback(
-    async (message: ChatMessage) => {
-      setPlusOpen(false)
-      setContextMenu(null)
-      const rawMessages = messages.filter(
-        (row) => row.role === 'user' || row.role === 'assistant',
-      )
-      const spanEnd = rawOffsetForMessage(messages, message.key)
-      if (spanEnd < 0 || rawMessages.length === 0) {
-        addToast({
-          type: 'info',
-          title: 'Compress',
-          message: 'Nothing to compact yet.',
-        })
-        return
-      }
-      try {
-        const result = await compactAgentThread({
-          conversationId,
-          agentId: teamFromUrl || agentIdFromBlueprint(selectedBlueprint),
-          messages: rawMessages.map((row) => ({
-            role: row.role,
-            content: row.text,
-          })),
-          spanStart: 0,
-          spanEnd,
-        })
-        setSummariesByThread((prev) => ({ ...prev, [threadKey]: result.summaries }))
-        if (result.usage) {
-          publishContextUsage(result.usage)
-          setContextUsage(result.usage)
-        }
-      } catch (err) {
-        const detail = err instanceof Error ? err.message.trim() : ''
-        addToast({
-          type: 'error',
-          title: 'Compact failed',
-          message: detail || 'Could not compact this chat. Sign in and try again.',
-        })
-      }
-    },
-    [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey],
-  )
-
-  const applyStartFromHere = useCallback(
-    async (message: ChatMessage, confirm: boolean) => {
-      const rawMessages = messages.filter(
-        (row) => row.role === 'user' || row.role === 'assistant',
-      )
-      const startOffset = rawOffsetForMessage(messages, message.key)
-      if (startOffset < 0 || rawMessages.length === 0) {
-        addToast({
-          type: 'info',
-          title: START_CONTEXT_FROM_HERE_LABEL,
-          message: 'Nothing to start from yet.',
-        })
-        return
-      }
-      try {
-        const result = await startContextFromHere({
-          conversationId,
-          agentId: teamFromUrl || agentIdFromBlueprint(selectedBlueprint),
-          messages: rawMessages.map((row) => ({
-            role: row.role,
-            content: row.text,
-          })),
-          startOffset,
-          confirm,
-          contextMax: contextMaxRef.current,
-        })
-        if (result.warning && !result.applied) {
-          const pct = typeof result.estimated_pct === 'number' ? result.estimated_pct : 0
-          const trigger = result.cull_trigger_pct ?? cullTriggerPct
-          setStartFromHereWarning({
-            message,
-            startOffset,
-            copy: result.info || overFullWarningCopy(pct, trigger),
-          })
-          return
-        }
-        if (result.context_meta) setContextMeta(result.context_meta)
-        setStartFromHereWarning(null)
-      } catch {
-        addToast({
-          type: 'error',
-          title: START_CONTEXT_FROM_HERE_LABEL,
-          message: 'Could not start context from here. Sign in and try again.',
-        })
-      }
-    },
-    [addToast, conversationId, cullTriggerPct, messages, selectedBlueprint, teamFromUrl],
-  )
-
-  const handleStartContextFromHere = useCallback(
-    (message: ChatMessage) => {
-      setPlusOpen(false)
-      setContextMenu(null)
-      void applyStartFromHere(message, false)
-    },
-    [applyStartFromHere],
-  )
-
-  const handleContextToHere = useCallback(
-    (message: ChatMessage) => {
-      if (contextStrategy === 'cull') {
-        handleStartContextFromHere(message)
-        return
-      }
-      void handleCompressToHere(message)
-    },
-    [contextStrategy, handleCompressToHere, handleStartContextFromHere],
-  )
+  // #856 slice 15: compact/summary turn commands moved verbatim to
+  // features/chat/useChatCompact.ts.
+  const {
+    handleCompact,
+    applyStartFromHere,
+    handleContextToHere,
+  } = useChatCompact({
+    messages,
+    conversationId,
+    selectedBlueprint,
+    teamFromUrl,
+    threadKey,
+    isCliAgent,
+    currentCli,
+    selectedCli,
+    llmDefaultReady: llmProfilesQuery.data?.default_llm_ready === true,
+    cliCompactCapableMap: cliQuery.data?.cli_compact as Record<string, unknown> | undefined,
+    cullTriggerPct,
+    contextStrategy,
+    contextMaxRef,
+    setSummariesByThread,
+    setContextMeta,
+    setContextUsage,
+    setStartFromHereWarning,
+    setPlusOpen,
+    setContextMenu,
+    setConversationId,
+    addToast,
+  })
 
   // #856: composer command/session wiring moved verbatim to
   // features/chat/useComposerCommands.ts.
@@ -3373,7 +3206,7 @@ const ChatPage = () => {
     activeChatAgentId,
     activeSelectionRef,
     agentIdFromBlueprint,
-    agentKind,
+      agentKind,
     attachToolToThread,
     awaitingAssistant,
     blueprints,
