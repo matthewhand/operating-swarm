@@ -725,34 +725,10 @@ def cli_from_rail_id(agent_id: str | None) -> str | None:
 
 # CLI-first product modes (#151) — RETIRED (#736): surfaces are **always on
 # if configured**. The Settings toggle was unreliable (#594, #710) and the
-# synthetic gating only produced "hidden by product modes" noise. The module
-# keeps tiny compatibility shims so legacy configs advertising
-# ``settings.product_modes`` still parse; the values are advisory only.
+# synthetic gating only produced "hidden by product modes" noise. Nothing is
+# advertised or filtered any more; legacy configs carrying
+# ``settings.product_modes`` still parse (the key is advisory and ignored).
 # Full contract archived in docs/archive/product-modes.md (PR #955).
-PRODUCT_MODE_KEYS: tuple[str, ...] = ("cli", "api", "blueprint", "team", "remote")
-DEFAULT_PRODUCT_MODES: dict[str, bool] = {
-    "cli": True,
-    "api": True,
-    "blueprint": True,
-    "team": True,
-    "remote": True,
-}
-
-
-def default_product_modes() -> dict[str, bool]:
-    """Shipped defaults: every mode on (toggle unreliability workaround)."""
-    return dict(DEFAULT_PRODUCT_MODES)
-
-
-def product_modes(config: dict[str, Any] | None = None) -> dict[str, bool]:
-    """Always-on (#736): every mode is on regardless of stored settings.
-
-    Kept for call-site stability; the stored ``settings.product_modes`` payload
-    is ignored. Legacy configs carrying the key still load and validate.
-    """
-    return dict(DEFAULT_PRODUCT_MODES)
-
-
 def _discovered_default_cli(discovered: list[str]) -> str:
     """First discovered catalog CLI; never invent a missing executable."""
     found = [name for name in discovered if name in CATALOG]
@@ -873,7 +849,6 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
     configured = configured_cli_names(config)
     discovered = discover_host_clis()
     suggestions = suggested_cli_agents(config)
-    modes = product_modes(config)
     default_cli = next((name for name in configured if name), "") or _discovered_default_cli(
         discovered
     )
@@ -885,9 +860,9 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
         "installed": discovered,
         "suggestions": suggestions,
         "default_cli": default_cli,
-        # #736: always-on advertisement — legacy consumers reading ``modes``
-        # see every surface enabled; ``mode_limitations`` is dropped.
-        "modes": modes,
+        # #736: no ``modes`` advertisement — surfaces are always on if
+        # configured; the retired key is not sent (legacy clients treat a
+        # missing key as all-on).
         "native_consensus": dict(NATIVE_CONSENSUS),
         "catalog": {name: catalog_entry(name) for name in catalog_names()},
         "rail": rail_cli_rows(config, discovered=discovered),
