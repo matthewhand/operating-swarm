@@ -5,8 +5,8 @@
  * - Debounced autocomplete: no fetch before the idle window, one fetch after.
  * - Ghost renders muted after the draft; Tab accepts it into the draft.
  * - Escape dismisses without touching the draft.
- * - Sparkle button POSTs the draft to enhance-prompt and applies the reply.
  * - Preference round-trips with default-on.
+ * - Sparkle enhance prompt is relocated out of the message input into the + menu (#1069).
  *
  * The harness mirrors ChatPage's controlled usage (value + onApplyText +
  * onChange wired to one state), so effects fire exactly as in production.
@@ -27,13 +27,11 @@ vi.mock('../../lib/api', async () => {
   return {
     ...actual,
     fetchAutocomplete: vi.fn(),
-    enhancePrompt: vi.fn(),
   }
 })
 
-import { enhancePrompt, fetchAutocomplete } from '../../lib/api'
+import { fetchAutocomplete } from '../../lib/api'
 const mockFetchAutocomplete = vi.mocked(fetchAutocomplete)
-const mockEnhancePrompt = vi.mocked(enhancePrompt)
 
 function Harness({ initial = '', agentId }: { initial?: string; agentId?: string }) {
   const [value, setValue] = useState(initial)
@@ -62,7 +60,6 @@ const idle = () => new Promise((resolve) => setTimeout(resolve, AUTOCOMPLETE_DEB
 beforeEach(() => {
   localStorage.clear()
   mockFetchAutocomplete.mockReset()
-  mockEnhancePrompt.mockReset()
 })
 
 afterEach(() => {
@@ -123,24 +120,10 @@ describe('ChatMessageInput (#858/#860)', () => {
     expect(textarea().value).toBe('draft')
   })
 
-  it('sparkle button enhances the draft and applies the reply', async () => {
-    mockEnhancePrompt.mockResolvedValue({
-      prompt: 'write tests',
-      enhanced: 'Write comprehensive unit tests for the composer.',
-    })
+  it('does not render an embedded sparkle enhance button in the input field (#1069)', () => {
     render(<Harness initial="write tests" />)
-
-    const btn = screen.getByTestId('composer-enhance-prompt') as HTMLButtonElement
-    expect(btn.disabled).toBe(false)
-    fireEvent.click(btn)
-    await waitFor(() =>
-      expect(textarea().value).toBe('Write comprehensive unit tests for the composer.'),
-    )
-  })
-
-  it('sparkle is disabled for an empty draft', () => {
-    render(<Harness initial="" />)
-    expect((screen.getByTestId('composer-enhance-prompt') as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByTestId('composer-enhance-prompt')).toBeNull()
+    expect(screen.queryByLabelText('Enhance prompt')).toBeNull()
   })
 
   it('preference defaults on and round-trips', () => {

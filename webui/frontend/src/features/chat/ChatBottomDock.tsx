@@ -7,12 +7,50 @@
  * ChatPage owns all state and passes it down as one props object.
  */
 
+import { useCallback, useState } from 'react'
+import { Sparkles } from 'lucide-react'
+import { enhancePrompt } from '../../lib/api'
+
 export interface ChatBottomDockProps {
   [key: string]: any
 }
 
 export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps) {
     const { ArrowUp, ChatMessageInput, ComposerAttachChips, ComposerPluginsBadge, ComposerPluginsPanel, ComposerSlashPopup, ContextUsageBadge, Layers, Mic, Paperclip, Plug, Plus, QueuedSendPane, Reply, Square, SuggestionChips, addToast, authRejected, awaitingAssistant, bottomDockRef, chipsDisabled, chooseSuggestion, composerBusy, composerDragOver, composerMenu, composerPlaceholder, composerRef, composerWrapRef, contextUsage, conversationId, demoChips, describeSpeechPath, enqueueComposerFiles, fileInputRef, filesFromList, filteredSlashItems, generationIsInFlight, handleCompact, handleComposerDragEnter, handleComposerDragLeave, handleComposerDragOver, handleComposerDrop, handleComposerKeyDown, handleComposerPaste, handleInputChange, handleMic, handleSelectSlashItem, handleSend, hasSendableDraft, input, interruptRunningTurn, isApiAgent, isSlashOpen, messages, pendingAttachments, pluginsPanelOpen, plusOpen, plusRef, queued, queuedPaneMaxHeightPx, recentSlashIds, removeAttachment, renderRoutingPicker, replyTarget, selectedBlueprint, sendNowHint, setInput, setPluginsPanelOpen, setPlusOpen, setQueuedHoldIds, setReplyTarget, setSlashSelectedIndex, setTokenDiagOpen, showContextUsage, showDemoChips, showSuggestionChips, slashQuery, slashSelectedIndex, status, sttListening, sttPathUsed, suggestionChips, transcriptHeightPx } = props as any
+    const SparklesIcon = props.Sparkles || Sparkles
+    const [enhancingLocal, setEnhancingLocal] = useState(false)
+    const enhancing = props.enhancing ?? enhancingLocal
+
+    const defaultHandleEnhance = useCallback(async () => {
+      const draft = (input || '').trim()
+      if (!draft || enhancing) return
+      setEnhancingLocal(true)
+      setPlusOpen(false)
+      try {
+        const res = await enhancePrompt(draft)
+        const enhanced = (res.enhanced || '').trim()
+        if (enhanced) {
+          setInput(enhanced)
+          requestAnimationFrame(() => {
+            if (composerRef?.current) {
+              composerRef.current.focus()
+              const len = enhanced.length
+              composerRef.current.setSelectionRange(len, len)
+            }
+          })
+        }
+      } catch {
+        addToast({
+          type: 'error',
+          title: 'Enhance prompt',
+          message: 'The model could not enhance this draft. Try again shortly.',
+        })
+      } finally {
+        setEnhancingLocal(false)
+      }
+    }, [addToast, composerRef, enhancing, input, setInput, setPlusOpen])
+
+    const handleEnhance = props.handleEnhance || defaultHandleEnhance
 
   return (
     <>
@@ -169,21 +207,21 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                           <button
                             type="button"
                             role="menuitem"
-                            aria-disabled={!composerMenu.addFiles.enabled}
+                            aria-disabled={!composerMenu?.addFiles?.enabled}
                             className={`os-plus-menu__item ${
-                              !composerMenu.addFiles.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                              !composerMenu?.addFiles?.enabled ? 'opacity-60 cursor-not-allowed' : ''
                             }`}
                             title={
-                              composerMenu.addFiles.enabled
+                              composerMenu?.addFiles?.enabled
                                 ? 'Add files to this chat'
-                                : composerMenu.addFiles.reason
+                                : composerMenu?.addFiles?.reason
                             }
                             onClick={() => {
-                              if (!composerMenu.addFiles.enabled) {
+                              if (!composerMenu?.addFiles?.enabled) {
                                 addToast({
                                   type: 'info',
                                   title: 'Add files',
-                                  message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
+                                  message: `${composerMenu?.addFiles?.reason || 'File attachments are unavailable'}. Switch to an API agent to attach.`,
                                 })
                                 setPlusOpen(false)
                                 return
@@ -209,21 +247,21 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                             // configured or the provider declares cli_compact; a
                             // greyed CLI item's hover says the API is missing.
                             data-testid="composer-compact-button"
-                            aria-disabled={!composerMenu.compact.enabled}
+                            aria-disabled={!composerMenu?.compact?.enabled}
                             className={`os-plus-menu__item ${
-                              !composerMenu.compact.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                              !composerMenu?.compact?.enabled ? 'opacity-60 cursor-not-allowed' : ''
                             }`}
                             title={
-                              composerMenu.compact.enabled
+                              composerMenu?.compact?.enabled
                                 ? 'Summarise this conversation and reclaim context'
-                                : composerMenu.compact.reason
+                                : composerMenu?.compact?.reason
                             }
                             onClick={() => {
-                              if (!composerMenu.compact.enabled) {
+                              if (!composerMenu?.compact?.enabled) {
                                 addToast({
                                   type: 'info',
                                   title: 'Compact',
-                                  message: composerMenu.compact.reason,
+                                  message: composerMenu?.compact?.reason || 'Compact is unavailable',
                                 })
                                 setPlusOpen(false)
                                 return
@@ -243,22 +281,22 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                             // visible-but-disabled with the reason on CLI/remote
                             // seats, opening the per-agent panel on swarm seats.
                             data-testid="composer-plugins-button"
-                            aria-disabled={!composerMenu.plugins.enabled}
+                            aria-disabled={!composerMenu?.plugins?.enabled}
                             aria-haspopup="menu"
                             className={`os-plus-menu__item ${
-                              !composerMenu.plugins.enabled ? 'opacity-60 cursor-not-allowed' : ''
+                              !composerMenu?.plugins?.enabled ? 'opacity-60 cursor-not-allowed' : ''
                             }`}
                             title={
-                              composerMenu.plugins.enabled
+                              composerMenu?.plugins?.enabled
                                 ? 'Toggle this agent’s plugins'
-                                : composerMenu.plugins.reason
+                                : composerMenu?.plugins?.reason
                             }
                             onClick={() => {
-                              if (!composerMenu.plugins.enabled) {
+                              if (!composerMenu?.plugins?.enabled) {
                                 addToast({
                                   type: 'info',
                                   title: 'Plugins',
-                                  message: composerMenu.plugins.reason,
+                                  message: composerMenu?.plugins?.reason || 'Plugins are unavailable',
                                 })
                                 setPlusOpen(false)
                                 return
@@ -270,14 +308,47 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                             Plugins
                           </button>
                         </li>
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            data-testid="composer-enhance-button"
+                            aria-label="Rewrite prompt with AI"
+                            aria-disabled={enhancing || !input?.trim()}
+                            className={`os-plus-menu__item ${
+                              enhancing || !input?.trim() ? 'opacity-60 cursor-not-allowed' : ''
+                            }`}
+                            title={
+                              !input?.trim()
+                                ? 'Enter a draft prompt to rewrite with AI'
+                                : 'Rewrite this draft with AI (✨)'
+                            }
+                            onClick={() => {
+                              if (!input?.trim()) {
+                                addToast({
+                                  type: 'info',
+                                  title: 'Rewrite prompt',
+                                  message: 'Enter a draft prompt in the composer to rewrite with AI.',
+                                })
+                                setPlusOpen(false)
+                                return
+                              }
+                              void handleEnhance()
+                            }}
+                          >
+                            <SparklesIcon className={`h-4 w-4 ${enhancing ? 'animate-pulse' : ''}`} aria-hidden="true" />
+                            Rewrite prompt with AI
+                          </button>
+                        </li>
                       </ul>
                     )}
                     {plusOpen && pluginsPanelOpen && <ComposerPluginsPanel onClose={() => setPlusOpen(false)} />}
                   </div>
-                  {/* #858/#860: API seats get the enhanced composer — inline
-                      ghost-text autocomplete + sparkle enhance. Other kinds
-                      keep the plain textarea (autocomplete is API-model
-                      backed; CLI/remote input would need per-provider wiring). */}
+                  {/* #858/#860/#1069: API seats get the enhanced composer — inline
+                      ghost-text autocomplete. (The prompt rewrite action previously
+                      embedded inside the input has been moved to the + menu). Other kinds
+                      keep the plain textarea (autocomplete is API-model backed; CLI/remote
+                      input would need per-provider wiring). */}
                   {isApiAgent ? (
                     <ChatMessageInput
                       textareaRef={composerRef}
