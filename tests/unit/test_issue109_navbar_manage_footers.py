@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO = Path(__file__).resolve().parents[2]
 CHAT_PAGE = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 PICKER = REPO / "webui" / "frontend" / "src" / "components" / "NavbarRoutingPicker.tsx"
@@ -20,7 +22,7 @@ def test_routing_picker_renders_manage_divider_and_skips_footer_flyout():
 
 
 def test_chat_page_manage_labels_are_title_case():
-    src = CHAT_PAGE.read_text(encoding="utf-8")
+    src = chat_surface()
     # #836: the picker footers converge on one unified hub label.
     assert "label: 'Manage providers'" in src
     assert "Manage Cli" not in src
