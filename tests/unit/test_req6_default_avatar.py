@@ -9,6 +9,8 @@ SIDEBAR_JS = REPO / "src" / "swarm" / "static" / "js" / "agent_sidebar.js"
 SPA_SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 SPA_AVATAR_TSX = REPO / "webui" / "frontend" / "src" / "components" / "AgentAvatar.tsx"
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+# #856 slices F/J: the header and message list mount AgentAvatar.
+CHAT_HEADER = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "ChatHeader.tsx"
 CARD = REPO / "src" / "swarm" / "templates" / "blueprint_card.html"
 
 
@@ -39,7 +41,15 @@ def test_django_sidebar_and_library_card_use_default_svg():
 def test_spa_wires_agent_avatar_as_default():
     avatar = SPA_AVATAR_TSX.read_text(encoding="utf-8")
     sidebar = SPA_SIDEBAR.read_text(encoding="utf-8")
-    chat = CHAT.read_text(encoding="utf-8")
+    # #856 slices F/J: the header and message list mount AgentAvatar.
+    chat = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in (
+            CHAT,
+            REPO / "webui" / "frontend" / "src" / "features" / "chat" / "ChatHeader.tsx",
+            REPO / "webui" / "frontend" / "src" / "features" / "chat" / "ChatMessageList.tsx",
+        )
+    )
     # SPA fallback is an inline data-URI (REQ-60 bland default), not a static SVG path.
     assert "DEFAULT_AGENT_AVATAR_SRC" in avatar
     assert "data:image/svg+xml" in avatar

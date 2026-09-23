@@ -10,7 +10,14 @@ def test_team_editor_has_edit_blueprint_control():
 
 
 def test_rail_edit_profile_opens_team_editor_not_drop_zone():
-    src = Path("webui/frontend/src/components/AgentSidebar.tsx").read_text(encoding="utf-8")
+    src = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in (
+            Path("webui/frontend/src/components/AgentSidebar.tsx"),
+            # #856 slices 14/J: row edit ops live in the useRailRowOps hook.
+            Path("webui/frontend/src/features/sidebar/useRailRowOps.ts"),
+        )
+    )
     assert "openTeamEditor" in src
     assert "declaredRosterForTeam" in src
 

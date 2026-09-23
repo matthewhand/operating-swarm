@@ -23,10 +23,17 @@ SESSION_PICKER_LIB = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "session
 # #856 slice G: the row markup moved verbatim into sidebar/rowsRender.tsx;
 # these pins read the union so the doctrine spans both homes.
 _ROWS_RENDER = SIDEBAR.parent / "sidebar" / "rowsRender.tsx"
+# #856 slices 11/13/14: the row menu handlers and group picker moved to hooks.
+_ROW_HOOKS = [
+    SIDEBAR.parent.parent / "features" / "sidebar" / "useRailMenuOpeners.ts",
+    SIDEBAR.parent.parent / "features" / "sidebar" / "useRailSessionCommands.ts",
+]
 
 
 def _sidebar_text():
-    return "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR, _ROWS_RENDER))
+    return "\n".join(
+        x.read_text(encoding="utf-8") for x in (SIDEBAR, _ROWS_RENDER, *_ROW_HOOKS)
+    )
 
 
 

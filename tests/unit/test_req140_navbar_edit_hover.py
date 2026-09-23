@@ -6,6 +6,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 AGENT_SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
+# #856 slice J: the navbar edit button moved verbatim into ChatHeader.
+CHAT_HEADER_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "ChatHeader.tsx"
 
 
 def test_index_css_navbar_edit_desktop_hover_and_mobile_visible():
@@ -22,7 +24,7 @@ def test_index_css_navbar_edit_desktop_hover_and_mobile_visible():
 
 
 def test_chat_page_navbar_edit_button_classes():
-    tsx = CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    tsx = CHAT_PAGE_TSX.read_text(encoding="utf-8") + CHAT_HEADER_TSX.read_text(encoding="utf-8")
     assert "os-chat-header__identity" in tsx
     assert "os-navbar-edit-btn" in tsx
     assert 'aria-label="Edit agent"' in tsx

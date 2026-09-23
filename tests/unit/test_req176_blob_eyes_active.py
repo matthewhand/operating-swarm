@@ -8,14 +8,18 @@ CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.t
 MSG_LIST_TSX = (
     REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "ChatMessageList.tsx"
 )
+# #856 slice J: the header mounts AgentAvatar active={isWorking}.
+CHAT_HEADER_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "ChatHeader.tsx"
 BLOB_AVATAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "BlobAvatar.tsx"
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 
 
 def test_chat_page_blob_eyes_active_when_streaming():
-    content = CHAT_PAGE_TSX.read_text(
-        encoding="utf-8"
-    ) + MSG_LIST_TSX.read_text(encoding="utf-8")
+    content = (
+        CHAT_PAGE_TSX.read_text(encoding="utf-8")
+        + MSG_LIST_TSX.read_text(encoding="utf-8")
+        + CHAT_HEADER_TSX.read_text(encoding="utf-8")
+    )
 
     # Header passes active from the working state (stream OR queued await),
     # not merely because the ws status is open.

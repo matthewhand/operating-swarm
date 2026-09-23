@@ -19,11 +19,14 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+# #856 slice J: the os-chat-header JSX moved verbatim into the ChatHeader
+# module — the header pins read the union of both homes.
+CHAT_HEADER_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "ChatHeader.tsx"
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 
 
 def _chat_page() -> str:
-    return CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    return CHAT_PAGE_TSX.read_text(encoding="utf-8") + CHAT_HEADER_TSX.read_text(encoding="utf-8")
 
 
 def _css_block(selector: str) -> str:
