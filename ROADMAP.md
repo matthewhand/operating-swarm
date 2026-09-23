@@ -354,3 +354,27 @@ USERGUIDE.md accuracy, and the `cli_*` family's test coverage.
   module docstring + FEATURE_STATUS).
 - [x] **Stewie coverage** — dedicated `tests/blueprints/test_stewie.py` + gap smoke;
   `whinge_surf` empty husk removed (was not discoverable).
+
+## REQ-922 — Wakeword activation (Reachy/Resty-style) for open-swarm
+
+Parity item: give open-swarm the same always-on wakeword activation surface that
+Reachy and chatty-commander already expose, so a spoken trigger can open a session
+and route a command into a blueprint without a keyboard.
+
+- [ ] **Wakeword detector service** — adopt the proven `openwakeword` container
+      path already in use on `.30` rather than introducing a new framework. Expose
+      a small local socket/HTTP event stream that the swarm runtime subscribes to.
+- [ ] **Trigger → session mapping** — map a detected phrase to opening a seat /
+      resuming the last session, mirroring chatty-commander's `wakeword_state_map`
+      and `state_transitions` model (idle → chatty → computer → idle).
+- [ ] **Handoff to a blueprint** — on wakeword, dispatch the transcribed command to
+      a named blueprint (reusing the existing blueprint execution path), with an
+      explicit no-op branch when transcription quality or confidence is low.
+- [ ] **Shared audio stream with chatty-commander** — avoid two processes fighting
+      for the mic. Decide one owner (chatty-commander's detector is the more mature
+      implementation) and consume its events rather than duplicating capture.
+- [ ] **Safety gate** — wakeword must never directly satisfy an automation or
+      service-call gate. Require fresh transcription, schema validation, a
+      confidence threshold, a timeout/failure branch, and a manual confirmation
+      control for any actuator action (carries the standing JeV PoC rule).
+- [ ] **Docs** — USERGUIDE + VISION entries once a wakeword path is verified live.
