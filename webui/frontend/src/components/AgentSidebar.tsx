@@ -30,19 +30,12 @@ import {
   markAgentUnread,
 } from '../lib/unreadAgents'
 import {
-  createCustomBlueprint,
-  createRemote,
-  createTeamRoster,
-  deleteCustomBlueprint,
-  deleteRemote,
-  deleteTeamRoster,
   fetchBlueprints,
   fetchCliAgents,
   fetchDesignedAgents,
   fetchHerdrAgents,
   fetchRemotes,
   terminateCliRun,
-  type RemoteConnection,
   type RouterDesign,
 } from '../lib/api'
 import {
@@ -94,7 +87,6 @@ import {
   bumpRailIdToTop,
   generationCompleteAgentId,
   generationCompleteDetail,
-  insertRailIdAfter,
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
@@ -123,7 +115,6 @@ import {
   loadOrSeedPinnedAgents,
   parseAgentDragPayload,
   type PinnedAgent,
-  unpinAgent,
 } from '../lib/pinnedAgents'
 import { hydrateRailPrefs, saveUserPrefs } from '../lib/userPrefs'
 import {
@@ -183,44 +174,33 @@ import {
 } from '../lib/agentChat'
 import {
   copyableConversationId,
-  duplicateName,
-  duplicateRemoteId,
   paneMenuItems,
   railMenuItems,
   sectionMenuItems,
   type RailMenuItemId,
-  type RailMenuKind,
 } from '../lib/railContextMenu'
 import {
   isUnassignedSection,
   loadRailSections,
   railSectionsHasContent,
-  moveAgentToSection,
   partitionRowsBySection,
-  removeSectionMembership,
   sectionIdForAgent,
   toggleSectionCollapsed,
   toggleSectionInternalOnly,
   UNASSIGNED_SECTION_ID,
   type RailSectionsState,
 } from '../lib/railSections'
-import { copyTextToClipboard } from '../lib/clipboard'
 import {
   isRailIdDeleted,
   loadDeletedRailIds,
-  markRailIdDeleted,
 } from '../lib/deletedRailIds'
 import { openSearchPalette, type HiddenRailRow } from './SearchPalette'
 import { isMacPlatform, searchShortcutLabel } from '../lib/keybindingTips'
 import {
   AGENT_EDITS_CHANGED_EVENT,
-  assignedBlueprintId,
-  loadAgentEdit,
-  saveAgentEdit,
 } from '../lib/agentEdits'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { declaredRosterForTeam,   } from '../lib/declaredRoster'
-import { openTeamEditor } from './TeamEditor'
 import PersonaRoster from './PersonaRoster'
 import SessionPicker from './SessionPicker'
 import CliSessionPicker from './CliSessionPicker'
@@ -272,6 +252,7 @@ import {
   toSidebarDynamic,
   toSidebarHerdr,
 } from '../features/sidebar/rows'
+import { useRailRowOps } from '../features/sidebar/useRailRowOps'
 import { useRailMenuOpeners } from '../features/sidebar/useRailMenuOpeners'
 import { useRailDragCommands } from '../features/sidebar/useRailDragCommands'
 import { useRailMenuCommands } from '../features/sidebar/useRailMenuCommands'
@@ -1367,236 +1348,6 @@ export default function AgentSidebar({
     startNewAgentSession,
   } = railSession
 
-  const editMenuRow = (row: ContextMenuState) => {
-    if (row.kind === 'cli') return
-    if (row.kind === 'team') {
-      openTeamEditor({ teamId: row.entityId, teamName: row.agentName })
-      closeMenu()
-      return
-    }
-    if (row.kind === 'remote') {
-      openSettingsSheet({ section: 'remotes' })
-      closeMenu()
-      onClose?.()
-      return
-    }
-    openAgentSettings({ id: row.entityId, name: row.agentName })
-  }
-
-  const duplicateMenuRow = async (row: ContextMenuState) => {
-    const name = duplicateName(row.agentName)
-    try {
-      if (row.kind === 'cli') return
-
-      let sourceSectionId = sectionIdForAgent(row.agentId, sectionState)
-      if (isUnassignedSection(sourceSectionId) && row.entityId && row.entityId !== row.agentId) {
-        sourceSectionId = sectionIdForAgent(row.entityId, sectionState)
-      }
-
-      if (row.kind === 'team') {
-        const source = teams.find((team) => team.id === row.entityId)
-        const created = await createTeamRoster({
-          name,
-          members: (source?.members ?? []).map((member) => ({
-            id: member.id,
-            kind: member.kind || 'api',
-            role: member.role || 'default',
-            source: member.kind === 'team' ? `team:${member.team_id || member.id}` : `blueprint:${member.id}`,
-            team_id: member.team_id,
-          })),
-        })
-        await queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
-        const createdHide = teamHideId(created.id)
-        if (!isUnassignedSection(sourceSectionId)) {
-          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
-        }
-        const base = mergeRailOrder(railOrder, visibleRowIds)
-        // #793: the duplicate lands at the top of the Unassigned order so it
-        // is immediately visible (source section membership is preserved).
-        persistVisibleOrder(bumpRailIdToTop(base, createdHide))
-        closeMenu()
-        return
-      }
-      if (row.kind === 'remote') {
-        const source: Partial<RemoteConnection> | undefined =
-          configuredRemotesList.find((remote) => remote.id === row.entityId) ||
-          remotes.find((r) => r.id === row.entityId) ||
-          fullRemotesQuery.data?.data?.find((r) => r.id === row.entityId)
-
-        const existingRemoteIds = new Set<string>()
-        for (const r of configuredRemotesList) if (r.id) existingRemoteIds.add(r.id)
-        for (const r of remotes) if (r.id) existingRemoteIds.add(r.id)
-        for (const r of fullRemotesQuery.data?.data ?? []) if (r.id) existingRemoteIds.add(r.id)
-        for (const r of fullRemotesQuery.data?.configured ?? []) if (r.id) existingRemoteIds.add(r.id)
-
-        const newId = duplicateRemoteId(row.entityId, existingRemoteIds)
-        const created = await createRemote({
-          id: newId,
-          title: name,
-          kind: source?.kind || (row.entityId ? row.entityId.split('_')[0] : 'generic'),
-          base_url: source?.base_url,
-          api_key_env: source?.api_key_env,
-          ui_url: source?.ui_url,
-          herdr_mode: (source as any)?.herdr_mode,
-          ssh_host: (source as any)?.ssh_host,
-          ssh_user: (source as any)?.ssh_user,
-          ssh_port: (source as any)?.ssh_port,
-          ssh_identity_env: (source as any)?.ssh_identity_env,
-          ssh_agent: (source as any)?.ssh_agent,
-        })
-        await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-        await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-        await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-        const createdHide = remoteHideId(created.id)
-        if (!isUnassignedSection(sourceSectionId)) {
-          setSectionState((current) => moveAgentToSection(current, createdHide, sourceSectionId))
-        }
-        const base = mergeRailOrder(railOrder, visibleRowIds)
-        persistVisibleOrder(insertRailIdAfter(base, createdHide, row.agentId))
-        closeMenu()
-        return
-      }
-      const sourceEdit = loadAgentEdit(row.entityId)
-      const created = await createCustomBlueprint({
-        name,
-        description: `Copy of ${row.agentName}`,
-        category: 'ai_assistants',
-        tags: ['api'],
-        kind: 'api',
-        rail: true,
-        source: 'add-agent',
-        code: `# Copy of ${assignedBlueprintId(row.entityId)}\n`,
-      })
-      saveAgentEdit(created.id, {
-        name,
-        blueprintId: sourceEdit.blueprintId || assignedBlueprintId(row.entityId),
-        role: sourceEdit.role,
-        llmOverride: sourceEdit.llmOverride,
-      })
-      await queryClient.invalidateQueries({ queryKey: ['blueprints'] })
-      await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
-      if (!isUnassignedSection(sourceSectionId)) {
-        setSectionState((current) => moveAgentToSection(current, created.id, sourceSectionId))
-      }
-      const base = mergeRailOrder(railOrder, visibleRowIds)
-      persistVisibleOrder(insertRailIdAfter(base, created.id, row.agentId))
-    } catch {
-      /* caller / tests mock fetch; failures stay on the current row */
-    }
-    closeMenu()
-  }
-
-  const copyMenuConversationId = async (row: ContextMenuState) => {
-    const id = copyableConversationId(row.kind, row.agentId, row.entityId)
-    if (!id) {
-      closeMenu()
-      return
-    }
-    await copyTextToClipboard(id)
-    closeMenu()
-  }
-
-  const handleDropOnRecycleBin = (fromId: string) => {
-    const row = orderedRows.find((item) => item.id === fromId)
-    const pin = pins.find((p) => p.id === fromId)
-    const agent = agents.find((a) => a.id === fromId)
-    const remote = remotes.find((r) => remoteHideId(r.id) === fromId || r.id === fromId)
-    const team = teams.find((t) => teamHideId(t.id) === fromId || t.id === fromId)
-
-    let kind: RailMenuKind = resolveMenuKind(fromId)
-    let entityId = fromId
-    let agentName = fromId
-
-    if (row) {
-      if (row.kind === 'remote') {
-        kind = 'remote'
-        entityId = row.remote.id
-        agentName = row.remote.title
-      } else if (row.kind === 'team') {
-        kind = 'team'
-        entityId = row.team.id
-        agentName = row.team.name
-      } else {
-        kind = row.agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
-        entityId = row.agent.id
-        agentName = row.agent.name
-      }
-    } else if (remote) {
-      kind = 'remote'
-      entityId = remote.id
-      agentName = remote.title
-    } else if (team) {
-      kind = 'team'
-      entityId = team.id
-      agentName = team.name
-    } else if (agent) {
-      kind = agent.kind === 'cli' ? 'cli' : resolveMenuKind(fromId)
-      entityId = agent.id
-      agentName = agent.name
-    } else if (pin) {
-      agentName = pin.name
-      entityId = pin.id
-    }
-
-    setDeleteConfirm({
-      agentId: fromId,
-      agentName,
-      hidden: false,
-      pinned: isPinnedId(fromId),
-      x: 0,
-      y: 0,
-      kind,
-      entityId,
-    })
-  }
-
-  const requestDelete = (row: ContextMenuState) => {
-    closeMenu()
-    setDeleteConfirm(row)
-  }
-
-  const confirmDeleteRow = async () => {
-    const row = deleteConfirm
-    if (!row) return
-    const hideId = row.agentId
-    setPins((current) =>
-      current.some((pin) => pin.id === hideId) ? unpinAgent(hideId, current) : current,
-    )
-    if (row.kind === 'remote') {
-      try {
-        await deleteRemote(row.entityId)
-      } catch {
-        /* local remove still applies */
-      }
-      await queryClient.invalidateQueries({ queryKey: ['configured-remotes'] })
-      await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-      await queryClient.invalidateQueries({ queryKey: ['remotes-list'] })
-    } else if (row.kind === 'team') {
-      try {
-        await deleteTeamRoster(row.entityId)
-      } catch {
-        /* local remove still applies */
-      }
-      await queryClient.invalidateQueries({ queryKey: ['team-rosters'] })
-    } else if (row.kind === 'api') {
-      try {
-        await deleteCustomBlueprint(row.entityId)
-      } catch {
-        /* catalog seats are removed locally only */
-      }
-      await queryClient.invalidateQueries({ queryKey: ['blueprints'] })
-      await queryClient.invalidateQueries({ queryKey: ['custom-blueprints'] })
-    }
-    // CLI: hide-or-remove from rail only — do not uninstall the binary.
-    // #687 invariant: mark ONLY this row's rail id. The old double-mark of
-    // row.entityId leaked a bare agent id into the shared deleted list, which
-    // the (now namespaced-only) team/remote filters used to honor — deleting
-    // one agent could remove a same-id remote/team row with it.
-    setDeletedIds((current) => markRailIdDeleted(hideId, current))
-    setSectionState((current) => removeSectionMembership(current, hideId))
-    setDeleteConfirm(null)
-  }
-
   // #856 slice 13: menu-opener surface lives in the hook below; the menu
   // state stays page-owned so handleMenuSelect and the overlays are unchanged.
   const railOpeners = useRailMenuOpeners({
@@ -1612,10 +1363,45 @@ export default function AgentSidebar({
   })
   const {
     resolveMenuKind,
-    rowMenuHandlers,
-    openDefinition,
     openAgentSettings,
+    openDefinition,
+    rowMenuHandlers,
   } = railOpeners
+
+  // #856 slice 14: row edit/duplicate/copy/delete ops live in the hook
+  // below; deleteConfirm stays page-owned so the dialog JSX is unchanged.
+  const railRowOps = useRailRowOps({
+    agents,
+    orderedRows,
+    pins,
+    teams,
+    remotes,
+    configuredRemotesList,
+    fullRemotesData: fullRemotesQuery.data ?? {},
+    railOrder,
+    visibleRowIds,
+    sectionState,
+    deleteConfirm,
+    isPinnedId,
+    resolveMenuKind,
+    openAgentSettings,
+    closeMenu,
+    persistVisibleOrder,
+    queryClient,
+    setDeleteConfirm,
+    setDeletedIds,
+    setSectionState,
+    setPins,
+    onClose,
+  })
+  const {
+    editMenuRow,
+    duplicateMenuRow,
+    copyMenuConversationId,
+    handleDropOnRecycleBin,
+    requestDelete,
+    confirmDeleteRow,
+  } = railRowOps
 
   const handleMenuSelect = (id: RailMenuItemId) => {
     if (!menu) return
