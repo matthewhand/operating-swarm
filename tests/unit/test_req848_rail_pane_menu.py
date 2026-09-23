@@ -12,6 +12,16 @@ REPO = Path(__file__).resolve().parents[2]
 MENU = REPO / "webui" / "frontend" / "src" / "lib" / "railContextMenu.ts"
 SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 RAIL_MENU = REPO / "webui" / "frontend" / "src" / "components" / "RailContextMenu.tsx"
+# #856: pane-menu wiring moved into components/sidebar/* — pin the combined surface.
+SIDEBAR_OVERLAYS_DIR = REPO / "webui" / "frontend" / "src" / "components" / "sidebar"
+
+
+def _sidebar_surface() -> str:
+    parts = [SIDEBAR.read_text(encoding="utf-8")]
+    parts.extend(
+        p.read_text(encoding="utf-8") for p in sorted(SIDEBAR_OVERLAYS_DIR.glob("*.ts*"))
+    )
+    return "\n".join(parts)
 
 
 def test_req848_pane_menu_creates_empty_section():
@@ -27,7 +37,7 @@ def test_req848_section_menu_also_creates():
 
 
 def test_req848_sidebar_wires_context_menu():
-    sidebar = SIDEBAR.read_text(encoding="utf-8")
+    sidebar = _sidebar_surface()
     assert "openPaneMenuAt" in sidebar
     assert "handlePaneMenuSelect" in sidebar
     assert "[data-rail-id], .os-rail-section, .os-pin" in sidebar

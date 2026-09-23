@@ -10,6 +10,25 @@ CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.t
 CHAT_WS_HOOK = (
     REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "useChatWebSocket.ts"
 )
+# #856: sidebar overlays + WS dispatcher moved into packages — pin combined surfaces.
+SIDEBAR_OVERLAYS_DIR = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "sidebar"
+CHAT_FEATURES_DIR = REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat"
+
+
+def _sidebar_surface() -> str:
+    parts = [SIDEBAR_TSX.read_text(encoding="utf-8")]
+    parts.extend(
+        p.read_text(encoding="utf-8") for p in sorted(SIDEBAR_OVERLAYS_DIR.glob("*.ts*"))
+    )
+    return "\n".join(parts)
+
+
+def _chat_surface() -> str:
+    parts = [CHAT_PAGE_TSX.read_text(encoding="utf-8"), CHAT_WS_HOOK.read_text(encoding="utf-8")]
+    parts.extend(
+        p.read_text(encoding="utf-8") for p in sorted(CHAT_FEATURES_DIR.glob("*.ts*"))
+    )
+    return "\n".join(parts)
 RAIL_ORDER_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "railOrder.ts"
 
 
@@ -30,7 +49,7 @@ def test_sidebar_menu_has_notifications_toggle():
     assert "id: 'notify'" in menu
     assert "Notifications: On" in menu
     assert "Notifications: Off" in menu
-    content = SIDEBAR_TSX.read_text(encoding="utf-8")
+    content = _sidebar_surface()
     assert "maybeNotifyAgentTurn" in content
     assert "enableAgentNotifications" in content
     assert "notify-permission-hint" in content
@@ -39,9 +58,7 @@ def test_sidebar_menu_has_notifications_toggle():
 
 
 def test_chat_page_notifies_on_assistant_final_and_failed_interrupt():
-    content = CHAT_PAGE_TSX.read_text(encoding="utf-8") + CHAT_WS_HOOK.read_text(
-        encoding="utf-8"
-    )
+    content = _chat_surface()
     assert "maybeNotifyAgentTurn" in content
     assert "notifyGenerationComplete" in content
     assert "failed: true" in content
