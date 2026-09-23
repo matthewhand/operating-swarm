@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -39,14 +41,14 @@ def test_settings_dashboard_template_has_spa_banner():
 def test_chat_page_manage_cli_opens_in_app_sheet():
     # #681/#836: the manage action moved to the composer picker's footer,
     # which opens the unified Providers hub — no page navigation anywhere.
-    src = CHAT_PAGE.read_text(encoding="utf-8")
+    src = chat_surface()
     assert "window.location.assign(MANAGE_CLI_HREF)" not in src
     assert "Manage Cli" not in src
 
 
 def test_composer_picker_manage_opens_providers_hub():
     # #836: the two-stage picker's footer opens the unified Providers hub.
-    src = CHAT_PAGE.read_text(encoding="utf-8")
+    src = chat_surface()
     assert "section: 'providers'" in src
     assert "openSettingsSheet" in src
 

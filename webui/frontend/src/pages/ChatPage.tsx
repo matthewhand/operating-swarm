@@ -8,10 +8,10 @@ import {
   type CSSProperties,
   type ChangeEvent,
   type FormEvent,
-  type KeyboardEvent,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChatBottomDock } from '../features/chat/ChatBottomDock'
+import { renderRoutingPickerImpl } from '../features/chat/renderRoutingPicker'
 import { ChatHeader } from '../features/chat/ChatHeader'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUp, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Settings, Square } from 'lucide-react'
@@ -151,27 +151,19 @@ import {
   operateRemote,
 } from '../lib/api'
 import {
-  appendTranscript,
-  listenSystemStt,
-  recordMicrophoneAudio,
-  resolveSttPath,
   resolveTtsPath,
   speakCustom,
   speakSystem,
-  sttUnavailableMessage,
-  transcribeCustomBlob,
   type SpeechPath,
 } from '../lib/speechRuntime'
 import { SPEECH_QUERY_KEY, describeSpeechPath, parseSpeechSettings } from '../lib/speechSettings'
 import {
   AGENT_CONVERSATION_EVENT,
   agentIdFromBlueprint,
-  clearAgentThread,
   conversationIdForAgent,
   conversationIdForTask,
   DEFAULT_AGENT_ID,
   fetchAgentThread,
-  patchAgentMessage,
   peekConversationIdForAgent,
   setConversationIdForAgent,
   toggleSummaryInContext,
@@ -195,13 +187,9 @@ import {
   rawOffsetForMessage,
   summariesById,
 } from '../lib/chatCompact'
-import { turnIndexFromDisplay } from '../lib/transcriptReconstruct'
 import {
-  buildCancelTurnFrame,
-  buildChatWsEditFrame,
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
-  newConversationId,
 } from '../lib/chatWs'
 import { ContextUsageBadge } from '../components/ContextUsageBadge'
 import { AuxActivityIndicator } from '../components/AuxActivityIndicator'
@@ -305,6 +293,8 @@ import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
 import { useChatSend } from '../features/chat/useChatSend'
 import { useComposerCommands } from '../features/chat/useComposerCommands'
 import { useChatCompact } from '../features/chat/useChatCompact'
+import { useChatTurnOps } from '../features/chat/useChatTurnOps'
+import { useComposerControls } from '../features/chat/useComposerControls'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
@@ -396,12 +386,10 @@ import {
 } from '../lib/cliSessionHop'
 // #636: CLI-seat compact orchestration (summary + fresh session carrying it).
 import {
-  SUGGESTION_CHIP_EVENT,
   drainHoldUntilStreamStarts,
   generationIsInFlight,
   nextDrainableQueuedSend,
   queuedPaneMaxHeightPx,
-  suggestionChipText,
   useQueuedSends,
 } from '../lib/chatQueue'
 import { QueuedSendPane } from '../components/QueuedSendPane'
@@ -2427,32 +2415,6 @@ const ChatPage = () => {
     ],
   )
 
-  const startFreshCliSession = useCallback(() => {
-    const agent = agentIdFromBlueprint(selectedBlueprint)
-    const minted = newConversationId()
-    setConversationIdForAgent(agent, minted)
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (agent && agent !== DEFAULT_AGENT_ID) next.set('blueprint', agent)
-      next.set('session', minted)
-      return next
-    })
-  }, [selectedBlueprint, setSearchParams])
-
-  const retryCliSession = useCallback(() => {
-    const lastUser = [...messages].reverse().find((row) => row.role === 'user')
-    const text = (lastUserTextRef.current || lastUser?.text || '').trim()
-    if (text) submitUserText(text)
-  }, [messages, submitUserText])
-
-  const clearCliSessionHistory = useCallback(() => {
-    const agent = agentIdFromBlueprint(selectedBlueprint)
-    const previousId = conversationId
-    setThreads((prev) => ({ ...prev, [threadKey]: [] }))
-    void clearAgentThread(agent, previousId).catch(() => undefined)
-    startFreshCliSession()
-  }, [conversationId, selectedBlueprint, startFreshCliSession, threadKey])
-
   const showCliSessionRecovery =
     threadReady && !awaitingAssistant && lastTurnNeedsRecovery(messages)
   // #499: the banner's primary action opens Settings on the section that can
@@ -2461,76 +2423,31 @@ const ChatPage = () => {
     ? lastRecoveryTarget(messages)
     : undefined
 
-  /**
-   * #198: interrupt the turn in flight (enter-to-interrupt on a queued send).
-   * The drain effect promotes the top queued row automatically once the
-   * cancelled turn closes, so this only needs to request the cancel.
-   */
-  const interruptRunningTurn = useCallback(() => {
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(buildCancelTurnFrame())
-      setAwaitingAssistant(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    const onChip = (event: Event) => {
-      const text = suggestionChipText(event)
-      if (text.trim()) submitUserText(text)
-    }
-    window.addEventListener(SUGGESTION_CHIP_EVENT, onChip)
-    return () => {
-      window.removeEventListener(SUGGESTION_CHIP_EVENT, onChip)
-    }
-  }, [submitUserText])
-
-  const saveEditedMessage = useCallback(
-    async (index: number, nextText: string) => {
-      if (!messagesEditable) return
-      const current = threads[threadKey] ?? []
-      const target = current[index]
-      if (!target || target.streaming) return
-      setThreads((prev) => {
-        const list = prev[threadKey] ?? []
-        if (!list[index]) return prev
-        const next = list.slice()
-        next[index] = { ...next[index], text: nextText, edited: true }
-        return { ...prev, [threadKey]: next }
-      })
-      setEditingKey(null)
-      const turnIndex = turnIndexFromDisplay(current, index)
-      const ws = wsRef.current
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(buildChatWsEditFrame(turnIndex, nextText))
-      }
-      try {
-        const patched = await patchAgentMessage(
-          agentIdFromBlueprint(selectedBlueprint),
-          {
-            index: turnIndex,
-            content: nextText,
-            conversation_id: conversationIdRef.current,
-          },
-        )
-        if (patched.cli_session_reset) {
-          addToast({
-            type: 'info',
-            title: 'CLI session restarted',
-            message:
-              'A message was edited and the CLI session cannot rewind. The next message starts a fresh session.',
-          })
-        }
-      } catch {
-        addToast({
-          type: 'error',
-          title: 'Could not save edit',
-          message: 'The message was updated in this view, but persist failed.',
-        })
-      }
-    },
-    [addToast, messagesEditable, selectedBlueprint, threadKey, threads],
-  )
+  // #856 slice 16: CLI session ops, interrupt, chips, edit-save moved
+  // verbatim to features/chat/useChatTurnOps.ts.
+  const {
+    startFreshCliSession,
+    retryCliSession,
+    clearCliSessionHistory,
+    interruptRunningTurn,
+    saveEditedMessage,
+  } = useChatTurnOps({
+    selectedBlueprint,
+    setSearchParams,
+    messages,
+    submitUserText,
+    conversationId,
+    threadKey,
+    threads,
+    setThreads,
+    wsRef,
+    lastUserTextRef,
+    conversationIdRef,
+    messagesEditable,
+    setAwaitingAssistant,
+    setEditingKey,
+    addToast,
+  })
 
   const handleSend = (event: FormEvent) => {
     event.preventDefault()
@@ -2620,95 +2537,6 @@ const ChatPage = () => {
     parseSpeechSettings(speechQuery.data ?? EMPTY_SPEECH),
     voiceBind,
   )
-
-  const handleMic = () => {
-    if (sttListening) {
-      sttStopRef.current?.()
-      return
-    }
-    const path = resolveSttPath(speechSettings)
-    if (!path) {
-      addToast({
-        type: 'info',
-        title: 'Voice input',
-        message: sttUnavailableMessage(speechSettings),
-      })
-      return
-    }
-    if (path === 'system') {
-      try {
-        const handle = listenSystemStt({
-          onTranscript: (spoken) => {
-            setInput((prev) => appendTranscript(prev, spoken))
-          },
-          onEnd: () => {
-            setSttListening(false)
-            sttStopRef.current = null
-          },
-          onError: (message) => {
-            addToast({ type: 'info', title: 'Voice input', message })
-            setSttListening(false)
-            sttStopRef.current = null
-          },
-        })
-        sttStopRef.current = handle.stop
-        setSttListening(true)
-        setSttPathUsed('system')
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: `Using ${describeSpeechPath('system', 'stt')}. Transcript stays in the composer.`,
-        })
-      } catch (err) {
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: err instanceof Error ? err.message : sttUnavailableMessage(speechSettings),
-        })
-      }
-      return
-    }
-    void (async () => {
-      try {
-        const session = await recordMicrophoneAudio()
-        sttStopRef.current = () => {
-          void (async () => {
-            try {
-              const blob = await session.stop()
-              const spoken = await transcribeCustomBlob(blob, 'audio.webm', {
-                agentId: activeChatAgentId,
-              })
-              if (spoken) setInput((prev) => appendTranscript(prev, spoken))
-            } catch (err) {
-              addToast({
-                type: 'info',
-                title: 'Voice input',
-                message: err instanceof Error ? err.message : 'Custom STT failed.',
-              })
-            } finally {
-              setSttListening(false)
-              sttStopRef.current = null
-            }
-          })()
-        }
-        setSttListening(true)
-        setSttPathUsed('custom')
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: `Using ${describeSpeechPath('custom', 'stt')}. Click the mic again to stop.`,
-        })
-      } catch (err) {
-        addToast({
-          type: 'info',
-          title: 'Voice input',
-          message: err instanceof Error ? err.message : sttUnavailableMessage(speechSettings),
-        })
-        setSttListening(false)
-        sttStopRef.current = null
-      }
-    })()
-  }
 
   useEffect(() => {
     if (!plusOpen) {
@@ -2928,84 +2756,39 @@ const ChatPage = () => {
   // #856: slash-command picking moved verbatim to features/chat/useComposerCommands.ts.
   const handleSelectSlashItem = slashHook.handleSelectSlashItem
 
-  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isSlashOpen) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        setSlashSelectedIndex((prev) =>
-          filteredSlashItems.length > 0 ? (prev + 1) % filteredSlashItems.length : 0,
-        )
-        return
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        setSlashSelectedIndex((prev) =>
-          filteredSlashItems.length > 0
-            ? (prev - 1 + filteredSlashItems.length) % filteredSlashItems.length
-            : 0,
-        )
-        return
-      }
-      if (event.key === 'Enter' || event.key === 'Tab') {
-        if (filteredSlashItems.length > 0) {
-          event.preventDefault()
-          const selected = filteredSlashItems[slashSelectedIndex] || filteredSlashItems[0]
-          if (selected) {
-            handleSelectSlashItem(selected)
-            return
-          }
-        }
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setSlashDismissed(true)
-        return
-      }
-    }
-
-    if (event.key === 'Escape') {
-      if (plusOpen) {
-        event.preventDefault()
-        setPlusOpen(false)
-        return
-      }
-      if (replyTarget) {
-        event.preventDefault()
-        setReplyTarget(null)
-        return
-      }
-      if (input.length > 0) {
-        event.preventDefault()
-        setInput('')
-        return
-      }
-      if (showRoleTip) {
-        event.preventDefault()
-        dismissRoleTip()
-        return
-      }
-    }
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      if (input.trim().length > 0 || readyAttachmentIds(pendingAttachments).length > 0) {
-        const textToSend = replyTarget
-          ? buildOutboundReplyText(replyTarget, input)
-          : input
-        submitUserText(textToSend)
-        setInput('')
-        setReplyTarget(null)
-        return
-      }
-      // #198: enter on an empty composer with a queued send interrupts the
-      // running turn; the drain effect then sends the promoted top row.
-      const nextQueued = nextDrainableQueuedSend(queued.rows, queuedHoldIds)
-      if (nextQueued) {
-        interruptRunningTurn()
-      }
-    }
-  }
-
   const tokenCount = estimateTokensInContext(contextTextsForMeter(messages, summaries))
+
+  // #856 slice 17: composer input controls (handleMic, handleComposerKeyDown)
+  // moved verbatim to features/chat/useComposerControls.ts.
+  const { handleMic, handleComposerKeyDown } = useComposerControls({
+    sttListening,
+    speechSettings,
+    activeChatAgentId,
+    setInput,
+    addToast,
+    sttStopRef,
+    setSttListening,
+    setSttPathUsed,
+    isSlashOpen,
+    filteredSlashItems,
+    slashSelectedIndex,
+    setSlashSelectedIndex,
+    handleSelectSlashItem,
+    setSlashDismissed,
+    plusOpen,
+    setPlusOpen,
+    replyTarget,
+    setReplyTarget,
+    input,
+    showRoleTip,
+    dismissRoleTip,
+    pendingAttachments,
+    submitUserText,
+    queuedRows: queued.rows,
+    queuedHoldIds,
+    interruptRunningTurn,
+  })
+
   const selectedModelId = (
     (searchParams.get('model') ?? '').trim() ||
     (isCliAgent ? currentCliModel : (persistedDropdown.model || persistedDropdown.api || ''))
@@ -3290,194 +3073,69 @@ const ChatPage = () => {
     __self: null as unknown,
   }
 
-  const renderRoutingPicker = () => {
-    if (!composerShowProvider) return null
-    if (showRemotesControl && !showEmptyRemoteChrome) {
-      return (
-        <NavbarRoutingPicker
-          seatKind="remote"
-          aria-label="Remote"
-          placeholder={remoteSelectPlaceholder(configuredRemoteRows.length, selectedRemoteId)}
-          agents={configuredRemoteRows.map((remote) => ({
-            id: remote.id,
-            label: remoteOptionLabel(remote, remoteKinds(remotesCatalog)),
-            kind: 'remote' as const,
-          }))}
-          allAgents={allPaletteAgents}
-          onNavigateAgent={navigateToPaletteAgent}
-          onProviderReconfigure={reconfigureProviderForSeat}
-          selectedAgent={selectedRemoteId}
-          models={remoteNavbarAgents.map((row) => row.id)}
-          modelOptions={remoteNavbarAgents}
-          twoStage={{
-            providers: composerProviders,
-            getProviderOptions: (provider) =>
-              composerOptionsForProvider(composerSources, provider),
-          }}
-          selectedModel={ombSelectedBotId || sessionFromUrl}
-          modelWarning={remoteAgentWarning}
-          modelWarningAction={
-            remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
-              ? isRemoteAction(remoteAgentsQuery.data.action)
-                ? remoteAgentsQuery.data.action
-                : null
-              : null
-          }
-          footerAction={{
-            id: ADD_REMOTE_VALUE,
-            // #836: the picker is a cross-provider omnibus — the footer always
-            // names the unified Providers hub, not the active seat's section.
-            label: 'Manage providers',
-            onSelect: () => openSettingsSheet({ section: 'providers' }),
-          }}
-          onChange={(next) => {
-            const nextId = next.agent
-            setSelectedRemoteId(nextId)
-            // REQ-904 / #502: one decision point for both axes. A provider
-            // pick on a named agent is inert on the route; only an identity
-            // pick (viewing a remote seat) may navigate or reset the session.
-            const decision = applyRemoteRoutingChange({
-              next,
-              bindingAgentId,
-              remoteFromUrl,
-              configured: configuredRemoteRows,
-            })
-            if (decision.binding !== undefined) {
-              saveAgentRemoteBinding(bindingAgentId, decision.binding)
-              persistAgentDropdownChoice(bindingAgentId, {
-                remote: decision.binding?.id ?? '',
-              })
-            }
-            setSearchParams((prev) => {
-              const params = new URLSearchParams(prev)
-              if (decision.setRemote) params.set('remote', decision.setRemote)
-              if (decision.setSession) params.set('session', decision.setSession)
-              else if (decision.deleteSession) params.delete('session')
-              return params
-            })
-          }}
-        />
-      )
-    }
-    if (teamFromUrl) {
-      // #755: team member routing is the same composer picker every other
-      // seat uses — the legacy navbar <select> is retired. All members is
-      // the first row (its id is the send-target sentinel 'all'); Manage
-      // Team is the footer action, which never writes a session (#331).
-      const members = selectedTeam?.members ?? []
-      return (
-        <NavbarRoutingPicker
-          seatKind="team"
-          aria-label="Team members"
-          agents={[
-            { id: ALL_MEMBERS_TARGET, label: 'All members', kind: 'team' as const },
-            ...members.map((member) => ({
-              id: member.id,
-              label: memberOptionLabel(member),
-              kind: 'team' as const,
-            })),
-          ]}
-          selectedAgent={memberTarget || ALL_MEMBERS_TARGET}
-          models={[]}
-          selectedModel=""
-          placeholder="Team"
-          footerAction={{
-            id: MANAGE_TEAMS_VALUE,
-            label: 'Manage teams',
-            onSelect: () => {
-              window.location.assign(
-                teamFromUrl
-                  ? `${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}`
-                  : MANAGE_TEAMS_HREF,
-              )
-            },
-          }}
-          onChange={(next) => {
-            const value = next.agent
-            const prev = memberTarget
-            const prevMember = members.find((m) => m.id === prev)
-            const nextMember = members.find((m) => m.id === value)
-            const fromLabel = prev === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(prevMember || { id: prev, name: prev })
-            const toLabel = value === ALL_MEMBERS_TARGET ? 'All members' : memberOptionLabel(nextMember || { id: value, name: value })
-            setMemberTarget(value)
-            setSearchParams(
-              (prevParams) => applyTeamMemberSessionParam(prevParams, teamFromUrl, value),
-              { replace: true },
-            )
-            recordDropdownChange('team', fromLabel, toLabel)
-          }}
-        />
-      )
-    }
-    if (isCliAgent) {
-      return (
-        <NavbarRoutingPicker
-          seatKind="cli"
-          aria-label="CLI"
-          agents={discoveredClis.map((cli) => ({ id: cli, label: cli, kind: 'cli' as const }))}
-          selectedAgent={currentCli}
-          models={availableCliModels}
-          selectedModel={currentCliModel}
-          modelWarning={cliModelWarning}
-          preferredEffort={persistedDropdown.effort}
-          allAgents={allPaletteAgents}
-          onNavigateAgent={navigateToPaletteAgent}
-          onProviderReconfigure={reconfigureProviderForSeat}
-          loading={isCliAgent && (cliModelsQuery.isFetching || cliModelsQuery.isLoading)}
-          onTwoStageOpen={() => setComposerSessionsOpen(true)}
-          twoStage={{
-            providers: composerProviders,
-            getProviderOptions: (provider) =>
-              composerOptionsForProvider(composerSources, provider),
-            onResumeSession: resumeComposerSession,
-          }}
-          footerAction={{
-            id: MANAGE_CLI_VALUE,
-            // #836: unified cross-provider footer (see remote branch above).
-            label: 'Manage providers',
-            onSelect: () => openSettingsSheet({ section: 'providers' }),
-          }}
-          onChange={applyCliRoutingChange}
-        />
-      )
-    }
-    if (isApiAgent) {
-      /* #108, #584: API seats route through LLM profiles, not host CLIs. */
-      return (
-        <NavbarRoutingPicker
-          seatKind="api"
-          aria-label="API"
-          agents={apiModelOptionsFromProfiles(
-            llmProfilesQuery.data?.profiles,
-            llmProfilesQuery.data?.default_llm_profile
-              ? [llmProfilesQuery.data.default_llm_profile]
-              : [],
-          ).map((opt) => ({ id: opt.id, label: opt.label, kind: 'api' as const }))}
-          allAgents={allPaletteAgents}
-          onNavigateAgent={navigateToPaletteAgent}
-          selectedAgent={
-            selectedModelId || llmProfilesQuery.data?.default_llm_profile || ''
-          }
-          models={[]}
-          selectedModel=""
-          defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
-          twoStage={{
-            providers: composerProviders,
-            getProviderOptions: (provider) =>
-              composerOptionsForProvider(composerSources, provider),
-          }}
-          footerAction={{
-            id: '__manage_api__',
-            // #836: unified cross-provider footer (see remote branch above).
-            label: 'Manage providers',
-            onSelect: () => openSettingsSheet({ section: 'providers' }),
-          }}
-          onChange={applyApiRoutingChange}
-        />
-      )
-    }
-    return null
+  const renderRoutingPickerProps = {
+    ADD_REMOTE_VALUE,
+    ALL_MEMBERS_TARGET,
+    MANAGE_CLI_VALUE,
+    MANAGE_TEAMS_HREF,
+    MANAGE_TEAMS_VALUE,
+    NavbarRoutingPicker,
+    allPaletteAgents,
+    apiModelOptionsFromProfiles,
+    applyApiRoutingChange,
+    applyCliRoutingChange,
+    applyRemoteRoutingChange,
+    applyTeamMemberSessionParam,
+    availableCliModels,
+    bindingAgentId,
+    cliModelWarning,
+    cliModelsQuery,
+    composerOptionsForProvider,
+    composerProviders,
+    composerShowProvider,
+    composerSources,
+    configuredRemoteRows,
+    currentCli,
+    currentCliModel,
+    discoveredClis,
+    isApiAgent,
+    isCliAgent,
+    isRemoteAction,
+    llmProfilesQuery,
+    memberOptionLabel,
+    memberTarget,
+    navigateToPaletteAgent,
+    ombSelectedBotId,
+    openSettingsSheet,
+    persistAgentDropdownChoice,
+    persistedDropdown,
+    reconfigureProviderForSeat,
+    recordDropdownChange,
+    remoteAgentWarning,
+    remoteAgentsQuery,
+    remoteFromUrl,
+    remoteKinds,
+    remoteNavbarAgents,
+    remoteOptionLabel,
+    remoteSelectPlaceholder,
+    remotesCatalog,
+    resumeComposerSession,
+    saveAgentRemoteBinding,
+    selectedModelId,
+    selectedRemoteId,
+    selectedTeam,
+    sessionFromUrl,
+    setComposerSessionsOpen,
+    setMemberTarget,
+    setSearchParams,
+    setSelectedRemoteId,
+    showEmptyRemoteChrome,
+    showRemotesControl,
+    teamFromUrl,
   }
+
+  const renderRoutingPicker = () =>
+    renderRoutingPickerImpl(renderRoutingPickerProps)
 
   const chatBottomDockProps = {
     status,
