@@ -6,9 +6,19 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 
+# #856 slice G: the row markup moved verbatim into sidebar/rowsRender.tsx;
+# these pins read the union so the doctrine spans both homes.
+_ROWS_RENDER = SIDEBAR_TSX.parent / "sidebar" / "rowsRender.tsx"
+
+
+def _sidebar_text():
+    return "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TSX, _ROWS_RENDER))
+
+
+
 
 def test_sidebar_role_badge_overlays_avatar():
-    content = SIDEBAR_TSX.read_text(encoding="utf-8")
+    content = _sidebar_text()
 
     # REQ-175 contract. Updated twice by later deliberate redesigns: the Sep-2026
     # UI parity sweep moved the agent role badge OFF the avatar overlay onto the
@@ -32,7 +42,7 @@ def test_sidebar_role_badge_overlays_avatar():
 
 
 def test_second_row_does_not_contain_role_badge_chip():
-    content = SIDEBAR_TSX.read_text(encoding="utf-8")
+    content = _sidebar_text()
 
     # In single agent row, second row has snippet and optional taskCount, but NOT badge ? <span ...>
     # #446 lets that snippet slot show the awaiting-approval label instead, so the

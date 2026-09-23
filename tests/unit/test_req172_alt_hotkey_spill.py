@@ -27,7 +27,12 @@ def test_rail_hotkeys_unit_tests_cover_all_cases():
 
 
 def test_sidebar_integrates_spill_hotkeys():
-    sidebar = SIDEBAR_TSX.read_text(encoding="utf-8")
+    # #856 slice G: the row markup (data-hotkey/spillSlot) moved verbatim into
+    # sidebar/rowsRender.tsx; the target computation stayed in AgentSidebar.
+    sidebar = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in (SIDEBAR_TSX, SIDEBAR_TSX.parent / "sidebar" / "rowsRender.tsx")
+    )
     # Must import and compute hotkey targets
     assert "computeRailHotkeyTargets" in sidebar
     assert "hotkeyTargets" in sidebar
