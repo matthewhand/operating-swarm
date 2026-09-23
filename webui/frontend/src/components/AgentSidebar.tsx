@@ -78,13 +78,10 @@ import {
 import { isNonCatalogRailPinId, railSeatAgents } from '../lib/railSeats'
 import {
   HIDDEN_AGENTS_CHANGED_EVENT,
-  canHideAgent,
   hasHiddenAgentsStorage,
-  hideAgentId,
   loadHiddenAgentIds,
   loadOrSeedHiddenAgentIds,
   reconcileHiddenAgentIds,
-  unhideAgentId,
 } from '../lib/hiddenAgents'
 import {
   defaultHostname,
@@ -96,9 +93,7 @@ import {
 import {
   GENERATION_COMPLETE_EVENT,
   applyRailOrder,
-  beginRailDrag,
   bumpRailIdToTop,
-  endRailDrag,
   generationCompleteAgentId,
   generationCompleteDetail,
   insertRailIdAfter,
@@ -106,7 +101,6 @@ import {
   mergeRailOrder,
   moveRailId,
   moveRailIdAfter,
-  dropHalfFromClientY,
   peekRailDrag,
   saveRailOrder,
 } from '../lib/railOrder'
@@ -127,15 +121,11 @@ import {
 } from '../lib/settingsPrefs'
 import { computeRailHotkeyTargets } from '../lib/railHotkeys'
 import {
-  endAgentDrag,
   excludePinnedFromList,
   loadOrSeedPinnedAgents,
-  movePinnedAgent,
   parseAgentDragPayload,
-  pinAgent,
   type PinnedAgent,
   unpinAgent,
-  writeAgentDragPayload,
 } from '../lib/pinnedAgents'
 import { hydrateRailPrefs, saveUserPrefs } from '../lib/userPrefs'
 import {
@@ -288,6 +278,7 @@ import {
   toSidebarDynamic,
   toSidebarHerdr,
 } from '../features/sidebar/rows'
+import { useRailDragCommands } from '../features/sidebar/useRailDragCommands'
 import { useRailMenuCommands } from '../features/sidebar/useRailMenuCommands'
 import { useRailSessionCommands } from '../features/sidebar/useRailSessionCommands'
 import { useRailResize } from './sidebar/useRailResize'
@@ -1179,6 +1170,46 @@ export default function AgentSidebar({
     [railOrder, visibleRowIds, persistVisibleOrder],
   )
 
+  // #856 slice 12: drag/pin/hide interactions live in the hook below; the
+  // drag states stay page-owned so the row render props are unchanged.
+  const railDrag = useRailDragCommands({
+    draggingId,
+    resolvedHiddenIds: resolvedHiddenIds ?? [],
+    sectionState,
+    isPinnedId,
+    reorderBefore,
+    reorderAfter,
+    closeMenu,
+    setDraggingId,
+    setDropTargetId,
+    setSectionDropId,
+    setDropActive,
+    setListDropActive,
+    setHideDropActive,
+    setBinDragOver,
+    setPins,
+    setHiddenIds,
+    setSectionState,
+    hideDropDepth,
+  })
+  const {
+    finishDrag,
+    hideAgent,
+    unhideAgent,
+    togglePin,
+    dropPin,
+    dropPinReorder,
+    dropUnfavourite,
+    allowListUnfavourite,
+    dropHide,
+    allowRowDrop,
+    dropReorder,
+    allowSectionDrop,
+    dropOnSection,
+    dropOnSelf,
+    beginRowDrag,
+  } = railDrag
+
   const handleAgentCreated = useCallback(
     (created: { id: string; name: string; kind: AgentKind }) => {
       setAddWizardOpen(false)
@@ -1449,230 +1480,6 @@ export default function AgentSidebar({
       clearLongPress()
     },
   })
-
-  const finishDrag = () => {
-    endAgentDrag()
-    endRailDrag()
-    setDraggingId(null)
-    setDropTargetId(null)
-    setSectionDropId(null)
-    setDropActive(false)
-    setListDropActive(false)
-    setHideDropActive(false)
-    setBinDragOver(false)
-    hideDropDepth.current = 0
-  }
-
-  // #725: global safety net — if the browser never delivers `onDragEnd` to the
-  // React element (pointer left the window, OS cancelled the drag, or a
-  // re-render during a 429 storm orphaned the handler) draggingId would stay
-  // set forever. The window-level listener catches it regardless of source.
-  useEffect(() => {
-    if (!draggingId) return
-    const onGlobalDragEnd = () => finishDrag()
-    const onVisibilityHide = () => { if (document.visibilityState === 'hidden') finishDrag() }
-    window.addEventListener('dragend', onGlobalDragEnd)
-    document.addEventListener('visibilitychange', onVisibilityHide)
-    return () => {
-      window.removeEventListener('dragend', onGlobalDragEnd)
-      document.removeEventListener('visibilitychange', onVisibilityHide)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draggingId])
-
-
-
-  /**
-   * Hide conceals the id from the conversation list and the visible favourite
-   * grid. The pin stays in swarm_pinned_agents so Unhide restores the same
-   * favourite slot. Role agents (support, gate, skeptic) are not exempt.
-   */
-  const hideFromRail = (id: string) => {
-    if (!id || !canHideAgent(id)) return
-    setHiddenIds((current) => hideAgentId(id, current ?? resolvedHiddenIds))
-  }
-
-  const hideAgent = (id: string) => {
-    hideFromRail(id)
-    closeMenu()
-  }
-
-  const unhideAgent = (id: string) => {
-    setHiddenIds((current) => unhideAgentId(id, current ?? resolvedHiddenIds))
-    closeMenu()
-  }
-
-  const togglePin = (agent: { id: string; name: string }) => {
-    setPins((current) =>
-      current.some((pin) => pin.id === agent.id)
-        ? unpinAgent(agent.id, current)
-        : pinAgent(agent, current),
-    )
-    closeMenu()
-  }
-
-  const dropPin = (event: ReactDragEvent) => {
-    event.preventDefault()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    setDropActive(false)
-    finishDrag()
-    if (!payload) return
-    // Already-pinned drops on empty grid space are a no-op; tile drops reorder.
-    setPins((current) =>
-      current.some((pin) => pin.id === payload.id) ? current : pinAgent(payload, current),
-    )
-  }
-
-  const dropPinReorder = (event: ReactDragEvent, beforeId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    finishDrag()
-    if (!payload?.id || payload.id === beforeId) return
-    setPins((current) => {
-      if (current.some((pin) => pin.id === payload.id)) {
-        return movePinnedAgent(payload.id, beforeId, current)
-      }
-      return pinAgent(payload, current)
-    })
-  }
-
-  const dropUnfavourite = (event: ReactDragEvent) => {
-    event.preventDefault()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    finishDrag()
-    if (!payload?.id) return
-    setPins((current) =>
-      current.some((pin) => pin.id === payload.id) ? unpinAgent(payload.id, current) : current,
-    )
-  }
-
-  const allowListUnfavourite = (event: ReactDragEvent) => {
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (!isPinnedId(fromId)) return
-    event.preventDefault()
-    try {
-      event.dataTransfer.dropEffect = 'move'
-    } catch {
-      /* synthetic events may omit dataTransfer */
-    }
-    setListDropActive(true)
-  }
-
-  const dropHide = (event: ReactDragEvent) => {
-    event.preventDefault()
-    const payload = parseAgentDragPayload(event.dataTransfer)
-    finishDrag()
-    if (!payload?.id) return
-    // Already hidden (or a drop that never left the source row) is a no-op.
-    if (resolvedHiddenIds.includes(payload.id)) return
-    hideFromRail(payload.id)
-  }
-
-  const allowRowDrop = (event: ReactDragEvent, targetId: string) => {
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (!fromId || fromId === targetId) {
-      try {
-        event.dataTransfer.dropEffect = 'none'
-      } catch {
-        /* synthetic events may omit dataTransfer */
-      }
-      return
-    }
-    event.preventDefault()
-    try {
-      event.dataTransfer.dropEffect = 'move'
-    } catch {
-      /* synthetic events may omit dataTransfer */
-    }
-    setDropTargetId(targetId)
-  }
-
-  const dropReorder = (event: ReactDragEvent, targetId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (fromId && fromId !== targetId) {
-      const targetSection = sectionIdForAgent(targetId, sectionState)
-      setSectionState((current) => moveAgentToSection(current, fromId, targetSection))
-      // #761: relative placement — the pointer's half of the target row
-      // decides above/below; dropping onto any row of a section also assigns
-      // into that section (above). Pinned drops unpin into place either way.
-      const half = dropHalfFromClientY(event.clientY, event.currentTarget.getBoundingClientRect())
-      if (isPinnedId(fromId)) {
-        setPins((current) => unpinAgent(fromId, current))
-      }
-      if (half === 'below') {
-        reorderAfter(fromId, targetId)
-      } else {
-        reorderBefore(fromId, targetId)
-      }
-    }
-    finishDrag()
-  }
-
-  const allowSectionDrop = (event: ReactDragEvent, sectionId: string) => {
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (!fromId) {
-      try {
-        event.dataTransfer.dropEffect = 'none'
-      } catch {
-        /* synthetic events may omit dataTransfer */
-      }
-      return
-    }
-    event.preventDefault()
-    try {
-      event.dataTransfer.dropEffect = 'move'
-    } catch {
-      /* synthetic events may omit dataTransfer */
-    }
-    setSectionDropId(sectionId)
-  }
-
-  const dropOnSection = (event: ReactDragEvent, sectionId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (fromId) {
-      if (isPinnedId(fromId)) {
-        setPins((current) => unpinAgent(fromId, current))
-      }
-      setSectionState((current) => moveAgentToSection(current, fromId, sectionId))
-    }
-    finishDrag()
-  }
-
-  const dropOnSelf = (event: ReactDragEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const fromId = peekRailDrag() || parseAgentDragPayload(event.dataTransfer)?.id
-    if (isPinnedId(fromId)) {
-      setPins((current) => unpinAgent(fromId!, current))
-    }
-    finishDrag()
-  }
-
-  const beginRowDrag = (event: ReactDragEvent, agent: { id: string; name: string }) => {
-    try {
-      event.dataTransfer.clearData('text/uri-list')
-      event.dataTransfer.clearData('URL')
-      event.dataTransfer.clearData('text/html')
-    } catch {
-      /* jsdom DataTransfer may be a stub */
-    }
-    writeAgentDragPayload(event.dataTransfer, agent)
-    beginRailDrag(agent.id)
-    try {
-      event.dataTransfer.effectAllowed = 'copyMove'
-      event.dataTransfer.clearData('text/uri-list')
-      event.dataTransfer.clearData('URL')
-      event.dataTransfer.clearData('text/html')
-    } catch {
-      /* jsdom DataTransfer may be a stub */
-    }
-    setDraggingId(agent.id)
-  }
 
   const openDefinition = (
     kind: 'role' | 'blueprint' | 'team',
