@@ -130,11 +130,9 @@ import { composerMenuCapabilities } from '../lib/composerMenu'
 import { applyRemoteRoutingChange } from '../lib/remoteRouting'
 import { ComposerPluginsPanel } from '../components/ComposerPluginsPanel'
 import {
-  type SlashItem,
   buildSlashCatalog,
   filterSlashItems,
   getRecentSlashIds,
-  recordRecentSlashId,
 } from '../lib/slashMenu'
 import {
   EMPTY_SPEECH,
@@ -307,6 +305,7 @@ import {
 import { useChatWebSocket } from '../features/chat/useChatWebSocket'
 import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
 import { useChatSend } from '../features/chat/useChatSend'
+import { useComposerCommands } from '../features/chat/useComposerCommands'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
 import { ChatMessageActions } from '../experimental/ChatMessageActions'
@@ -356,7 +355,7 @@ import {
 } from '../lib/agentRoles'
 import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit } from '../lib/agentEdits'
 import { cliRemoteSessionChoices, isRemoteCapableCli } from '../lib/cliRemote'
-import { navbarWorkspaceSubtitle, persistSessionWorkspace } from '../lib/agentWorkspace'
+import { navbarWorkspaceSubtitle } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import {
   defaultBlueprintId,
@@ -395,9 +394,7 @@ import {
 } from '../lib/sessionRestore'
 import {
   CLI_SESSION_SWITCHED_EVENT,
-  dispatchCliSessionSwitched,
   fetchCliSessions,
-  selectCliSession,
 } from '../lib/cliSessions'
 import {
   CLI_SESSION_HOPPED_EVENT,
@@ -3276,34 +3273,23 @@ const ChatPage = () => {
     [contextStrategy, handleCompressToHere, handleStartContextFromHere],
   )
 
-  const handleSelectSlashItem = useCallback(
-    (item: SlashItem) => {
-      // #641: an unavailable CLI command is never sent as chat text.
-      if (item.unavailableReason) {
-        addToast({
-          type: 'warning',
-          title: item.title,
-          message: item.unavailableReason,
-        })
-        setSlashDismissed(true)
-        return
-      }
-      recordRecentSlashId(item.id)
-      setRecentSlashIds(getRecentSlashIds())
-      setSlashDismissed(true)
-
-      if (item.id === 'compact') {
-        void handleCompact()
-        setInput('')
-      } else {
-        setInput(`${item.command} `)
-      }
-      setTimeout(() => {
-        composerRef.current?.focus()
-      }, 0)
-    },
-    [handleCompact, addToast],
-  )
+  // #856: composer command/session wiring moved verbatim to
+  // features/chat/useComposerCommands.ts.
+  const slashHook = useComposerCommands({
+    isCliAgent,
+    currentCli,
+    selectedBlueprint,
+    addToast,
+    handleCompact,
+    setInput,
+    setSlashDismissed,
+    setRecentSlashIds,
+    composerRef,
+    setSearchParams,
+  })
+  const resumeHook = slashHook
+  // #856: slash-command picking moved verbatim to features/chat/useComposerCommands.ts.
+  const handleSelectSlashItem = slashHook.handleSelectSlashItem
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isSlashOpen) {
@@ -3470,40 +3456,8 @@ const ChatPage = () => {
 
   // #711: picking a session runs the same REQ-104 flow as the History
   // switcher — select, persist workspace, announce the switch, land on it.
-  const resumeComposerSession = useCallback(
-    async (sessionId: string) => {
-      if (!isCliAgent || !currentCli) return
-      try {
-        const result = await selectCliSession({
-          agentId: selectedBlueprint,
-          cli: currentCli,
-          sessionId,
-          fromConversationId: conversationIdForAgent(selectedBlueprint),
-        })
-        persistSessionWorkspace(selectedBlueprint, {
-          folder: result.folder ?? undefined,
-          gitBranch: result.git_branch ?? undefined,
-        })
-        dispatchCliSessionSwitched({
-          agentId: selectedBlueprint,
-          conversationId: result.conversation_id,
-          status: result.status,
-        })
-        // #794: the URL owns the selected session — set ?session= so remount
-        // and rail browse-back restore the same conversation.
-        setSearchParams((prev) => {
-          const next = new URLSearchParams(prev)
-          next.set('session', result.conversation_id)
-          return next
-        })
-      } catch (err) {
-        const message =
-          err instanceof Error && err.message ? err.message : 'Could not switch session'
-        addToast({ type: 'error', title: 'Could not start CLI session', message })
-      }
-    },
-    [isCliAgent, currentCli, selectedBlueprint, setSearchParams, addToast],
-  )
+  // #856: CLI session resume moved verbatim to features/chat/useComposerCommands.ts.
+  const resumeComposerSession = resumeHook.resumeComposerSession
 
   const composerSources: ComposerSources = useMemo(
     () => ({
