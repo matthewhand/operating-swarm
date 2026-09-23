@@ -2,16 +2,15 @@
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 CHAT_PAGE_TEST_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "__tests__" / "ChatPage.test.tsx"
-# #856 slice J: the remotes chrome moved verbatim into ChatHeader — the pin
-# reads the union of both homes.
-CHAT_HEADER_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "features" / "chat" / "ChatHeader.tsx"
 
 
 def test_chat_page_guards_remotes_dropdown():
-    tsx = CHAT_PAGE_TSX.read_text(encoding="utf-8") + CHAT_HEADER_TSX.read_text(encoding="utf-8")
+    # #1055: shared chat surface — the remotes chrome lives in ChatHeader now.
+    tsx = chat_surface()
     assert "isRemoteBackedTeam" in tsx
     assert "isRemoteAgent" in tsx
     assert "showRemotesControl" in tsx

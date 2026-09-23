@@ -13,27 +13,18 @@ REQ-152 (#560):
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface, sidebar_surface
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SIDEBAR = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 RAIL_MENU = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "railContextMenu.ts"
-CHAT_PAGE = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 SESSION_PICKER_COMPONENT = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SessionPicker.tsx"
 SESSION_PICKER_LIB = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "sessionPicker.ts"
 
-# #856 slice G: the row markup moved verbatim into sidebar/rowsRender.tsx;
-# these pins read the union so the doctrine spans both homes.
-_ROWS_RENDER = SIDEBAR.parent / "sidebar" / "rowsRender.tsx"
-# #856 slices 11/13/14: the row menu handlers and group picker moved to hooks.
-_ROW_HOOKS = [
-    SIDEBAR.parent.parent / "features" / "sidebar" / "useRailMenuOpeners.ts",
-    SIDEBAR.parent.parent / "features" / "sidebar" / "useRailSessionCommands.ts",
-]
-
 
 def _sidebar_text():
-    return "\n".join(
-        x.read_text(encoding="utf-8") for x in (SIDEBAR, _ROWS_RENDER, *_ROW_HOOKS)
-    )
+    # #1055: shared sidebar surface — AgentSidebar plus the sidebar/ and
+    # features/sidebar extraction homes (rows, menu openers, session commands).
+    return sidebar_surface()
 
 
 
@@ -72,7 +63,7 @@ def test_req130_sidebar_context_menu_select_agent():
 
 def test_req152_chat_page_team_dropdown_separator_and_manage():
     """REQ-152 via #755: the composer picker's footer navigates to /teams/#<id>."""
-    src = CHAT_PAGE.read_text(encoding="utf-8")
+    src = chat_surface()
     assert "MANAGE_TEAMS_VALUE" in src
     assert "label: 'Manage teams'" in src
     assert "${MANAGE_TEAMS_HREF}#${encodeURIComponent(teamFromUrl)}" in src

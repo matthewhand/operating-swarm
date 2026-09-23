@@ -6,15 +6,14 @@ or a :8001 webhook. No secrets. GitHub PR-merged trigger only.
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO = Path(__file__).resolve().parents[2]
 STUB = REPO / "webui" / "frontend" / "src" / "components" / "ComputerControlStub.tsx"
 PANE = REPO / "webui" / "frontend" / "src" / "components" / "ComputerRoutinesPane.tsx"
 ROUTINES = REPO / "src" / "swarm" / "core" / "routines.py"
 API = REPO / "src" / "swarm" / "views" / "routines_api.py"
 URLS = REPO / "src" / "swarm" / "urls.py"
-CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
-# #856 slice J: the computer-control stub mounts from the header module.
-CHAT_HEADER = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "ChatHeader.tsx"
 APP = REPO / "webui" / "frontend" / "src" / "App.tsx"
 CI = REPO / ".github" / "workflows" / "req80-routines.yml"
 
@@ -25,10 +24,10 @@ def test_computer_icon_opens_right_pane_not_wip_modal():
     assert "placement=\"end\"" in stub or "placement='end'" in stub
     assert "WIP" not in stub
     assert "COMPUTER_CONTROL_WIP_COPY" not in stub
-    assert "ChatPage" in CHAT.read_text(encoding="utf-8")
-    assert "<ComputerControlStub" in (
-        CHAT.read_text(encoding="utf-8") + CHAT_HEADER.read_text(encoding="utf-8")
-    )
+    # #1055: shared chat surface — the stub mounts from ChatHeader now.
+    chat = chat_surface()
+    assert "ChatPage" in chat
+    assert "<ComputerControlStub" in chat
     assert 'path="/chat"' in APP.read_text(encoding="utf-8")
 
 

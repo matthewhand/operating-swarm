@@ -1,5 +1,7 @@
 """REQ-86 & REQ-125: Rail row timestamps beside name & role badges on second row."""
 
+from helpers.source_surface import sidebar_surface
+
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -14,7 +16,7 @@ _ROWS_RENDER = SIDEBAR_TSX.parent / "sidebar" / "rowsRender.tsx"
 
 
 def _sidebar_text():
-    return "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TSX, _ROWS_RENDER))
+    return sidebar_surface()
 
 
 
