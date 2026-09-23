@@ -20,6 +20,16 @@ CHAT_PAGE = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 SESSION_PICKER_COMPONENT = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SessionPicker.tsx"
 SESSION_PICKER_LIB = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "sessionPicker.ts"
 
+# #856 slice G: the row markup moved verbatim into sidebar/rowsRender.tsx;
+# these pins read the union so the doctrine spans both homes.
+_ROWS_RENDER = SIDEBAR.parent / "sidebar" / "rowsRender.tsx"
+
+
+def _sidebar_text():
+    return "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR, _ROWS_RENDER))
+
+
+
 
 def test_req130_session_picker_default_session_helpers():
     """REQ-130: defaultSessionForTeam and defaultSessionForRemote prioritize CoS then first member."""
@@ -32,7 +42,7 @@ def test_req130_session_picker_default_session_helpers():
 
 def test_req130_sidebar_primary_click_direct_nav_no_picker():
     """REQ-130: primary click on team or remote navigates to default session href directly."""
-    src = SIDEBAR.read_text(encoding="utf-8")
+    src = _sidebar_text()
     assert "defaultSessionForTeam(team)" in src
     assert "defaultSessionForRemote(remote)" in src
     assert "def ? navigate(def.href)" in src or "if (def) {\n            navigate(def.href)" in src or "if (def) {" in src
@@ -40,7 +50,7 @@ def test_req130_sidebar_primary_click_direct_nav_no_picker():
 
 def test_req130_sidebar_context_menu_select_agent():
     """REQ-130: right-click rail menu offers Select Agent and opens the group picker."""
-    sidebar = SIDEBAR.read_text(encoding="utf-8")
+    sidebar = _sidebar_text()
     menu = RAIL_MENU.read_text(encoding="utf-8")
     assert "rowMenuHandlers(hideId, name, hidden, 'team', sessions, team.id)" in sidebar
     assert "rowMenuHandlers(hideId, name, hidden, 'remote', sessions, remote.id)" in sidebar

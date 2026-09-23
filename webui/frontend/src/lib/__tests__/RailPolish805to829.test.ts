@@ -17,7 +17,8 @@ import { join } from 'node:path'
 
 const src = (p: string) => readFileSync(join(__dirname, '..', '..', p), 'utf8')
 const css = () => src('index.css')
-const sidebar = () => src('components/AgentSidebar.tsx')
+const sidebar = () =>
+  src('components/AgentSidebar.tsx') + src('components/sidebar/rowsRender.tsx') // #856 slice G: row renderers moved verbatim
 // #856 slice C: the drag handlers moved to the sidebar's resize hook.
 const sidebarResizeHook = () => src('components/sidebar/useRailResize.ts')
 
