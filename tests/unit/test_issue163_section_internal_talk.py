@@ -5,6 +5,8 @@ message only each other (team of one included). Unassigned is never
 lockable. No secrets. No LiteLLM catalog. No Neon.
 """
 
+from helpers.source_surface import chat_surface, sidebar_surface
+
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -63,7 +65,7 @@ def test_section_chrome_has_lock_control():
     assert "Isolate members" in menu
     rail = RAIL_MENU.read_text(encoding="utf-8")
     assert "'section-talk-lock'" in rail
-    sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR, SIDEBAR_ROWS))
+    sidebar = sidebar_surface()
     assert "toggleSectionInternalOnly" in sidebar
     assert "data-internal-only" in sidebar
     _no_secrets(header + menu + rail + sidebar)
@@ -77,7 +79,7 @@ def test_mailbox_enforces_section_lock_from_params():
     assert "rail_sections" in mailbox
     assert "ERROR_SECTION_LOCKED" in mailbox
     assert "filter_talk_targets" in mailbox
-    chat = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT, CHAT_SEND))
+    chat = chat_surface()
     assert "railSectionsParam" in chat
     _no_secrets(talk + mailbox + chat)
 

@@ -15,15 +15,19 @@ assertions are the negative control: they fail if the clip comes back.
 from __future__ import annotations
 
 import re
+
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 
 
 def _chat_page() -> str:
-    return CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    # #1055: the union read is the shared chat surface — ChatPage plus every
+    # features/chat extraction home, so slices stop breaking this pin.
+    return chat_surface()
 
 
 def _css_block(selector: str) -> str:

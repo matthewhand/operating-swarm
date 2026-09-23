@@ -1,5 +1,7 @@
 """REQ-9 contracts: codegen wiring, sidepane class names, API role fields."""
 
+from helpers.source_surface import sidebar_surface
+
 from pathlib import Path
 
 import pytest
@@ -67,7 +69,7 @@ def test_sidepane_css_class_names_exist_django_and_spa():
     django_css = DJANGO_CSS.read_text(encoding="utf-8")
     spa_css = SPA_CSS.read_text(encoding="utf-8")
     js = SIDEBAR_JS.read_text(encoding="utf-8")
-    ts = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TS, SIDEBAR_TS_ROWS))
+    ts = sidebar_surface()
     team = TEAM_JS.read_text(encoding="utf-8")
     # REQ-67: role colour lives on .os-agent-role-badge[data-role=...], not row classes.
     assert "os-agent-role-badge" in django_css

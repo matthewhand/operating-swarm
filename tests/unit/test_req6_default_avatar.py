@@ -2,13 +2,14 @@
 
 from pathlib import Path
 
+from helpers.source_surface import chat_surface
+
 REPO = Path(__file__).resolve().parents[2]
 AVATAR = REPO / "src" / "swarm" / "static" / "img" / "default-agent-avatar.svg"
 SPA_AVATAR = REPO / "webui" / "frontend" / "src" / "assets" / "default-agent-avatar.svg"
 SIDEBAR_JS = REPO / "src" / "swarm" / "static" / "js" / "agent_sidebar.js"
 SPA_SIDEBAR = REPO / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 SPA_AVATAR_TSX = REPO / "webui" / "frontend" / "src" / "components" / "AgentAvatar.tsx"
-CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 CARD = REPO / "src" / "swarm" / "templates" / "blueprint_card.html"
 
 
@@ -39,7 +40,9 @@ def test_django_sidebar_and_library_card_use_default_svg():
 def test_spa_wires_agent_avatar_as_default():
     avatar = SPA_AVATAR_TSX.read_text(encoding="utf-8")
     sidebar = SPA_SIDEBAR.read_text(encoding="utf-8")
-    chat = CHAT.read_text(encoding="utf-8")
+    # #1055: shared chat surface — the header and message list mount
+    # AgentAvatar; the surface covers every extraction home.
+    chat = chat_surface()
     # SPA fallback is an inline data-URI (REQ-60 bland default), not a static SVG path.
     assert "DEFAULT_AGENT_AVATAR_SRC" in avatar
     assert "data:image/svg+xml" in avatar
