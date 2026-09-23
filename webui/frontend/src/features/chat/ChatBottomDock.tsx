@@ -392,14 +392,13 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                       node (and its reserved width) never changes. */}
                   <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
                     {sendNowHint ? (
-                      /* #631: the ↵ reveal exists ONLY to announce the interrupt-
-                         send action while a queued send waits. No queue → no hint. */
+                      /* #631/#1072: the ↵ reveal announces the send action while a queued send waits. No queue → no hint. */
                       <kbd
                         className="os-composer__hint kbd kbd-xs"
                         data-testid="composer-send-hint"
                         title="Send Now! ↵"
                       >
-                        ↵
+                        Send ↵
                       </kbd>
                     ) : input ? (
                       <kbd
@@ -416,7 +415,7 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                         title=""
                         aria-hidden="true"
                       >
-                        ↵
+                        Send ↵
                       </kbd>
                     )}
                   </span>
