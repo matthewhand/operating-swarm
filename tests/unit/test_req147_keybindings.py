@@ -9,6 +9,7 @@ CMD_PALETTE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "experimental" / "C
 SIDEBAR_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "AgentSidebar.tsx"
 SEARCH_PALETTE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "components" / "SearchPalette.tsx"
 CHAT_PAGE_TSX = REPO_ROOT / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+_DOCK = CHAT_PAGE_TSX.parent.parent / "features" / "chat" / "ChatBottomDock.tsx"
 KEYBINDING_TIPS_TS = REPO_ROOT / "webui" / "frontend" / "src" / "lib" / "keybindingTips.ts"
 INDEX_CSS = REPO_ROOT / "webui" / "frontend" / "src" / "index.css"
 
@@ -67,7 +68,7 @@ def test_search_palette_footer_tips():
 
 
 def test_in_field_unfocused_hints_replace_overlay():
-    chat = CHAT_PAGE_TSX.read_text(encoding="utf-8")
+    chat = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT_PAGE_TSX, _DOCK))
     labels = KEYBINDING_TIPS_TS.read_text(encoding="utf-8")
     palette = SEARCH_PALETTE_TSX.read_text(encoding="utf-8")
     css = INDEX_CSS.read_text(encoding="utf-8")

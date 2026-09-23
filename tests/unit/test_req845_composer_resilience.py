@@ -9,11 +9,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
+DOCK = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "ChatBottomDock.tsx"
 CSS = REPO / "webui" / "frontend" / "src" / "index.css"
 
 
 def test_req845_offline_sends_are_queued_not_dropped():
-    text = CHAT.read_text(encoding="utf-8")
+    text = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT, DOCK))
     # #603: the enqueue carries the attachment-caption fallback, not just the
     # bare draft — the contract is 'never drop', whatever the send contains.
     assert "queued.enqueue(fallbackText)" in text
@@ -22,7 +23,7 @@ def test_req845_offline_sends_are_queued_not_dropped():
 
 
 def test_req845_composer_stays_editable_with_visible_status():
-    text = CHAT.read_text(encoding="utf-8")
+    text = "\n".join(x.read_text(encoding="utf-8") for x in (CHAT, DOCK))
     assert "os-conn-status" in text
     assert 'data-testid="chat-conn-status"' in text
     assert "keep typing" in text

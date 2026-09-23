@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { ChatBottomDock } from '../features/chat/ChatBottomDock'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUp, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Settings, Square } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
@@ -85,7 +86,7 @@ import { persistableMessages, putAgentChatSession } from '../lib/agentChatSessio
 
 import { useRailChrome } from '../components/RailChrome'
 import { ComputerControlStub } from '../components/ComputerControlStub'
-import { NavbarRoutingPicker, type RoutingPathChange } from '../components/NavbarRoutingPicker'
+import { NavbarRoutingPicker } from '../components/NavbarRoutingPicker'
 
 import {
   BUBBLE_THEME_CHANGED_EVENT,
@@ -165,7 +166,6 @@ import { SPEECH_QUERY_KEY, describeSpeechPath, parseSpeechSettings } from '../li
 import {
   AGENT_CONVERSATION_EVENT,
   agentIdFromBlueprint,
-  appendAgentMessage,
   clearAgentThread,
   compactAgentThread,
   conversationIdForAgent,
@@ -306,6 +306,7 @@ import { useChatWebSocket } from '../features/chat/useChatWebSocket'
 import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
 import { useChatSend } from '../features/chat/useChatSend'
 import { useComposerCommands } from '../features/chat/useComposerCommands'
+import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
 import { ChatMessageActions } from '../experimental/ChatMessageActions'
@@ -362,12 +363,7 @@ import {
   isSupportAgent,
   SUPPORT_AGENT_ID,
 } from '../lib/supportAgent'
-import {
-  formatDropdownStatus,
-  isStatusRole,
-  shouldRecordDropdownChange,
-  type DropdownKind,
-} from '../lib/chatStatus'
+import { isStatusRole } from '../lib/chatStatus'
 
 import {
   countableChatCount,
@@ -398,9 +394,7 @@ import {
 } from '../lib/cliSessions'
 import {
   CLI_SESSION_HOPPED_EVENT,
-  crossKindHopForReconfigure,
   dispatchCliSessionHopped,
-  hopCliSession,
 } from '../lib/cliSessionHop'
 // #636: CLI-seat compact orchestration (summary + fresh session carrying it).
 import { compactCliThread } from '../lib/cliCompact'
@@ -427,7 +421,6 @@ import {
 } from '../lib/cliAgentContext'
 import { isHiddenRoutingLabel, type RoutingSeatKind } from '../lib/routingPath'
 import {
-  providerReconfigureNotice,
   seatParamsForPick,
   type SeatPickKind,
 } from '../lib/seatRouting'
@@ -479,11 +472,6 @@ interface MessageContextMenuState {
   y: number
   message: ChatMessage
   selectedText?: string | null
-}
-
-function warnStatusPersistFailure(err: unknown): void {
-  const reason = err instanceof Error ? err.message : String(err)
-  console.warn('Could not persist status line', reason)
 }
 
 const ChatPage = () => {
@@ -1469,210 +1457,25 @@ const ChatPage = () => {
     if (saved && availableCliModels.includes(saved)) return saved
     return availableCliModels[0] || ''
   }, [searchParams, availableCliModels, persistedDropdown.model])
-  const recordDropdownChange = useCallback(
-    (kind: DropdownKind, fromLabel: string, toLabel: string) => {
-      if (!shouldRecordDropdownChange(fromLabel, toLabel)) return
-      const statusText = formatDropdownStatus(kind, fromLabel, toLabel)
-      const statusMsg: ChatMessage = {
-        key: `status-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        role: 'status',
-        text: statusText,
-        streaming: false,
-        ts: new Date().toISOString(),
-      }
-      setThreads((prev) => ({
-        ...prev,
-        [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
-      }))
-      const agent = teamFromUrl
-        ? `team-${teamFromUrl}`
-        : remoteFromUrl
-          ? `remote-${remoteFromUrl}`
-          : selectedBlueprint || DEFAULT_AGENT_ID
-      void appendAgentMessage(
-        agent,
-        { role: 'status', content: statusText },
-        conversationIdRef.current || undefined,
-      ).catch(warnStatusPersistFailure)
-    },
-    [threadKey, teamFromUrl, remoteFromUrl, selectedBlueprint],
-  )
-
-  // #899/#900: a cross-kind provider pick reconfigures the CURRENT seat's
-  // backend and carries the conversation context with it — a real hop, not a
-  // seat jump and not a mere notice. The pending seed is stored under the
-  // destination backend record on the same conversation id; the first turn on
-  // the new backend injects it (CLI: prompt seed; api: system turn; remote:
-  // merged into the user prompt).
-  const reconfigureProviderForSeat = useCallback(
-    (profile: string) => {
-      const kind: 'api' | 'cli' | 'remote' | 'team' =
-        isRemoteAgent || isRemoteBackedTeam ? 'remote' : isCliAgent ? 'cli' : 'api'
-      const spec = crossKindHopForReconfigure({
-        seatId: activeChatAgentId,
-        conversationId: conversationIdRef.current || '',
-        fromCli: kind === 'cli' ? (currentCli || 'prior') : kind === 'remote' ? (activeRemoteId || 'prior') : 'api',
-        toCli: profile,
-        toKind: 'api',
-        toBackendId: profile,
-      })
-      const appendStatus = (text: string) => {
-        const statusMsg: ChatMessage = {
-          key: `provider-reconfigure-${Date.now()}`,
-          role: 'status',
-          text,
-          streaming: false,
-          ts: new Date().toISOString(),
-        }
-        setThreads((prev) => ({
-          ...prev,
-          [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
-        }))
-      }
-      void hopCliSession({
-        agentId: spec.agentId,
-        fromCli: spec.fromCli,
-        toCli: spec.toCli,
-        conversationId: spec.conversationId,
-        toKind: spec.toKind,
-        toAgent: spec.toAgent,
-        toLabel: spec.toLabel,
-        fromLabel: spec.fromLabel,
-      })
-        .then((hop) => {
-          appendStatus(hop?.status?.trim() || providerReconfigureNotice(profile, kind))
-        })
-        .catch(() => {
-          // Hop failed — keep the honest notice rather than silently dropping
-          // the pick or blocking the seat.
-          appendStatus(providerReconfigureNotice(profile, kind))
-        })
-    },
-    [isRemoteAgent, isRemoteBackedTeam, isCliAgent, threadKey, activeChatAgentId, currentCli, activeRemoteId],
-  )
-  const applyCliRoutingChange = useCallback(
-    (next: RoutingPathChange) => {
-      if (next.changed === 'agent') {
-        persistAgentDropdownChoice(dropdownAgentId, {
-          cli: next.agent,
-          ...(next.model ? { model: next.model } : {}),
-          effort: next.effort || '',
-        })
-        setSearchParams(
-          (prevParams) => {
-            const nextParams = new URLSearchParams(prevParams)
-            nextParams.set('cli', next.agent)
-            if (next.model) nextParams.set('model', next.model)
-            else nextParams.delete('model')
-            return nextParams
-          },
-          { replace: true },
-        )
-        const fromCli = (next.previous.agent || '').trim()
-        const toCli = (next.agent || '').trim()
-        if (fromCli && toCli && fromCli !== toCli) {
-          const agent = teamFromUrl
-            ? `team-${teamFromUrl}`
-            : remoteFromUrl
-              ? `remote-${remoteFromUrl}`
-              : selectedBlueprint || DEFAULT_AGENT_ID
-          void hopCliSession({
-            agentId: agent,
-            fromCli,
-            toCli,
-            conversationId: conversationIdRef.current || undefined,
-            kind: 'cli',
-          })
-            .then((hop) => {
-              if (!hop?.status?.trim()) return
-              const statusMsg: ChatMessage = {
-                key: `hop-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: 'status',
-                text: hop.status,
-                streaming: false,
-                ts: new Date().toISOString(),
-              }
-              setThreads((prev) => ({
-                ...prev,
-                [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
-              }))
-              void appendAgentMessage(
-                agent,
-                { role: 'status', content: hop.status },
-                conversationIdRef.current || undefined,
-              ).catch(warnStatusPersistFailure)
-            })
-            .catch((err: unknown) => {
-              const reason = err instanceof Error ? err.message : 'Request failed'
-              addToast({
-                type: 'error',
-                title: 'Could not hop CLI session',
-                message: reason,
-              })
-              const statusText = `Could not hop CLI session: ${reason}`
-              const statusMsg: ChatMessage = {
-                key: `hop-fail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: 'status',
-                text: statusText,
-                streaming: false,
-                ts: new Date().toISOString(),
-              }
-              setThreads((prev) => ({
-                ...prev,
-                [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
-              }))
-            })
-        } else {
-          recordDropdownChange('cli', next.previous.agent, next.agent)
-        }
-        return
-      }
-      persistAgentDropdownChoice(dropdownAgentId, {
-        model: next.model,
-        effort: next.effort || '',
-      })
-      setSearchParams(
-        (prevParams) => {
-          const nextParams = new URLSearchParams(prevParams)
-          if (next.model) nextParams.set('model', next.model)
-          return nextParams
-        },
-        { replace: true },
-      )
-      if (next.changed === 'effort') {
-        recordDropdownChange('effort', next.previous.effort || '', next.effort || '')
-        return
-      }
-      recordDropdownChange('model', next.previous.modelBase || next.previous.model, next.modelBase || next.model)
-    },
-    [addToast, dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
-  )
-
-  // #108: API seats route via LLM profiles. A pick lands in the same
-  // ?model= channel the WS send path already reads, plus the per-agent
-  // dropdown memory ('api' field) so the choice survives navigation.
-  const applyApiRoutingChange = useCallback(
-    (next: RoutingPathChange) => {
-      if (next.changed !== 'agent') return
-      const model = next.agent.trim()
-      persistAgentDropdownChoice(dropdownAgentId, {
-        api: model,
-        model: '',
-        effort: '',
-      })
-      setSearchParams(
-        (prevParams) => {
-          const nextParams = new URLSearchParams(prevParams)
-          if (model) nextParams.set('model', model)
-          else nextParams.delete('model')
-          return nextParams
-        },
-        { replace: true },
-      )
-      recordDropdownChange('api', next.previous.agent, model)
-    },
-    [dropdownAgentId, recordDropdownChange, setSearchParams],
-  )
+  // #856: routing/dropdown plumbing moved verbatim to features/chat/useChatRouting.ts.
+  const routingHook = useChatRouting({
+    threadKey,
+    setThreads,
+    teamFromUrl,
+    remoteFromUrl,
+    selectedBlueprint,
+    conversationIdRef,
+    isRemoteAgent,
+    isRemoteBackedTeam,
+    isCliAgent,
+    activeChatAgentId,
+    currentCli,
+    activeRemoteId,
+    dropdownAgentId,
+    setSearchParams,
+    addToast,
+  })
+  const { recordDropdownChange, reconfigureProviderForSeat, applyCliRoutingChange, applyApiRoutingChange } = routingHook
 
   useEffect(() => {
     // REQ-28: a selected composition team uses ?team=; do not clobber it
@@ -3842,6 +3645,93 @@ const ChatPage = () => {
     return null
   }
 
+  const chatBottomDockProps = {
+    status,
+    ArrowUp,
+    ChatMessageInput,
+    ComposerAttachChips,
+    ComposerPluginsBadge,
+    ComposerPluginsPanel,
+    ComposerSlashPopup,
+    ContextUsageBadge,
+    Layers,
+    Mic,
+    Paperclip,
+    Plug,
+    Plus,
+    QueuedSendPane,
+    Reply,
+    Square,
+    SuggestionChips,
+    addToast,
+    authRejected,
+    awaitingAssistant,
+    bottomDockRef,
+    chipsDisabled,
+    chooseSuggestion,
+    composerBusy,
+    composerDragOver,
+    composerMenu,
+    composerPlaceholder,
+    composerRef,
+    composerWrapRef,
+    contextUsage,
+    conversationId,
+    demoChips,
+    describeSpeechPath,
+    enqueueComposerFiles,
+    fileInputRef,
+    filesFromList,
+    filteredSlashItems,
+    generationIsInFlight,
+    handleCompact,
+    handleComposerDragEnter,
+    handleComposerDragLeave,
+    handleComposerDragOver,
+    handleComposerDrop,
+    handleComposerKeyDown,
+    handleComposerPaste,
+    handleInputChange,
+    handleMic,
+    handleSelectSlashItem,
+    handleSend,
+    hasSendableDraft,
+    input,
+    interruptRunningTurn,
+    isApiAgent,
+    isSlashOpen,
+    messages,
+    pendingAttachments,
+    pluginsPanelOpen,
+    plusOpen,
+    plusRef,
+    queued,
+    queuedPaneMaxHeightPx,
+    recentSlashIds,
+    removeAttachment,
+    renderRoutingPicker,
+    replyTarget,
+    selectedBlueprint,
+    sendNowHint,
+    setInput,
+    setPluginsPanelOpen,
+    setPlusOpen,
+    setQueuedHoldIds,
+    setReplyTarget,
+    setSlashSelectedIndex,
+    setTokenDiagOpen,
+    showContextUsage,
+    showDemoChips,
+    showSuggestionChips,
+    slashQuery,
+    slashSelectedIndex,
+    sttListening,
+    sttPathUsed,
+    suggestionChips,
+    transcriptHeightPx,
+    __ctx: null as unknown,
+  }
+
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
       {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
@@ -4196,389 +4086,7 @@ const ChatPage = () => {
             />
           ) : null}
 <ChatMessageList {...chatMessageListProps} />
-        <div
-          ref={bottomDockRef}
-          className="os-chat-bottom-dock sticky bottom-0 z-20 -mx-2 sm:-mx-3 -mb-3 bg-base-100 border-t border-base-content/5"
-          data-testid="chat-bottom-dock"
-        >
-
-          {showDemoChips ? (
-            <SuggestionChips
-              chips={demoChips}
-              disabled={chipsDisabled}
-              onChoose={chooseSuggestion}
-            />
-          ) : showSuggestionChips ? (
-            <SuggestionChips
-              chips={suggestionChips}
-              disabled={chipsDisabled}
-              onChoose={chooseSuggestion}
-            />
-          ) : null}
-          <ComposerPluginsBadge />
-          {status !== 'open' ? (
-            <div
-              className="os-conn-status"
-              data-testid="chat-conn-status"
-              aria-live="polite"
-            >
-              <span className="os-conn-status__dot" aria-hidden="true" />
-              <span className="os-conn-status__label">
-                {authRejected
-                  ? 'Sign in to chat — your draft is kept locally.'
-                  : 'Chat is offline — you can keep typing; sends will queue until it reconnects.'}
-              </span>
-            </div>
-          ) : null}
-          {showContextUsage && contextUsage ? (
-            <div
-              className="flex justify-end px-3 pt-1.5"
-              data-testid="context-usage-badge-slot"
-            >
-              <ContextUsageBadge
-                usage={contextUsage}
-                onOpenDetail={() => setTokenDiagOpen(true)}
-              />
-            </div>
-          ) : null}
-          <form onSubmit={handleSend} className="os-composer-wrap">
-            <div className="relative" ref={composerWrapRef}>
-              <ComposerSlashPopup
-                open={isSlashOpen}
-                query={slashQuery}
-                items={filteredSlashItems}
-                selectedIndex={slashSelectedIndex}
-                onSelectIndex={setSlashSelectedIndex}
-                onSelectItem={handleSelectSlashItem}
-                recentIds={recentSlashIds}
-              />
-              <div className="os-composer-row">
-              <div
-                className={`os-composer ${
-                  replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0
-                    ? 'flex-col items-stretch !rounded-2xl !p-2'
-                    : ''
-                } ${replyTarget ? 'os-composer--reply' : ''} ${
-                  queued.rows.length > 0 ? 'os-composer--queued' : ''
-                } ${composerDragOver ? 'os-composer--drag-over' : ''}`}
-                onDragEnter={handleComposerDragEnter}
-                onDragOver={handleComposerDragOver}
-                onDragLeave={handleComposerDragLeave}
-                onDrop={handleComposerDrop}
-              >
-                {/* #925: the queued pane mounts INSIDE .os-composer at the very
-                    top, extending directly out of the message input box above
-                    the reply and attachment preview strips. */}
-                <QueuedSendPane
-                  rows={queued.rows}
-                  maxHeightPx={queuedPaneMaxHeightPx(transcriptHeightPx)}
-                  onChangeText={queued.update}
-                  onDelete={queued.remove}
-                  onClearAll={queued.clearAll}
-                  onHoldIdsChange={setQueuedHoldIds}
-                  interruptible={
-                    status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
-                  }
-                />
-                {replyTarget && (
-                  <div
-                    className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs text-base-content/70 border-b border-base-content/10 mb-1 w-full"
-                    data-testid="composer-reply-strip"
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <Reply className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden="true" />
-                      <span className="truncate" title={replyTarget.text}>
-                        {replyTarget.speaker ? (
-                          <strong className="font-semibold text-base-content/90 mr-1">
-                            {replyTarget.speaker}:
-                          </strong>
-                        ) : null}
-                        <span className="opacity-75">
-                          {replyTarget.text.replace(/\s+/g, ' ').slice(0, 100)}
-                        </span>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-xs btn-circle h-5 w-5 min-h-0 text-base-content/60 hover:text-base-content"
-                      aria-label="Dismiss reply"
-                      data-testid="dismiss-reply-button"
-                      onClick={() => setReplyTarget(null)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                )}
-                <ComposerAttachChips
-                  attachments={pendingAttachments}
-                  onRemove={removeAttachment}
-                />
-                <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0 ? 'w-full' : 'flex-1'}`}>
-                  <div className="relative" ref={plusRef}>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      data-testid="composer-file-input"
-                      aria-hidden="true"
-                      tabIndex={-1}
-                      onChange={(event) => {
-                        enqueueComposerFiles(filesFromList(event.target.files))
-                        event.target.value = ''
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="os-composer__icon"
-                      aria-label="Add"
-                      aria-haspopup="menu"
-                      aria-expanded={plusOpen}
-                      data-testid="composer-plus-button"
-                      onClick={() => setPlusOpen((value) => !value)}
-                    >
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                    {plusOpen && !pluginsPanelOpen && (
-                      <ul
-                        role="menu"
-                        aria-label="Chat actions"
-                        className="os-plus-menu"
-                      >
-                        <li role="none">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-disabled={!composerMenu.addFiles.enabled}
-                            className={`os-plus-menu__item ${
-                              !composerMenu.addFiles.enabled ? 'opacity-60 cursor-not-allowed' : ''
-                            }`}
-                            title={
-                              composerMenu.addFiles.enabled
-                                ? 'Add files to this chat'
-                                : composerMenu.addFiles.reason
-                            }
-                            onClick={() => {
-                              if (!composerMenu.addFiles.enabled) {
-                                addToast({
-                                  type: 'info',
-                                  title: 'Add files',
-                                  message: `${composerMenu.addFiles.reason}. Switch to an API agent to attach.`,
-                                })
-                                setPlusOpen(false)
-                                return
-                              }
-                              setPlusOpen(false)
-                              fileInputRef.current?.click()
-                            }}
-                          >
-                            <Paperclip className="h-4 w-4" aria-hidden="true" />
-                            Add files
-                          </button>
-                        </li>
-                        <li role="none">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            // #550: Compact summarises server-side history, so a
-                            // CLI/remote seat has nothing for it to act on. Kept
-                            // visible-but-disabled with the reason (the same read
-                            // `Add files` uses one item above, and #511's
-                            // precedent) rather than vanishing silently.
-                            // #636: CLI seats now light up when a default API is
-                            // configured or the provider declares cli_compact; a
-                            // greyed CLI item's hover says the API is missing.
-                            data-testid="composer-compact-button"
-                            aria-disabled={!composerMenu.compact.enabled}
-                            className={`os-plus-menu__item ${
-                              !composerMenu.compact.enabled ? 'opacity-60 cursor-not-allowed' : ''
-                            }`}
-                            title={
-                              composerMenu.compact.enabled
-                                ? 'Summarise this conversation and reclaim context'
-                                : composerMenu.compact.reason
-                            }
-                            onClick={() => {
-                              if (!composerMenu.compact.enabled) {
-                                addToast({
-                                  type: 'info',
-                                  title: 'Compact',
-                                  message: composerMenu.compact.reason,
-                                })
-                                setPlusOpen(false)
-                                return
-                              }
-                              void handleCompact()
-                            }}
-                          >
-                            <Layers className="h-4 w-4" aria-hidden="true" />
-                            Compact
-                          </button>
-                        </li>
-                        <li role="none">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            // #516: Plugins ride the swarm-owned gate (#511) —
-                            // visible-but-disabled with the reason on CLI/remote
-                            // seats, opening the per-agent panel on swarm seats.
-                            data-testid="composer-plugins-button"
-                            aria-disabled={!composerMenu.plugins.enabled}
-                            aria-haspopup="menu"
-                            className={`os-plus-menu__item ${
-                              !composerMenu.plugins.enabled ? 'opacity-60 cursor-not-allowed' : ''
-                            }`}
-                            title={
-                              composerMenu.plugins.enabled
-                                ? 'Toggle this agent’s plugins'
-                                : composerMenu.plugins.reason
-                            }
-                            onClick={() => {
-                              if (!composerMenu.plugins.enabled) {
-                                addToast({
-                                  type: 'info',
-                                  title: 'Plugins',
-                                  message: composerMenu.plugins.reason,
-                                })
-                                setPlusOpen(false)
-                                return
-                              }
-                              setPluginsPanelOpen(true)
-                            }}
-                          >
-                            <Plug className="h-4 w-4" aria-hidden="true" />
-                            Plugins
-                          </button>
-                        </li>
-                      </ul>
-                    )}
-                    {plusOpen && pluginsPanelOpen && <ComposerPluginsPanel onClose={() => setPlusOpen(false)} />}
-                  </div>
-                  {/* #858/#860: API seats get the enhanced composer — inline
-                      ghost-text autocomplete + sparkle enhance. Other kinds
-                      keep the plain textarea (autocomplete is API-model
-                      backed; CLI/remote input would need per-provider wiring). */}
-                  {isApiAgent ? (
-                    <ChatMessageInput
-                      textareaRef={composerRef}
-                      value={input}
-                      onApplyText={setInput}
-                      agentId={selectedBlueprint || undefined}
-                      conversationId={conversationId || undefined}
-                      textareaProps={{
-                        rows: 1,
-                        className: 'os-composer__input',
-                        placeholder: composerPlaceholder,
-                        value: input,
-                        onChange: handleInputChange,
-                        onPaste: handleComposerPaste,
-                        onKeyDown: handleComposerKeyDown,
-                        'aria-label': 'Chat message',
-                        'aria-haspopup': 'listbox',
-                        'aria-expanded': isSlashOpen,
-                        'aria-controls': isSlashOpen ? 'composer-slash-menu' : undefined,
-                      }}
-                    />
-                  ) : (
-                  <textarea
-                    ref={composerRef}
-                    rows={1}
-                    className="os-composer__input"
-                    placeholder={composerPlaceholder}
-                    value={input}
-                    onChange={handleInputChange}
-                    onKeyDown={handleComposerKeyDown}
-                    onPaste={handleComposerPaste}
-                    aria-label="Chat message"
-                    aria-haspopup="listbox"
-                    aria-expanded={isSlashOpen}
-                    aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
-                  />
-                  )}
-                  {/* #732: ONE permanently mounted slot — the kbd used to
-                      mount/unmount with the draft, re-flowing the pill on the
-                      first and last keystroke. The glyph swaps in place; the
-                      node (and its reserved width) never changes. */}
-                  <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
-                    {sendNowHint ? (
-                      /* #631: the ↵ reveal exists ONLY to announce the interrupt-
-                         send action while a queued send waits. No queue → no hint. */
-                      <kbd
-                        className="os-composer__hint kbd kbd-xs"
-                        data-testid="composer-send-hint"
-                        title="Send Now! ↵"
-                      >
-                        ↵
-                      </kbd>
-                    ) : input ? (
-                      <kbd
-                        className="os-composer__hint kbd kbd-xs"
-                        data-testid="composer-clear-hint"
-                        title="Esc to clear"
-                      >
-                        Esc
-                      </kbd>
-                    ) : (
-                      <kbd
-                        className="os-composer__hint kbd kbd-xs"
-                        data-testid="composer-hint-placeholder"
-                        title=""
-                        aria-hidden="true"
-                      >
-                        ↵
-                      </kbd>
-                    )}
-                  </span>
-                  {renderRoutingPicker()}
-                  <button
-                    type="button"
-                    className="os-composer__icon"
-                    aria-label={sttListening ? 'Stop voice input' : 'Voice input'}
-                    aria-pressed={sttListening}
-                    data-testid="composer-mic"
-                    data-stt-path={sttPathUsed ?? undefined}
-                    onClick={handleMic}
-                  >
-                    <Mic className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                  {sttPathUsed ? (
-                    <span className="sr-only" data-testid="stt-path">
-                      Voice input used {describeSpeechPath(sttPathUsed, 'stt')}
-                    </span>
-                  ) : null}
-                </div>
-                </div>{/* /os-composer */}
-                {/* #632: the primary action lives OUTSIDE the input box, to its
-                    right. Idle: send (↑) when there is a draft. Busy: square
-                    stop (□) — and the send stays beside it when a draft is
-                    typed, because clicking Send mid-flight is exactly how a
-                    send gets QUEUED (#603); removing it would kill queueing.
-                    The mic stays inside the input regardless. */}
-                {composerBusy ? (
-                  <button
-                    type="button"
-                    className="os-composer__send os-composer__send--stop"
-                    aria-label="Stop generating"
-                    title="Stop the generation in flight (queued sends stay queued)"
-                    data-testid="composer-stop"
-                    onClick={interruptRunningTurn}
-                  >
-                    <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-                  </button>
-                ) : null}
-                {hasSendableDraft ? (
-                  <button
-                    type="submit"
-                    className="os-composer__send"
-                    aria-label="Send"
-                  >
-                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
-                  </button>
-                ) : null}
-              </div>{/* /os-composer-row */}
-            </div>
-          </form>
-        </div>
+          <ChatBottomDock {...chatBottomDockProps} />
       </div>
 
       {contextMenu && (
