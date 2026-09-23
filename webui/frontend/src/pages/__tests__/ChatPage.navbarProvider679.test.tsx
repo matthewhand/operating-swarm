@@ -110,8 +110,10 @@ function stubSeatFetch() {
  * composer picker is invoked from the composer control row only.
  */
 function headerSource(): string {
+  // #856 slice J: the os-chat-header JSX moved verbatim into the ChatHeader
+  // module — the pin reads its real home.
   const src = readFileSync(
-    join(__dirname, '..', '..', 'pages', 'ChatPage.tsx'),
+    join(__dirname, '..', '..', 'features', 'chat', 'ChatHeader.tsx'),
     'utf8',
   )
   const start = src.indexOf('<header className="os-chat-header')

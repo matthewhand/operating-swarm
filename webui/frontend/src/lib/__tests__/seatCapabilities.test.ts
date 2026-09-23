@@ -12,8 +12,10 @@ import { join } from 'node:path'
 import { railMenuItems } from '../railContextMenu'
 import { seatHasSessions, seatOffersSessionMenu } from '../seatCapabilities'
 
-const chatPageSrc = () =>
-  readFileSync(join(process.cwd(), 'src/pages/ChatPage.tsx'), 'utf8')
+// #856 slice J: the navbar session switchers moved verbatim into the
+// ChatHeader module — the navbar-agreement pins read their real home.
+const chatHeaderSrc = () =>
+  readFileSync(join(process.cwd(), 'src/features/chat/ChatHeader.tsx'), 'utf8')
 const sidebarSrc = () =>
   readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8')
 
@@ -92,7 +94,7 @@ describe('rail menu agreement', () => {
 
 describe('navbar agreement', () => {
   it('the navbar mounts the API session switcher under the declared capability', () => {
-    const src = chatPageSrc()
+    const src = chatHeaderSrc()
     expect(src).toContain('ApiSessionSwitcher')
     // Gated by isApiAgent — the navbar's declared-kind gate (#736: the
     // former productModes AND-layer is retired), not a fabricated
@@ -101,14 +103,14 @@ describe('navbar agreement', () => {
   })
 
   it('neither surface derives the gate from a possibly-fabricated currentCli (#566)', () => {
-    const src = chatPageSrc()
+    const src = chatHeaderSrc()
     const anchor = src.indexOf('ApiSessionSwitcher')
     const gate = src.slice(src.lastIndexOf('{is', anchor), anchor)
     expect(gate).not.toMatch(/currentCli/)
   })
 
   it('the CLI switcher is untouched', () => {
-    expect(chatPageSrc()).toContain('isCliAgent && currentCli ? (')
-    expect(chatPageSrc()).toContain('<CliSessionSwitcher')
+    expect(chatHeaderSrc()).toContain('isCliAgent && currentCli ? (')
+    expect(chatHeaderSrc()).toContain('<CliSessionSwitcher')
   })
 })
