@@ -20,8 +20,6 @@ export function ChatTranscriptShell(props: Props): React.ReactNode {
     activeChatAgentId,
     agentKind,
     bubbleTheme,
-    chatBottomDockProps,
-    chatMessageListProps,
     composerInsetCustomProperty,
     composerInsetPx,
     dismissDefaultLlmTip,
@@ -100,8 +98,8 @@ export function ChatTranscriptShell(props: Props): React.ReactNode {
               onDoubleClick={onIrcRailDoubleClick}
             />
           ) : null}
-<ChatMessageList {...chatMessageListProps} />
-          <ChatBottomDock {...chatBottomDockProps} />
+<ChatMessageList {...props} />
+          <ChatBottomDock {...props} />
       </div>
     </>
   )
