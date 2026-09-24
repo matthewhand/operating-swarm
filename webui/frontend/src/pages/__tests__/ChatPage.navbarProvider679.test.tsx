@@ -116,7 +116,9 @@ function headerSource(): string {
     join(__dirname, '..', '..', 'features', 'chat', 'ChatHeader.tsx'),
     'utf8',
   )
-  const start = src.indexOf('<header className="os-chat-header')
+  const start = src.indexOf('<header className="os-chat-header') !== -1
+    ? src.indexOf('<header className="os-chat-header')
+    : src.indexOf('<header className={`os-chat-header')
   expect(start).toBeGreaterThan(0)
   const end = src.indexOf('</header>', start)
   expect(end).toBeGreaterThan(start)

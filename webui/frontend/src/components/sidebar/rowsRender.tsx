@@ -343,18 +343,20 @@ export function createRowRenderers(props: RowRendererDeps) {
     const sessions = sessionsForTeam(team)
     const declared = declaredRosterForTeam(team, catalog)
     const rawFaces = stackFacesForTeam(team)
+    // #438: the face is the team's chat target — `chief_of_staff_id`, else the
+    // CoS-roled member, else the first. `defaultSessionForTeam` already owns
+    // that rule, so the rail reads it rather than inventing a second one.
+    const chatTargetId = defaultSessionForTeam(team)?.memberId ?? ''
     const marked = markStackWorking(
       rawFaces,
-      (id: string) => isSeatWorking(id),
+      (id: string) =>
+        isSeatWorking(id) ||
+        (isSeatWorking(hideId) && (rawFaces.length <= 1 || id === chatTargetId)),
     )
     const teamWorkerBusy = Boolean(
       marked.anyWorking ||
       isSeatWorking(hideId),
     )
-    // #438: the face is the team's chat target — `chief_of_staff_id`, else the
-    // CoS-roled member, else the first. `defaultSessionForTeam` already owns
-    // that rule, so the rail reads it rather than inventing a second one.
-    const chatTargetId = defaultSessionForTeam(team)?.memberId ?? ''
     // NOTE: `teamSidepaneStack` caps the list at STACK_FACE_LIMIT, so it cannot
     // be the source of the remainder — a 5-member team would report +2. The
     // remainder is the *roster* minus the one face, which is what #438 specifies.
@@ -471,9 +473,12 @@ export function createRowRenderers(props: RowRendererDeps) {
     const dragging = draggingId === hideId
     const sessions = sessionsForRemote(remote)
     const rawFaces = stackFacesForRemote(remote)
+    const remoteTargetId = defaultSessionForRemote(remote)?.memberId ?? ''
     const marked = markStackWorking(
       rawFaces,
-      (id: string) => isSeatWorking(id),
+      (id: string) =>
+        isSeatWorking(id) ||
+        (isSeatWorking(hideId) && (rawFaces.length <= 1 || id === remoteTargetId)),
     )
     const remoteWorkerBusy = Boolean(
       marked.anyWorking ||

@@ -84,4 +84,40 @@ describe('#856 slice J — ChatHeader', () => {
     expect(src).toContain('<ChatHeader {...allChatScope} />')
     expect(src).not.toContain('os-chat-header')
   })
+
+  it('renders with os-chat-header--hidden when mobileHeaderHidden is true', () => {
+    const { unmount } = render(
+      <ChatHeader {...(baseProps({ mobileHeaderHidden: true }) as React.ComponentProps<typeof ChatHeader>)} />,
+    )
+    const header = document.querySelector('header.os-chat-header')
+    expect(header).toHaveClass('os-chat-header--hidden')
+    expect(header).toHaveAttribute('data-mobile-hidden', 'true')
+    unmount()
+
+    render(
+      <ChatHeader {...(baseProps({ mobileHeaderHidden: false }) as React.ComponentProps<typeof ChatHeader>)} />,
+    )
+    const visibleHeader = document.querySelector('header.os-chat-header')
+    expect(visibleHeader).not.toHaveClass('os-chat-header--hidden')
+    expect(visibleHeader).toHaveAttribute('data-mobile-hidden', 'false')
+  })
+
+  it('passes headerFaceAgentId and headerFaceAvatarSrc to AgentAvatar', () => {
+    render(
+      <ChatHeader
+        {...(baseProps({
+          headerFaceAgentId: 'trueforge',
+          headerFaceAvatarSrc: '/custom/avatar.png',
+          AgentAvatar: ({ agentId, src }: { agentId: string; src?: string }) => (
+            <span data-testid="avatar" data-src={src}>
+              {agentId}
+            </span>
+          ),
+        }) as React.ComponentProps<typeof ChatHeader>)}
+      />,
+    )
+    const avatar = screen.getByTestId('avatar')
+    expect(avatar).toHaveTextContent('trueforge')
+    expect(avatar).toHaveAttribute('data-src', '/custom/avatar.png')
+  })
 })
