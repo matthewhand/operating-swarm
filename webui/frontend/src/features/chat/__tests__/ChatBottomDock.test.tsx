@@ -183,9 +183,11 @@ describe('#856 slice H — ChatBottomDock', () => {
     const path = require('node:path')
     // #856 slice M: the dock renders inside the ChatTranscriptShell — the pin
     // reads the shell for the mount and ChatPage for the absence of inline JSX.
+    // Slice P (#927 port): the shell spreads the single flat allChatScope, so
+    // the mount pin tracks that contract instead of the old sub-record.
     // eslint-disable-next-line testing-library/no-node-access -- raw source introspection, not DOM probing
     const shell = fs.readFileSync(path.join(__dirname, '..', 'ChatTranscriptShell.tsx'), 'utf8')
-    expect(shell).toContain('ChatBottomDock {...chatBottomDockProps}')
+    expect(shell).toContain('<ChatBottomDock {...props} />')
     // eslint-disable-next-line testing-library/no-node-access -- raw source introspection, not DOM probing
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'pages', 'ChatPage.tsx'), 'utf8')
     expect(src).not.toContain('os-composer-wrap')

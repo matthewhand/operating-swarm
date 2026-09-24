@@ -135,7 +135,7 @@ describe('#856 slice L — ChatOverlays', () => {
       path.join(__dirname, '..', '..', '..', 'pages', 'ChatPage.tsx'),
       'utf8',
     )
-    expect(src).toContain('<ChatOverlays {...chatOverlaysProps} />')
+    expect(src).toContain('<ChatOverlays {...allChatScope} />')
     expect(src).not.toContain('message-context-menu')
   })
 })

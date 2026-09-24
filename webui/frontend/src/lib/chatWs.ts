@@ -73,6 +73,8 @@ export type ChatWsEvent =
   | { kind: 'teammate_task'; event: TeammateTaskEvent }
   | { kind: 'subagent_fan_out'; event: SubagentFanOutData }
   | { kind: 'spa_hello'; spaVersion: string }
+  | { kind: 'turn_started'; turnId: string; agentId: string }
+  | { kind: 'turn_finished'; turnId: string; agentId: string }
   | { kind: 'suggestions'; suggestions: string[] }
   | { kind: 'context_usage'; usage: ContextUsage }
   | { kind: 'aux_started'; task: { task_id: string; label?: string; model?: string; state: 'running' } }
@@ -179,9 +181,17 @@ export function buildChatWsEditFrame(index: number, content: string): string {
  * identity — `agent` scopes the cancel to that agent's turn (per-agent
  * interrupt; other concurrent turns keep streaming). The server treats an
  * absent agent exactly as before (cancel the active turn).
+ *
+ * ADR-017 PR-2: `turnId` names the exact turn (from the `turn_started`
+ * bookend) so the stop cannot misfire onto a *newer* turn of the same agent
+ * that began after the button rendered.
  */
-export function buildCancelTurnFrame(agent?: string): string {
-  return JSON.stringify({ type: 'cancel_turn', ...(agent ? { agent } : {}) })
+export function buildCancelTurnFrame(agent?: string, turnId?: string): string {
+  return JSON.stringify({
+    type: 'cancel_turn',
+    ...(agent ? { agent } : {}),
+    ...(turnId ? { turn_id: turnId } : {}),
+  })
 }
 
 export function newConversationId(): string {
@@ -261,6 +271,18 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
       const spaVersion = String(payload.spa_version || '').trim()
       if (!spaVersion) return { kind: 'unknown', raw }
       return { kind: 'spa_hello', spaVersion }
+    }
+    if (type === 'turn_started' || type === 'turn_finished') {
+      // ADR-017 PR-1 bookends: every turn opens/closes with its identity.
+      // Malformed frames (no turn_id) drop — the registry relies on it.
+      const turnId = String(payload.turn_id || '')
+      if (!turnId) return { kind: 'unknown', raw }
+      const agentId = String(payload.agent_id || '')
+      return {
+        kind: type,
+        turnId,
+        agentId,
+      } as ChatWsEvent
     }
     if (type === 'turn_cancelled') {
       // #198: ack for cancel_turn — styled as a status line in the transcript.
