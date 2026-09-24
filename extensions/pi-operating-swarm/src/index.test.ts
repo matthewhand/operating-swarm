@@ -46,12 +46,16 @@ describe('pi-operating-swarm (#1081 Phase 2)', () => {
     expect(out.targetAgentId).toBe('qwen-2')
   })
 
-  it('lifecycle taps emit swarm-mirrored events', () => {
+  it('lifecycle taps emit swarm-mirrored events', async () => {
     const emit = vi.fn()
     const { pi, hooks } = makeHost()
     registerSwarmExtension(pi, { ...ctx, emit })
     for (const h of hooks.turnStart ?? []) (h as (e: unknown) => void)({ turnId: 't1' })
-    for (const h of hooks.toolCall ?? []) (h as (e: unknown) => void)({ toolName: 'bash' })
+    for (const h of hooks.toolCall ?? []) {
+      // The Phase-3 gate denies unwired calls by rejecting — swallow the
+      // expected denial so only the emit side-effect is under test here.
+      await (h as (e: unknown) => Promise<void>)({ toolName: 'bash' }).catch(() => undefined)
+    }
     for (const h of hooks.turnEnd ?? []) (h as (e: unknown) => void)({ turnId: 't1' })
     expect(emit.mock.calls.map((c) => (c[0] as { kind: string }).kind)).toEqual([
       'swarm_turn_start',
@@ -64,5 +68,53 @@ describe('pi-operating-swarm (#1081 Phase 2)', () => {
     const { pi, hooks } = makeHost()
     registerSwarmExtension(pi, ctx)
     expect((hooks.toolCall ?? []).length).toBe(1)
+  })
+
+  describe('Phase 3 — Belay ToolGate (fail-closed)', () => {
+    function fireToolCall(
+      ctx: SwarmContext,
+      event: { toolName: string; args?: Record<string, unknown> },
+    ) {
+      const { pi, hooks } = makeHost()
+      registerSwarmExtension(pi, ctx)
+      return Promise.all(
+        (hooks.toolCall ?? []).map((h) =>
+          (h as (e: unknown) => Promise<void>)(event).then(
+            () => 'allowed' as const,
+            (err: unknown) => `denied: ${(err as Error).message}` as const,
+          ),
+        ),
+      )
+    }
+
+    it('wired gate approval lets the tool call pass', async () => {
+      const belayGate = vi.fn().mockResolvedValue({ approved: true, verdict: 'ALLOW_ALWAYS' })
+      const outcomes = await fireToolCall(
+        { ...ctx, belayGate },
+        { toolName: 'read_file', args: { path: 'x' } },
+      )
+      expect(outcomes).toEqual(['allowed'])
+      expect(belayGate).toHaveBeenCalledWith({ tool: 'read_file', arguments: { path: 'x' } })
+    })
+
+    it('wired gate denial throws a Belay denial error', async () => {
+      const belayGate = vi.fn().mockResolvedValue({ approved: false, verdict: 'ELICIT_DENY' })
+      const outcomes = await fireToolCall(
+        { ...ctx, belayGate },
+        { toolName: 'bash', args: { cmd: 'rm -rf /' } },
+      )
+      expect(outcomes).toEqual(["denied: Belay denied tool 'bash' (ELICIT_DENY)"])
+    })
+
+    it('unwired gate denies fail-closed', async () => {
+      const outcomes = await fireToolCall(ctx, { toolName: 'bash' })
+      expect(outcomes).toEqual(["denied: Belay denied tool 'bash' (no gate wired — fail-closed)"])
+    })
+
+    it('gate exception also denies', async () => {
+      const belayGate = vi.fn().mockRejectedValue(new Error('rpc channel broken'))
+      const outcomes = await fireToolCall({ ...ctx, belayGate }, { toolName: 'bash' })
+      expect(outcomes[0]).toContain('denied: Belay denied tool')
+    })
   })
 })

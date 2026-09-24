@@ -41,8 +41,16 @@ export interface PiToolEventLike {
 export interface SwarmContext {
   agentId: string
   conversationId: string
-  /** Phase 3: when true, onToolCall must deny non-allowlisted tools (Belay ToolGate). */
-  belayGate?: (toolName: string) => boolean | Promise<boolean>
+  /**
+   * Phase 3 (Belay ToolGate): called before a tool executes. The callable is
+   * the RPC bridge to Swarm's REQ-55 `belay_tool_gate` — it resolves with
+   * `{ approved: true }` to allow, and throws (or resolves otherwise) to
+   * deny. When absent, the gate is **fail-closed**: every tool call denies.
+   */
+  belayGate?: (payload: {
+    tool: string
+    arguments?: Record<string, unknown>
+  }) => Promise<{ approved: boolean; verdict?: string }>
   /** Phase 2 tap: mirror events into the Swarm WS stream. */
   emit?: (event: Record<string, unknown>) => void
 }
@@ -99,9 +107,26 @@ export function registerSwarmExtension(pi: PiLike, ctx: SwarmContext): void {
 
   pi.onToolCall(async (event) => {
     ctx.emit?.({ kind: 'swarm_tool_call', ...event })
-    // Phase 3 insertion point:
-    //   if (ctx.belayGate && !(await ctx.belayGate(event.toolName))) throw ...
-    return
+    // Phase 3 — Belay ToolGate (fail-closed): the child asks the Swarm parent
+    // over the `belay_gate_request` control channel; the parent answers via
+    // REQ-55 `belay_tool_gate`. No parent gate wired → every tool denies; a
+    // gate that *errors* is also a denial — fail-closed by contract.
+    if (!ctx.belayGate) {
+      throw new Error(
+        `Belay denied tool '${event.toolName}' (no gate wired — fail-closed)`,
+      )
+    }
+    let verdict: { approved: boolean; verdict?: string }
+    try {
+      verdict = await ctx.belayGate({ tool: event.toolName, arguments: event.args })
+    } catch (err) {
+      verdict = { approved: false, verdict: err instanceof Error ? err.message : String(err) }
+    }
+    if (!verdict.approved) {
+      throw new Error(
+        `Belay denied tool '${event.toolName}'${verdict.verdict ? ` (${verdict.verdict})` : ''}`,
+      )
+    }
   })
 
   pi.onTurnEnd((event) => {

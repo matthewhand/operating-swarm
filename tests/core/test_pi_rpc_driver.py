@@ -28,6 +28,10 @@ from swarm.core.pi_rpc_driver import (
 FAKE_PI = """\
 import json, sys, time
 
+# LF framing without backslash ambiguity
+NL = chr(10)
+BSTRIP = bytes([13, 10])
+
 # The driver appends "--mode rpc --no-session"; a real CLI tolerates flags,
 # so this fake never parses argv.
 
@@ -58,6 +62,26 @@ for line in sys.stdin.buffer:
         sys.stdout.flush()
     elif ctype == "slow":
         time.sleep(30)
+    elif ctype == "gated":
+        # Phase 3 control channel: ask the parent about a tool, then report
+        # the parent's answer back as the command response.
+        sys.stdout.write(json.dumps({"id": rid, "type": "response", "command": "gated", "success": True}) + NL)
+        sys.stdout.flush()
+        req = {"type": "belay_gate_request", "id": "gate-1",
+               "agent_id": cmd.get("agent_id", ""),
+               "payload": {"tool": cmd.get("tool", "bash"), "arguments": cmd.get("arguments", {})}}
+        sys.stdout.write(json.dumps(req) + NL)
+        sys.stdout.flush()
+        for line in sys.stdin.buffer:
+            line = line.strip(BSTRIP)
+            if not line:
+                continue
+            answer = json.loads(line)
+            if answer.get("type") == "response" and answer.get("id") == "gate-1":
+                out = {"type": "agent_end", "gate": {"approved": answer.get("approved"), "verdict": answer.get("verdict")}}
+                sys.stdout.write(json.dumps(out) + NL)
+                sys.stdout.flush()
+                break
 """
 
 
@@ -202,3 +226,95 @@ class TestChunkMapping:
 
     def test_mapping_is_importable_from_the_driver_module(self):
         assert callable(pi_rpc_driver.chunk_events_from_records)
+
+
+class TestBelayGateChannel:
+    """#1081 Phase 3 — the child→parent `belay_gate_request` control channel."""
+
+    def _settle(self, events: list[dict], needle: str) -> None:
+        deadline = time.monotonic() + 10
+        while not any(e.get("type") == "agent_end" and e.get("gate", {}).get("verdict") == needle for e in events):
+            assert time.monotonic() < deadline, f"gate answer never arrived (want {needle})"
+            time.sleep(0.05)
+
+    def test_wired_gate_approval_flows_to_child(self, tmp_path):
+        events: list[dict] = []
+        gate_calls: list[dict] = []
+
+        async def gate(**kwargs):
+            gate_calls.append(kwargs)
+            return {"approved": True, "verdict": "ALLOW_ALWAYS"}
+
+        session = PiSession(
+            command=write_fake_pi(tmp_path, FAKE_PI),
+            on_event=events.append,
+            belay_gate=gate,
+        )
+        try:
+            session._call({"type": "gated", "tool": "read_file", "arguments": {"path": "x"}}, timeout=10)
+            self._settle(events, "ALLOW_ALWAYS")
+            assert gate_calls == [
+                {"tool": "read_file", "arguments": {"path": "x"}, "agent_id": ""}
+            ]
+        finally:
+            session.close()
+
+    def test_wired_gate_denial_flows_to_child(self, tmp_path):
+        events: list[dict] = []
+
+        async def gate(**kwargs):
+            return {"approved": False, "verdict": "ELICIT_DENY"}
+
+        session = PiSession(
+            command=write_fake_pi(tmp_path, FAKE_PI),
+            on_event=events.append,
+            belay_gate=gate,
+        )
+        try:
+            session._call({"type": "gated", "tool": "bash", "arguments": {"cmd": "rm -rf /"}}, timeout=10)
+            self._settle(events, "ELICIT_DENY")
+            gate_event = next(e for e in events if e.get("type") == "agent_end" and "gate" in e)
+            assert gate_event["gate"]["approved"] is False
+        finally:
+            session.close()
+
+    def test_unwired_gate_denies_fail_closed(self, tmp_path):
+        events: list[dict] = []
+        session = PiSession(command=write_fake_pi(tmp_path, FAKE_PI), on_event=events.append)
+        try:
+            session._call({"type": "gated", "tool": "bash", "arguments": {}}, timeout=10)
+            self._settle(events, "unwired")
+            gate_event = next(e for e in events if e.get("type") == "agent_end" and "gate" in e)
+            assert gate_event["gate"]["approved"] is False
+            assert gate_event["gate"]["verdict"] == "unwired"
+        finally:
+            session.close()
+
+    def test_gate_exception_denies_fail_closed(self, tmp_path):
+        events: list[dict] = []
+
+        async def gate(**kwargs):
+            raise RuntimeError("websocket elicitor exploded")
+
+        session = PiSession(
+            command=write_fake_pi(tmp_path, FAKE_PI),
+            on_event=events.append,
+            belay_gate=gate,
+        )
+        try:
+            session._call({"type": "gated", "tool": "bash", "arguments": {}}, timeout=10)
+            self._settle(events, "gate-error: websocket elicitor exploded")
+            gate_event = next(e for e in events if e.get("type") == "agent_end" and "gate" in e)
+            assert gate_event["gate"]["approved"] is False
+        finally:
+            session.close()
+
+    def test_gate_request_does_not_leak_into_event_stream(self, tmp_path):
+        events: list[dict] = []
+        session = PiSession(command=write_fake_pi(tmp_path, FAKE_PI), on_event=events.append)
+        try:
+            session._call({"type": "gated", "tool": "read_file", "arguments": {}}, timeout=10)
+            self._settle(events, "unwired")
+            assert not any(e.get("type") == "belay_gate_request" for e in events)
+        finally:
+            session.close()
