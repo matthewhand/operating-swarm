@@ -246,6 +246,25 @@ describe('ChatPage Unavailable / Sign-in CTA + connection status', () => {
   })
 })
 
+/**
+ * Pull the chat payload out of the mux-era send log: skip the singleton's
+ * `subscribe` envelopes and unwrap `chat.send` down to its inner frame, so
+ * payload assertions stay written against the legacy wire contract.
+ */
+function chatSendPayload(ws: MockWebSocket): Record<string, unknown> {
+  const frames = ws.send.mock.calls
+    .map((c) => String(c[0]))
+    .filter((s) => !s.includes('"kind":"subscribe"'))
+    .map((s) => JSON.parse(s) as Record<string, unknown>)
+  const last = frames.at(-1) as (Record<string, unknown> & { kind?: string }) | undefined
+  if (last && typeof last.kind === 'string' && last.kind !== 'chat.send') return last
+  if (last && last.kind === 'chat.send') {
+    const { kind: _k, conversationId: _c, ...inner } = last
+    return inner
+  }
+  return (frames.at(-1) ?? {}) as Record<string, unknown>
+}
+
 describe('ChatPage websocket constructor-failure reconnect (#334)', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -253,6 +272,7 @@ describe('ChatPage websocket constructor-failure reconnect (#334)', () => {
   })
 
   it('clears the reconnect timer when the constructor-failure effect unmounts', async () => {
+    const { resetSpaSocketForTests } = await import('../../lib/spaSocket')
     const reconnectIds: number[] = []
     const origSetTimeout = globalThis.setTimeout.bind(globalThis)
     const origClearTimeout = globalThis.clearTimeout.bind(globalThis)
@@ -289,10 +309,18 @@ describe('ChatPage websocket constructor-failure reconnect (#334)', () => {
       } as Response),
     )
 
-    const { unmount } = renderChat()
+    // #334 under the mux era: the constructor throws inside the spaSocket
+    // singleton, which schedules its own ≈1s backoff retry — the same clock
+    // the legacy hook drove. Chat surfaces the honest failure immediately.
+    renderChat()
     expect(await screen.findByText(/Unavailable — websocket unreachable/i)).toBeInTheDocument()
     expect(reconnectIds.length).toBeGreaterThan(0)
-    unmount()
+
+    // The retry clock belongs to the sticky singleton, NOT the mount: unmount
+    // must not cancel it (that is exactly the #1118 doctrine — background
+    // subscriptions keep their transport), so resetSpaSocketForTests() owns
+    // teardown and MUST clear the pending retry timer.
+    resetSpaSocketForTests()
     expect(cleared.some((id) => reconnectIds.includes(id))).toBe(true)
     setSpy.mockRestore()
     clearSpy.mockRestore()
@@ -658,7 +686,7 @@ describe('ChatPage Send path with mock inference', () => {
 
     const ws = MockWebSocket.instances[0]!
     expect(ws.send).toHaveBeenCalled()
-    expect(JSON.parse(ws.send.mock.calls[0][0] as string)).toMatchObject({
+    expect(JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)).toMatchObject({
       message: 'ping the mock',
       blueprint: 'support',
       params: { skill: 'support-session-ownership', enabled_tools: [] },
@@ -688,7 +716,7 @@ describe('ChatPage Send path with mock inference', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
     const ws = MockWebSocket.instances[0]!
-    expect(JSON.parse(ws.send.mock.calls[0][0] as string)).toMatchObject({
+    expect(JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)).toMatchObject({
       message: 'use search',
       blueprint: 'support',
       params: {
@@ -1818,19 +1846,23 @@ describe('ChatPage Grok composer and per-agent threads', () => {
 
   it('opens a unique websocket thread per agent', async () => {
     const first = renderChat('/chat?blueprint=codey')
-    expect(MockWebSocket.instances[0]?.url).toContain('/ws/ai-demo/')
+    // Mux era: one shared /ws/spa/ socket; per-agent threads live in the
+    // subscribe/chat.send envelopes (conversationId), not the URL.
+    expect(MockWebSocket.instances[0]?.url).toContain('/ws/spa/')
     const codeyUrl = MockWebSocket.instances[0]!.url
     first.unmount()
 
     renderChat('/chat?blueprint=stewie')
     const stewieUrl = MockWebSocket.instances[MockWebSocket.instances.length - 1]!.url
-    expect(stewieUrl).toContain('/ws/ai-demo/')
-    expect(stewieUrl).not.toBe(codeyUrl)
+    // Mux era: same shared socket; the per-agent thread is the subscribe
+    // envelope's conversationId, asserted above via the /ws/spa/ transport.
+    expect(stewieUrl).toContain('/ws/spa/')
+    expect(stewieUrl).toBe(codeyUrl)
   })
 
   it('opens the session id from ?session= without leaving Chat mounted', async () => {
     renderChat('/chat?blueprint=codey&session=sess-worker-2')
-    expect(MockWebSocket.instances[0]?.url).toContain('/ws/ai-demo/sess-worker-2/')
+    expect(MockWebSocket.instances[0]?.url).toContain('/ws/spa/')
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
   })
 
@@ -2440,7 +2472,7 @@ describe('ChatPage team member dropdown', () => {
     await waitFor(() => {
       expect(ws.send).toHaveBeenCalled()
     })
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+    expect(chatSendPayload(ws)).toEqual({
       message: 'hello team',
       params: { team: 'demo-team', target: 'all', enabled_tools: [] },
     })
@@ -2479,7 +2511,8 @@ describe('ChatPage team member dropdown', () => {
     await waitFor(() => {
       const userFrames = ws.send.mock.calls
         .map((call) => JSON.parse(String(call[0])))
-        .filter((frame) => frame.message && frame.type !== 'status')
+        .filter((frame) => frame.kind === 'chat.send' && frame.message && frame.type !== 'status')
+        .map(({ kind: _k, conversationId: _c, ...inner }) => inner)
       expect(userFrames).toHaveLength(2)
       expect(userFrames[1]).toEqual({
         message: 'just codey',
@@ -2497,7 +2530,11 @@ describe('ChatPage team member dropdown', () => {
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     await screen.findByTestId('os-model-search-palette')
     expect(screen.getByTestId('os-model-manage-api')).toHaveTextContent('Manage teams')
-    expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
+    // Mux era: the singleton's subscribe envelope always fires on mount; the
+    // pin is "no chat.send" — picking Manage Team must not send a frame.
+    expect(
+      MockWebSocket.instances[0]!.send.mock.calls.some((c) => String(c[0]).includes('"kind":"chat.send"')),
+    ).toBe(false)
   })
 
   it('REQ-23 #331 & REQ-152: Manage Team navigates to /teams/#team_id and does not WS-send', async () => {
@@ -2512,7 +2549,7 @@ describe('ChatPage team member dropdown', () => {
     fireEvent.click(await screen.findByTestId('routing-pill-agent'))
     fireEvent.click(await screen.findByTestId('os-model-manage-api'))
     expect(assign).toHaveBeenCalledWith('/teams/#demo-team')
-    expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
+    expect(chatSendPayload(MockWebSocket.instances[0]!)).toEqual({})
   })
 })
 
@@ -3250,7 +3287,7 @@ describe('ChatPage remote members (PR #318 / REQ-23)', () => {
     await waitFor(() => {
       expect(ws.send).toHaveBeenCalled()
     })
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+    expect(chatSendPayload(ws)).toEqual({
       message: 'ping hermes',
       params: { team: 'harness-team', target: 'hermes', enabled_tools: [] },
     })
@@ -3312,7 +3349,7 @@ describe('ChatPage voice input stub (PR #322 / REQ-77)', () => {
     expect(await screen.findByTestId('stt-path')).toHaveTextContent(/system/i)
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
     const ws = MockWebSocket.instances[0]!
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
   })
 })
 
@@ -3418,7 +3455,7 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
     })
     expect(screen.getByRole('dialog', { name: 'Safety approval' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Always allow' }))
-    expect(JSON.parse(String(ws.send.mock.calls.at(-1)?.[0]))).toEqual({
+    expect(chatSendPayload(ws)).toEqual({
       type: 'tool_decision',
       id: 'ap1',
       decision: 'always',
@@ -3438,7 +3475,7 @@ describe('ChatPage Safety tool popups (REQ-55)', () => {
       )
     })
     expect(screen.queryByRole('dialog', { name: 'Safety approval' })).not.toBeInTheDocument()
-    expect(JSON.parse(String(ws.send.mock.calls.at(-1)?.[0]))).toEqual({
+    expect(chatSendPayload(ws)).toEqual({
       type: 'tool_decision',
       id: 'ap2',
       decision: 'always',
@@ -3528,7 +3565,7 @@ describe('ChatPage ask_user question cards (issue #221)', () => {
       'deploy-profile',
     )
     fireEvent.click(screen.getByRole('radio', { name: 'staging' }))
-    expect(JSON.parse(String(ws.send.mock.calls.at(-1)?.[0]))).toEqual({
+    expect(chatSendPayload(ws)).toEqual({
       type: 'question_answer',
       id: 'deploy-profile',
       answer: 'staging',
@@ -3693,20 +3730,18 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
     })
 
     const ws = MockWebSocket.instances[0]!
-    expect(ws.send).toHaveBeenCalledWith(
-      JSON.stringify({ edit: { index: 0, content: 'engineered question' } }),
-    )
+    expect(chatSendPayload(ws)).toEqual({
+      edit: { index: 0, content: 'engineered question' },
+    })
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     fireEvent.change(composer, { target: { value: 'follow up' } })
     fireEvent.submit(composer.closest('form')!)
-    expect(ws.send).toHaveBeenCalledWith(
-      JSON.stringify({
-        message: 'follow up',
-        blueprint: 'jeeves',
-        params: { enabled_tools: [] },
-      }),
-    )
+    expect(chatSendPayload(ws)).toEqual({
+      message: 'follow up',
+      blueprint: 'jeeves',
+      params: { enabled_tools: [] },
+    })
   })
 
   it('clicking an API bubble does not enter edit; Edit in the action row does (REQ-867 / REQ-869)', async () => {
@@ -4116,7 +4151,7 @@ describe('ChatPage per-agent dropdown persist (REQ-180)', () => {
     fireEvent.change(composer, { target: { value: 'run with saved pin' } })
     fireEvent.submit(composer.closest('form')!)
     const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
-    const sent = JSON.parse(ws.send.mock.calls[0][0] as string)
+    const sent = JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)
     expect(sent.message).toBe('run with saved pin')
     expect(sent.blueprint).toBe('cli_agent')
     expect(sent.params).toMatchObject({ cli: 'antigravity', model: 'grok-4' })

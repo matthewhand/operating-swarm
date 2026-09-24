@@ -16,9 +16,13 @@
  * re-adopted transparently.
  */
 import { parseChatWsMessage, type ChatWsEvent } from './chatWs'
+import { MAX_AUTO_RECONNECT_ATTEMPTS, WS_AUTH_REQUIRED_CODE, reconnectBackoffMs } from './chatReconnect'
 
 export type SpaFrame = { kind: 'spa.frame'; conversationId: string; data: unknown }
-export type SpaEnvelope = SpaFrame | { kind: 'spa.subscribed'; conversationId: string } | { kind: 'spa.error'; conversationId: string; error: string }
+export type SpaEnvelope =
+  | SpaFrame
+  | { kind: 'spa.subscribed'; conversationId: string }
+  | { kind: 'spa.error'; conversationId: string; error: string; code?: number }
 
 export type SpaListener = (event: ChatWsEvent, conversationId: string) => void
 export type SpaStatusListener = (status: SpaStatus) => void
@@ -39,12 +43,17 @@ interface Registry {
   listeners: Map<string, Set<SpaListener>>
   statusListeners: Set<SpaStatusListener>
   taps: Set<SpaTapListener>
+  errorListeners: Map<string, Set<SpaErrorListener>>
   /** conversationId → blueprint, replayed on reconnect. */
   blueprints: Map<string, string>
   status: SpaStatus
   backoffAttempt: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   intentionalClose: boolean
+  /** Close code of the most recent socket close (4401 = auth rejected). */
+  lastCloseCode: number | null
+  /** Whether the current socket ever reached open (disconnect vs unreachable). */
+  sawOpen: boolean
 }
 
 const registry: Registry = {
@@ -53,11 +62,14 @@ const registry: Registry = {
   listeners: new Map(),
   statusListeners: new Set(),
   taps: new Set(),
+  errorListeners: new Map(),
   blueprints: new Map(),
   status: 'closed',
   backoffAttempt: 0,
   reconnectTimer: null,
   intentionalClose: false,
+  lastCloseCode: null,
+  sawOpen: false,
 }
 
 // Test seam: the module registry is replaced wholesale between tests.
@@ -76,11 +88,13 @@ export function resetSpaSocketForTests(): void {
   registry.listeners.clear()
   registry.statusListeners.clear()
   registry.taps.clear()
+  registry.errorListeners.clear()
   registry.blueprints.clear()
   registry.status = 'closed'
   registry.backoffAttempt = 0
   registry.reconnectTimer = null
   registry.intentionalClose = false
+  registry.lastCloseCode = null
 }
 
 export function spaStatus(): SpaStatus {
@@ -102,6 +116,31 @@ export function onSpaFrame(listener: SpaTapListener): SpaSubscription {
   return { release: () => registry.taps.delete(listener) }
 }
 
+/** Error-envelope listener for one conversation (spa.error frames). */
+export type SpaErrorListener = (error: string, code: number | null) => void
+
+/** Subscribe to `spa.error` envelopes addressed to one conversation. */
+export function onSpaConversationError(
+  conversationId: string,
+  listener: SpaErrorListener,
+): SpaSubscription {
+  const set = registry.errorListeners.get(conversationId) ?? new Set()
+  set.add(listener)
+  registry.errorListeners.set(conversationId, set)
+  return {
+    release: () => {
+      const current = registry.errorListeners.get(conversationId)
+      current?.delete(listener)
+      if (current && current.size === 0) registry.errorListeners.delete(conversationId)
+    },
+  }
+}
+
+/** Close code of the most recent socket close — 4401 means auth rejected. */
+export function spaLastCloseCode(): number | null {
+  return registry.lastCloseCode
+}
+
 export function activeSpaConversations(): string[] {
   return [...registry.subscriptions.keys()]
 }
@@ -119,7 +158,7 @@ export function buildSpaWsUrl(): string {
 function nextBackoffMs(): number {
   const attempt = registry.backoffAttempt
   registry.backoffAttempt += 1
-  return Math.min(500 * 2 ** attempt, 8000)
+  return reconnectBackoffMs(attempt)
 }
 
 function ensureSocket(): WebSocket {
@@ -130,12 +169,28 @@ function ensureSocket(): WebSocket {
     return registry.socket
   }
   registry.intentionalClose = false
+  registry.sawOpen = false
   setStatus('connecting')
-  const ws = new WebSocket(buildSpaWsUrl())
+  let ws: WebSocket
+  try {
+    ws = new WebSocket(buildSpaWsUrl())
+  } catch {
+    // Constructor can throw (mocked sockets, sandboxed environments). Mirror
+    // the legacy hook's contract: fail fast, then retry on the backoff clock
+    // (first retry ≈1s — #334 pins the timer being cleared on unmount).
+    setStatus('failed')
+    const delay = nextBackoffMs()
+    registry.reconnectTimer = setTimeout(() => {
+      registry.reconnectTimer = null
+      if (registry.subscriptions.size > 0) ensureSocket()
+    }, delay)
+    return null as unknown as WebSocket
+  }
   registry.socket = ws
 
   ws.onopen = () => {
     registry.backoffAttempt = 0
+    registry.sawOpen = true
     setStatus('open')
     // Re-adopt every sticky session this tab still holds.
     for (const conversationId of registry.subscriptions.keys()) {
@@ -147,10 +202,27 @@ function ensureSocket(): WebSocket {
 
   ws.onmessage = (event: MessageEvent) => {
     if (typeof event.data !== 'string') return
-    let envelope: SpaEnvelope
+    let envelope: SpaEnvelope | null = null
     try {
-      envelope = JSON.parse(event.data) as SpaEnvelope
+      const parsed = JSON.parse(event.data) as Partial<SpaEnvelope>
+      if (parsed && typeof parsed === 'object' && typeof parsed.kind === 'string') {
+        envelope = parsed as SpaEnvelope
+      }
     } catch {
+      /* not JSON */
+    }
+    if (!envelope) {
+      // Legacy-frame fallback (test harnesses + future server drift): a
+      // bare frame with no mux envelope is treated as belonging to the
+      // single subscribed conversation, if exactly one is mounted.
+      if (registry.subscriptions.size === 1) {
+        const [conversationId] = registry.subscriptions.keys()
+        const chatEvent = parseChatWsMessage(event.data)
+        for (const tap of registry.taps) tap(chatEvent, conversationId)
+        for (const listener of registry.listeners.get(conversationId) ?? []) {
+          listener(chatEvent, conversationId)
+        }
+      }
       return
     }
     if (envelope.kind === 'spa.frame') {
@@ -161,13 +233,23 @@ function ensureSocket(): WebSocket {
       for (const listener of registry.listeners.get(envelope.conversationId) ?? []) {
         listener(chatEvent, envelope.conversationId)
       }
+    } else if (envelope.kind === 'spa.error') {
+      const code = typeof envelope.code === 'number' ? envelope.code : null
+      for (const listener of registry.errorListeners.get(envelope.conversationId) ?? []) {
+        listener(envelope.error, code)
+      }
     }
   }
 
-  ws.onclose = () => {
+  ws.onclose = (event: CloseEvent) => {
     registry.socket = null
-    setStatus(registry.intentionalClose ? 'closed' : 'failed')
+    registry.lastCloseCode = typeof event?.code === 'number' ? event.code : null
+    setStatus(registry.intentionalClose || registry.sawOpen ? 'closed' : 'failed')
     if (registry.intentionalClose) return
+    // Auth gate: the server closed with 4401 (session required). No auto
+    // hammering — the Sign-in CTA drives reconnection, as in the legacy hook.
+    if (typeof event?.code === 'number' && event.code === WS_AUTH_REQUIRED_CODE) return
+    if (registry.backoffAttempt >= MAX_AUTO_RECONNECT_ATTEMPTS) return
     const delay = nextBackoffMs()
     registry.reconnectTimer = setTimeout(() => {
       registry.reconnectTimer = null
@@ -184,7 +266,7 @@ function ensureSocket(): WebSocket {
 
 function sendEnvelope(payload: Record<string, unknown>): void {
   const ws = ensureSocket()
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload))
   }
   // CONNECTING: onopen replays subscriptions; chat frames sent before open

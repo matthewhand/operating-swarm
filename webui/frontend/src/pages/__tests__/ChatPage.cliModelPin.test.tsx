@@ -151,7 +151,7 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     fireEvent.change(composer, { target: { value: 'pin the next run' } })
     fireEvent.submit(composer.closest('form')!)
     const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
-    expect(JSON.parse(ws.send.mock.calls[0][0] as string)).toMatchObject({
+    expect(JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)).toMatchObject({
       message: 'pin the next run',
       blueprint: 'cli_agent',
       params: { cli: 'grok', model: 'grok-4.5' },
@@ -180,7 +180,7 @@ describe('ChatPage CLI model pin (REQ-171C-3)', () => {
     fireEvent.change(composer, { target: { value: 'pin pi' } })
     fireEvent.submit(composer.closest('form')!)
     const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
-    expect(JSON.parse(ws.send.mock.calls[0][0] as string)).toMatchObject({
+    expect(JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)).toMatchObject({
       message: 'pin pi',
       blueprint: 'cli_agent',
       params: { cli: 'pi', model: 'openai/gpt-4o' },

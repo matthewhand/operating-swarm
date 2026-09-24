@@ -6,6 +6,8 @@ import { resetExpectedSpaVersion } from './lib/spaHello';
 import { __resetUserPrefsCacheForTests } from './lib/userPrefs';
 import { resetGithubReleaseCache } from './lib/githubRelease';
 import { setBakedSpaVersionForTests } from './lib/spaVersion';
+import { resetSpaSocketForTests } from './lib/spaSocket';
+import { resetAgentTurnStoreForTests } from './lib/agentTurnStore';
 
 import '@testing-library/jest-dom';
 
@@ -26,6 +28,11 @@ afterEach(() => {
     resetExpectedSpaVersion();
     resetGithubReleaseCache();
     setBakedSpaVersionForTests(null);
+    // ADR-017 PR-4: the mux singleton + turn store are module-level state —
+    // dropping them per-test keeps the 50+ legacy harnesses (stubbing
+    // WebSocket and poking instances[0]) independent of each other.
+    resetSpaSocketForTests();
+    resetAgentTurnStoreForTests();
     if (typeof window !== 'undefined') {
         // #1098: innerWidth is a getter-only accessor in this jsdom/Node pair.
         // defineProperty survives tests that redefined it (clamp/viewport

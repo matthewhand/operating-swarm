@@ -176,7 +176,7 @@ describe('ChatPage OMB navbar agents (#102)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     expect(ws.send).toHaveBeenCalled()
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       message: 'hello desk',
       blueprint: 'remote_harness',
       params: {
@@ -196,7 +196,7 @@ describe('ChatPage OMB navbar agents (#102)', () => {
       target: { value: 'should not go' },
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
     expect(await screen.findByText(/omb_bot_required/)).toBeInTheDocument()
   })
 })

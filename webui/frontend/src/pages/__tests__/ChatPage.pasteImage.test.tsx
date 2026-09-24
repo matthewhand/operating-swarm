@@ -110,7 +110,7 @@ describe('ChatPage paste image (REQ-811)', () => {
 
     const ws = MockWebSocket.instances[0]!
     expect(ws.send).toHaveBeenCalled()
-    expect(JSON.parse(ws.send.mock.calls[0][0] as string)).toMatchObject({
+    expect(JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)).toMatchObject({
       message: 'what is this',
       blueprint: 'api_agent',
       attachments: [ATTACH_ID],

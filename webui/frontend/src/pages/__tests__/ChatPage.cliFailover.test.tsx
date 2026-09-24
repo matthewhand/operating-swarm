@@ -107,7 +107,7 @@ function sendComposer(text: string) {
   fireEvent.change(composer, { target: { value: text } })
   fireEvent.submit(composer.closest('form')!)
   const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
-  return JSON.parse(ws.send.mock.calls[0][0] as string)
+  return JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)
 }
 
 describe('ChatPage cli_agent dropdown is strict (#99)', () => {

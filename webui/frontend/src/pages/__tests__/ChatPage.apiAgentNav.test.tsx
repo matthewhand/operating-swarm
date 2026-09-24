@@ -193,7 +193,7 @@ describe('ChatPage api_agent navbar routing (#108)', () => {
     fireEvent.change(composer, { target: { value: 'route this turn' } })
     fireEvent.submit(composer.closest('form')!)
     const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
-    const frame = JSON.parse(ws.send.mock.calls[0][0] as string)
+    const frame = JSON.parse(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)
     expect(frame).toMatchObject({ message: 'route this turn', blueprint: 'api_agent' })
     expect(frame.params?.model).toBe('orchestration-mini')
   })
