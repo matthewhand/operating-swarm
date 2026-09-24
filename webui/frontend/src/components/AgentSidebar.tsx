@@ -1692,6 +1692,8 @@ export default function AgentSidebar({
     peekApprovalWait,
     peekCliRunning,
     pickOrClose,
+    remoteHideId,
+    remotes,
     renderAgentRow,
     renderRemoteRow,
     renderTeamRow,

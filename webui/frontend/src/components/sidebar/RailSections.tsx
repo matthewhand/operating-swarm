@@ -16,7 +16,7 @@ export interface RailSectionsProps {
 }
 
 export const RailSections = function RailSections(props: RailSectionsProps) {
-    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, RailSectionEmpty, RailSectionHeader, UNASSIGNED_SECTION_ID, activeRail, agentChatHref, agentLabel, agentRole, agents, allowListUnfavourite, allowRowDrop, allowSectionDrop, approvalWaitIds, beginRowDrag, cancelSectionRename, cliRunningIds, commitSectionRename, defaultSessionForTeam, draggingId, dropActive, dropOnSection, dropPin, dropPinReorder, dropTargetId, dropUnfavourite, editingSectionId, editingSectionName, finishDrag, isAvatarOnly, isHerdrAgent, isPinnedId, isUnassignedSection, listDropActive, loadFailed, loadingList, markStackWorking, navScrollRef, navigate, openDefinition, openPaneMenuAt, openSectionMenuAt, orderedRows, peekApprovalWait, peekCliRunning, pickOrClose, renderAgentRow, renderRemoteRow, renderTeamRow, resolveMenuKind, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rowMenuHandlers, sectionBlocks, sectionDropId, setDropActive, setEditingSectionName, setListDropActive, setSectionState, setSubagentsCollapsed, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, teams, toggleSectionCollapsed, toggleSectionInternalOnly, unreadIds, updateCanScroll, visibleCount, visiblePins } = props as any
+    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, RailSectionEmpty, RailSectionHeader, UNASSIGNED_SECTION_ID, activeRail, agentChatHref, agentLabel, agentRole, agents, allowListUnfavourite, allowRowDrop, allowSectionDrop, approvalWaitIds, beginRowDrag, cancelSectionRename, cliRunningIds, commitSectionRename, defaultSessionForTeam, draggingId, dropActive, dropOnSection, dropPin, dropPinReorder, dropTargetId, dropUnfavourite, editingSectionId, editingSectionName, finishDrag, isAvatarOnly, isHerdrAgent, isPinnedId, isUnassignedSection, listDropActive, loadFailed, loadingList, markStackWorking, navScrollRef, navigate, openDefinition, openPaneMenuAt, openSectionMenuAt, orderedRows, peekApprovalWait, peekCliRunning, pickOrClose, remoteHideId, remotes, renderAgentRow, renderRemoteRow, renderTeamRow, resolveMenuKind, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rowMenuHandlers, sectionBlocks, sectionDropId, setDropActive, setEditingSectionName, setListDropActive, setSectionState, setSubagentsCollapsed, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, teams, toggleSectionCollapsed, toggleSectionInternalOnly, unreadIds, updateCanScroll, visibleCount, visiblePins } = props as any
 
   return (
     <>
@@ -56,6 +56,12 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
             const live = agents.find((agent: any) => agent.id === pin.id)
             const pinTeam = pin.id.startsWith('team:')
               ? teams.find((item: any) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
+              : undefined
+            // #1119: pinned remote seats render their platform-themed face.
+            const pinRemoteKind = pin.id.startsWith('remote:')
+              ? remotes?.find?.((item: any) =>
+                  item.id === pin.id.slice(7) || remoteHideId?.(item.id) === pin.id,
+                )?.kind
               : undefined
             const pinName = live ? agentLabel(live) : pinTeam?.name || pin.name || pin.id
             const role = live ? agentRole(live) : 'default'
@@ -168,6 +174,7 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
                     className="os-fav-tile__avatar"
                     status={pinWorkerBusy ? 'working' : 'idle'}
                     active={pinWorkerBusy}
+                    remoteKind={pinRemoteKind}
                   />
                   {pinTeamPlan && pinTeamPlan.remainder > 0 ? (
                     <span
