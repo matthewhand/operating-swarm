@@ -66,7 +66,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 
 export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   general: [
-    'theme', 'dark', 'light', 'streaming',
+    'theme', 'dark', 'light', 'streaming', 'notifications', 'toast', 'auto-expire', 'expire',
     'Show theme control in top bar',
   ],
   aesthetics: [

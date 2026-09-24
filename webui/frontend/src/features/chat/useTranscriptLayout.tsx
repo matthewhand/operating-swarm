@@ -236,6 +236,7 @@ export function useTranscriptLayout(opts: UseTranscriptLayoutOptions) {
         </span>
       ),
       position: 'bottom-right',
+      sticky: true,
     })
   }, [status, authRejected, signInHref, addToast, dismissByKind, reconnect])
 

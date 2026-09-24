@@ -571,6 +571,9 @@ class CliAgentBlueprint(CliKindBase):
                 if result is None or not result.ok:
                     err = (result.error if result else None) or "unknown error"
                     text = support.format_cli_error(adapter, err)
+                    # #1125: an unwritable CLI state dir gets its remedy
+                    # appended, not a bare failure the operator must decode.
+                    text = support.annotate_cli_failure(text)
                     meta = (
                         support.fatal_config_meta()
                         if is_fatal_config_error(err) or is_resume_failure_text(err)
@@ -623,6 +626,7 @@ class CliAgentBlueprint(CliKindBase):
             yield support.progress_chunk(f"_`{name}` failed: {last[1]} — failing over…_")
 
         detail = f" (last — {last[0]}: {last[1]})" if last else ""
+        detail = support.annotate_cli_failure(detail)  # #1125: remedy on state-dir EACCES
         text = f"All CLI candidates failed{detail}."
         meta = (
             support.fatal_config_meta()

@@ -23,7 +23,7 @@ import {
   summarizeUnknownWsFrame,
   type ChatWsEvent,
 } from '../../lib/chatWs'
-import { applyTurnFrame, type TurnSnapshot } from '../../lib/agentTurns'
+import { applyTurnFrame, recordTurnFrame, type TurnSnapshot } from '../../lib/agentTurns'
 import type { DecisionQuestion } from '../../lib/decisionQuestion'
 import { parseDecisionQuestion, stripDecisionQuestion } from '../../lib/decisionQuestion'
 import { registerDynamicSubagent } from '../../lib/dynamicSubagents'
@@ -94,6 +94,7 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
       if (event.kind === 'turn_started' || event.kind === 'turn_finished') {
         // ADR-017 PR-2: fold the bookend into the SPA turn registry so the
         // row stop can name the exact turn_id when it cancels (#1113).
+        recordTurnFrame(event)
         setAgentTurns((prev) => applyTurnFrame(prev, event))
         return
       }

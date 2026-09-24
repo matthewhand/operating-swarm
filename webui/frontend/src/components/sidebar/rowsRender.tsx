@@ -14,12 +14,16 @@ import type { RemoteEntry } from '../../lib/remotesCatalog'
 import type { SidebarAgent } from '../../features/sidebar/rows'
 import type { StackFace } from '../../lib/avatarStack'
 import type { TeamRoster } from '../../lib/teamRosters'
+import { getTurnSnapshot, isAgentTurnActive, type TurnSnapshot } from '../../lib/agentTurns'
 export interface RowRendererDeps {
   [key: string]: any
 }
 
 export function createRowRenderers(props: RowRendererDeps) {
-    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, PersonaRoster, RailRowSlot, StackedAvatars, Users, activeHerdrRow, activeRail, activeTaskSessionCount, agentLabel, agentRole, allowRowDrop, approvalWaitIds, beginRowDrag, catalog, cliActivityByAgent, cliRunningIds, declaredRosterForTeam, defaultSessionForRemote, defaultSessionForTeam, draggingId, dropOnSelf, dropReorder, dropTargetId, finishDrag, formatRailTimestamp, getRowLastMessage, isAvatarOnly, isCliRailAgent, isHerdrAgent, isMac, isPinnedId, loadLocalNewChatPerTask, markStackWorking, navigate, onClose, openDefinition, openGroupPicker, orderedFacesByRecency, parseAgentDragPayload, peekApprovalWait, peekCliRunning, peekRailDrag, pickOrClose, railTeamStackLayout, remoteHideId, remoteThemeFace, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rosterById, rowMenuHandlers, sessionsByAgent, sessionsForRemote, sessionsForTeam, setSessionPicker, settingsTick, shouldOpenSessionPicker, sidebarHref, stackFacesForRemote, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, unreadIds } = props as any
+    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, PersonaRoster, RailRowSlot, StackedAvatars, Users, activeHerdrRow, activeRail, activeTaskSessionCount, agentLabel, agentRole, agentTurns, allowRowDrop, approvalWaitIds, beginRowDrag, catalog, cliActivityByAgent, cliRunningIds, declaredRosterForTeam, defaultSessionForRemote, defaultSessionForTeam, draggingId, dropOnSelf, dropReorder, dropTargetId, finishDrag, formatRailTimestamp, getRowLastMessage, isAvatarOnly, isCliRailAgent, isHerdrAgent, isMac, isPinnedId, loadLocalNewChatPerTask, markStackWorking, navigate, onClose, openDefinition, openGroupPicker, orderedFacesByRecency, parseAgentDragPayload, peekApprovalWait, peekCliRunning, peekRailDrag, pickOrClose, railTeamStackLayout, remoteHideId, remoteThemeFace, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rosterById, rowMenuHandlers, sessionsByAgent, sessionsForRemote, sessionsForTeam, setSessionPicker, settingsTick, shouldOpenSessionPicker, sidebarHref, stackFacesForRemote, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, unreadIds } = props as any
+    const turnSnapshot: TurnSnapshot = agentTurns || getTurnSnapshot()
+    const isSeatWorking = (id: string) =>
+      Boolean(isAgentTurnActive(id, turnSnapshot) || cliRunningIds.has(id) || peekCliRunning(id))
 
   const renderAgentRow = (agent: SidebarAgent, hidden: boolean) => {
     const name = agentLabel(agent)
@@ -50,6 +54,7 @@ export function createRowRenderers(props: RowRendererDeps) {
     const timestampLabel = formatRailTimestamp(timestamp)
     const unread = unreadIds.includes(agent.id)
     const needsApproval = approvalWaitIds.has(agent.id) || peekApprovalWait(agent.id)
+    const agentWorking = isSeatWorking(agent.id)
     const mark = (
       scaleOut ? (
         // Teams/remotes (#398) must not be stacked here — import AvatarStack there.
@@ -59,8 +64,8 @@ export function createRowRenderers(props: RowRendererDeps) {
           src={agent.avatar_path}
           agentId={agent.id}
           size="sm"
-          active={cliRunningIds.has(agent.id) || peekCliRunning(agent.id)}
-          status={cliRunningIds.has(agent.id) || peekCliRunning(agent.id) ? 'working' : 'idle'}
+          active={agentWorking}
+          status={agentWorking ? 'working' : 'idle'}
         />
       )
     )
@@ -313,6 +318,8 @@ export function createRowRenderers(props: RowRendererDeps) {
               alt={face.name || name}
               size="sm"
               className="os-team-face__large"
+              status={face.working ? 'working' : 'idle'}
+              active={Boolean(face.working)}
             />
           </span>
         </span>
@@ -338,12 +345,11 @@ export function createRowRenderers(props: RowRendererDeps) {
     const rawFaces = stackFacesForTeam(team)
     const marked = markStackWorking(
       rawFaces,
-      (id: string) => cliRunningIds.has(id) || peekCliRunning(id),
+      (id: string) => isSeatWorking(id),
     )
     const teamWorkerBusy = Boolean(
       marked.anyWorking ||
-      cliRunningIds.has(hideId) ||
-      peekCliRunning(hideId),
+      isSeatWorking(hideId),
     )
     // #438: the face is the team's chat target — `chief_of_staff_id`, else the
     // CoS-roled member, else the first. `defaultSessionForTeam` already owns
@@ -467,12 +473,11 @@ export function createRowRenderers(props: RowRendererDeps) {
     const rawFaces = stackFacesForRemote(remote)
     const marked = markStackWorking(
       rawFaces,
-      (id: string) => cliRunningIds.has(id) || peekCliRunning(id),
+      (id: string) => isSeatWorking(id),
     )
     const remoteWorkerBusy = Boolean(
       marked.anyWorking ||
-      cliRunningIds.has(hideId) ||
-      peekCliRunning(hideId),
+      isSeatWorking(hideId),
     )
     // #438: a remote has no CoS concept, so its chat face is the default talk-to
     // member — first, in the ordering the working-aware stack already produced.

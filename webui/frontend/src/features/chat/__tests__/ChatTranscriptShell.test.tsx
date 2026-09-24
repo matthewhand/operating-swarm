@@ -102,7 +102,10 @@ describe('#856 slice M — ChatTranscriptShell', () => {
       path.join(__dirname, '..', '..', '..', 'pages', 'ChatPage.tsx'),
       'utf8',
     )
-    expect(src).toContain('<ChatTranscriptShell {...chatShellProps} />')
+    // The module is consumed via a spread — #1116 collapsed the named
+    // chatShellProps object into allChatScope, so pin the shape, not the
+    // historical object name.
+    expect(src).toMatch(/<ChatTranscriptShell \{\.\.\.\w+\} \/>/)
     expect(src).not.toContain('os-chat-transcript')
   })
 })

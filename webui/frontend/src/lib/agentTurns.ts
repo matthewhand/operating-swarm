@@ -16,6 +16,8 @@
  * scope its stop button.
  */
 
+import { useEffect, useState } from 'react'
+
 export interface AgentTurn {
   turnId: string
   agentId: string
@@ -24,7 +26,40 @@ export interface AgentTurn {
 
 export type TurnSnapshot = Record<string, AgentTurn>
 
-export function applyTurnFrame(
+export const AGENT_TURNS_EVENT = 'swarm:agent-turns'
+
+let globalTurns: TurnSnapshot = {}
+const listeners = new Set<(snapshot: TurnSnapshot) => void>()
+
+function notifyListeners(): void {
+  for (const listener of listeners) {
+    try {
+      listener(globalTurns)
+    } catch {
+      /* ignore listener errors */
+    }
+  }
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent(AGENT_TURNS_EVENT, { detail: globalTurns }),
+      )
+    } catch {
+      /* window unavailable */
+    }
+  }
+}
+
+export function getTurnSnapshot(): TurnSnapshot {
+  return globalTurns
+}
+
+export function resetTurnRegistry(): void {
+  globalTurns = {}
+  notifyListeners()
+}
+
+export function reduceTurnFrame(
   prev: TurnSnapshot,
   frame: { kind: 'turn_started' | 'turn_finished'; turnId: string; agentId: string },
 ): TurnSnapshot {
@@ -46,6 +81,35 @@ export function applyTurnFrame(
   }
 }
 
+export function recordTurnFrame(
+  frame: { kind: 'turn_started' | 'turn_finished'; turnId: string; agentId: string },
+): TurnSnapshot {
+  globalTurns = reduceTurnFrame(globalTurns, frame)
+  notifyListeners()
+  return globalTurns
+}
+
+export function applyTurnFrame(
+  prev: TurnSnapshot,
+  frame: { kind: 'turn_started' | 'turn_finished'; turnId: string; agentId: string },
+): TurnSnapshot
+export function applyTurnFrame(
+  frame: { kind: 'turn_started' | 'turn_finished'; turnId: string; agentId: string },
+): TurnSnapshot
+export function applyTurnFrame(
+  prevOrFrame:
+    | TurnSnapshot
+    | { kind: 'turn_started' | 'turn_finished'; turnId: string; agentId: string },
+  maybeFrame?: { kind: 'turn_started' | 'turn_finished'; turnId: string; agentId: string },
+): TurnSnapshot {
+  if (maybeFrame) {
+    return reduceTurnFrame(prevOrFrame as TurnSnapshot, maybeFrame)
+  }
+  return recordTurnFrame(
+    prevOrFrame as { kind: 'turn_started' | 'turn_finished'; turnId: string; agentId: string },
+  )
+}
+
 /** The live (running) turn an agent owns, if any. Last one wins. */
 export function activeTurnFor(
   snapshot: TurnSnapshot,
@@ -56,6 +120,44 @@ export function activeTurnFor(
     if (turn.state === 'running' && turn.agentId === agentId) found = turn
   }
   return found
+}
+
+/** True when the agent has any turn in 'running' state in the given or global snapshot. */
+export function isAgentTurnActive(
+  agentId?: string | null,
+  snapshot: TurnSnapshot = globalTurns,
+): boolean {
+  if (!agentId) return false
+  if (activeTurnFor(snapshot, agentId) !== null) return true
+  const stripped = agentId.replace(/^(team|remote|agent|blueprint):/, '')
+  if (stripped !== agentId && activeTurnFor(snapshot, stripped) !== null) return true
+  return false
+}
+
+/** Subscribe to live turn changes. Returns unsubscribe callback. */
+export function subscribeAgentTurns(
+  handler: (snapshot: TurnSnapshot) => void,
+): () => void {
+  listeners.add(handler)
+  return () => {
+    listeners.delete(handler)
+  }
+}
+
+/** Reactive hook to read the global turn registry. */
+export function useAgentTurns(): TurnSnapshot {
+  const [snapshot, setSnapshot] = useState<TurnSnapshot>(() => getTurnSnapshot())
+  useEffect(() => {
+    setSnapshot(getTurnSnapshot())
+    return subscribeAgentTurns((next) => setSnapshot(next))
+  }, [])
+  return snapshot
+}
+
+/** Reactive hook to check if a specific agent currently has a live turn. */
+export function useAgentTurnActive(agentId?: string | null): boolean {
+  const turns = useAgentTurns()
+  return isAgentTurnActive(agentId, turns)
 }
 
 /** Copy for the row stop: it stops THIS turn, not the agent's whole queue. */

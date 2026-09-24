@@ -560,10 +560,10 @@ def test_trueforge_turn_state_parses_dict_and_string():
 
 
 def test_trueforge_send_timeout_resolution(monkeypatch):
-    """Send uses 60s (or env/spec) instead of the 8s operate default."""
+    """Send uses 180s (or env/spec) instead of the 8s operate default."""
     monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
-    assert remotes_core._trueforge_send_timeout_s(None) == 60.0
-    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S) == 60.0
+    assert remotes_core._trueforge_send_timeout_s(None) == 180.0
+    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S) == 180.0
     assert remotes_core._trueforge_send_timeout_s(12.5) == 12.5
     monkeypatch.setenv("SWARM_TRUEFORGE_TIMEOUT", "90")
     assert remotes_core._trueforge_send_timeout_s(None) == 90.0
@@ -652,7 +652,7 @@ def test_trueforge_operate_send_uses_long_timeout(tf_server, monkeypatch):
     sent = remotes_core.operate("trueforge", "send", prompt="hi", config=cfg)
     assert sent.ok is True
     assert seen["arg"] == remotes_core._OPERATE_SEND_TIMEOUT_S
-    assert seen["resolved"] == 60.0
+    assert seen["resolved"] == 180.0
 
 
 def test_trueforge_send_dict_error_state(tf_server, monkeypatch):

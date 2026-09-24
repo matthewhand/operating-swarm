@@ -138,6 +138,13 @@ services:
       - "${HOME}/.npm-global/bin:${HOME}/.npm-global/bin:ro"
       - "${HOME}/.local/share/pnpm:${HOME}/.local/share/pnpm:ro"
       - "${HOME}/.nvm/versions/node:${HOME}/.nvm/versions/node:ro"
+      # #1125: CLI state homes the binaries mkdir into on first run — the
+      # serving container's $HOME is root-owned (REQ-45 sandbox-home), so an
+      # unwritable state dir bricks the seat (opencode EACCES). Writable,
+      # same doctrine as the #762 config mount.
+      - "${HOME}/.local/share/opencode:${HOME}/.local/share/opencode"
+      - "${HOME}/.cache/opencode:${HOME}/.cache/opencode"
+      - "${HOME}/.local/state/opencode:${HOME}/.local/state/opencode"
     depends_on:
       postgres:
         condition: service_healthy
