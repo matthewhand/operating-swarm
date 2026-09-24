@@ -383,6 +383,18 @@ html:not([data-theme="light"]) .os-composer-wrap,
   }
 }
 
+/* #1073: a pinned tablet rail renders as in-flow chrome, like desktop:
+   no overlay backdrop, no translate, and it participates in the flex row
+   so the chat area shares the width instead of being covered. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .os-agent-sidebar--tablet-docked {
+    position: static;
+    transform: none;
+    transition: none;
+    box-shadow: none;
+  }
+}
+
 /* REQ-116: Left rail resizer affordance */
 .os-rail-resizer {
   position: absolute;
@@ -1384,15 +1396,18 @@ html:not([data-theme="light"]) .os-composer-wrap,
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  /* #829/#902: fixed squares. The tile must NOT derive its height from the
-     fluid `1fr` column width (aspect-ratio + stretch coupling made pinned
+  /* #829/#902: fixed-width squares. The tile must NOT derive its height from
+     the fluid `1fr` column width (ratio coupling + stretch made pinned
      tiles balloon/shrink as the rail resized). Fixed 5.25rem, centred in the
      column; `flex: 0 0 auto` keeps the row's height width-independent.
      #934: 4.5rem clipped most agent names mid-word — the square is sized
-     for its content (avatar + a two-line label) instead. */
+     for its content (avatar + a two-line label) instead.
+     #1071/#1074: 5.25rem as a hard height left only ~17.6px for a ~26.9px
+     two-line label, clipping the second line mid-glyph. min-height makes
+     the square a *floor*: single-line names keep the clean square, wrapped
+     names grow the tile to fit. */
   width: 5.25rem;
-  height: 5.25rem;
-  aspect-ratio: 1 / 1;
+  min-height: 5.25rem;
   justify-self: center;
   flex: 0 0 auto;
   padding: 0.45rem 0.3rem 0.4rem;
@@ -1441,6 +1456,9 @@ html:not([data-theme="light"]) .os-composer-wrap,
   font-weight: 650;
   line-height: 1.2;
   text-align: center;
+  /* #1071: long tokens (no spaces) overflow the clamp box without this —
+     break-word wraps them instead of painting past the tile edge. */
+  word-break: break-word;
 }
 .os-fav-tile__attention {
   position: absolute;
@@ -1845,7 +1863,8 @@ button.os-agent-row {
   color: #d97706;
   font-weight: 600;
 }
-.os-agent-role-badge[data-role="gate"] { color: #c47a3a; }
+.os-agent-role-badge[data-role="gate"],
+.os-agent-role-badge[data-role="belay"] { color: #c47a3a; }
 .os-agent-role-badge[data-role="skeptic"] { color: #7a6b9b; }
 .os-agent-role-badge[data-role="advisor"] { color: #8a7a4a; }
 .os-agent-role-badge[data-role="chief_of_staff"] {
@@ -1894,6 +1913,9 @@ button.os-agent-row {
   padding: 0.25rem 0.15rem;
 }
 .os-agent-sidebar--avatar-only .os-fav-tile {
+  /* #1074: the rail is 68px here; the 84px square overflowed the rail on
+     both sides. Width follows the column, height stays content-driven. */
+  width: auto;
   min-height: auto;
   padding: 0.35rem 0;
   background: transparent;
@@ -1905,7 +1927,12 @@ button.os-agent-row {
 }
 .os-agent-sidebar--avatar-only .os-rail-search-row {
   /* #764: collapsed rail stacks the search trigger and the Add agent button
-     vertically — the + stays reachable under search instead of display:none. */
+     vertically — the + stays reachable under search instead of display:none.
+     #1075: the stacked pair is ~76px, taller than the 3.5rem chrome strip,
+     which centred it into y<0 and clipped the search icon. The row grows to
+     its content instead (chrome height stays the floor for single-row). */
+  height: auto;
+  min-height: var(--os-top-chrome-h);
   flex-direction: column;
   padding-left: 0.35rem;
   padding-right: 0.35rem;
@@ -1972,6 +1999,11 @@ button.os-agent-row {
 .os-agent-sidebar--avatar-only .os-rail-footer-btn {
   height: 2rem;
   padding-block: 0;
+  /* #1067: every footer icon shares the centred axis. The hostname button
+     kept its expanded-mode `flex w-full px-1` and stayed left-anchored at
+     20px while Teams/Plugins/Routines sat at 33.5px — a 13.5px drift. */
+  justify-content: center;
+  padding-inline: 0;
 }
 .os-agent-sidebar--avatar-only [data-testid="rail-update-chrome"] {
   display: none;
@@ -2061,6 +2093,18 @@ button.os-agent-row {
 }
 .os-hidden-bots--empty {
   min-height: 2.15rem;
+}
+/* #1076: empty AND idle → the section takes no vertical space at all; a drag
+   in flight removes the collapsed modifier, revealing the labelled drop zone
+   (.os-hidden-bots--empty keeps its min-height while dragging). */
+.os-hidden-bots--collapsed {
+  min-height: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
 }
 .os-hidden-bots--empty.os-hidden-bots--active,
 .os-hidden-bots--empty[data-drag-over] {
@@ -2305,7 +2349,8 @@ button.os-agent-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-top: 0.35rem;
+  /* #1068: the footer container owns the vertical rhythm — the old extra
+     margin-top made the bottom row sit unevenly against the nav rows. */
   color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
 }
 .os-rail-hostname-icon {
@@ -2326,7 +2371,9 @@ button.os-agent-row {
   border: 0;
   border-radius: 0.35rem;
   padding: 0.25rem 0.25rem;
-  font-size: 0.75rem;
+  /* #1068: text-sm (0.875rem) matches the Teams/Plugins/Routines labels —
+     the old 0.75rem was an abrupt font drop on the bottom row. */
+  font-size: 0.875rem;
   color: inherit;
   outline: none;
 }
@@ -2347,6 +2394,9 @@ button.os-agent-row {
   align-items: center;
   justify-content: center;
   margin-left: auto;
+  /* #1068: keep the icon's right edge off the rail boundary — the nav rows
+     above carry px-1 (0.25rem), the old rule hugged the border. */
+  margin-inline-end: 0.25rem;
   gap: 0.25rem;
 }
 .os-rail-update-chrome__label {
@@ -3037,18 +3087,48 @@ pre:focus-within .os-code-copy {
   background: var(--color-base-content);
   color: var(--color-base-100);
 }
-/* #632: while a response is in flight the outer button morphs into a square
-   stop — same slot, same size, unmistakable shape change. */
-.os-composer__send--stop {
-  border-radius: 0.55rem;
+/* #1096: the stop affordance lives on the generating agent's transcript row,
+   beside its animated avatar — a quiet square that turns loud on hover. The
+   composer itself carries no stop (#632 morph retired). */
+.os-agent-row__stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-error, #e11d48) 45%, transparent);
+  color: var(--color-error, #e11d48);
+  background: transparent;
+  flex-shrink: 0;
+}
+.os-agent-row__stop:hover {
   background: var(--color-error, #e11d48);
   color: white;
-}
-.os-composer__send--stop:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.05);
 }
 .os-composer__send:hover {
   opacity: 0.92;
+}
+/* #1070: the permanently mounted idle send is greyed and inert — same slot,
+   same geometry, no row re-flow across states. */
+.os-composer__send--idle,
+.os-composer__send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.os-composer__send--idle:hover {
+  opacity: 0.4;
+}
+/* #1093 (1+2): busy state stacks stop over send so the row never widens. */
+.os-composer__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 /* #223: stop button — square stop icon, danger-tinted so it reads as interrupt. */
 .os-composer__stop {

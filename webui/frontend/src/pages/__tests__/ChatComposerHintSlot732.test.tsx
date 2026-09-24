@@ -61,22 +61,20 @@ describe('#732 composer hint slot never unmounts', () => {
     localStorage.clear()
   })
 
-  it('keeps one hint slot node mounted across empty → typed → empty', async () => {
-    const view = renderChat()
+  it('#1093 (4): the slot renders only while a draft exists (send-now hint retired)', async () => {
+    renderChat()
     const textarea = await screen.findByLabelText('Chat message')
 
-    // The slot exists even with an empty draft (hidden, but mounted).
-    const slotWithEmpty = hintSlot()
-    expect(slotWithEmpty).not.toBeNull()
+    // Empty draft → no slot at all; the queued pill carries the ↵ hint now.
+    expect(hintSlot()).toBeNull()
 
     fireEvent.change(textarea, { target: { value: 'hello' } })
     await waitFor(() => {
-      expect(hintSlot()).toBe(slotWithEmpty)
+      expect(hintSlot()).not.toBeNull()
     })
 
     fireEvent.change(textarea, { target: { value: '' } })
-    expect(hintSlot()).toBe(slotWithEmpty)
-    expect(view.baseElement).toBeTruthy()
+    expect(hintSlot()).toBeNull()
   })
 
   it('shows the clear hint while a draft exists and the placeholder when empty', async () => {

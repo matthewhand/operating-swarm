@@ -316,7 +316,16 @@ function rememberEmptyFavourites() {
   localStorage.setItem(PINNED_AGENTS_STORAGE_KEY, '[]')
 }
 
-function renderSidebar(initialEntry = '/chat', onOpenSearch = () => undefined) {
+function renderSidebar(
+  initialEntry = '/chat',
+  onOpenSearch = () => undefined,
+  viewportWidth?: number,
+) {
+  // #1098: innerWidth is a getter-only accessor here; bare assignment throws
+  // 'read only' once any test has redefined it via defineProperty. Always go
+  // through defineProperty (configurable so later resets keep working).
+  const desired = viewportWidth ?? (window.innerWidth === 1024 ? 1920 : window.innerWidth)
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: desired })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -883,7 +892,10 @@ describe('AgentSidebar Grok rail', () => {
     fireEvent.dragOver(zone, { dataTransfer: mockDataTransfer() })
     expect(zone).toHaveAttribute('data-drag-over', 'true')
     expect(zone).toHaveClass('os-hidden-bots--active')
-    expect(screen.queryByText(/drop here to hide/i)).not.toBeInTheDocument()
+    // #1076: a drag in flight reveals the labelled drop zone (the idle empty
+    // state stays collapsed — see the 'leaves the Hidden Agents area blank' pin).
+    expect(screen.getByTestId('hidden-drop-zone')).toBeInTheDocument()
+    expect(screen.getByText(/drop here to hide/i)).toBeInTheDocument()
 
     dragTo(codey, zone)
 
@@ -2104,23 +2116,16 @@ describe('AgentSidebar favourite kind hrefs (REQ-171B #608)', () => {
     expect(teamTile.querySelector('[data-agent-id="codey"]')).toBeInTheDocument()
     expect(remoteTile).toHaveAttribute('href', '/chat?remote=omb')
     expect(remoteTile.getAttribute('href')).not.toMatch(/blueprint=/)
-    expect(herdrTile).toHaveAttribute('href', '/teams/#herdr-members')
+    // #543 revision: herdr pins chat like every other kind.
+    expect(herdrTile).toHaveAttribute('href', '/chat?remote=herdr&session=w3%3Ap1')
 
+    // #1088: Alt+digit slot navigation is gone (native tab-switch collision).
     act(() => {
       window.dispatchEvent(
         new KeyboardEvent('keydown', { key: '2', altKey: true, bubbles: true, cancelable: true }),
       )
     })
-    expect(screen.getByTestId('os-test-search')).toHaveTextContent('team=demo')
-    expect(screen.getByTestId('os-test-search')).not.toHaveTextContent('blueprint=')
-
-    act(() => {
-      window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: '3', altKey: true, bubbles: true, cancelable: true }),
-      )
-    })
-    expect(screen.getByTestId('os-test-search')).toHaveTextContent('remote=omb')
-    expect(screen.getByTestId('os-test-search')).not.toHaveTextContent('blueprint=')
+    expect(screen.getByTestId('os-test-search')).not.toHaveTextContent('team=demo')
   })
 
   it('#542 highlights the pinned team when the pane is on that team', async () => {
@@ -2700,9 +2705,39 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
     expect(rail).toHaveAttribute('data-avatar-only', 'true')
     expect(rail).toHaveClass('os-agent-sidebar--avatar-only')
   })
+
+  it('defaults to a compact (non-avatar-only) rail on laptop viewports (<= 1440px) when not configured (#1083, adjusted by #1098)', async () => {
+    // #1083 originally asserted avatar-only here, but that floor (68px) sits
+    // below AVATAR_ONLY_THRESHOLD (96) — avatar-only CSS hides section
+    // headers/labels, which made the #1094 Subagents section unreachable for
+    // real laptop users. The laptop default is now the threshold+1 compact
+    // rail: same narrow footprint, headers and labels intact.
+    renderSidebar('/chat?narrow=false', undefined, 1280)
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-avatar-only', 'false')
+    expect(rail).not.toHaveClass('os-agent-sidebar--avatar-only')
+    // still compact: the width persisted below is the small laptop default
+    expect(Number(localStorage.getItem('swarm_rail_width'))).toBeLessThanOrEqual(1280 * 0.45)
+  })
+
+  it('defaults to expanded mode on desktop viewports (> 1440px) when not configured in localStorage (#1083)', async () => {
+    renderSidebar('/chat?narrow=false', undefined, 1920)
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-avatar-only', 'false')
+    expect(rail).not.toHaveClass('os-agent-sidebar--avatar-only')
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
+  })
+
+  it('respects stored rail width on laptop viewports if previously persisted (#1083)', async () => {
+    localStorage.setItem('swarm_rail_width', '256')
+    renderSidebar('/chat?narrow=false', undefined, 1280)
+    const rail = await screen.findByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-avatar-only', 'false')
+    expect(rail).not.toHaveClass('os-agent-sidebar--avatar-only')
+  })
 })
 
-describe('AgentSidebar REQ-172 — Alt hotkey spill into unpinned rows', () => {
+describe('AgentSidebar #1088 — Alt+Up / Alt+Down sequential rail navigation', () => {
   beforeEach(() => {
     localStorage.clear()
     global.fetch = mockFetch()
@@ -2712,7 +2747,7 @@ describe('AgentSidebar REQ-172 — Alt hotkey spill into unpinned rows', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders spill hotkey badges on unpinned rows when favourites < 10', async () => {
+  it('renders no Alt+N slot badges anywhere (#1088 removes the slot model)', async () => {
     rememberEmptyFavourites()
     renderSidebar()
 
@@ -2720,32 +2755,28 @@ describe('AgentSidebar REQ-172 — Alt hotkey spill into unpinned rows', () => {
       expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
     })
 
-    const hotkeyBadges = screen.getAllByTestId('spill-hotkey')
-    expect(hotkeyBadges.length).toBeGreaterThan(0)
-    expect(hotkeyBadges[0].textContent).toMatch(/^(Alt\+|⌥)1$/)
+    expect(screen.queryByTestId('spill-hotkey')).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/(Alt\+|⌥)\d/)
   })
 
-  it('navigates to unpinned row when pressing Alt+N for a spilled slot', async () => {
-    localStorage.setItem(
-      PINNED_AGENTS_STORAGE_KEY,
-      JSON.stringify([{ id: 'support', name: 'Support', pinned_at: '2026-09-01T00:00:00Z' }]),
-    )
+  it('Alt+ArrowDown navigates to the first rail target (no slot arithmetic)', async () => {
     renderSidebar()
 
     await waitFor(() => {
       expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
     })
 
-    const alt2Event = new KeyboardEvent('keydown', {
-      key: '2',
+    const down = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
       altKey: true,
       bubbles: true,
       cancelable: true,
     })
     act(() => {
-      window.dispatchEvent(alt2Event)
+      window.dispatchEvent(down)
     })
-    expect(alt2Event.defaultPrevented).toBe(true)
+    // preventDefault means the rail handled the navigation itself.
+    expect(down.defaultPrevented).toBe(true)
   })
 })
 

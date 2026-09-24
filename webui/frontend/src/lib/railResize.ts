@@ -16,12 +16,32 @@ export const COLLAPSE_SNAP_THRESHOLD = 52
 export const COLLAPSED_RAIL_WIDTH = 0
 export const RAIL_WIDTH_STORAGE_KEY = 'swarm_rail_width'
 
+/**
+ * #1083: on laptop viewports (<= 1440px), the rail defaults to compact
+ * avatar-only mode (68px) so horizontal chat space is preserved. On wider
+ * desktop viewports (> 1440px), it defaults to fully expanded (256px).
+ */
+export const LAPTOP_MAX_WIDTH = 1440
+
+export function defaultRailWidth(viewportWidth?: number): number {
+  if (typeof viewportWidth === 'number' && viewportWidth > 0 && viewportWidth <= LAPTOP_MAX_WIDTH) {
+    // #1083 regression guard (#1098): MIN_RAIL_WIDTH (68) is below
+    // AVATAR_ONLY_THRESHOLD (96), so a laptop default *is* avatar-only mode
+    // and avatar-only CSS hides every section header — the #1094 Dynamic
+    // Subagents header disappeared for real users on laptops, not just
+    // jsdom. Floor the laptop default at the threshold: still the compact
+    // rail, but with headers/labels intact.
+    return Math.max(MIN_RAIL_WIDTH, AVATAR_ONLY_THRESHOLD + 1)
+  }
+  return DEFAULT_RAIL_WIDTH
+}
+
 export function clampRailWidth(width: number, viewportWidth?: number): number {
   const max = viewportWidth ? Math.min(MAX_RAIL_WIDTH, Math.floor(viewportWidth * 0.45)) : MAX_RAIL_WIDTH
   return Math.min(Math.max(width, MIN_RAIL_WIDTH), max)
 }
 
-export function loadRailWidth(): number {
+export function loadRailWidth(viewportWidth?: number): number {
   try {
     const raw = localStorage.getItem(RAIL_WIDTH_STORAGE_KEY)
     if (raw) {
@@ -31,11 +51,11 @@ export function loadRailWidth(): number {
         // below it is garbage and normalizes to collapsed rather than
         // falling back to the default.
         if (parsed <= COLLAPSED_RAIL_WIDTH) return COLLAPSED_RAIL_WIDTH
-        return clampRailWidth(parsed)
+        return clampRailWidth(parsed, viewportWidth)
       }
     }
   } catch {}
-  return DEFAULT_RAIL_WIDTH
+  return defaultRailWidth(viewportWidth)
 }
 
 export function saveRailWidth(width: number): void {

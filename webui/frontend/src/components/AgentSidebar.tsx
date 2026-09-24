@@ -12,10 +12,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Calendar,
   ChevronRight,
+  EyeOff,
   Plug,
   Plus,
   Search,
   Server,
+  Pin,
+  PinOff,
   Trash2,
   Users,
   X,
@@ -107,7 +110,11 @@ import {
   type BumpScope,
   saveHostnameOverride,
 } from '../lib/settingsPrefs'
-import { computeRailHotkeyTargets } from '../lib/railHotkeys'
+import {
+  activeRailNavIndex,
+  computeRailNavSequence,
+  stepRailNav,
+} from '../lib/railHotkeys'
 import {
   excludePinnedFromList,
   loadOrSeedPinnedAgents,
@@ -266,6 +273,8 @@ export default function AgentSidebar({
   onPick,
   onOpenSearch,
   blueprints: propBlueprints,
+  tabletDocked = false,
+  onToggleTabletDock,
 }: AgentSidebarProps) {
   const [dynamicSubagents, setDynamicSubagents] = useState<DynamicSubagent[]>(() =>
     loadDynamicSubagents(),
@@ -1040,7 +1049,7 @@ export default function AgentSidebar({
     [pins, resolvedHiddenIds, deletedIds, knownRailIds, catalogReady, catalogById],
   )
   const hotkeyTargets = useMemo(
-    () => computeRailHotkeyTargets({ visiblePins, orderedRows }),
+    () => computeRailNavSequence({ visiblePins, orderedRows }),
     [visiblePins, orderedRows],
   )
 
@@ -1316,24 +1325,28 @@ export default function AgentSidebar({
   }, [menu, sectionMenu, paneMenu, closeMenu])
 
   useEffect(() => {
-    const onAltDigit = (event: KeyboardEvent) => {
-      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && /^[1-9]$/.test(event.key)) {
-        const idx = parseInt(event.key, 10) - 1
-        const target = hotkeyTargets[idx]
-        if (target) {
-          event.preventDefault()
-          if (target.isHerdr) {
-            window.location.assign('/teams/#herdr-members')
-          } else {
-            navigate(target.href)
-          }
-          onClose?.()
+    // #1088: Alt+Up / Alt+Down sequential navigation (Herdr parity) replaces
+    // REQ-172's Alt+1..9 slots, which collided with native browser tab
+    // switching. The anchor is whichever row the URL currently points at.
+    const onAltArrow = (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      const dir: 1 | -1 = event.key === 'ArrowDown' ? 1 : -1
+      const currentIdx = activeRailNavIndex(hotkeyTargets, window.location.search)
+      const target = stepRailNav(hotkeyTargets, currentIdx, dir)
+      if (target) {
+        event.preventDefault()
+        if (target.isHerdr) {
+          window.location.assign('/teams/#herdr-members')
+        } else {
+          navigate(target.href)
         }
+        onClose?.()
       }
     }
-    window.addEventListener('keydown', onAltDigit)
-    return () => window.removeEventListener('keydown', onAltDigit)
-  }, [visiblePins, hotkeyTargets, navigate, onClose])
+    window.addEventListener('keydown', onAltArrow)
+    return () => window.removeEventListener('keydown', onAltArrow)
+  }, [hotkeyTargets, navigate, onClose])
 
   const {
     openGroupPicker,
@@ -1710,13 +1723,16 @@ export default function AgentSidebar({
 
   return (
     <>
-      <button
-        type="button"
-        className={`fixed inset-0 z-30 bg-black/50 lg:hidden ${open ? '' : 'hidden'}`}
-        hidden={!open}
-        aria-label="Close agents sidebar"
-        onClick={onClose}
-      />
+      {/* #1073: a docked tablet rail is in-flow chrome — no overlay backdrop. */}
+      {!tabletDocked && (
+        <button
+          type="button"
+          className={`fixed inset-0 z-30 bg-black/50 lg:hidden ${open ? '' : 'hidden'}`}
+          hidden={!open}
+          aria-label="Close agents sidebar"
+          onClick={onClose}
+        />
+      )}
 
       <aside
         className={`os-agent-sidebar os-agent-sidebar--${railSide} fixed inset-y-0 ${
@@ -1728,7 +1744,7 @@ export default function AgentSidebar({
               ? 'translate-x-full'
               : '-translate-x-full'            } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''} ${
           isCollapsed ? 'os-agent-sidebar--collapsed' : ''
-        }`}
+        } ${tabletDocked ? 'os-agent-sidebar--tablet-docked' : ''}`}
         style={
           !narrow
             ? isCollapsed
@@ -1815,15 +1831,31 @@ export default function AgentSidebar({
         {/* #555: the top of the pane is content now (search, sections, rows).
             Only the narrow-overlay drawer keeps a header, and only for its
             dismiss affordance. */}
-        <div className="flex items-center justify-end gap-2 px-3 pt-3 lg:hidden">
+        {/* #1073: drawer header — X on the LEFT; the tablet pin toggle sits
+            on the RIGHT (hidden on mobile: no room to dock). Desktop hides
+            the whole header; collapse lives on the divider pill (#555). */}
+        <div className="flex items-center justify-between gap-2 px-3 pt-3 lg:hidden">
           <button
             type="button"
             className="btn btn-ghost btn-xs btn-circle lg:hidden"
             aria-label="Close agents sidebar"
+            data-testid="rail-drawer-close"
             onClick={onClose}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
+          {onToggleTabletDock ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs btn-circle hidden sm:inline-flex"
+              aria-label={tabletDocked ? 'Unpin agents sidebar' : 'Pin agents sidebar'}
+              aria-pressed={tabletDocked}
+              data-testid="rail-tablet-dock-toggle"
+              onClick={onToggleTabletDock}
+            >
+              {tabletDocked ? <PinOff className="h-4 w-4" aria-hidden="true" /> : <Pin className="h-4 w-4" aria-hidden="true" />}
+            </button>
+          ) : null}
         </div>
 
         <div className="os-rail-search-row flex items-center gap-1.5 px-3 pb-2 pt-3">
@@ -1874,9 +1906,10 @@ export default function AgentSidebar({
         <div
           className={`os-hidden-bots ${hiddenCount === 0 ? 'os-hidden-bots--empty' : 'os-hide-drop--has-hidden'} ${
             hideDropActive ? 'os-hidden-bots--active' : ''
-          }`}
+          } ${hiddenCount === 0 && !draggingId ? 'os-hidden-bots--collapsed' : ''}`}
           data-testid="hidden-bots-row"
           data-empty={hiddenCount === 0 ? 'true' : 'false'}
+          data-collapsed={hiddenCount === 0 && !draggingId ? 'true' : 'false'}
           data-drag-over={hideDropActive ? 'true' : undefined}
           role="region"
           aria-label="Hidden Agents"
@@ -1942,7 +1975,21 @@ export default function AgentSidebar({
                 </span>
               </span>
             </button>
-          ) : null}
+          ) : (
+            /* #1076: an empty Hidden Agents slot collapses away while idle —
+               but a drag in flight needs a reliable target, so the drop zone
+               (label + icon, fixed min-height) reveals while draggingId is
+               set. The container keeps its drag handlers either way. */
+            draggingId ? (
+              <div
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-dashed border-base-content/25 px-2 py-1 text-xs text-base-content/55"
+                data-testid="hidden-drop-zone"
+              >
+                <EyeOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="os-hidden-drop-label">Drop here to hide</span>
+              </div>
+            ) : null
+          )}
         </div>
 
         <div className="border-t border-base-300/70 px-3 py-3" data-testid="sidebar-footer-container">
@@ -2043,14 +2090,14 @@ export default function AgentSidebar({
               <div className="relative os-rail-hostname-row">
                 <button
                   type="button"
-                  className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0 text-base-content/60 hover:text-base-content relative"
+                  className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content relative"
                   aria-label="Remote sessions"
                   aria-expanded={remotesPopupOpen}
                   aria-haspopup="menu"
                   data-testid="rail-server-icon"
                   onClick={() => setRemotesPopupOpen((open) => !open)}
                 >
-                  <Server className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Server className="h-4 w-4" aria-hidden="true" />
                   {localWsDown && (
                     <span
                       data-testid="local-server-status-dot"

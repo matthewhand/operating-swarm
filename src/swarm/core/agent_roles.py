@@ -38,6 +38,7 @@ ROLE_DEFAULT = "default"
 ROLE_ADMIN = "admin"
 ROLE_SUPPORT = "support"
 ROLE_GATE = "gate"
+ROLE_BELAY = "gate"
 ROLE_SKEPTIC = "skeptic"
 ROLE_ADVISOR = "advisor"
 ROLE_CHIEF_OF_STAFF = "chief_of_staff"
@@ -99,6 +100,7 @@ __all__ = [
     "ROLE_DEFAULT",
     "ROLE_SUPPORT",
     "ROLE_GATE",
+    "ROLE_BELAY",
     "ROLE_SKEPTIC",
     "ROLE_ADVISOR",
     "ROLE_CHIEF_OF_STAFF",
@@ -126,6 +128,7 @@ __all__ = [
     "is_webui_blueprint",
     "apply_blueprint_role",
     "is_chief_of_staff",
+    "is_belay_role",
     "can_manage_agent_lifecycle",
     "can_manage_topology",
     "role_css_class",
@@ -245,6 +248,11 @@ def apply_blueprint_role(
 def is_chief_of_staff(role: Any) -> bool:
     """True when *role* is ``chief_of_staff`` (including ``cos`` / ``chief``)."""
     return normalize_agent_role(role) == ROLE_CHIEF_OF_STAFF
+
+
+def is_belay_role(role: Any) -> bool:
+    """True when *role* is the safety belay/interceptor role (or legacy gate alias)."""
+    return normalize_agent_role(role) == ROLE_GATE
 
 
 def can_manage_agent_lifecycle(role: Any) -> bool:

@@ -55,7 +55,8 @@ describe('cli agents catalog (REQ-157)', () => {
     }
     expect(configuredCliNames(listed)).toEqual(['grok'])
     expect(suggestedCliEntries(listed).map((row) => row.name)).toEqual(['claude'])
-    expect(cliSelectPlaceholder(1, '')).toBe('Pick a CLI')
+    // #1093 (5): 'default' beats imperative 'Pick a …'.
+    expect(cliSelectPlaceholder(1, '')).toBe('default')
   })
 
   it('builds a compact list and hides unavailable until asked', () => {

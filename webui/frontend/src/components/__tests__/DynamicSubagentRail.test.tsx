@@ -74,6 +74,10 @@ describe('Dynamic Subagents Rail Integration (AgentSidebar first-class citizen)'
   let queryClient: QueryClient
 
   beforeEach(() => {
+    // #1098 upkeep: jsdom's 1024px default is the #1084 laptop tier, which
+    // collapses section headers. These pins target rail-row behavior, not
+    // responsive layout — run at the desktop viewport.
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1920 })
     window.localStorage.clear()
     clearDynamicSubagents()
     vi.stubGlobal('fetch', mockFetch())

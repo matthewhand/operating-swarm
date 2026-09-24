@@ -96,7 +96,8 @@ describe('remotes catalog (REQ-59)', () => {
     ])
     expect(rows).toHaveLength(1)
     expect(rows[0].id).toBe('omb')
-    expect(remoteSelectPlaceholder(rows.length, '')).toBe('Pick a remote')
+    // #1093 (5): 'default' beats imperative 'Pick a …'.
+    expect(remoteSelectPlaceholder(rows.length, '')).toBe('default')
     expect(remoteSelectPlaceholder(0, '')).toBe('No remotes')
   })
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Trash2, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { Textarea } from './DaisyUI'
 import {
   QUEUED_PANE_MAX_HEIGHT_CLASS,
@@ -14,7 +14,6 @@ export function QueuedSendPane({
   maxHeightPx = 0,
   onChangeText,
   onDelete,
-  onClearAll,
   onHoldIdsChange,
   interruptible = false,
 }: {
@@ -23,7 +22,6 @@ export function QueuedSendPane({
   onChangeText: (id: string, text: string) => void
   onDelete: (id: string) => void
   /** #223: drop every queued row ("Clear all") — no backend call. */
-  onClearAll?: () => void
   onHoldIdsChange: (ids: string[]) => void
   /** #198: when true, the top row shows the "enter to interrupt" hint. */
   interruptible?: boolean
@@ -71,22 +69,8 @@ export function QueuedSendPane({
       aria-label="Queued messages"
       style={{ maxHeight }}
     >
-      {rows.length > 1 && onClearAll ? (
-        <div className="os-queued-pane__header flex items-center justify-end px-1 pt-1">
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs gap-1 text-base-content/60"
-            aria-label="Clear all queued messages"
-            title="Remove every queued message (no backend call)"
-            data-testid="queued-clear-all"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={onClearAll}
-          >
-            <Trash2 className="h-3 w-3" aria-hidden="true" />
-            Clear all
-          </button>
-        </div>
-      ) : null}
+      {/* #1093 (6): the Clear-all affordance is gone — individual row close
+          buttons cover the same job without reserving a header strip. */}
       <ul className="os-queued-pane__list" role="list">
         {rows.map((row) => {
           const editing = editingId === row.id

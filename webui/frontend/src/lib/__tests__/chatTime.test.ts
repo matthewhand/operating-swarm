@@ -73,4 +73,13 @@ describe('formatRailTimestamp', () => {
   it('appends the clock to dates older than yesterday', () => {
     expect(formatRailTimestamp(WED_654, FRI_NOON)).toBe('Wed 2 Sep 6:54 AM')
   })
+
+  // #1099: a zero/epoch timestamp means "no activity known" — the row must
+  // render no stamp at all, never a literal '0' or 1970 date.
+  it('renders nothing for epoch-0 and other zero-ish inputs', () => {
+    expect(formatRailTimestamp(0, FRI_NOON)).toBeNull()
+    expect(formatRailTimestamp(-1, FRI_NOON)).toBeNull()
+    expect(formatRailTimestamp(undefined, FRI_NOON)).toBeNull()
+    expect(formatRailTimestamp(Number(''), FRI_NOON)).toBeNull()
+  })
 })

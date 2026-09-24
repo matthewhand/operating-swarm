@@ -15,7 +15,8 @@ import {
 
 function setTier(width: number) {
   act(() => {
-    window.innerWidth = width
+    // #1098: defineProperty — innerWidth is a getter-only accessor here.
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
     window.dispatchEvent(new Event('resize'))
   })
 }

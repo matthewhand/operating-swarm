@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from rest_framework import status
 
 from swarm.core.rail_seats import (
@@ -16,6 +17,11 @@ from swarm.core.rail_seats import (
     UNSUPPORTED_ADD_AGENT_KIND_ERROR,
 )
 from swarm.views import api_views
+
+
+@pytest.fixture(autouse=True)
+def _disable_api_auth(settings):
+    settings.ENABLE_API_AUTH = False
 
 
 def _empty_library():

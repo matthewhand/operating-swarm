@@ -8,6 +8,7 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pass-through props during extraction
 
 import type { RailSectionsState } from '../../lib/railSections'
+import { herdrChatHref } from '../../lib/railHotkeys' // #1088: herdr pins chat like every kind
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 
 export interface RailSectionsProps {
@@ -15,7 +16,7 @@ export interface RailSectionsProps {
 }
 
 export const RailSections = function RailSections(props: RailSectionsProps) {
-    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, RailSectionEmpty, RailSectionHeader, UNASSIGNED_SECTION_ID, activeRail, agentChatHref, agentLabel, agentRole, agents, allowListUnfavourite, allowRowDrop, allowSectionDrop, approvalWaitIds, beginRowDrag, cancelSectionRename, cliRunningIds, commitSectionRename, defaultSessionForTeam, draggingId, dropActive, dropOnSection, dropPin, dropPinReorder, dropTargetId, dropUnfavourite, editingSectionId, editingSectionName, finishDrag, isAvatarOnly, isHerdrAgent, isMac, isPinnedId, isUnassignedSection, listDropActive, loadFailed, loadingList, markStackWorking, navScrollRef, navigate, openDefinition, openPaneMenuAt, openSectionMenuAt, orderedRows, peekApprovalWait, peekCliRunning, pickOrClose, renderAgentRow, renderRemoteRow, renderTeamRow, resolveMenuKind, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rowMenuHandlers, sectionBlocks, sectionDropId, setDropActive, setEditingSectionName, setListDropActive, setSectionState, setSubagentsCollapsed, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, teams, toggleSectionCollapsed, toggleSectionInternalOnly, unreadIds, updateCanScroll, visibleCount, visiblePins } = props as any
+    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, RailSectionEmpty, RailSectionHeader, UNASSIGNED_SECTION_ID, activeRail, agentChatHref, agentLabel, agentRole, agents, allowListUnfavourite, allowRowDrop, allowSectionDrop, approvalWaitIds, beginRowDrag, cancelSectionRename, cliRunningIds, commitSectionRename, defaultSessionForTeam, draggingId, dropActive, dropOnSection, dropPin, dropPinReorder, dropTargetId, dropUnfavourite, editingSectionId, editingSectionName, finishDrag, isAvatarOnly, isHerdrAgent, isPinnedId, isUnassignedSection, listDropActive, loadFailed, loadingList, markStackWorking, navScrollRef, navigate, openDefinition, openPaneMenuAt, openSectionMenuAt, orderedRows, peekApprovalWait, peekCliRunning, pickOrClose, renderAgentRow, renderRemoteRow, renderTeamRow, resolveMenuKind, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rowMenuHandlers, sectionBlocks, sectionDropId, setDropActive, setEditingSectionName, setListDropActive, setSectionState, setSubagentsCollapsed, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, teams, toggleSectionCollapsed, toggleSectionInternalOnly, unreadIds, updateCanScroll, visibleCount, visiblePins } = props as any
 
   return (
     <>
@@ -51,7 +52,7 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
                 {dropActive || (draggingId && !isPinnedId(draggingId)) ? 'drop' : '+'}
               </div>
             ) : null}
-          {visiblePins.map((pin: any, pinIdx: number) => {
+          {visiblePins.map((pin: any) => {
             const live = agents.find((agent: any) => agent.id === pin.id)
             const pinTeam = pin.id.startsWith('team:')
               ? teams.find((item: any) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
@@ -179,14 +180,6 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
                   ) : null}
                 </span>
                 <span className="os-fav-tile__name">{pinName}</span>
-                {pinIdx < 9 && (
-                  <span
-                    className="os-fav-tile__shortcut"
-                    aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${pinIdx + 1}`}
-                  >
-                    {isMac ? `⌥${pinIdx + 1}` : `Alt+${pinIdx + 1}`}
-                  </span>
-                )}
               </>
             )
             const pinKind = resolveMenuKind(pin.id)
@@ -221,10 +214,12 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
               ),
             }
             if (isHerdrAgent(pin)) {
+              // #543/#1088: herdr pins chat like every other kind — the
+              // session IS the conversation target, not the members page.
               return (
                 <a
                   key={pin.id}
-                  href="/teams/#herdr-members"
+                  href={herdrChatHref(pin.id)}
                   className={pinClass}
                   title={pinName}
                   aria-label={pinName}
@@ -387,19 +382,17 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
                               </li>
                             ) : (
                               block.rows.map((row: any) => {
+                                // #1088: Alt+1..9 slot badges are gone —
+                                // sequential Alt+↑/↓ needs no per-row slot.
                                 const index = orderedRows.findIndex((item: any) => item.id === row.id)
-                                const spillSlot =
-                                  index >= 0 && index < 9 - visiblePins.length
-                                    ? visiblePins.length + index + 1
-                                    : undefined
                                 if (row.kind === 'team') {
-                                  return renderTeamRow(row.team, false, [], spillSlot, index)
+                                  return renderTeamRow(row.team, false, [], index)
                                 }
                                 return (
                                   <li key={row.id} data-rail-id={row.id} data-rail-index={index}>
                                     {row.kind === 'remote'
-                                      ? renderRemoteRow(row.remote, false, spillSlot)
-                                      : renderAgentRow(row.agent, false, spillSlot)}
+                                      ? renderRemoteRow(row.remote, false)
+                                      : renderAgentRow(row.agent, false)}
                                   </li>
                                 )
                               })

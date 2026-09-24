@@ -176,7 +176,8 @@ describe('ChatPage Unavailable / Sign-in CTA + connection status', () => {
     // #167: a connecting/closed socket must never block typing.
     expect(composer).not.toBeDisabled()
     expect(composer).toHaveAttribute('placeholder', 'Message …')
-    expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
+    // #1070: the send button is permanently mounted — idle renders it disabled, not absent.
+    expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
     expect(screen.getByTestId('chat-conn-status')).toBeInTheDocument()
     expect(screen.queryByText(/^Connected$/)).not.toBeInTheDocument()
@@ -1728,7 +1729,8 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     })
 
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
-    expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
+    // #1070: the send button is permanently mounted — idle renders it disabled, not absent.
+    expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
 
@@ -1740,23 +1742,26 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
 
     fireEvent.change(composer, { target: { value: '   ' } })
-    expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
+    // #1070: the send button is permanently mounted — idle renders it disabled, not absent.
+    expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
 
     fireEvent.change(composer, { target: { value: 'hi' } })
     expect(screen.getByRole('button', { name: /^Send$/i })).toBeInTheDocument()
     fireEvent.change(composer, { target: { value: '' } })
-    expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
+    // #1070: the send button is permanently mounted — idle renders it disabled, not absent.
+    expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
 
     fireEvent.change(composer, { target: { value: 'hi' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     expect(composer).toHaveValue('')
-    expect(screen.queryByRole('button', { name: /^Send$/i })).not.toBeInTheDocument()
-    // #632: the outer send morphs into the square stop; the mic is untouched.
+    // #1070: the send button is permanently mounted — idle renders it disabled, not absent.
+    expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled()
+    // #1096 (supersedes the #632 morph): the composer carries no stop — the
+    // mic is untouched and the stop affordance lives on the agent's row.
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
-    expect(screen.getByTestId('composer-stop')).toBeInTheDocument()
-    expect(screen.getByTestId('composer-stop')).toHaveClass('os-composer__send--stop')
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
   })
 
   it('#631: ghosts composer shortcut chips — the ↵ hint only exists with a queued send', async () => {
@@ -2166,7 +2171,7 @@ describe('ChatPage remotes dropdown (REQ-59)', () => {
       MockWebSocket.instances[0]?.open()
     })
     const pill = await screen.findByTestId('routing-pill-agent')
-    expect(pill).toHaveTextContent('Pick a remote')
+    expect(pill).toHaveTextContent('default')
     fireEvent.click(pill)
     // #681: the unbound remote's provider row sits on stage 1; selecting it
     // offers the Use-default row — 'No remotes' chrome never appears.
@@ -3279,7 +3284,8 @@ describe('ChatPage voice input stub (PR #322 / REQ-77)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Voice input' }))
     expect(await screen.findByText(/Speech recognition is not available/i)).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument()
+    // #1070: idle send stays mounted, disabled.
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
   })
 
   it('system STT inserts transcript into the composer and does not auto-send', async () => {

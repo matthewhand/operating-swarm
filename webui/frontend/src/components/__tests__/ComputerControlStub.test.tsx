@@ -156,16 +156,20 @@ describe('ComputerControlStub (REQ-80 / #432)', () => {
     expect(dialog.textContent).not.toMatch(/WIP|E2B|xdotool|CDP|CUA|:8001/i)
   })
 
-  it('shows the thumbnail region above Routines and +', async () => {
+  it('shows the thumbnail region above the tab strip on every tab (#1077)', async () => {
     const dialog = await openPane()
     const thumbnail = within(dialog).getByTestId('agent-screen-thumbnail')
-    const routinesHeading = within(dialog).getByRole('heading', { name: 'Routines' })
-    const add = within(dialog).getByRole('button', { name: 'Add routine' })
-    expect(thumbnail.compareDocumentPosition(routinesHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(routinesHeading.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const tablist = within(dialog).getByRole('tablist', { name: 'Computer control panes' })
+    // the viewport lives above the tab navigation, not inside a tab pane
+    expect(thumbnail.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(thumbnail).getByText("Codey's screen")).toBeInTheDocument()
     expect(within(thumbnail).getByText('No screen session')).toBeInTheDocument()
     expect(thumbnail.querySelector('img')).toBeNull()
+    // switching tabs never unmounts it
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Agent' }))
+    expect(within(dialog).getByTestId('agent-screen-thumbnail')).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Test schedule' }))
+    expect(within(dialog).getByTestId('agent-screen-thumbnail')).toBeTruthy()
   })
 
   it('creates a routine from + and opens the editor; Back returns to the list', async () => {

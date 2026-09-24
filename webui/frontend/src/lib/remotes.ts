@@ -72,7 +72,8 @@ export function configuredRemotes(
 /** Empty catalog vs remotes-exist-but-unbound. Never "No remotes" while remotes exist. */
 export function remoteSelectPlaceholder(configuredCount: number, selectedId = ''): string {
   if (configuredCount === 0) return 'No remotes'
-  if (!selectedId) return 'Pick a remote'
+  // #1093 (5): the picker defaults — 'default' beats imperative 'Pick a …'.
+  if (!selectedId) return 'default'
   return 'Remote'
 }
 

@@ -130,7 +130,12 @@ def _trueforge_sessions(spec: RemoteSpec, timeout: float) -> list[dict[str, Any]
         if not session_id or session_id in seen:
             continue
         seen.add(session_id)
-        agent = str(row.get("agent") or row.get("agent_id") or "").strip()
+        agent_raw: Any = row.get("agent")
+        if isinstance(agent_raw, dict):
+            # #1099: the real API nests the agent as {type, id, name} —
+            # normalize to its name instead of str()-ed dict garbage.
+            agent_raw = agent_raw.get("name") or agent_raw.get("id") or ""
+        agent = str(agent_raw or row.get("agent_id") or "").strip()
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         title = str(
             row.get("title")
@@ -144,6 +149,9 @@ def _trueforge_sessions(spec: RemoteSpec, timeout: float) -> list[dict[str, Any]
                 "agent": agent,
                 "title": title,
                 "created_at": str(row.get("created_at") or row.get("createdAt") or "").strip(),
+                # #1100: the API exposes per-session recent activity — surface it
+                # so the picker can show it instead of an epoch-0 stamp.
+                "updated_at": str(row.get("updated_at") or row.get("updatedAt") or "").strip(),
             }
         )
     return out

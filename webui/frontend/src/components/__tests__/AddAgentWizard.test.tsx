@@ -552,7 +552,7 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
 
     fireEvent.click(screen.getByTestId('kind-option-remote'))
     const select = await screen.findByRole('combobox', { name: 'Remote' })
-    expect(within(select).getByRole('option', { name: 'Pick a remote' })).toBeInTheDocument()
+    expect(within(select).getByRole('option', { name: 'default' })).toBeInTheDocument()
     // REQ-184: Add-new fields are visible on the same tab alongside configured remotes
     expect(screen.getByTestId('input-remote-url')).toBeInTheDocument()
 

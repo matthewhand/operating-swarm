@@ -1,155 +1,137 @@
+/**
+ * #1088 — Alt+Up / Alt+Down sequential rail navigation (Herdr parity).
+ *
+ * Replaces REQ-172's Alt+1..9 slot model, which collided with native browser
+ * tab switching (Alt+1..8 on Linux/Windows). The navigable sequence is the
+ * rail's visual order: visible pins first, then every row in the uncollapsed
+ * sections — no 9-slot cap, no spill. Movement clamps at the boundaries.
+ */
 import { describe, expect, it } from 'vitest'
 import { chatHrefForRowId } from '../agentNotifications'
 import {
-  computeRailHotkeyTargets,
+  activeRailNavIndex,
+  computeRailNavSequence,
   herdrChatHref,
+  stepRailNav,
   type RailRow,
 } from '../railHotkeys'
 
-describe('computeRailHotkeyTargets (REQ-172)', () => {
-  const mockRows: RailRow[] = [
-    { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
-    { kind: 'agent', id: 'agent-2', agent: { id: 'agent-2', name: 'Agent 2' } },
-    { kind: 'team', id: 'team-alpha', team: { id: 'alpha', name: 'Team Alpha' } },
-    { kind: 'remote', id: 'remote-omb', remote: { id: 'omb', label: 'OpenMousBot' } },
-    { kind: 'agent', id: 'agent-5', agent: { id: 'agent-5', name: 'Agent 5' } },
-    { kind: 'agent', id: 'agent-6', agent: { id: 'agent-6', name: 'Agent 6' } },
-    { kind: 'agent', id: 'agent-7', agent: { id: 'agent-7', name: 'Agent 7' } },
-    { kind: 'agent', id: 'agent-8', agent: { id: 'agent-8', name: 'Agent 8' } },
-    { kind: 'agent', id: 'agent-9', agent: { id: 'agent-9', name: 'Agent 9' } },
-    { kind: 'agent', id: 'agent-10', agent: { id: 'agent-10', name: 'Agent 10' } },
-  ]
+const mockRows: RailRow[] = [
+  { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
+  { kind: 'agent', id: 'agent-2', agent: { id: 'agent-2', name: 'Agent 2' } },
+  { kind: 'team', id: 'team-alpha', team: { id: 'alpha', name: 'Team Alpha' } },
+  { kind: 'remote', id: 'remote-omb', remote: { id: 'omb', label: 'OpenMousBot' } },
+  { kind: 'agent', id: 'agent-5', agent: { id: 'agent-5', name: 'Agent 5' } },
+]
 
-  it('case 0 favourites: Alt+1–9 target top nine unpinned rows', () => {
-    const targets = computeRailHotkeyTargets({
-      visiblePins: [],
-      orderedRows: mockRows,
-    })
-
-    expect(targets).toHaveLength(9)
-    expect(targets[0].id).toBe('agent-1')
-    expect(targets[0].href).toBe('/chat?blueprint=agent-1')
-    expect(targets[1].id).toBe('agent-2')
-    expect(targets[2].id).toBe('team-alpha')
-    expect(targets[2].href).toBe('/chat?team=alpha')
-    expect(targets[3].id).toBe('remote-omb')
-    expect(targets[3].href).toBe('/chat?remote=omb')
-    expect(targets[8].id).toBe('agent-9')
-  })
-
-  it('case 3 favourites: Alt+1–3 target pins, Alt+4–9 target top six unpinned', () => {
+describe('#1088 computeRailNavSequence — rail visual order', () => {
+  it('lists visible pins first, then all rows in order — no 9-slot cap', () => {
     const pins = [
       { id: 'pin-1', name: 'Pin 1' },
       { id: 'pin-2', name: 'Pin 2' },
-      { id: 'pin-3', name: 'Pin 3' },
     ]
-
-    const targets = computeRailHotkeyTargets({
-      visiblePins: pins,
-      orderedRows: mockRows,
-    })
-
-    expect(targets).toHaveLength(9)
-    // First 3 are pins
-    expect(targets[0].id).toBe('pin-1')
-    expect(targets[0].kind).toBe('pin')
-    expect(targets[1].id).toBe('pin-2')
-    expect(targets[2].id).toBe('pin-3')
-
-    // Next 6 are from unpinned rows
-    expect(targets[3].id).toBe('agent-1')
-    expect(targets[3].kind).toBe('agent')
-    expect(targets[4].id).toBe('agent-2')
-    expect(targets[5].id).toBe('team-alpha')
-    expect(targets[6].id).toBe('remote-omb')
-    expect(targets[7].id).toBe('agent-5')
-    expect(targets[8].id).toBe('agent-6')
-  })
-
-  it('case 10 favourites: unpinned rows unused, only first 9 pins bound', () => {
-    const pins = Array.from({ length: 10 }, (_, i) => ({
-      id: `pin-${i + 1}`,
-      name: `Pin ${i + 1}`,
+    const seq = computeRailNavSequence({ visiblePins: pins, orderedRows: mockRows })
+    expect(seq.map((t) => t.id)).toEqual([
+      'pin-1',
+      'pin-2',
+      'agent-1',
+      'agent-2',
+      'team-alpha',
+      'remote-omb',
+      'agent-5',
+    ])
+    // more than 9 entries is fine now
+    const manyRows = Array.from({ length: 12 }, (_, i) => ({
+      kind: 'agent' as const,
+      id: `agent-${i + 1}`,
+      agent: { id: `agent-${i + 1}`, name: `Agent ${i + 1}` },
     }))
-
-    const targets = computeRailHotkeyTargets({
-      visiblePins: pins,
-      orderedRows: mockRows,
-    })
-
-    expect(targets).toHaveLength(9)
-    expect(targets[0].id).toBe('pin-1')
-    expect(targets[8].id).toBe('pin-9')
-    // No unpinned rows included
-    expect(targets.some((t) => t.kind !== 'pin')).toBe(false)
+    const big = computeRailNavSequence({ visiblePins: [], orderedRows: manyRows })
+    expect(big).toHaveLength(12)
   })
 
-  it('REQ-171B: pins of each kind use kind-aware hrefs (not always ?blueprint=)', () => {
-    const targets = computeRailHotkeyTargets({
+  it('kind-aware hrefs survive the model change (REQ-171B / #543)', () => {
+    const seq = computeRailNavSequence({
       visiblePins: [
         { id: 'codey', name: 'Codey' },
         { id: 'team:demo', name: 'Demo' },
         { id: 'remote:omb', name: 'OpenMousBot' },
         { id: 'herdr:w3:p1', name: 'w3:p1', kind: 'herdr' },
       ],
-      orderedRows: [],
+      orderedRows: mockRows,
     })
-
-    expect(targets).toHaveLength(4)
-    expect(targets[0]).toMatchObject({
-      id: 'codey',
-      kind: 'pin',
-      href: '/chat?blueprint=codey',
-    })
-    expect(targets[1]).toMatchObject({
-      id: 'team:demo',
-      kind: 'pin',
-      href: '/chat?team=demo',
-    })
-    expect(targets[1].href).not.toMatch(/blueprint=/)
-    expect(targets[2]).toMatchObject({
-      id: 'remote:omb',
-      kind: 'pin',
-      href: '/chat?remote=omb',
-    })
-    expect(targets[2].href).not.toMatch(/blueprint=/)
-    // #543: herdr seats chat like every other kind — the pin targets the
-    // agent's own conversation, not the settings-adjacent members page.
-    expect(targets[3]).toMatchObject({
+    expect(seq[0]).toMatchObject({ id: 'codey', href: '/chat?blueprint=codey' })
+    expect(seq[1]).toMatchObject({ id: 'team:demo', href: '/chat?team=demo' })
+    expect(seq[2]).toMatchObject({ id: 'remote:omb', href: '/chat?remote=omb' })
+    expect(seq[3]).toMatchObject({
       id: 'herdr:w3:p1',
-      kind: 'pin',
       href: '/chat?remote=herdr&session=w3%3Ap1',
       isHerdr: true,
     })
-  })
-
-  it('handles fewer than 9 total items gracefully', () => {
-    const pins = [{ id: 'pin-1', name: 'Pin 1' }]
-    const rows: RailRow[] = [
-      { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
-    ]
-
-    const targets = computeRailHotkeyTargets({
-      visiblePins: pins,
-      orderedRows: rows,
-    })
-
-    expect(targets).toHaveLength(2)
-    expect(targets[0].id).toBe('pin-1')
-    expect(targets[1].id).toBe('agent-1')
+    expect(seq[4]).toMatchObject({ id: 'agent-1', href: '/chat?blueprint=agent-1' })
+    expect(seq[6]).toMatchObject({ id: 'team-alpha', href: '/chat?team=alpha' })
+    expect(seq[8]).toMatchObject({ id: 'agent-5', href: '/chat?blueprint=agent-5' })
   })
 })
 
-describe('#543 herdrChatHref — herdr seats are URL-addressable', () => {
+describe('#1088 activeRailNavIndex — resolve the current row from the URL', () => {
+  const seq = computeRailNavSequence({
+    visiblePins: [{ id: 'pin-1', name: 'Pin 1' }],
+    orderedRows: mockRows,
+  })
+
+  it('matches ?blueprint= rows', () => {
+    expect(activeRailNavIndex(seq, '?blueprint=agent-2')).toBe(2)
+  })
+  it('matches ?team= and ?remote= rows', () => {
+    expect(activeRailNavIndex(seq, '?team=alpha')).toBe(3)
+    expect(activeRailNavIndex(seq, '?remote=omb')).toBe(4)
+  })
+  it('matches herdr sessions and pins', () => {
+    const withHerdr = computeRailNavSequence({
+      visiblePins: [{ id: 'herdr:p1', name: 'p1', kind: 'herdr' }],
+      orderedRows: [],
+    })
+    expect(activeRailNavIndex(withHerdr, '?remote=herdr&session=p1')).toBe(0)
+  })
+  it('returns -1 when nothing matches (no navigation anchor)', () => {
+    expect(activeRailNavIndex(seq, '?blueprint=unknown-agent')).toBe(-1)
+  })
+})
+
+describe('#1088 stepRailNav — sequential movement with boundary clamping', () => {
+  const seq = computeRailNavSequence({
+    visiblePins: [{ id: 'pin-1', name: 'Pin 1' }],
+    orderedRows: mockRows,
+  })
+
+  it('Alt+Down advances through pins into unpinned rows and across sections', () => {
+    expect(stepRailNav(seq, 0, 1)?.id).toBe('agent-1')
+    expect(stepRailNav(seq, 1, 1)?.id).toBe('agent-2')
+    expect(stepRailNav(seq, 2, 1)?.id).toBe('team-alpha')
+    expect(stepRailNav(seq, 3, 1)?.id).toBe('remote-omb')
+  })
+  it('Alt+Up walks back the same path', () => {
+    expect(stepRailNav(seq, 1, -1)?.id).toBe('pin-1')
+    expect(stepRailNav(seq, 4, -1)?.id).toBe('team-alpha')
+  })
+  it('clamps at the boundaries instead of wrapping or escaping', () => {
+    expect(stepRailNav(seq, 0, -1)?.id).toBe('pin-1')
+    expect(stepRailNav(seq, seq.length - 1, 1)?.id).toBe('agent-5')
+  })
+  it('an unanchored current index (-1) starts from the top on Alt+Down', () => {
+    expect(stepRailNav(seq, -1, 1)?.id).toBe('pin-1')
+    expect(stepRailNav(seq, -1, -1)?.id).toBe('pin-1')
+  })
+})
+
+describe('#543 herdrChatHref — herdr seats are URL-addressable (unchanged)', () => {
   it('builds a chat URL whose session IS the agent target', () => {
     expect(herdrChatHref('herdr:p1')).toBe('/chat?remote=herdr&session=p1')
     expect(herdrChatHref('p1')).toBe('/chat?remote=herdr&session=p1')
   })
 
   it('encodes agent names that share an id shape with URL params', () => {
-    // Two agents with the same name on different remotes stay distinguishable
-    // through the agent list's remote field; the name itself must survive the
-    // URL round-trip.
     expect(herdrChatHref('herdr:w3:p1')).toBe('/chat?remote=herdr&session=w3%3Ap1')
   })
 

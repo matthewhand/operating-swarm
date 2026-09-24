@@ -21,6 +21,11 @@ import { isExperimentalEnabled } from './experimental/flags'
 import { useLeftEdgeSwipe } from './lib/leftEdgeSwipe'
 import { isNarrowViewport, subscribeNarrowViewport } from './lib/narrowViewport'
 import { useViewportTier } from './lib/responsivePrefs'
+import {
+  loadTabletStickyDock,
+  saveTabletStickyDock,
+  subscribeTabletStickyDock,
+} from './lib/tabletStickyDock'
 import { dismissSwipeHint, isSwipeHintDismissed } from './lib/swipeHint'
 import {
   initialTheme,
@@ -115,16 +120,29 @@ function App() {
   const [teamComposerOpen, setTeamComposerOpen] = useState(false)
   const [teamsSheetOpen, setTeamsSheetOpen] = useState(false)
 
+  // #1073: tablet tier can pin the rail in-flow (no backdrop, no
+  // auto-dismiss on pick), mirroring desktop behaviour. Mobile never docks
+  // (no room); desktop is always docked, so the pref only bites on tablet.
+  const [tabletDocked, setTabletDocked] = useState(loadTabletStickyDock)
+  useEffect(() => subscribeTabletStickyDock(setTabletDocked), [])
+
+  // #833 tier hook lives below with the shell attribute effect; the docked
+  // derivation joins the two here so pickFromRail can close over it.
+  const viewportTier = useViewportTier()
+  const railDocked = viewportTier === 'tablet' && tabletDocked
+
   const openRail = useCallback(() => setRailOpen(true), [])
   const closeRail = useCallback(() => {
     if (!narrow) return
     setRailOpen(false)
   }, [narrow])
   const pickFromRail = useCallback(() => {
-    if (!narrow) return
+    // #1073: a docked tablet rail behaves like desktop — picking an agent
+    // never dismisses it. Only the undocked drawer auto-closes.
+    if (!narrow || railDocked) return
     setRailOpen(false)
     if (!isSwipeHintDismissed()) setSwipeHint(true)
-  }, [narrow])
+  }, [narrow, railDocked])
   const dismissHint = useCallback(() => {
     dismissSwipeHint()
     setSwipeHint(false)
@@ -132,7 +150,6 @@ function App() {
 
   // #833: shell tier attribute — CSS adapts to the active viewport tier
   // (mobile / tablet / desktop) without re-render latency.
-  const viewportTier = useViewportTier()
   useEffect(() => {
     document.documentElement.setAttribute('data-viewport', viewportTier)
     return () => document.documentElement.removeAttribute('data-viewport')
@@ -142,7 +159,8 @@ function App() {
     return subscribeNarrowViewport((next) => {
       setNarrow(next)
       if (next) {
-        setRailOpen(false)
+        // #1073: a pinned tablet rail stays open across the tier boundary.
+        setRailOpen(loadTabletStickyDock())
       } else {
         setRailOpen(true)
         setSwipeHint(false)
@@ -300,6 +318,8 @@ function App() {
                 onClose={closeRail}
                 onPick={pickFromRail}
                 onOpenSearch={() => setSearchOpen(true)}
+                tabletDocked={railDocked}
+                onToggleTabletDock={narrow ? () => saveTabletStickyDock(!tabletDocked) : undefined}
               />
               <div className="flex min-w-0 flex-1 flex-col">
                 <main id="os-main" className="min-h-0 min-w-0 flex-1 overflow-hidden" tabIndex={-1}>

@@ -267,16 +267,21 @@ describe('#810 trueforge sessions', () => {
   const tfResult = {
     remote: 'trueforge',
     op: 'list',
-    ok: true,
-    data: {
-      rows_are: 'agents',
-      resume_key: 'session_id',
-      data: [{ id: 'agent-1', name: 'orchestrator' }],
-      sessions: [
-        { id: 'sess-9', agent: 'orchestrator', title: 'refactor the parser', created_at: '2026-09-21T10:00:00Z' },
-        { id: 'sess-4', agent: 'coder' },
-      ],
-    },
+    ok: true,      data: {
+        rows_are: 'agents',
+        resume_key: 'session_id',
+        data: [{ id: 'agent-1', name: 'orchestrator' }],
+        sessions: [
+          {
+            id: 'sess-9',
+            agent: 'orchestrator',
+            title: 'refactor the parser',
+            created_at: '2026-09-21T10:00:00Z',
+            updated_at: '2026-09-22T08:30:00Z',
+          },
+          { id: 'sess-4', agent: 'coder' },
+        ],
+      },
   } as never
 
   it('maps data.sessions to pickable threads with titles', () => {
@@ -288,6 +293,34 @@ describe('#810 trueforge sessions', () => {
     expect(rows[0].title).toBe('refactor the parser')
     expect(rows[1].title).toContain('sess-4')
     expect(rows[0].href).toContain('session=sess-9')
+  })
+
+  // #1099/#1100: real activity stamps replace the fake `startedAt: index`
+  // (row 0 was literally epoch-0). Rows without timestamps stay at 0, which
+  // the shared formatters render as *no stamp* — never a 0 or 1970 date.
+  it('parses updated_at into a real startedAt and leaves unknown rows at epoch-0', () => {
+    const rows = memberSessionsFromRemoteOperate(
+      { id: 'trueforge', title: 'TrueForge', kind: 'trueforge' },
+      tfResult,
+    )
+    expect(rows[0].startedAt).toBe(Date.parse('2026-09-22T08:30:00Z'))
+    expect(rows[1].startedAt).toBe(0)
+  })
+
+  it('falls back to created_at when updated_at is absent', () => {
+    const rows = memberSessionsFromRemoteOperate(
+      { id: 'trueforge', title: 'TrueForge', kind: 'trueforge' },
+      {
+        remote: 'trueforge',
+        op: 'list',
+        ok: true,
+        data: {
+          rows_are: 'agents',
+          sessions: [{ id: 's1', created_at: '2026-09-20T09:00:00Z' }],
+        },
+      } as never,
+    )
+    expect(rows[0].startedAt).toBe(Date.parse('2026-09-20T09:00:00Z'))
   })
 
   it('never presents agent rows as sessions when data.sessions is absent', () => {
