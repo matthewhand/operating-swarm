@@ -2698,7 +2698,7 @@ button.os-agent-row {
   height: 1.85rem;
   font-size: 0.75rem;
   padding-inline: 0.45rem;
-  max-width: 12rem;
+  max-width: 13rem; /* #1136: match the base pill block + the 200px JS cap */
 }
 /* #795: the provider glyph rides inside the pill; hidden on desktop where the
    text label already names the provider, shown on mobile where it replaces it. */
