@@ -27,9 +27,11 @@ def _text(path: Path) -> str:
 
 
 def _turn_dispatch() -> str:
-    """``_run_serialised_chat_turn`` body, up to the next method."""
+    """Turn execution region: ``_run_serialised_chat_turn`` plus the
+    ``_run_chat_turn_body`` it delegates to (ADR-017 PR-1 split the dispatch
+    out of the serialised wrapper; the guard contract is unchanged)."""
     body = _text(CONSUMERS).split("async def _run_serialised_chat_turn", 1)[1]
-    return body.split("\n    async def ", 1)[0]
+    return body.split("\n    async def _emit_teammate_task_cards", 1)[0]
 
 
 def test_req884_turn_dispatch_sends_an_error_frame_instead_of_escaping():

@@ -2,7 +2,11 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import Optional
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
@@ -37,6 +41,31 @@ WS_AUTH_REQUIRED_CODE = 4401
 # server -> client acknowledgement {"type": "turn_cancelled"}. The ack is
 # consumed by the WS parser as a status line, not a new event kind.
 TURN_CANCELLED_TYPE = "turn_cancelled"
+
+# ADR-017 PR-1 (#1097): task local turn identity. ``_cancel_event()`` resolves
+# through this so every mixin call site (which only ever does
+# ``self._cancel_event().is_set()``) becomes per-turn scoped without any mixin
+# change. Bare (identity-less) work falls back to the legacy per-socket event.
+_TURN_STATE_CTX: ContextVar["Optional[TurnState]"] = ContextVar(
+    "swarm_chat_turn_state", default=None
+)
+
+
+@dataclass
+class TurnState:
+    """One running chat turn on a socket (ADR-017 PR-1).
+
+    ``turn_id`` rides on ``turn_started`` / ``turn_finished`` frames so the
+    SPA can attribute stop requests; ``cancel_event`` is what the turn's
+    ``self._cancel_event()`` call sites resolve to while it runs.
+    """
+
+    turn_id: str
+    agent_id: str
+    cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    started_at: float = field(default_factory=time.time)
+    finished_at: Optional[float] = None
+    _ctx_token: object = field(default=None, repr=False, compare=False)
 # #818: auxiliary/background LLM inference visibility.
 AUX_START_TYPE = "aux_task_started"
 AUX_UPDATE_TYPE = "aux_task_update"
@@ -418,7 +447,10 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
         # #198: enter-to-interrupt — a queued-send promote cancels the turn
         # in flight before the new message runs.
         if text_data_json.get("type") == "cancel_turn":
-            await self._cancel_current_turn()
+            await self._cancel_current_turn(
+                agent_id=str(text_data_json.get("agent") or ""),
+                turn_id=str(text_data_json.get("turn_id") or ""),
+            )
             return
 
         # #818: kill one background task from the activity dialog.
@@ -469,12 +501,119 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
         await self._run_serialised_chat_turn(text_data_json, message_text)
 
     def _cancel_event(self) -> asyncio.Event:
-        """Lazily create the single cancel event shared by this socket."""
+        """Resolve the cancel event for *this* task's turn (ADR-017 PR-1).
+
+        Mixins (and this kernel) all poll through here. When the running turn
+        registered itself via ``_begin_turn``, the event is task local to that
+        turn, so a cancel aimed at another agent never lands here. Work begun
+        outside a turn (legacy tests, background drains) falls back to the
+        per-socket event — the #198 semantics for anything unscoped.
+        """
+        turn = _TURN_STATE_CTX.get()
+        if turn is not None:
+            return turn.cancel_event
         event = getattr(self, "_turn_cancel_event", None)
         if event is None:
             event = asyncio.Event()
             self._turn_cancel_event = event
         return event
+
+    # ------------------------------------------------------------------
+    # ADR-017 PR-1 (#1097): per-turn identity, registry, per-agent locks.
+    # ------------------------------------------------------------------
+
+    @property
+    def active_turns(self) -> dict:
+        """turn_id -> TurnState for every turn running on this socket."""
+        turns = getattr(self, "_active_turns", None)
+        if turns is None:
+            turns = {}
+            self._active_turns = turns
+        return turns
+
+    async def _begin_turn(self, agent_id: str = "") -> TurnState:
+        """Register a turn, bind it to this task's context, open the bookend.
+
+        The ``turn_started`` frame carries ``turn_id`` + ``agent_id``; the
+        SPA's per-agent Stop (#1096) sends that identity back on
+        ``cancel_turn``.
+        """
+        turn = TurnState(
+            turn_id=uuid.uuid4().hex,
+            agent_id=str(agent_id or ""),
+        )
+        self.active_turns[turn.turn_id] = turn
+        turn._ctx_token = _TURN_STATE_CTX.set(turn)
+        try:
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "turn_started",
+                        "turn_id": turn.turn_id,
+                        "agent_id": turn.agent_id,
+                    }
+                )
+            )
+        except Exception:
+            logger.debug("turn_started send failed; socket likely gone", exc_info=True)
+        return turn
+
+    async def _end_turn(self, turn: TurnState) -> None:
+        """Unregister, reset the task local binding, close the bookend."""
+        token = getattr(turn, "_ctx_token", None)
+        if token is not None:
+            _TURN_STATE_CTX.reset(token)
+            turn._ctx_token = None
+        self.active_turns.pop(turn.turn_id, None)
+        turn.finished_at = time.time()
+        try:
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "turn_finished",
+                        "turn_id": turn.turn_id,
+                        "agent_id": turn.agent_id,
+                    }
+                )
+            )
+        except Exception:
+            logger.debug("turn_finished send failed; socket likely gone", exc_info=True)
+
+    def _agent_lock(self, agent_id: str) -> asyncio.Lock:
+        """One lock per agent id (REQ-171A-3 preserved *per agent*).
+
+        Same agent ⇒ same lock ⇒ serialised, exactly as the old single
+        ``_chat_turn_lock`` did for everything. Different agents get
+        different locks ⇒ concurrent turns (ADR-017 §3.3).
+        """
+        key = str(agent_id or "")
+        locks = getattr(self, "_agent_locks", None)
+        if locks is None:
+            locks = {}
+            self._agent_locks = locks
+        lock = locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            locks[key] = lock
+        return lock
+
+    def _current_turn(self) -> Optional[TurnState]:
+        turn = _TURN_STATE_CTX.get()
+        if turn is not None and turn.turn_id in self.active_turns:
+            return turn
+        return None
+
+    def _ensure_chat_turn_lock(self) -> asyncio.Lock:
+        """Legacy whole-socket lock (REQ-171A-3 / #603).
+
+        Kept as the fallback for callers that do not run under a turn
+        identity; the turn path now serialises via ``_agent_lock`` instead.
+        """
+        lock = getattr(self, "_chat_turn_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._chat_turn_lock = lock
+        return lock
 
     @property
     def auxiliary_tasks(self):
@@ -487,15 +626,31 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             self._auxiliary_tasks = reg
         return reg
 
-    async def _cancel_current_turn(self):
-        """#198: cooperative cancel — request the active turn to stop.
+    async def _cancel_current_turn(self, agent_id: str = "", turn_id: str = ""):
+        """Cooperative cancel — #198 legacy, ADR-017 PR-1 scoping.
 
-        The running turn polls ``self._cancel_event`` between streamed chunks
-        (blueprint and default-model paths) and bails with an "Interrupted"
-        note instead of persisting a partial reply. Safe when nothing runs:
-        the next turn clears the flag at entry.
+        With ``agent_id``/``turn_id`` (the #1096 per-agent Stop), only that
+        turn's event is set. Bare (no identity) keeps the #198 behaviour:
+        every running turn on the socket is cancelled, and the legacy
+        per-socket event is set so unscoped work stops too.
         """
-        self._cancel_event().set()
+        targets = []
+        if turn_id:
+            turn = self.active_turns.get(str(turn_id))
+            if turn is not None:
+                targets.append(turn)
+        elif agent_id:
+            targets = [
+                t
+                for t in self.active_turns.values()
+                if t.agent_id and t.agent_id == str(agent_id)
+            ]
+        else:
+            targets = list(self.active_turns.values())
+            # Legacy: also stop unscoped work on this socket.
+            self._cancel_event().set()
+        for turn in targets:
+            turn.cancel_event.set()
         pending_questions = getattr(self, "_pending_question_answers", {}) or {}
         for future in list(pending_questions.values()):
             if future is not None and not future.done():
@@ -506,171 +661,191 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             logger.debug("turn_cancelled ack send failed", exc_info=True)
 
     async def _run_serialised_chat_turn(self, text_data_json, message_text):
-        """One ``respond_with_*`` at a time on this socket (REQ-171A-3 / #603)."""
-        async with self._ensure_chat_turn_lock():
-            # #198: a fresh turn always starts un-cancelled.
+        """One ``respond_with_*`` at a time per agent (REQ-171A-3 / #603).
+
+        ADR-017 PR-1: serialisation is keyed by the resolved agent, so two
+        sends for the same agent queue exactly as the old whole-socket lock
+        did, while different agents' turns may interleave. The turn is
+        registered for the body — ``turn_started`` / ``turn_finished``
+        bookend the wire, and ``_cancel_event()`` resolves task locally.
+        """
+        # Per-message blueprint selection wins over the connection default.
+        blueprint_id = text_data_json.get("blueprint") or getattr(
+            self, "default_blueprint", None
+        )
+        params = text_data_json.get("params")
+        if not isinstance(params, dict):
+            params = None
+
+        if params and params.get("remote") and not blueprint_id:
+            blueprint_id = "remote_harness"
+            params.setdefault("name", str(params["remote"]))
+            params.setdefault("op", "send")
+        elif blueprint_id and (
+            str(blueprint_id).startswith("remote:")
+            or str(blueprint_id).lower() in (
+                "hermes",
+                "anythingllm",
+                "letta",
+                "openwebui",
+                "flowise",
+                "n8n",
+                "omb",
+                "rakazo",
+                "herdr",
+                "swarm",
+                "trueforge",
+            )
+        ):
+            remote_name = str(blueprint_id).replace("remote:", "")
+            blueprint_id = "remote_harness"
+            if params is None:
+                params = {}
+            params.setdefault("name", remote_name)
+            params.setdefault("remote", remote_name)
+            params.setdefault("op", "send")
+
+        self.active_agent = blueprint_id or getattr(self, "active_agent", None)
+        agent_id = str(blueprint_id or getattr(self, "active_agent", "") or "")
+
+        async with self._agent_lock(agent_id):
+            # #198: a fresh turn always starts un-cancelled. Before the turn
+            # binds the task local context, this still resolves to the legacy
+            # per-socket event — a bare cancel between turns must not leak in.
             self._cancel_event().clear()
-            # Per-message blueprint selection wins over the connection default.
-            blueprint_id = text_data_json.get("blueprint") or getattr(
-                self, "default_blueprint", None
-            )
-            params = text_data_json.get("params")
-            if not isinstance(params, dict):
-                params = None
-
-            if params and params.get("remote") and not blueprint_id:
-                blueprint_id = "remote_harness"
-                params.setdefault("name", str(params["remote"]))
-                params.setdefault("op", "send")
-            elif blueprint_id and (
-                str(blueprint_id).startswith("remote:")
-                or str(blueprint_id).lower() in (
-                    "hermes",
-                    "anythingllm",
-                    "letta",
-                    "openwebui",
-                    "flowise",
-                    "n8n",
-                    "omb",
-                    "rakazo",
-                    "herdr",
-                    "swarm",
-                    "trueforge",
-                )
-            ):
-                remote_name = str(blueprint_id).replace("remote:", "")
-                blueprint_id = "remote_harness"
-                if params is None:
-                    params = {}
-                params.setdefault("name", remote_name)
-                params.setdefault("remote", remote_name)
-                params.setdefault("op", "send")
-
-            self.active_agent = blueprint_id or getattr(self, "active_agent", None)
-
-            # #794: a send toward a Herdr pane arms the "this turn is ours"
-            # attribution so the session watch will not mirror our own prompt
-            # back as an external user turn.
-            if str((params or {}).get("remote") or "").strip().lower() == "herdr":
-                try:
-                    from swarm.core import chat_store, herdr_session_watch
-
-                    herdr_session_watch.note_swarm_send(
-                        user_key=chat_store.user_key_for(self.user),
-                        conversation_id=str(getattr(self, "conversation_id", "") or ""),
-                        target=str((params or {}).get("session") or ""),
-                    )
-                except Exception:
-                    logger.debug("herdr swarm-send attribution failed", exc_info=True)
-
-            if params and params.get("new_session"):
-                # REQ-65: CoS/user task asked for an empty session on this socket.
-                self.messages = []
-                self.ui_events = []
-
-            from swarm.core import chat_attachments
-
-            attachment_ids = chat_attachments.parse_attachment_ids(
-                text_data_json.get("attachments")
-            )
-            # #744: user text is a paste boundary — terminal transcripts carry
-            # mangled CSI leftovers (``[13;28;13;1;0;1_``) that would otherwise
-            # be persisted, rendered, and re-copied forever. Same sanitizer the
-            # model-output path uses; plain text is untouched.
-            from swarm.core.model_text import sanitize_model_text
-
-            display_text = sanitize_model_text(message_text)
-            if not display_text and attachment_ids:
-                display_text = chat_attachments.caption([])
-            _record_turn(
-                self,
-                "user",
-                display_text,
-                ts=_message_ts(),
-                attachments=attachment_ids or None,
-            )
-
-            user_message_html = render_to_string(
-                "websocket_partials/user_message.html",
-                {"message_text": display_text},
-            )
-            await self.send(text_data=user_message_html)
-
-            # REQ-92: new-session status must precede the assistant bubble on the wire.
-            await self._emit_new_cli_session_notice(blueprint_id, params)
-
-            message_id = uuid.uuid4().hex
-            contents_div_id = f"message-response-{message_id}"
-            system_message_html = render_to_string(
-                "websocket_partials/system_message.html",
-                {"contents_div_id": contents_div_id},
-            )
-            await self.send(text_data=system_message_html)
-
-            # Guard the dispatch itself. The respond_* paths handle their own
-            # generation failures, but anything raised before/around them —
-            # e.g. constructing the model client when OPENAI_API_KEY is unset
-            # or a config ${VAR} never expanded — used to escape
-            # websocket_receive. Uvicorn then aborted the socket with no close
-            # frame, leaving the SPA to report "ASGI is not serving /ws/ or
-            # Origin does not match ALLOWED_HOSTS": a credential/config fault
-            # presented as a connection fault. Surface it as an error partial.
+            turn = await self._begin_turn(agent_id=agent_id)
             try:
-                from swarm.demo import is_demo_mode
+                await self._run_chat_turn_body(
+                    text_data_json, message_text, blueprint_id, params
+                )
+            finally:
+                await self._end_turn(turn)
+    async def _run_chat_turn_body(
+        self, text_data_json, message_text, blueprint_id, params
+    ):
+        """The per-turn work: record, render, dispatch (moved verbatim)."""
 
-                if is_demo_mode():
-                    await self.respond_with_demo(
-                        contents_div_id, message_text, params=params
-                    )
-                elif params and params.get("team"):
-                    from swarm.core.team_rosters import blueprint_id_for_team_target
+        # #794: a send toward a Herdr pane arms the "this turn is ours"
+        # attribution so the session watch will not mirror our own prompt
+        # back as an external user turn.
+        if str((params or {}).get("remote") or "").strip().lower() == "herdr":
+            try:
+                from swarm.core import chat_store, herdr_session_watch
 
-                    team_blueprint = blueprint_id_for_team_target(
-                        params.get("team"), params.get("target")
-                    )
-                    if team_blueprint:
-                        await self.respond_with_blueprint(
-                            team_blueprint, contents_div_id, params=params
-                        )
-                    else:
-                        await self.respond_with_team_stub(
-                            params, message_text, contents_div_id
-                        )
-                elif blueprint_id and _is_bootstrap_turn(blueprint_id, params):
-                    await self.respond_with_bootstrap(
-                        blueprint_id, contents_div_id, message_text, params=params
-                    )
-                elif blueprint_id:
+                herdr_session_watch.note_swarm_send(
+                    user_key=chat_store.user_key_for(self.user),
+                    conversation_id=str(getattr(self, "conversation_id", "") or ""),
+                    target=str((params or {}).get("session") or ""),
+                )
+            except Exception:
+                logger.debug("herdr swarm-send attribution failed", exc_info=True)
+
+        if params and params.get("new_session"):
+            # REQ-65: CoS/user task asked for an empty session on this socket.
+            self.messages = []
+            self.ui_events = []
+
+        from swarm.core import chat_attachments
+
+        attachment_ids = chat_attachments.parse_attachment_ids(
+            text_data_json.get("attachments")
+        )
+        # #744: user text is a paste boundary — terminal transcripts carry
+        # mangled CSI leftovers (``[13;28;13;1;0;1_``) that would otherwise
+        # be persisted, rendered, and re-copied forever. Same sanitizer the
+        # model-output path uses; plain text is untouched.
+        from swarm.core.model_text import sanitize_model_text
+
+        display_text = sanitize_model_text(message_text)
+        if not display_text and attachment_ids:
+            display_text = chat_attachments.caption([])
+        _record_turn(
+            self,
+            "user",
+            display_text,
+            ts=_message_ts(),
+            attachments=attachment_ids or None,
+        )
+
+        user_message_html = render_to_string(
+            "websocket_partials/user_message.html",
+            {"message_text": display_text},
+        )
+        await self.send(text_data=user_message_html)
+
+        # REQ-92: new-session status must precede the assistant bubble on the wire.
+        await self._emit_new_cli_session_notice(blueprint_id, params)
+
+        message_id = uuid.uuid4().hex
+        contents_div_id = f"message-response-{message_id}"
+        system_message_html = render_to_string(
+            "websocket_partials/system_message.html",
+            {"contents_div_id": contents_div_id},
+        )
+        await self.send(text_data=system_message_html)
+
+        # Guard the dispatch itself. The respond_* paths handle their own
+        # generation failures, but anything raised before/around them —
+        # e.g. constructing the model client when OPENAI_API_KEY is unset
+        # or a config ${VAR} never expanded — used to escape
+        # websocket_receive. Uvicorn then aborted the socket with no close
+        # frame, leaving the SPA to report "ASGI is not serving /ws/ or
+        # Origin does not match ALLOWED_HOSTS": a credential/config fault
+        # presented as a connection fault. Surface it as an error partial.
+        try:
+            from swarm.demo import is_demo_mode
+
+            if is_demo_mode():
+                await self.respond_with_demo(
+                    contents_div_id, message_text, params=params
+                )
+            elif params and params.get("team"):
+                from swarm.core.team_rosters import blueprint_id_for_team_target
+
+                team_blueprint = blueprint_id_for_team_target(
+                    params.get("team"), params.get("target")
+                )
+                if team_blueprint:
                     await self.respond_with_blueprint(
-                        blueprint_id, contents_div_id, params=params
+                        team_blueprint, contents_div_id, params=params
                     )
                 else:
-                    await self.respond_with_default_model(contents_div_id)
-            except Exception as e:
-                logger.exception("Chat turn raised outside the respond_* handlers")
-                from swarm.utils.env_utils import client_safe_error_message
-
-                public = (
-                    "Error: the reply could not be started — the server's "
-                    "model provider is unusable (missing or invalid "
-                    "credentials?)."
+                    await self.respond_with_team_stub(
+                        params, message_text, contents_div_id
+                    )
+            elif blueprint_id and _is_bootstrap_turn(blueprint_id, params):
+                await self.respond_with_bootstrap(
+                    blueprint_id, contents_div_id, message_text, params=params
                 )
-                hint = _credential_hint()
-                if hint:
-                    public = f"{public} {hint}"
+            elif blueprint_id:
+                await self.respond_with_blueprint(
+                    blueprint_id, contents_div_id, params=params
+                )
+            else:
+                await self.respond_with_default_model(contents_div_id)
+        except Exception as e:
+            logger.exception("Chat turn raised outside the respond_* handlers")
+            from swarm.utils.env_utils import client_safe_error_message
 
-                try:
-                    await self.send_error_message(
-                        contents_div_id,
-                        client_safe_error_message(e, public=public),
-                    )
-                except Exception:
-                    logger.debug(
-                        "turn error partial send failed; socket likely gone",
-                        exc_info=True,
-                    )
+            public = (
+                "Error: the reply could not be started — the server's "
+                "model provider is unusable (missing or invalid "
+                "credentials?)."
+            )
+            hint = _credential_hint()
+            if hint:
+                public = f"{public} {hint}"
 
-
+            try:
+                await self.send_error_message(
+                    contents_div_id,
+                    client_safe_error_message(e, public=public),
+                )
+            except Exception:
+                logger.debug(
+                    "turn error partial send failed; socket likely gone",
+                    exc_info=True,
+                )
 
 
     async def _emit_teammate_task_cards(self, params, message_text):
