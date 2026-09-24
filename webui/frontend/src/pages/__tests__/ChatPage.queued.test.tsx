@@ -145,8 +145,8 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    expect(ws.send).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(1)
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       message: 'first turn',
     })
     const row = screen.getByTestId('queued-row')
@@ -166,7 +166,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
     const row = screen.getByTestId('queued-row')
     expect(row).toHaveAttribute('data-status', 'queued')
     expect(row).toHaveTextContent('queued while working')
@@ -239,7 +239,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
       target: { value: 'send me next' },
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
 
     await act(async () => {
       finishStreaming(ws)
@@ -248,7 +248,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     await waitFor(() => {
       expect(ws.send).toHaveBeenCalled()
     })
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       message: 'send me next',
     })
     expect(screen.queryByTestId('queued-row')).not.toBeInTheDocument()
@@ -266,7 +266,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
       })
       fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
     }
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
     const pane = screen.getByTestId('queued-send-pane')
     expect(pane).toHaveClass('os-queued-pane')
     expect(pane).toHaveClass(QUEUED_PANE_MAX_HEIGHT_CLASS)
@@ -293,7 +293,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
       finishStreaming(ws)
     })
 
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
     expect(screen.getByTestId('queued-row')).toHaveTextContent('hold while editing')
   })
 
@@ -314,7 +314,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
       finishStreaming(ws)
     })
 
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
   })
 
   it('queues a suggestion chip click while a generation is in flight', async () => {
@@ -328,7 +328,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
         new CustomEvent(SUGGESTION_CHIP_EVENT, { detail: { text: 'from chip' } }),
       )
     })
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
     expect(screen.getByTestId('queued-row')).toHaveTextContent('from chip')
   })
 
@@ -346,6 +346,12 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
     first.unmount()
 
     MockWebSocket.instances = []
+    // PR-4: the mux singleton outlives the component; drop it so the
+    // remount drives a fresh socket from the new stub instances.
+    const spa = await import('../../lib/spaSocket')
+    act(() => {
+      spa.resetSpaSocketForTests()
+    })
     renderChat()
     expect(screen.getByTestId('queued-row')).toHaveTextContent('survives refresh')
   })
@@ -420,15 +426,15 @@ describe('ChatPage queued sends (#198 enter-to-interrupt)', () => {
       target: { value: 'jump the queue' },
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
 
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Chat message' }), {
       key: 'Enter',
       code: 'Enter',
     })
 
-    expect(ws.send).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(1)
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       type: 'cancel_turn',
     })
 
@@ -438,9 +444,10 @@ describe('ChatPage queued sends (#198 enter-to-interrupt)', () => {
       finishStreaming(ws, 'message-response-abc123', 'Interrupted.')
     })
     await waitFor(() => {
-      expect(ws.send).toHaveBeenCalledTimes(2)
+      // Mux era: call[0] is the singleton's subscribe envelope — count chat frames.
+      expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"'))).toHaveLength(2)
     })
-    expect(JSON.parse(String(ws.send.mock.calls[1][0]))).toMatchObject({
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => s.includes('"message"') && !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       message: 'jump the queue',
     })
   })
@@ -506,7 +513,7 @@ describe('ChatPage stop button (#223)', () => {
     fireEvent.click(stop)
     // #1096/#1097 ADR-017 PR-2: the stop is agent-scoped (no bookend seen
     // yet in this mock, so the registry fallback names the agent only).
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       type: 'cancel_turn',
       agent: 'codey',
     })
@@ -541,7 +548,7 @@ describe('ChatPage stop button (#223)', () => {
     expect(screen.getByTestId('queued-row')).toBeTruthy()
 
     fireEvent.click(screen.getByTestId('agent-row-stop'))
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       type: 'cancel_turn',
       agent: 'codey',
     })
@@ -621,8 +628,8 @@ describe('ChatPage stop button (#223)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    expect(ws.send).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(1)
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       message: 'concurrent api send',
     })
     expect(screen.queryByTestId('queued-row')).not.toBeInTheDocument()
@@ -639,7 +646,7 @@ describe('ChatPage stop button (#223)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
     expect(screen.getByTestId('queued-row')).toHaveTextContent('cli queue')
   })
 

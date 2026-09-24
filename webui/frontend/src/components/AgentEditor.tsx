@@ -120,6 +120,30 @@ const ROLE_OPTIONS: { value: AgentRole; label: string }[] = [
 
 const EMPTY_BLUEPRINTS: Blueprint[] = []
 
+/** #1127: the editor's vertical tab rail — the surface is tall, not wide, so
+ * sections group into side tabs. Inactive panels stay mounted-but-hidden so
+ * in-progress edits (#592) survive tab switches. */
+const EDITOR_TABS = [
+  { id: 'identity', label: 'Identity' },
+  { id: 'role', label: 'Role & wiring' },
+  { id: 'model', label: 'Model & inference' },
+  { id: 'advanced', label: 'Advanced' },
+] as const
+
+type EditorTabId = (typeof EDITOR_TABS)[number]['id']
+
+const EDITOR_TAB_STORAGE_KEY = 'swarm_agent_editor_tab'
+
+function loadEditorTab(): EditorTabId {
+  try {
+    const stored = sessionStorage.getItem(EDITOR_TAB_STORAGE_KEY)
+    if (stored && EDITOR_TABS.some((tab) => tab.id === stored)) return stored as EditorTabId
+  } catch {
+    /* storage unavailable */
+  }
+  return 'identity'
+}
+
 export interface AgentEditorProps {
   isOpen: boolean
   onClose: () => void
@@ -169,6 +193,16 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [addingProfile, setAddingProfile] = useState(false)
   const [customRoles, setCustomRoles] = useState(() => loadCustomRoles())
   const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false)
+  // #1127: selected tab persists across open/close within the session.
+  const [activeTab, setActiveTab] = useState<EditorTabId>(loadEditorTab)
+  const selectTab = (next: EditorTabId) => {
+    setActiveTab(next)
+    try {
+      sessionStorage.setItem(EDITOR_TAB_STORAGE_KEY, next)
+    } catch {
+      /* storage unavailable */
+    }
+  }
 
   useEffect(() => {
     const handleCustomRoles = () => setCustomRoles(loadCustomRoles())
@@ -538,14 +572,50 @@ const handleRoleSelect = (val: string) => {
     >
       <div
         id="os-agent-editor"
-        className="space-y-4 max-h-[calc(100vh-12rem)] overflow-y-auto pr-1"
+        className="flex min-h-0 flex-1 gap-4"
         data-agent-id={id || undefined}
       >
+        {/* #1127: vertical tab rail — the editor is tall, not wide. */}
+        <div
+          className="flex w-40 shrink-0 flex-col gap-1 border-r border-base-300 pr-2"
+          role="tablist"
+          aria-orientation="vertical"
+          data-testid="agent-editor-tabs"
+        >
+          {EDITOR_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`agent-editor-tab-${tab.id}`}
+              aria-selected={activeTab === tab.id}
+              aria-controls={`agent-editor-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className={`rounded-md px-3 py-2 text-left text-sm ${
+                activeTab === tab.id
+                  ? 'bg-base-200 font-semibold'
+                  : 'text-base-content/70 hover:bg-base-200/50'
+              }`}
+              onClick={() => selectTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="min-w-0 flex-1 overflow-y-auto pr-1">
         <p className="text-sm text-base-content/70">
           This pane is only about this agent. Blueprint picks a catalog recipe
           for this seat — it is not Settings.
         </p>
 
+        <div
+          role="tabpanel"
+          id="agent-editor-panel-identity"
+          aria-labelledby="agent-editor-tab-identity"
+          hidden={activeTab !== 'identity' ? true : undefined}
+          className="space-y-4"
+        >
         <Input
           label="Name"
           name="agent-name"
@@ -555,6 +625,94 @@ const handleRoleSelect = (val: string) => {
           spellCheck={false}
         />
 
+        {declaredPersonas.length >= 2 ? (
+          <div
+            className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+            data-testid="agent-editor-persona-avatars"
+          >
+            <span className="text-sm font-semibold text-base-content/80">
+              Persona avatars
+            </span>
+            <p className="text-xs text-base-content/60 mt-0.5">
+              One face per openai-agents persona — messages from each mode show
+              its own avatar in the transcript.
+            </p>
+            {declaredPersonas.map((persona) => (
+              <PersonaAvatarThemePicker
+                key={persona.name}
+                agentId={editorRecipeId}
+                persona={persona.name}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        <div
+          className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+          data-testid="agent-editor-avatar"
+        >
+          <div className="flex items-start gap-3">
+            <AgentAvatar
+              agentId={id}
+              alt=""
+              size="lg"
+              className="shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <span className="text-sm font-semibold text-base-content/80">Still avatar</span>
+              <p className="text-xs text-base-content/60 mt-0.5">
+                Generated stills apply on Bland. Blobs with eyes stay a separate
+                Rail theme and ignore generated stills.
+              </p>
+            </div>
+          </div>
+          <Textarea
+            label="Avatar prompt"
+            name="agent-avatar-prompt"
+            value={avatarPrompt}
+            onChange={(event) => setAvatarPrompt(event.target.value)}
+            rows={3}
+            spellCheck={false}
+          />
+          {canGenerateAvatar ? (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={!id || generateAvatar.isPending}
+              onClick={() => generateAvatar.mutate()}
+            >
+              {generateAvatar.isPending ? 'Generating…' : 'Generate avatar'}
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <Button type="button" variant="primary" size="sm" disabled>
+                Generate avatar
+              </Button>
+              <p className="text-xs text-base-content/60" data-testid="generate-avatar-disabled-hint">
+                Set a base URL in{' '}
+                <button
+                  type="button"
+                  className="link link-hover font-medium"
+                  onClick={openImageGenSettings}
+                >
+                  Settings → Image generation
+                </button>{' '}
+                first. Empty/off does not guess a host.
+              </p>
+            </div>
+          )}
+        </div>
+
+        </div>
+
+        <div
+          role="tabpanel"
+          id="agent-editor-panel-role"
+          aria-labelledby="agent-editor-tab-role"
+          hidden={activeTab !== 'role' ? true : undefined}
+          className="space-y-4"
+        >
         <div className="form-control">
           <Select
             label="Role"
@@ -637,6 +795,15 @@ const handleRoleSelect = (val: string) => {
 
         {id ? <MailboxAclEditor agentId={id} role={role} /> : null}
 
+        </div>
+
+        <div
+          role="tabpanel"
+          id="agent-editor-panel-model"
+          aria-labelledby="agent-editor-tab-model"
+          hidden={activeTab !== 'model' ? true : undefined}
+          className="space-y-4"
+        >
         <div className="space-y-1">
           <Select
             label={nameMatchesRecipe ? undefined : 'Blueprint'}
@@ -719,85 +886,15 @@ const handleRoleSelect = (val: string) => {
           </div>
         ) : null}
 
-        {declaredPersonas.length >= 2 ? (
-          <div
-            className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
-            data-testid="agent-editor-persona-avatars"
-          >
-            <span className="text-sm font-semibold text-base-content/80">
-              Persona avatars
-            </span>
-            <p className="text-xs text-base-content/60 mt-0.5">
-              One face per openai-agents persona — messages from each mode show
-              its own avatar in the transcript.
-            </p>
-            {declaredPersonas.map((persona) => (
-              <PersonaAvatarThemePicker
-                key={persona.name}
-                agentId={editorRecipeId}
-                persona={persona.name}
-              />
-            ))}
-          </div>
-        ) : null}
-
-        <div
-          className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
-          data-testid="agent-editor-avatar"
-        >
-          <div className="flex items-start gap-3">
-            <AgentAvatar
-              agentId={id}
-              alt=""
-              size="lg"
-              className="shrink-0"
-            />
-            <div className="min-w-0 flex-1">
-              <span className="text-sm font-semibold text-base-content/80">Still avatar</span>
-              <p className="text-xs text-base-content/60 mt-0.5">
-                Generated stills apply on Bland. Blobs with eyes stay a separate
-                Rail theme and ignore generated stills.
-              </p>
-            </div>
-          </div>
-          <Textarea
-            label="Avatar prompt"
-            name="agent-avatar-prompt"
-            value={avatarPrompt}
-            onChange={(event) => setAvatarPrompt(event.target.value)}
-            rows={3}
-            spellCheck={false}
-          />
-          {canGenerateAvatar ? (
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              disabled={!id || generateAvatar.isPending}
-              onClick={() => generateAvatar.mutate()}
-            >
-              {generateAvatar.isPending ? 'Generating…' : 'Generate avatar'}
-            </Button>
-          ) : (
-            <div className="space-y-2">
-              <Button type="button" variant="primary" size="sm" disabled>
-                Generate avatar
-              </Button>
-              <p className="text-xs text-base-content/60" data-testid="generate-avatar-disabled-hint">
-                Set a base URL in{' '}
-                <button
-                  type="button"
-                  className="link link-hover font-medium"
-                  onClick={openImageGenSettings}
-                >
-                  Settings → Image generation
-                </button>{' '}
-                first. Empty/off does not guess a host.
-              </p>
-            </div>
-          )}
         </div>
 
+        <div
+          role="tabpanel"
+          id="agent-editor-panel-advanced"
+          aria-labelledby="agent-editor-tab-advanced"
+          hidden={activeTab !== 'advanced' ? true : undefined}
+          className="space-y-4"
+        >
         <div
           className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
           data-testid="agent-editor-voice"
@@ -1269,6 +1366,7 @@ const handleRoleSelect = (val: string) => {
             <option value="off">Off</option>
           </select>
         </div>
+        </div>
 
         <div className="flex flex-wrap gap-2">
           <Button
@@ -1280,6 +1378,7 @@ const handleRoleSelect = (val: string) => {
           >
             Edit blueprint…
           </Button>
+        </div>
         </div>
       </div>
 

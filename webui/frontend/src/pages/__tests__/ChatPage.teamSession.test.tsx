@@ -119,7 +119,8 @@ async function openSocket() {
 function lastUserFrame(ws: MockWebSocket) {
   const frames = ws.send.mock.calls
     .map((call) => JSON.parse(String(call[0])))
-    .filter((frame) => frame.message && frame.type !== 'status')
+    .filter((frame) => frame.kind === 'chat.send' && frame.message && frame.type !== 'status')
+    .map(({ kind: _k, conversationId: _c, ...inner }) => inner)
   return frames[frames.length - 1]
 }
 
@@ -219,7 +220,9 @@ describe('ChatPage team member ?session= (REQ-171A-1 / #601)', () => {
     expect(screen.getByTestId('search-probe')).toHaveTextContent('team=demo-team')
     expect(screen.getByTestId('search-probe').textContent).not.toContain('session=')
     expect(screen.queryByTestId('chat-status')).not.toBeInTheDocument()
-    expect(MockWebSocket.instances[0]!.send).not.toHaveBeenCalled()
+    expect(
+      MockWebSocket.instances[0]!.send.mock.calls.some((c) => String(c[0]).includes('"kind":"chat.send"')),
+    ).toBe(false)
   })
 
   it('does not refetch the team thread when only ?session= changes', async () => {

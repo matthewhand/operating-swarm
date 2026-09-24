@@ -143,7 +143,7 @@ describe('ChatPage REQ-137 Support journey chips', () => {
     await waitFor(() => {
       expect(ws.send).toHaveBeenCalled()
     })
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       message: 'Create a BA → Engineer → Tester workflow',
       blueprint: 'support',
     })
@@ -156,7 +156,7 @@ describe('ChatPage REQ-137 Support journey chips', () => {
     await waitFor(() => {
       expect(ws.send).toHaveBeenCalled()
     })
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
       message: 'Create a team',
       blueprint: 'support',
     })

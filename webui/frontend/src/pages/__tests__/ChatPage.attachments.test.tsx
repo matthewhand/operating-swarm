@@ -198,8 +198,9 @@ describe('ChatPage composer file attachments (#835)', () => {
     })
 
     const ws = MockWebSocket.instances[0]
-    expect(ws.send).toHaveBeenCalledTimes(1)
-    const payload = JSON.parse(ws.send.mock.calls[0][0])
+    const chatFrames = ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"'))
+    expect(chatFrames).toHaveLength(1)
+    const payload = JSON.parse(String(chatFrames[0][0])) as Record<string, unknown>
     expect(payload.message).toBe('Attached photo.png')
     expect(payload.attachments).toEqual(['att-uploaded-1'])
 

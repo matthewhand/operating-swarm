@@ -8,6 +8,11 @@ import { ToastProvider } from '../DaisyUI'
 import { AGENT_EDITS_KEY, assignedBlueprintId, loadAgentEdit } from '../../lib/agentEdits'
 import { AGENT_REMOTE_BINDINGS_KEY } from '../../lib/agentRemote'
 
+/** #1127: the editor is a vertical-tab surface — tests navigate like users. */
+function openEditorTab(name: string | RegExp) {
+  fireEvent.click(within(screen.getByTestId('agent-editor-tabs')).getByRole('tab', { name }))
+}
+
 const catalog = [
   {
     id: 'codey',
@@ -183,6 +188,7 @@ describe('AgentEditor (REQ-58)', () => {
     expect(within(dialog).queryByRole('button', { name: /CLI catalog/i })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
     expect(within(dialog).queryByText('Hermes')).not.toBeInTheDocument()
+    openEditorTab(/Model & inference/i)
     expect(await within(dialog).findByRole('button', { name: /Edit blueprint/i })).toBeInTheDocument()
   })
 
@@ -207,6 +213,7 @@ describe('AgentEditor (REQ-58)', () => {
     stubCatalog()
     renderEditor({ agentId: 'support' })
 
+    openEditorTab(/Model & inference/i)
     const picker = await screen.findByLabelText('Blueprint')
     await waitFor(() => {
       expect(within(picker).getByRole('option', { name: 'Codey' })).toBeInTheDocument()
@@ -223,6 +230,7 @@ describe('AgentEditor (REQ-58)', () => {
     stubCatalog()
     renderEditor({ agentId: 'codey' })
 
+    openEditorTab(/Model & inference/i)
     const picker = await screen.findByLabelText('Blueprint')
     await waitFor(() => {
       expect(within(picker).getByRole('option', { name: /Fixture Gate/ })).toBeInTheDocument()
@@ -243,6 +251,7 @@ describe('AgentEditor (REQ-58)', () => {
     fireEvent.change(roleSelect, { target: { value: 'skeptic' } })
     expect(loadAgentEdit('codey').roleOverridden).toBe(true)
 
+    openEditorTab(/Model & inference/i)
     const picker = screen.getByLabelText('Blueprint')
     await waitFor(() => {
       expect(within(picker).getByRole('option', { name: /Fixture Gate/ })).toBeInTheDocument()
@@ -264,6 +273,7 @@ describe('AgentEditor (REQ-58)', () => {
       </QueryClientProvider>,
     )
 
+    openEditorTab(/Model & inference/i)
     const picker = await screen.findByLabelText('Blueprint')
     await waitFor(() => {
       expect(within(picker).getByRole('option', { name: 'Codey' })).toBeInTheDocument()
@@ -315,6 +325,7 @@ describe('AgentEditor (REQ-58)', () => {
       renderEditor({ agentId: 'remote-omb' })
 
       const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+      openEditorTab(/Advanced/i)
       expect(within(dialog).getByText(/Remotes keep their own models/i)).toBeInTheDocument()
       expect(within(dialog).queryByRole('combobox', { name: /CLI override/i })).not.toBeInTheDocument()
       expect(within(dialog).queryByRole('combobox', { name: /API profile override/i })).not.toBeInTheDocument()
@@ -355,6 +366,7 @@ describe('AgentEditor (REQ-58)', () => {
       )
       renderEditor({ agentId: 'remote-omb' })
       const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+      openEditorTab(/Advanced/i)
       const select = await within(dialog).findByRole('combobox', { name: 'Remote' })
       expect(within(select).getByRole('option', { name: 'default' })).toBeInTheDocument()
       expect(within(select).getByRole('option', { name: 'OpenMousBot' })).toBeInTheDocument()
@@ -397,6 +409,7 @@ describe('AgentEditor (REQ-58)', () => {
 
       renderEditor({ agentId: 'cli_agent' })
       const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+      openEditorTab(/Advanced/i)
 
       const cliSelect = await within(dialog).findByRole('combobox', { name: 'CLI override' })
       expect(within(cliSelect).getByRole('option', { name: 'copilot' })).toBeInTheDocument()
@@ -463,6 +476,7 @@ describe('AgentEditor (REQ-58)', () => {
 
       renderEditor({ agentId: 'codey' })
       const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+      openEditorTab(/Advanced/i)
 
       const profileSelect = await within(dialog).findByRole('combobox', { name: 'API profile override' })
       expect(within(profileSelect).getByRole('option', { name: /User chat \/ orchestration/i })).toBeInTheDocument()

@@ -195,7 +195,7 @@ describe('#516 — the + menu offers Plugins, per agent', () => {
     fireEvent.change(composer, { target: { value: 'use search' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    const frame = JSON.parse(MockWebSocket.instances[0]!.send.mock.calls[0][0] as string)
+    const frame = JSON.parse(MockWebSocket.instances[0]!.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string as string)
     expect(frame.params.enabled_tools).toEqual(['web_search'])
   })
 })
