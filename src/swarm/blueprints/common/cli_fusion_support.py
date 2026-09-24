@@ -562,3 +562,19 @@ def context_carried_chunk(text: str) -> dict:
 
 def format_cli_error(adapter: CliAdapter, error: str) -> str:
     return f"[{adapter.name}] failed: {error}"
+
+
+def annotate_cli_failure(error: str) -> str:
+    """#1125: append the state-dir remedy to an EACCES state-dir failure.
+
+    The raw Bun/Node dump names the syscall but not the fix; the classifier
+    turns it into "path — remedy" so the operator sees the mount/XDG move
+    instead of a bare "All CLI candidates failed". Non-matching failures
+    pass through untouched.
+    """
+    from swarm.core.cli_session_error import classify_state_dir_eacces
+
+    hit = classify_state_dir_eacces(error)
+    if not hit:
+        return error
+    return f"{error} — {hit['remedy']} (path: {hit['path']})"
