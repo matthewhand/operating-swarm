@@ -14,9 +14,16 @@ scripts/mirror_sync.sh --fast-forward  # also merge, ff prod, uv sync, migrate, 
 scripts/mirror_sync.sh --check         # drift detector only (exit 1 past threshold)
 ```
 
-Environment knobs: `PRIVATE_REMOTE` (default `public`), `PUBLIC_REPO`
+Environment knobs: `PRIVATE_REMOTE` (default `mirror`), `PUBLIC_REPO`
 (default `matthewhand/operating-swarm`), `PROD_DIR`, `PROD_PORT`,
-`DRIFT_THRESHOLD` (default 50 commits).
+`DRIFT_THRESHOLD` (default 50 files).
+
+> **#1112:** the remote default was `public`, which pointed at
+> `open-swarm.git` — the wrong repo — and a swallowed push error let the
+> script exit 0 having published nothing. The default is now `mirror`, the
+> script verifies the remote URL is the mirror before publishing, a failed
+> dated-branch push is fatal, and the branch is verified present (via
+> `git ls-remote`) before the PR step.
 
 ## What it guarantees
 
@@ -33,10 +40,13 @@ Environment knobs: `PRIVATE_REMOTE` (default `public`), `PUBLIC_REPO`
 ## Cadence
 
 Run `--check` weekly (or wire it into CI) and always before touching the
-prod install. Run a full sync when the detector fires — or on every ~25
-merges, whichever comes first. The 2026-09 drift incident (#1028) happened
-because none of this was written down; now it is.
+prod install. `--check` reports **trees identical** when the public main
+tree equals the private tip tree — that is the definitive "in sync"
+verdict (the mirror is commit-tree based, so commit counts are meaningless).
+Run a full sync when the detector fires — or on every ~25 merges, whichever
+comes first. The 2026-09 drift incident (#1028) happened because none of
+this was written down; now it is.
 
 ## First-time setup
 
-`git remote add public https://github.com/matthewhand/operating-swarm.git`
+`git remote add mirror https://github.com/matthewhand/operating-swarm.git`
