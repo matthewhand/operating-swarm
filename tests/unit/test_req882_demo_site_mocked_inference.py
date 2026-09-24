@@ -72,7 +72,10 @@ def test_req882_frontend_installs_mock_when_vite_demo_mode():
 def test_req882_chat_page_has_demo_steerage():
     text = _text(CHAT_PAGE)
     assert "DemoTourBanner" in text
-    assert "demoSuggestionChips" in text
+    # Slice-20/#856: the demo-chips derivation moved into useSlashLifecycle.
+    assert "demoSuggestionChips" in _text(
+        REPO / "webui" / "frontend" / "src" / "features" / "chat" / "useSlashLifecycle.ts"
+    )
 
 
 def test_req882_python_and_ts_scenario_ids_match():

@@ -2580,13 +2580,13 @@ button.os-agent-row {
   white-space: nowrap;
   min-width: 0;
 }
-/* #770: double-slit grab handle — hover-revealed resize affordance. */
+/* #770 / #1110: double-slit grab handle — hover-revealed resize affordance on leading edge. */
 .os-routing-pill__grip {
   display: none;
   width: 0.4rem;
   align-self: stretch;
   flex-shrink: 0;
-  margin-inline-start: 0.1rem;
+  margin-inline-end: 0.1rem;
   cursor: col-resize;
   touch-action: none;
   background:
@@ -2599,6 +2599,9 @@ button.os-agent-row {
       transparent calc(50% + 1px) 100%
     );
   border-radius: 1px;
+}
+.os-routing-pill[data-pill-resized] {
+  max-width: none;
 }
 .os-routing-pill:hover .os-routing-pill__grip,
 .os-routing-pill__grip:focus-visible {
@@ -2698,7 +2701,8 @@ button.os-agent-row {
     justify-content: center;
   }
   .os-composer .os-routing-pill__label,
-  .os-composer .os-routing-pill__chevron {
+  .os-composer .os-routing-pill__chevron,
+  .os-composer .os-routing-pill__grip {
     display: none;
   }
   .os-composer .os-routing-pill__icon {
