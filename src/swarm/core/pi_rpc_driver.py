@@ -16,16 +16,21 @@ Protocol notes that shape this code (rpc.md, verified 2026-09-23):
 - ``message_update`` records carry ``assistantMessageEvent``; ``text_delta``
   events stream assistant text.
 - Correlate commands to responses via the optional ``id`` we supply.
+- Phase 3 control channel: the child may send ``belay_gate_request`` records
+  (its own ``id``). The parent answers through the REQ-55 Belay gate via a
+  ``response`` record ``{"approved": bool, "verdict": str}`` — fail-closed
+  on any gate error or timeout.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
 import subprocess
 import threading
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,6 +84,7 @@ class PiSession:
         command: list[str] | None = None,
         cwd: str | None = None,
         on_event: Callable[[dict[str, Any]], None] | None = None,
+        belay_gate: Callable[..., Awaitable[Any]] | None = None,
     ) -> None:
         cmd = command if command is not None else default_pi_command()
         if not cmd:
@@ -98,9 +104,21 @@ class PiSession:
         except OSError as exc:  # pragma: no cover - surfaced via message
             raise PiRpcProcessError(f"Failed to spawn Pi RPC process: {exc}") from exc
         self._on_event = on_event
+        self._belay_gate = belay_gate
         self._lock = threading.Lock()
+        self._stdin_lock = threading.Lock()
         self._pending: dict[str, _PendingCall] = {}
         self._next_id = 0
+        # Child→parent control channel: the reader thread needs to await the
+        # (possibly websocket-eliciting) Belay gate, but must never block on
+        # the chat loop. A dedicated loop + RendezvousHook bridges the two.
+        self._gate_loop: asyncio.AbstractEventLoop | None = None
+        if belay_gate is not None:
+            self._gate_loop = asyncio.new_event_loop()
+            self._gate_thread = threading.Thread(
+                target=self._gate_loop.run_forever, daemon=True
+            )
+            self._gate_thread.start()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
 
@@ -133,11 +151,74 @@ class PiSession:
                 pending.response = record
                 pending.event.set()
             return
+        if record.get("type") == "belay_gate_request":
+            self._answer_belay_gate(record)
+            return
         if self._on_event is not None:
             try:
                 self._on_event(record)
             except Exception:  # noqa: BLE001 - subscriber bugs must not kill the reader
                 pass
+
+    # -- child→parent control channel (Belay ToolGate, #1081 Phase 3) ------
+
+    _BELAY_GATE_TIMEOUT_S = 120.0  # websocket elicitation can legitimately wait on a human
+
+    def _answer_belay_gate(self, request: dict[str, Any]) -> None:
+        """Run the REQ-55 gate on the gate loop, then reply to the child.
+
+        Fail-closed: unwired gate, gate exception, timeout, or dead child →
+        a denial response goes back (or no response at all, which the
+        extension also treats as denial).
+        """
+        rid = str(request.get("id") or "")
+        payload = request.get("payload") or {}
+        tool_name = str(payload.get("tool") or "")
+        arguments = payload.get("arguments")
+        if not isinstance(arguments, dict):
+            arguments = {}
+
+        def _deny(reason: str) -> dict[str, Any]:
+            return {"type": "response", "id": rid, "success": True, "approved": False, "verdict": reason}
+
+        if self._gate_loop is None or self._belay_gate is None:
+            self._write_record(_deny("unwired"))
+            return
+
+        async def _run() -> None:
+            # Every path below must end in exactly one _write_record — the
+            # child blocks on this answer, so dropping it deadlocks the gate.
+            try:
+                verdict = await asyncio.wait_for(
+                    self._belay_gate(
+                        tool=tool_name,
+                        arguments=arguments,
+                        agent_id=str(request.get("agent_id") or ""),
+                    ),
+                    timeout=self._BELAY_GATE_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                self._write_record(_deny("timeout"))
+                return
+            except Exception as exc:  # noqa: BLE001 - fail-closed by contract
+                self._write_record(_deny(f"gate-error: {exc}"))
+                return
+            if isinstance(verdict, dict) and verdict.get("approved") is True:
+                self._write_record(
+                    {
+                        "type": "response",
+                        "id": rid,
+                        "success": True,
+                        "approved": True,
+                        "verdict": str(verdict.get("verdict") or "approved"),
+                    }
+                )
+                return
+            self._write_record(
+                _deny(str(verdict.get("verdict") or "denied") if isinstance(verdict, dict) else "denied")
+            )
+
+        asyncio.run_coroutine_threadsafe(_run(), self._gate_loop)
 
     def _call(self, command: dict[str, Any], timeout: float) -> dict[str, Any]:
         if self._proc.stdin is None or self._proc.poll() is not None:
@@ -149,8 +230,9 @@ class PiSession:
         with self._lock:
             self._pending[rid] = pending
         try:
-            self._proc.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
-            self._proc.stdin.flush()
+            with self._stdin_lock:
+                self._proc.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
+                self._proc.stdin.flush()
         except (BrokenPipeError, ValueError, OSError) as exc:
             with self._lock:
                 self._pending.pop(rid, None)
@@ -167,6 +249,17 @@ class PiSession:
         return response
 
     # -- public surface ----------------------------------------------------
+
+    def _write_record(self, record: dict[str, Any]) -> None:
+        """Write one JSONL record to the child's stdin (gate thread + callers)."""
+        if self._proc.stdin is None or self._proc.poll() is not None:
+            return  # dead child cannot be answered; extension treats silence as denial
+        try:
+            with self._stdin_lock:
+                self._proc.stdin.write((json.dumps(record) + "\n").encode("utf-8"))
+                self._proc.stdin.flush()
+        except (BrokenPipeError, ValueError, OSError):
+            pass
 
     def prompt(self, message: str, timeout: float = _DEFAULT_PROMPT_TIMEOUT_S) -> None:
         """Accept a prompt. Returns once *accepted* — stream events after."""
@@ -196,6 +289,11 @@ class PiSession:
         except subprocess.TimeoutExpired:  # pragma: no cover - stubborn child
             self._proc.kill()
             self._proc.wait(timeout=5)
+        if self._gate_loop is not None:
+            self._gate_loop.call_soon_threadsafe(self._gate_loop.stop)
+            self._gate_thread.join(timeout=5)
+            self._gate_loop.close()
+            self._gate_loop = None
 
 
 def chunk_events_from_records(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:

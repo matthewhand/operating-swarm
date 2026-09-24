@@ -19,10 +19,13 @@ describe('#770 — composer pill resize math', () => {
     expect(clampPillWidth(500, 20)).toBe(COMPOSER_PILL_MIN_WIDTH)
   })
 
-  it('drag math works from a start width in both directions', () => {
-    expect(pillWidthFromDrag(100, 40, 300)).toBe(140)
-    expect(pillWidthFromDrag(100, -80, 300)).toBe(COMPOSER_PILL_MIN_WIDTH)
-    expect(pillWidthFromDrag(280, 40, 300)).toBe(300)
+  it('drag math expands on left-drag (negative delta) and contracts on right-drag (positive delta)', () => {
+    // Dragging left (negative deltaX) widens the pill toward fullText
+    expect(pillWidthFromDrag(100, -40, 300)).toBe(140)
+    expect(pillWidthFromDrag(280, -40, 300)).toBe(300)
+    // Dragging right (positive deltaX) narrows the pill toward min
+    expect(pillWidthFromDrag(100, 30, 300)).toBe(70)
+    expect(pillWidthFromDrag(100, 80, 300)).toBe(COMPOSER_PILL_MIN_WIDTH)
   })
 
   it('persists and clears the width across refreshes', () => {

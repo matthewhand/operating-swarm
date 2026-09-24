@@ -1,0 +1,14 @@
+{
+  "name": "pi-operating-swarm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open Swarm extension for the Pi agent harness (#1081 Phase 2 prototype)",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*"
+  }
+}

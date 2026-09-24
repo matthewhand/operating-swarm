@@ -195,31 +195,52 @@ describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
   })
 })
 
-describe('#770 — pill resize grip', () => {
-  it('reveals a double-slit grip handle on hover with col-resize cursor', () => {
+describe('#770 / #1110 — pill resize grip', () => {
+  it('reveals a double-slit grip handle on the leading edge with col-resize cursor', () => {
     renderPicker()
     const grip = screen.getByTestId('routing-pill-grip')
+    const pill = screen.getByTestId('routing-pill-agent')
     expect(grip).toBeInTheDocument()
-    // Hover-reveal + col-resize cursor live in the #770 CSS block keyed
+    // Grip is on the leading edge (first child) facing the composer input
+    expect(pill.firstElementChild).toBe(grip)
+    // Hover-reveal + col-resize cursor live in the CSS block keyed
     // on this class; jsdom does not apply stylesheets, so assert the hook.
     expect(grip.className).toContain('os-routing-pill__grip')
   })
 
-  it('dragging the grip resizes the pill and persists the width', () => {
-    localStorage.removeItem('swarm_composer_pill_width')
+  it('dragging the grip left widens the pill and persists the width', () => {
+    localStorage.setItem('swarm_composer_pill_width', '90')
     renderPicker()
     const grip = screen.getByTestId('routing-pill-grip')
     const pill = screen.getByTestId('routing-pill-agent')
-    expect(pill).not.toHaveAttribute('data-pill-resized')
+    expect(pill.style.width).toBe('90px')
 
+    // Drag left by 30px (clientX: 100 -> 70, deltaX = -30) expands pill by +30px
     fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1, button: 0 })
-    fireEvent.pointerMove(grip, { clientX: 180, pointerId: 1 })
-    fireEvent.pointerUp(grip, { clientX: 180, pointerId: 1 })
+    fireEvent.pointerMove(grip, { clientX: 70, pointerId: 1 })
+    fireEvent.pointerUp(grip, { clientX: 70, pointerId: 1 })
 
-    // jsdom scrollWidth is 0 → the fallback cap applies; the drag widened
-    // from the auto default toward the cap, so a resize is marked.
     expect(pill).toHaveAttribute('data-pill-resized', 'true')
-    expect(Number(localStorage.getItem('swarm_composer_pill_width'))).toBeGreaterThan(0)
+    expect(pill.style.width).toBe('120px')
+    expect(localStorage.getItem('swarm_composer_pill_width')).toBe('120')
+    localStorage.removeItem('swarm_composer_pill_width')
+  })
+
+  it('dragging the grip right narrows the pill and persists the width', () => {
+    localStorage.setItem('swarm_composer_pill_width', '120')
+    renderPicker()
+    const grip = screen.getByTestId('routing-pill-grip')
+    const pill = screen.getByTestId('routing-pill-agent')
+    expect(pill.style.width).toBe('120px')
+
+    // Drag right by 40px (clientX: 100 -> 140, deltaX = +40) narrows pill by -40px
+    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1, button: 0 })
+    fireEvent.pointerMove(grip, { clientX: 140, pointerId: 1 })
+    fireEvent.pointerUp(grip, { clientX: 140, pointerId: 1 })
+
+    expect(pill).toHaveAttribute('data-pill-resized', 'true')
+    expect(pill.style.width).toBe('80px')
+    expect(localStorage.getItem('swarm_composer_pill_width')).toBe('80')
     localStorage.removeItem('swarm_composer_pill_width')
   })
 
