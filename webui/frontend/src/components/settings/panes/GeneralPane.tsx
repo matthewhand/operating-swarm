@@ -27,6 +27,10 @@ import {
   loadStreamReplies,
   saveStreamReplies,
 } from '../../../lib/streamReplies'
+import {
+  loadNotificationsAutoExpire,
+  saveNotificationsAutoExpire,
+} from '../../../lib/settingsPrefs'
 import { DemoSectionProfileControl } from './DemoSectionProfileControl'
 
 export function GeneralPane({
@@ -54,6 +58,7 @@ export function GeneralPane({
   const [themePref, setThemePref] = useState<Theme>(initialTheme)
   const [navbarMode, setNavbarMode] = useState<NavbarThemeToggleMode>(initialNavbarThemeMode)
   const [streamReplies, setStreamReplies] = useState<boolean>(loadStreamReplies)
+  const [notificationsAutoExpire, setNotificationsAutoExpire] = useState<boolean>(loadNotificationsAutoExpire)
   const bubbleTheme = loadBubbleTheme()
   const streamThemeOk = bubbleThemeSupportsStreaming(bubbleTheme)
 
@@ -174,6 +179,36 @@ export function GeneralPane({
             {streamThemeOk
               ? STREAM_REPLIES_TOOLTIP
               : 'The current bubble theme does not support streaming.'}
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="os-notifications-heading" className="space-y-4">
+        <h5
+          id="os-notifications-heading"
+          className="text-base font-semibold border-b border-base-200 pb-1"
+        >
+          Notifications
+        </h5>
+        <div className="form-control">
+          <label className="label cursor-pointer justify-start gap-4">
+            <input
+              type="checkbox"
+              className="toggle"
+              checked={notificationsAutoExpire}
+              onChange={(e) => {
+                const next = saveNotificationsAutoExpire(e.target.checked)
+                setNotificationsAutoExpire(next)
+              }}
+              aria-label="Auto-expire popup notifications"
+              data-testid="notifications-auto-expire-toggle"
+            />
+            <span className="label-text">Auto-expire popup notifications</span>
+          </label>
+          <p className="text-xs text-base-content/60">
+            Automatically dismiss transient popups after their class default duration:
+            Actions (4s), Info (6s), Warnings (8s), Errors (12s). When disabled,
+            all popups behave as sticky and stay until manually dismissed.
           </p>
         </div>
       </section>

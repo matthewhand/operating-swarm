@@ -58,6 +58,7 @@ import {
   approvalWaitFromEvent,
   peekApprovalWait,
 } from '../lib/agentAttention'
+import { useAgentTurns } from '../lib/agentTurns'
 import AgentAvatar from './AgentAvatar'
 import { remoteThemeFace } from './RemoteThemeFace'
 import {
@@ -318,6 +319,7 @@ export default function AgentSidebar({
   const [localWsStatus, setLocalWsStatus] = useState<ChatConnectionStatus>(() => getChatConnection())
   const [cliRunningIds, setCliRunningIds] = useState<Set<string>>(() => new Set())
   const [approvalWaitIds, setApprovalWaitIds] = useState<Set<string>>(() => new Set())
+  const agentTurns = useAgentTurns()
   const toast = useOptionalToast()
 
   // REQ-912 (#511): Plugins and Calendar only work for swarm-run seats. The
@@ -1576,6 +1578,7 @@ export default function AgentSidebar({
 
   const { renderAgentRow, renderRemoteRow, renderTeamRow } = createRowRenderers({
     AgentAvatar,
+    agentTurns,
     Link,
     NEEDS_APPROVAL_LABEL,
     PersonaRoster,
@@ -1645,6 +1648,7 @@ export default function AgentSidebar({
   })
   const railSectionsProps = {
     AgentAvatar,
+    agentTurns,
     Link,
     NEEDS_APPROVAL_LABEL,
     RailSectionEmpty,
@@ -1692,6 +1696,8 @@ export default function AgentSidebar({
     peekApprovalWait,
     peekCliRunning,
     pickOrClose,
+    remoteHideId,
+    remotes,
     renderAgentRow,
     renderRemoteRow,
     renderTeamRow,

@@ -141,3 +141,33 @@ export function saveBumpCompleted(enabled: boolean): boolean {
   }
   return enabled
 }
+
+export const NOTIFICATIONS_AUTO_EXPIRE_KEY = 'swarm_notifications_auto_expire'
+export const NOTIFICATIONS_AUTO_EXPIRE_EVENT = 'swarm:notifications-auto-expire-changed'
+
+/**
+ * When enabled (default: true), transient notifications automatically expire
+ * after their class default TTL. When disabled, all popups behave as sticky.
+ */
+export function loadNotificationsAutoExpire(): boolean {
+  try {
+    const raw = localStorage.getItem(NOTIFICATIONS_AUTO_EXPIRE_KEY)
+    if (raw == null) return true
+    return raw === '1' || raw === 'true'
+  } catch {
+    return true
+  }
+}
+
+export function saveNotificationsAutoExpire(enabled: boolean): boolean {
+  try {
+    localStorage.setItem(NOTIFICATIONS_AUTO_EXPIRE_KEY, enabled ? '1' : '0')
+    window.dispatchEvent(
+      new CustomEvent(NOTIFICATIONS_AUTO_EXPIRE_EVENT, { detail: { enabled } }),
+    )
+  } catch {
+    /* persistence is best-effort */
+  }
+  return enabled
+}
+

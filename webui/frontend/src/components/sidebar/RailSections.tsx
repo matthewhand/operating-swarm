@@ -10,13 +10,17 @@
 import type { RailSectionsState } from '../../lib/railSections'
 import { herdrChatHref } from '../../lib/railHotkeys' // #1088: herdr pins chat like every kind
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
+import { getTurnSnapshot, isAgentTurnActive, type TurnSnapshot } from '../../lib/agentTurns'
 
 export interface RailSectionsProps {
   [key: string]: any
 }
 
 export const RailSections = function RailSections(props: RailSectionsProps) {
-    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, RailSectionEmpty, RailSectionHeader, UNASSIGNED_SECTION_ID, activeRail, agentChatHref, agentLabel, agentRole, agents, allowListUnfavourite, allowRowDrop, allowSectionDrop, approvalWaitIds, beginRowDrag, cancelSectionRename, cliRunningIds, commitSectionRename, defaultSessionForTeam, draggingId, dropActive, dropOnSection, dropPin, dropPinReorder, dropTargetId, dropUnfavourite, editingSectionId, editingSectionName, finishDrag, isAvatarOnly, isHerdrAgent, isPinnedId, isUnassignedSection, listDropActive, loadFailed, loadingList, markStackWorking, navScrollRef, navigate, openDefinition, openPaneMenuAt, openSectionMenuAt, orderedRows, peekApprovalWait, peekCliRunning, pickOrClose, renderAgentRow, renderRemoteRow, renderTeamRow, resolveMenuKind, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rowMenuHandlers, sectionBlocks, sectionDropId, setDropActive, setEditingSectionName, setListDropActive, setSectionState, setSubagentsCollapsed, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, teams, toggleSectionCollapsed, toggleSectionInternalOnly, unreadIds, updateCanScroll, visibleCount, visiblePins } = props as any
+    const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, RailSectionEmpty, RailSectionHeader, UNASSIGNED_SECTION_ID, activeRail, agentChatHref, agentLabel, agentRole, agentTurns, agents, allowListUnfavourite, allowRowDrop, allowSectionDrop, approvalWaitIds, beginRowDrag, cancelSectionRename, cliRunningIds, commitSectionRename, defaultSessionForTeam, draggingId, dropActive, dropOnSection, dropPin, dropPinReorder, dropTargetId, dropUnfavourite, editingSectionId, editingSectionName, finishDrag, isAvatarOnly, isHerdrAgent, isPinnedId, isUnassignedSection, listDropActive, loadFailed, loadingList, markStackWorking, navScrollRef, navigate, openDefinition, openPaneMenuAt, openSectionMenuAt, orderedRows, peekApprovalWait, peekCliRunning, pickOrClose, remoteHideId, remotes, renderAgentRow, renderRemoteRow, renderTeamRow, resolveMenuKind, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rowMenuHandlers, sectionBlocks, sectionDropId, setDropActive, setEditingSectionName, setListDropActive, setSectionState, setSubagentsCollapsed, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, teams, toggleSectionCollapsed, toggleSectionInternalOnly, unreadIds, updateCanScroll, visibleCount, visiblePins } = props as any
+    const turnSnapshot: TurnSnapshot = agentTurns || getTurnSnapshot()
+    const isSeatWorking = (id: string) =>
+      Boolean(isAgentTurnActive(id, turnSnapshot) || cliRunningIds.has(id) || peekCliRunning(id))
 
   return (
     <>
@@ -57,6 +61,12 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
             const pinTeam = pin.id.startsWith('team:')
               ? teams.find((item: any) => teamHideId(item.id) === pin.id || item.id === pin.id.slice(5))
               : undefined
+            // #1119: pinned remote seats render their platform-themed face.
+            const pinRemoteKind = pin.id.startsWith('remote:')
+              ? remotes?.find?.((item: any) =>
+                  item.id === pin.id.slice(7) || remoteHideId?.(item.id) === pin.id,
+                )?.kind
+              : undefined
             const pinName = live ? agentLabel(live) : pinTeam?.name || pin.name || pin.id
             const role = live ? agentRole(live) : 'default'
             const badge = live ? roleBadgeLabel(role) : ''
@@ -67,12 +77,11 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
                   const rawFaces = stackFacesForTeam(pinTeam)
                   const marked = markStackWorking(
                     rawFaces,
-                    (id: string) => cliRunningIds.has(id) || peekCliRunning(id),
+                    (id: string) => isSeatWorking(id),
                   )
                   const busy = Boolean(
                     marked.anyWorking ||
-                      cliRunningIds.has(pin.id) ||
-                      peekCliRunning(pin.id),
+                      isSeatWorking(pin.id),
                   )
                   // The remainder is the roster minus the one shown face — not
                   // the capped stack length, which would under-report.
@@ -91,8 +100,7 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
               : null
             const pinWorkerBusy = Boolean(
               pinTeamPlan?.anyWorking ||
-                cliRunningIds.has(pin.id) ||
-                peekCliRunning(pin.id),
+                isSeatWorking(pin.id),
             )
             const pinNeedsApproval = Boolean(
               approvalWaitIds.has(pin.id) ||
@@ -168,6 +176,7 @@ export const RailSections = function RailSections(props: RailSectionsProps) {
                     className="os-fav-tile__avatar"
                     status={pinWorkerBusy ? 'working' : 'idle'}
                     active={pinWorkerBusy}
+                    remoteKind={pinRemoteKind}
                   />
                   {pinTeamPlan && pinTeamPlan.remainder > 0 ? (
                     <span

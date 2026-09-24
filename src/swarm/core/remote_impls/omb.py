@@ -80,7 +80,7 @@ R._ANYTHINGLLM_SEND_TIMEOUT_S = 90.0
 R._LETTA_SEND_TIMEOUT_S = 90.0
 R._FLOWISE_SEND_TIMEOUT_S = 90.0
 R._N8N_SEND_TIMEOUT_S = 30.0
-R._TRUEFORGE_SEND_TIMEOUT_S = 60.0
+R._TRUEFORGE_SEND_TIMEOUT_S = 180.0
 R._TRUEFORGE_DONE_STATES = frozenset({"done", "completed", "finished", "success"})
 R._TRUEFORGE_ERROR_STATES = frozenset(
     {"error", "failed", "cancelled", "canceled", "crashed", "aborted", "killed", "timeout", "timed_out"}

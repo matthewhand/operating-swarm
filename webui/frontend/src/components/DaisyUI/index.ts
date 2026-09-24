@@ -17,15 +17,24 @@ export { useFormValidation, ValidatedInput, ValidatedSelect, ValidatedTextarea, 
 // Toast Notifications
 export { 
   ToastProvider,
+  ToastContainer,
+  ToastItem,
   useToast,
   useOptionalToast,
   useSuccessToast,
   useErrorToast,
   useWarningToast,
   useInfoToast,
+  DEFAULT_TOAST_TTLS,
+  CATEGORY_DEFAULT_TTLS,
+  resolveToastTtl,
   TOAST_KIND_WS_DISCONNECT,
+  NOTIFICATIONS_AUTO_EXPIRE_KEY,
+  NOTIFICATIONS_AUTO_EXPIRE_EVENT,
+  loadNotificationsAutoExpire,
+  saveNotificationsAutoExpire,
 } from './Toast';
-export type { Toast, ToastType } from './Toast';
+export type { Toast, ToastType, ToastCategory, ToastOptions, ToastItemProps, ToastContainerProps } from './Toast';
 
 // Loading & Skeleton Components
 export { 

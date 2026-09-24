@@ -1,13 +1,99 @@
 import { createContext, useCallback, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
+import {
+  NOTIFICATIONS_AUTO_EXPIRE_KEY,
+  NOTIFICATIONS_AUTO_EXPIRE_EVENT,
+  loadNotificationsAutoExpire,
+  saveNotificationsAutoExpire,
+} from '../../lib/settingsPrefs';
+
+export {
+  NOTIFICATIONS_AUTO_EXPIRE_KEY,
+  NOTIFICATIONS_AUTO_EXPIRE_EVENT,
+  loadNotificationsAutoExpire,
+  saveNotificationsAutoExpire,
+};
 
 /**
  * Toast types
  */
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
+/**
+ * Toast categories for classification (#1123)
+ */
+export type ToastCategory = 'action' | 'info' | 'warning' | 'error' | 'sticky';
+
+/**
+ * Default TTLs in milliseconds per toast type (#1123)
+ * - Action / success: 4000ms
+ * - Info / status: 6000ms
+ * - Warning: 8000ms
+ * - Error: 12000ms
+ */
+export const DEFAULT_TOAST_TTLS: Record<ToastType, number> = {
+  success: 4000,
+  info: 6000,
+  warning: 8000,
+  error: 12000,
+};
+
+/**
+ * Default TTLs in milliseconds per toast category (#1123)
+ */
+export const CATEGORY_DEFAULT_TTLS: Record<ToastCategory, number> = {
+  action: 4000,
+  info: 6000,
+  warning: 8000,
+  error: 12000,
+  sticky: 0,
+};
+
 /** Chat websocket drop / handshake failure / auth-gate outage (REQ-112). */
 export const TOAST_KIND_WS_DISCONNECT = 'ws-disconnect';
+
+/**
+ * Resolve toast TTL and sticky state (#1123)
+ */
+export function resolveToastTtl(toast: {
+  type?: ToastType;
+  ttl?: number | null;
+  duration?: number | null;
+  sticky?: boolean;
+  category?: ToastCategory;
+}): { isSticky: boolean; ttl: number } {
+  // Sticky opt-in: sticky: true, or duration/ttl is 0 or null, or category is 'sticky'
+  if (toast.sticky === true || (toast.category === 'sticky' && toast.sticky !== false)) {
+    return { isSticky: true, ttl: 0 };
+  }
+  if (toast.ttl === 0 || toast.ttl === null || toast.duration === 0 || toast.duration === null) {
+    return { isSticky: true, ttl: 0 };
+  }
+
+  // Explicit TTL override takes precedence
+  if (typeof toast.ttl === 'number' && toast.ttl > 0) {
+    return { isSticky: false, ttl: toast.ttl };
+  }
+
+  // Duration override takes precedence next
+  if (typeof toast.duration === 'number' && toast.duration > 0) {
+    return { isSticky: false, ttl: toast.duration };
+  }
+
+  // Category default
+  if (toast.category && toast.category in CATEGORY_DEFAULT_TTLS) {
+    const catTtl = CATEGORY_DEFAULT_TTLS[toast.category];
+    if (catTtl === 0) {
+      return { isSticky: true, ttl: 0 };
+    }
+    return { isSticky: false, ttl: catTtl };
+  }
+
+  // Type default
+  const type = toast.type ?? 'info';
+  const defaultTtl = DEFAULT_TOAST_TTLS[type] ?? 6000;
+  return { isSticky: false, ttl: defaultTtl };
+}
 
 /**
  * Toast interface
@@ -17,9 +103,21 @@ export interface Toast {
   type: ToastType;
   title: string;
   message: ReactNode;
-  duration?: number;
+  duration?: number | null;
+  ttl?: number | null;
+  sticky?: boolean;
+  category?: ToastCategory;
   position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
   /** When set, addToast replaces any existing toast with the same kind. */
+  kind?: string;
+}
+
+export interface ToastOptions {
+  duration?: number | null;
+  ttl?: number | null;
+  sticky?: boolean;
+  category?: ToastCategory;
+  position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
   kind?: string;
 }
 
@@ -31,10 +129,10 @@ interface ToastContextType {
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
   dismissByKind: (kind: string) => void;
-  success: (title: string, message: ReactNode, duration?: number) => void;
-  error: (title: string, message: ReactNode, duration?: number) => void;
-  warning: (title: string, message: ReactNode, duration?: number) => void;
-  info: (title: string, message: ReactNode, duration?: number) => void;
+  success: (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => void;
+  error: (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => void;
+  warning: (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => void;
+  info: (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -42,7 +140,13 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 /**
  * Toast Provider
  */
-export const ToastProvider = ({ children }: { children: ReactNode }) => {
+export const ToastProvider = ({
+  children,
+  autoExpire,
+}: {
+  children: ReactNode;
+  autoExpire?: boolean;
+}) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   // Monotonic counter avoids same-millisecond id collisions (duplicate keys).
@@ -71,26 +175,51 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
     setToasts(prev => prev.filter(toast => toast.kind !== kind));
   }, []);
 
-  const success = useCallback((title: string, message: ReactNode, duration = 5000) => {
-    addToast({ type: 'success', title, message, duration, position: 'top-right' });
-  }, [addToast]);
+  const parseOptions = (durationOrOptions?: number | ToastOptions): ToastOptions => {
+    if (typeof durationOrOptions === 'number') {
+      return { duration: durationOrOptions };
+    }
+    return durationOrOptions ?? {};
+  };
 
-  const error = useCallback((title: string, message: ReactNode, duration = 5000) => {
-    addToast({ type: 'error', title, message, duration, position: 'top-right' });
-  }, [addToast]);
+  const success = useCallback(
+    (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => {
+      const opts = parseOptions(durationOrOptions);
+      addToast({ type: 'success', title, message, position: 'top-right', ...opts });
+    },
+    [addToast],
+  );
 
-  const warning = useCallback((title: string, message: ReactNode, duration = 5000) => {
-    addToast({ type: 'warning', title, message, duration, position: 'top-right' });
-  }, [addToast]);
+  const error = useCallback(
+    (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => {
+      const opts = parseOptions(durationOrOptions);
+      addToast({ type: 'error', title, message, position: 'top-right', ...opts });
+    },
+    [addToast],
+  );
 
-  const info = useCallback((title: string, message: ReactNode, duration = 5000) => {
-    addToast({ type: 'info', title, message, duration, position: 'top-right' });
-  }, [addToast]);
+  const warning = useCallback(
+    (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => {
+      const opts = parseOptions(durationOrOptions);
+      addToast({ type: 'warning', title, message, position: 'top-right', ...opts });
+    },
+    [addToast],
+  );
+
+  const info = useCallback(
+    (title: string, message: ReactNode, durationOrOptions?: number | ToastOptions) => {
+      const opts = parseOptions(durationOrOptions);
+      addToast({ type: 'info', title, message, position: 'top-right', ...opts });
+    },
+    [addToast],
+  );
 
   return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast, dismissByKind, success, error, warning, info }}>
+    <ToastContext.Provider
+      value={{ toasts, addToast, removeToast, dismissByKind, success, error, warning, info }}
+    >
       {children}
-      <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <ToastContainer toasts={toasts} removeToast={removeToast} autoExpire={autoExpire} />
     </ToastContext.Provider>
   );
 };
@@ -98,28 +227,70 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
 /**
  * Toast Container - renders all toasts
  */
-interface ToastContainerProps {
+export interface ToastContainerProps {
   toasts: Toast[];
   removeToast: (id: string) => void;
+  autoExpire?: boolean;
 }
 
-const ToastContainer = ({ toasts, removeToast }: ToastContainerProps) => {
+export const ToastContainer = ({
+  toasts,
+  removeToast,
+  autoExpire: autoExpireProp,
+}: ToastContainerProps) => {
+  const [autoExpireState, setAutoExpireState] = useState<boolean>(() =>
+    loadNotificationsAutoExpire(),
+  );
+
+  useEffect(() => {
+    const handleExpireEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      if (detail && typeof detail.enabled === 'boolean') {
+        setAutoExpireState(detail.enabled);
+      } else {
+        setAutoExpireState(loadNotificationsAutoExpire());
+      }
+    };
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === NOTIFICATIONS_AUTO_EXPIRE_KEY) {
+        setAutoExpireState(loadNotificationsAutoExpire());
+      }
+    };
+
+    window.addEventListener(NOTIFICATIONS_AUTO_EXPIRE_EVENT, handleExpireEvent);
+    window.addEventListener('storage', handleStorageEvent);
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_AUTO_EXPIRE_EVENT, handleExpireEvent);
+      window.removeEventListener('storage', handleStorageEvent);
+    };
+  }, []);
+
+  const autoExpire = autoExpireProp ?? autoExpireState;
+
   // Group toasts by position
-  const groupedToasts = toasts.reduce((acc, toast) => {
-    const position = toast.position || 'top-right';
-    if (!acc[position]) {
-      acc[position] = [];
-    }
-    acc[position].push(toast);
-    return acc;
-  }, {} as Record<string, Toast[]>);
+  const groupedToasts = toasts.reduce(
+    (acc, toast) => {
+      const position = toast.position || 'top-right';
+      if (!acc[position]) {
+        acc[position] = [];
+      }
+      acc[position].push(toast);
+      return acc;
+    },
+    {} as Record<string, Toast[]>,
+  );
 
   return (
     <>
       {Object.entries(groupedToasts).map(([position, positionToasts]) => (
         <div key={position} className={`fixed ${getPositionClasses(position)} z-50 space-y-2`}>
           {positionToasts.map(toast => (
-            <ToastItem key={toast.id} toast={toast} removeToast={removeToast} />
+            <ToastItem
+              key={toast.id}
+              toast={toast}
+              removeToast={removeToast}
+              autoExpireEnabled={autoExpire}
+            />
           ))}
         </div>
       ))}
@@ -132,33 +303,112 @@ const ToastContainer = ({ toasts, removeToast }: ToastContainerProps) => {
  */
 const getPositionClasses = (position: string) => {
   switch (position) {
-    case 'top-right': return 'top-20 right-4';
-    case 'top-left': return 'top-20 left-4';
-    case 'bottom-right': return 'bottom-4 right-4';
-    case 'bottom-left': return 'bottom-4 left-4';
-    default: return 'top-4 right-4';
+    case 'top-right':
+      return 'top-20 right-4';
+    case 'top-left':
+      return 'top-20 left-4';
+    case 'bottom-right':
+      return 'bottom-4 right-4';
+    case 'bottom-left':
+      return 'bottom-4 left-4';
+    default:
+      return 'top-4 right-4';
   }
 };
 
 /**
  * Individual Toast Item
  */
-interface ToastItemProps {
+export interface ToastItemProps {
   toast: Toast;
   removeToast: (id: string) => void;
+  autoExpireEnabled?: boolean;
 }
 
-const ToastItem = ({ toast, removeToast }: ToastItemProps) => {
-  // Auto-remove toast after duration
-  useEffect(() => {
-    if (toast.duration) {
-      const timer = setTimeout(() => {
-        removeToast(toast.id);
-      }, toast.duration);
+export const ToastItem = ({
+  toast,
+  removeToast,
+  autoExpireEnabled = true,
+}: ToastItemProps) => {
+  const { isSticky: toastIsSticky, ttl } = resolveToastTtl(toast);
+  // When auto-expiry is disabled, every toast behaves as sticky.
+  const isSticky = toastIsSticky || !autoExpireEnabled;
 
-      return () => clearTimeout(timer);
+  const [isHovered, setIsHovered] = useState(false);
+  const remainingRef = useRef<number>(ttl);
+  const startTimeRef = useRef<number>(Date.now());
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // If toast content is updated (e.g. kind-deduplicated update), reset the timer.
+  const lastContentRef = useRef({ title: toast.title, message: toast.message });
+  useEffect(() => {
+    if (
+      lastContentRef.current.title !== toast.title ||
+      lastContentRef.current.message !== toast.message
+    ) {
+      lastContentRef.current = { title: toast.title, message: toast.message };
+      remainingRef.current = ttl;
+      startTimeRef.current = Date.now();
     }
-  }, [toast.id, toast.duration, removeToast]);
+  }, [toast.title, toast.message, ttl]);
+
+  useEffect(() => {
+    // If sticky or ttl <= 0, do not set an expiry timer.
+    if (isSticky || ttl <= 0) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    // While hovered, pause the expiry timer.
+    if (isHovered) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    // If remaining time is already exhausted, remove immediately.
+    if (remainingRef.current <= 0) {
+      removeToast(toast.id);
+      return;
+    }
+
+    startTimeRef.current = Date.now();
+    timerRef.current = setTimeout(() => {
+      removeToast(toast.id);
+    }, remainingRef.current);
+
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [isHovered, isSticky, ttl, toast.id, removeToast]);
+
+  const handleMouseEnter = () => {
+    if (isSticky || ttl <= 0) return;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const elapsed = Date.now() - startTimeRef.current;
+    remainingRef.current = Math.max(0, remainingRef.current - elapsed);
+    setIsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    if (isSticky || ttl <= 0) return;
+    if (remainingRef.current <= 0) {
+      removeToast(toast.id);
+      return;
+    }
+    setIsHovered(false);
+  };
 
   // Get toast colors and icons
   const { icon: Icon, bgColor, textColor } = getToastStyle(toast.type);
@@ -172,6 +422,10 @@ const ToastItem = ({ toast, removeToast }: ToastItemProps) => {
       aria-live={live}
       aria-atomic="true"
       data-toast-kind={toast.kind}
+      data-toast-type={toast.type}
+      data-toast-category={toast.category}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className="flex items-start gap-3">
         <div className="mt-1">
@@ -203,31 +457,31 @@ const getToastStyle = (type: ToastType) => {
       return {
         icon: CheckCircle2,
         bgColor: 'bg-success text-success-content',
-        textColor: 'text-success-content'
+        textColor: 'text-success-content',
       };
     case 'error':
       return {
         icon: AlertCircle,
         bgColor: 'bg-error text-error-content',
-        textColor: 'text-error-content'
+        textColor: 'text-error-content',
       };
     case 'warning':
       return {
         icon: AlertTriangle,
         bgColor: 'bg-warning text-warning-content',
-        textColor: 'text-warning-content'
+        textColor: 'text-warning-content',
       };
     case 'info':
       return {
         icon: Info,
         bgColor: 'bg-info text-info-content',
-        textColor: 'text-info-content'
+        textColor: 'text-info-content',
       };
     default:
       return {
         icon: Info,
         bgColor: 'bg-info text-info-content',
-        textColor: 'text-info-content'
+        textColor: 'text-info-content',
       };
   }
 };
@@ -271,11 +525,17 @@ export const useInfoToast = () => {
 
 const ToastComponents = {
   ToastProvider,
+  ToastContainer,
+  ToastItem,
   useToast,
+  useOptionalToast,
   useSuccessToast,
   useErrorToast,
   useWarningToast,
   useInfoToast,
+  DEFAULT_TOAST_TTLS,
+  CATEGORY_DEFAULT_TTLS,
+  resolveToastTtl,
 };
 
 export default ToastComponents;

@@ -1,11 +1,17 @@
 /**
  * ADR-017 PR-2 — the SPA-side turn registry pins.
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it } from 'vitest'
 import {
   activeTurnFor,
   applyTurnFrame,
+  getTurnSnapshot,
+  isAgentTurnActive,
+  recordTurnFrame,
+  resetTurnRegistry,
   stopLabelFor,
+  subscribeAgentTurns,
+  AGENT_TURNS_EVENT,
   type TurnSnapshot,
 } from '../agentTurns'
 
@@ -61,5 +67,79 @@ describe('stopLabelFor', () => {
   it('names the scoped contract when a live turn exists', () => {
     const snap = applyTurnFrame({}, started('t1', 'jeeves'))
     expect(stopLabelFor(activeTurnFor(snap, 'jeeves'))).toContain('other turns keep running')
+  })
+})
+
+describe('global registry and subscription (#1118)', () => {
+  beforeEach(() => {
+    resetTurnRegistry()
+  })
+
+  afterEach(() => {
+    resetTurnRegistry()
+  })
+
+  it('records turn_started and turn_finished into the registry and drives isAgentTurnActive', () => {
+    expect(isAgentTurnActive('jeeves')).toBe(false)
+    recordTurnFrame(started('t1', 'jeeves'))
+    expect(isAgentTurnActive('jeeves')).toBe(true)
+    expect(getTurnSnapshot()['t1']).toEqual({
+      turnId: 't1',
+      agentId: 'jeeves',
+      state: 'running',
+    })
+
+    recordTurnFrame(finished('t1', 'jeeves'))
+    expect(isAgentTurnActive('jeeves')).toBe(false)
+    expect(getTurnSnapshot()['t1']?.state).toBe('finished')
+  })
+
+  it('supports single-argument applyTurnFrame to update the global registry', () => {
+    expect(isAgentTurnActive('codey')).toBe(false)
+    applyTurnFrame(started('t2', 'codey'))
+    expect(isAgentTurnActive('codey')).toBe(true)
+    applyTurnFrame(finished('t2', 'codey'))
+    expect(isAgentTurnActive('codey')).toBe(false)
+  })
+
+  it('resolves isAgentTurnActive with or without scoped prefix', () => {
+    recordTurnFrame(started('t1', 'jeeves'))
+    expect(isAgentTurnActive('jeeves')).toBe(true)
+    expect(isAgentTurnActive('agent:jeeves')).toBe(true)
+    expect(isAgentTurnActive('blueprint:jeeves')).toBe(true)
+    expect(isAgentTurnActive('other')).toBe(false)
+  })
+
+  it('notifies listeners when a turn starts and finishes', () => {
+    const history: TurnSnapshot[] = []
+    const unsub = subscribeAgentTurns((snap) => {
+      history.push(snap)
+    })
+
+    recordTurnFrame(started('t1', 'jeeves'))
+    expect(history.length).toBe(1)
+    expect(history[0]['t1']?.state).toBe('running')
+
+    recordTurnFrame(finished('t1', 'jeeves'))
+    expect(history.length).toBe(2)
+    expect(history[1]['t1']?.state).toBe('finished')
+
+    unsub()
+    recordTurnFrame(started('t2', 'moa'))
+    expect(history.length).toBe(2)
+  })
+
+  it('dispatches AGENT_TURNS_EVENT window event on update', () => {
+    const events: TurnSnapshot[] = []
+    const onEvent = (e: Event) => {
+      events.push((e as CustomEvent<TurnSnapshot>).detail)
+    }
+    window.addEventListener(AGENT_TURNS_EVENT, onEvent)
+
+    recordTurnFrame(started('t1', 'jeeves'))
+    expect(events.length).toBe(1)
+    expect(events[0]['t1']?.state).toBe('running')
+
+    window.removeEventListener(AGENT_TURNS_EVENT, onEvent)
   })
 })

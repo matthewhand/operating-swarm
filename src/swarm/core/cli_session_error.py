@@ -33,6 +33,19 @@ _FATAL_CONFIG_TARGETS: dict[str, dict[str, str]] = {
 
 CONFIG_TARGET_KEY = "config_target"
 
+# #1125: an EACCES on a state-dir mkdir (Bun/Node style dumps). The seat is
+# not broken — its state home is unwritable where the CLI actually runs.
+_STATE_DIR_EACCES_NEEDLES = (
+    "eacces: permission denied, mkdir",
+    "eacces: permission denied, open",  # same class: state file create/open
+)
+_STATE_DIR_HINTS = (
+    "/.local/share/",
+    "/.cache/",
+    "/.local/state/",
+    "/.config/",
+)
+
 
 def _blob(content: Any) -> str:
     if isinstance(content, Mapping):
@@ -65,6 +78,47 @@ def is_fatal_config_turn(message: Any) -> bool:
     if message.get("role") != "assistant":
         return False
     return is_fatal_config_error(message, message)
+
+
+def classify_state_dir_eacces(error: str) -> dict[str, str] | None:
+    """#1125: extract {path, remedy} from an EACCES state-dir failure.
+
+    Bun/Node CLIs (opencode et al.) dump ``EACCES: permission denied, mkdir
+    '<path>'`` when their state home is unwritable — e.g. a container whose
+    ``$HOME`` is root-owned with only narrow subpaths mounted. Returns the
+    offending path and an actionable remedy, or ``None`` for anything else.
+    """
+    blob = str(error or "")
+    if not blob:
+        return None
+    lowered = blob.lower()
+    if not any(needle in lowered for needle in _STATE_DIR_EACCES_NEEDLES):
+        return None
+    path = ""
+    for marker in ("mkdir '", "open '", 'mkdir "', 'open "'):
+        start = blob.find(marker)
+        if start >= 0:
+            start += len(marker)
+            end = blob.find(marker[-1], start)
+            if end > start:
+                path = blob[start:end]
+                break
+    if not path:
+        # Fall back to the JSON-ish "path:" line of a structured dump.
+        for line in blob.splitlines():
+            stripped = line.strip().strip(",")
+            if stripped.startswith('path: "') and stripped.endswith('"'):
+                path = stripped[len('path: "') : -1]
+                break
+    if not path or not any(hint in path for hint in _STATE_DIR_HINTS):
+        return None
+    remedy = (
+        "the CLI's state directory is not writable where the agent runs — "
+        "mount that host directory writable into the serving container "
+        "(see docker-compose.yml), or set XDG_DATA_HOME / the CLI's state-dir "
+        "override to a writable path"
+    )
+    return {"path": path, "remedy": remedy}
 
 
 def fatal_config_error_extra(content: Any, meta: Mapping[str, Any] | None = None) -> dict[str, Any]:
