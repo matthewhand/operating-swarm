@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import AgentEditor from '../AgentEditor'
@@ -61,9 +61,19 @@ describe('AgentEditor voice bind (#116)', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     renderEditor()
+    // #1127: voice and avatar live in different tab panels — visit both.
+    fireEvent.click(
+      within(screen.getByTestId('agent-editor-tabs')).getByRole('tab', { name: /Advanced/i }),
+    )
     const voice = await screen.findByTestId('agent-editor-voice')
     expect(voice).toBeInTheDocument()
+    fireEvent.click(
+      within(screen.getByTestId('agent-editor-tabs')).getByRole('tab', { name: /Identity/i }),
+    )
     expect(screen.getByTestId('agent-editor-avatar')).toBeInTheDocument()
+    fireEvent.click(
+      within(screen.getByTestId('agent-editor-tabs')).getByRole('tab', { name: /Advanced/i }),
+    )
     const mode = screen.getByLabelText('Speech mode')
     expect(mode).toHaveValue('inherit')
     expect(screen.queryByLabelText('Voice instruction')).not.toBeInTheDocument()

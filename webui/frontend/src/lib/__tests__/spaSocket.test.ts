@@ -127,7 +127,9 @@ describe('spaSocket singleton', () => {
     first.sent.length = 0
 
     first.onclose?.()
-    expect(spaStatus()).toBe('failed')
+    // Legacy parity: a drop after a successful open is 'closed' (disconnect
+    // toast); 'failed' is reserved for never-opened sockets.
+    expect(spaStatus()).toBe('closed')
 
     const second = lastSocket()
     second.open()
@@ -161,6 +163,7 @@ describe('spaSocket singleton', () => {
     ws.open()
     expect(statuses.at(-1)).toBe('open')
     ws.onclose?.()
-    expect(statuses.at(-1)).toBe('failed')
+    // Legacy parity: post-open drop = 'closed'; pre-open failure = 'failed'.
+    expect(statuses.at(-1)).toBe('closed')
   })
 })

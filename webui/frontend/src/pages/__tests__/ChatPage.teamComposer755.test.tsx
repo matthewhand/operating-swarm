@@ -200,7 +200,9 @@ describe('#755 team routing in the composer picker', () => {
     await waitFor(() => {
       expect(ws.send).toHaveBeenCalled()
     })
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
+    const raw = String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')))
+    const { kind: _k, conversationId: _c, ...inner } = JSON.parse(raw) as Record<string, unknown>
+    expect(inner).toEqual({
       message: 'ping stewie',
       params: { team: 'demo-team', target: 'stewie', enabled_tools: [] },
     })
@@ -216,6 +218,6 @@ describe('#755 team routing in the composer picker', () => {
 
     fireEvent.click(screen.getByTestId('os-model-manage-api'))
     expect(assign).toHaveBeenCalledWith('/teams/#demo-team')
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
   })
 })

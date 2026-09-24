@@ -165,7 +165,8 @@ describe('ChatPage REQ-85 suggestion chips', () => {
     await waitFor(() => {
       expect(ws.send).toHaveBeenCalled()
     })
-    expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toMatchObject({
+    const frames = ws.send.mock.calls.map((c) => String(c[0])).filter((s) => !s.includes('"kind":"subscribe"'))
+    expect(JSON.parse(String(frames.at(-1)))).toMatchObject({
       message: KICKSTART[0],
       blueprint: 'codey',
     })
@@ -195,7 +196,7 @@ describe('ChatPage REQ-85 suggestion chips', () => {
       screen.getAllByTestId('suggestion-chip').every((el) => !(el as HTMLButtonElement).disabled),
     ).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: KICKSTART[0] }))
-    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.send.mock.calls.some((c) => String(c[0]).includes('"kind":"chat.send"'))).toBe(false)
     const queued = screen.getAllByTestId('queued-row')
     expect(queued).toHaveLength(1)
     expect(queued[0]).toHaveTextContent(KICKSTART[0])
