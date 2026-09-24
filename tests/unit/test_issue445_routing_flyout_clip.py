@@ -46,7 +46,10 @@ def _css_block(selector: str) -> str:
 
 def test_header_carries_no_clipping_utility():
     tsx = _chat_page()
-    assert 'className="os-chat-header gap-1.5 sm:gap-3"' in tsx
+    # #1130: the className is a template literal now (mobile scroll-to-hide
+    # appends `os-chat-header--hidden` conditionally), so the pin matches the
+    # element and its class list rather than one exact string.
+    assert re.search(r'<header className=\{?[' "`\"]os-chat-header", tsx), tsx[:200]
     assert "os-chat-header overflow-hidden" not in tsx
 
 
