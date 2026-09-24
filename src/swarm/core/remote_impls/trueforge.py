@@ -162,7 +162,7 @@ def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | N
 
     ``R.operate()`` send uses ``R._OPERATE_SEND_TIMEOUT_S`` (list stays 8s). Treat
     those generic R.operate defaults as unset and resolve
-    ``SWARM_TRUEFORGE_TIMEOUT``, then ``spec.timeout``, then 60s.
+    ``SWARM_TRUEFORGE_TIMEOUT``, then ``spec.timeout``, then 180s.
     """
     if timeout is not None:
         try:
@@ -187,7 +187,7 @@ def _trueforge_send_timeout_s(timeout: float | None = None, spec: RemoteSpec | N
                 return spec_val
         except (TypeError, ValueError):
             pass
-    return R._TRUEFORGE_SEND_TIMEOUT_S
+    return getattr(R, "_TRUEFORGE_SEND_TIMEOUT_S", 180.0)
 
 
 _TRUEFORGE_ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$")
