@@ -87,11 +87,16 @@ export function useChatTurnOps(opts: UseChatTurnOpsOptions) {
    * generating agent's transcript row interrupts THAT agent's turn only;
    * other concurrent turns keep streaming (#1097 seam). Bare calls keep the
    * legacy behavior (cancel the active turn).
+   *
+   * ADR-017 PR-2: an optional `turnId` (from the server's `turn_started`
+   * bookend, tracked in the SPA turn registry) names the exact turn, so a
+   * stop cannot misfire onto a newer turn of the same agent that began
+   * after the button rendered.
    */
-  const interruptRunningTurn = useCallback((agent?: string) => {
+  const interruptRunningTurn = useCallback((agent?: string, turnId?: string) => {
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(buildCancelTurnFrame(agent))
+      ws.send(buildCancelTurnFrame(agent, turnId))
       setAwaitingAssistant(false)
     }
   }, [])

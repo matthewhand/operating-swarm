@@ -193,6 +193,7 @@ import {
   publishContextUsage,
   type ContextUsage,
 } from '../lib/contextUsage'
+import { activeTurnFor, type TurnSnapshot } from '../lib/agentTurns'
 
 import type { DecisionQuestion } from '../lib/decisionQuestion'
 
@@ -503,6 +504,9 @@ const ChatPage = () => {
   const [cullTriggerPct, setCullTriggerPct] = useState(DEFAULT_CULL_TRIGGER_PCT)
   const [contextMeta, setContextMeta] = useState<ContextMeta>({ start_offset: 0, last_event: null })
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null)
+  // ADR-017 PR-2: SPA-side registry of the server's per-turn bookends
+  // (turn_started/turn_finished), so the row stop cancels the exact turn.
+  const [agentTurns, setAgentTurns] = useState<TurnSnapshot>({})
   // #818: background (auxiliary) LLM inference visibility. Frames arrive on
   // the chat socket; the kill switch rides the same socket back.
   const [auxTasks, setAuxTasks] = useState<AuxTask[]>([])
@@ -2067,6 +2071,7 @@ const ChatPage = () => {
     seatUnread,
     pinnedToBottomRef,
     setContextUsage,
+    setAgentTurns,
     setAuxTasks,
     setSuggestionChips,
     setThreads,
@@ -2373,6 +2378,18 @@ const ChatPage = () => {
     addToast,
   })
 
+  // ADR-017 PR-2: the row stop resolves the agent's live turn from the
+  // bookend registry, so the cancel frame names the exact turn_id. Bare
+  // (no live turn known) keeps #1096's agent-scoped shape.
+  const stopActiveAgentTurn = useCallback(() => {
+    const live = activeTurnFor(agentTurns, activeChatAgentId || '')
+    if (live) {
+      interruptRunningTurn(live.agentId, live.turnId)
+    } else {
+      interruptRunningTurn(activeChatAgentId || undefined)
+    }
+  }, [agentTurns, activeChatAgentId, interruptRunningTurn])
+
   // #856 slice 15: compact/summary turn commands moved verbatim to
   // features/chat/useChatCompact.ts.
   const {
@@ -2563,7 +2580,7 @@ const ChatPage = () => {
     formatRateLimitNotice,
     getBubbleTheme,
     handleBubbleContextMenu,
-    interruptRunningTurn,
+    interruptRunningTurn: stopActiveAgentTurn,
     handleContextToHere,
     handleSaveSummary,
     handleToggleSummaryContext,

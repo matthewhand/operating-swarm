@@ -23,6 +23,7 @@ import {
   summarizeUnknownWsFrame,
   type ChatWsEvent,
 } from '../../lib/chatWs'
+import { applyTurnFrame, type TurnSnapshot } from '../../lib/agentTurns'
 import type { DecisionQuestion } from '../../lib/decisionQuestion'
 import { parseDecisionQuestion, stripDecisionQuestion } from '../../lib/decisionQuestion'
 import { registerDynamicSubagent } from '../../lib/dynamicSubagents'
@@ -45,6 +46,7 @@ interface UseChatWsDispatcherOptions {
   seatUnread: boolean
   pinnedToBottomRef: MutableRefObject<boolean>
   setContextUsage: Dispatch<SetStateAction<ContextUsage | null>>
+  setAgentTurns: Dispatch<SetStateAction<TurnSnapshot>>
   setAuxTasks: Dispatch<SetStateAction<AuxTask[]>>
   setSuggestionChips: Dispatch<SetStateAction<string[]>>
   setThreads: Dispatch<SetStateAction<Record<string, ChatMessage[]>>>
@@ -70,6 +72,7 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
     seatUnread,
     pinnedToBottomRef,
     setContextUsage,
+    setAgentTurns,
     setAuxTasks,
     setSuggestionChips,
     setThreads,
@@ -86,6 +89,12 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
       }
       if (event.kind === 'spa_hello') {
         publishExpectedSpaVersion(event.spaVersion)
+        return
+      }
+      if (event.kind === 'turn_started' || event.kind === 'turn_finished') {
+        // ADR-017 PR-2: fold the bookend into the SPA turn registry so the
+        // row stop can name the exact turn_id when it cancels (#1113).
+        setAgentTurns((prev) => applyTurnFrame(prev, event))
         return
       }
       if (event.kind === 'context_usage') {

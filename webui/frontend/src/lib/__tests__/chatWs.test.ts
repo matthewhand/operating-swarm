@@ -4,6 +4,7 @@ import {
   buildChatWsFrame,
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
+  buildCancelTurnFrame,
   cliAgentChatParams,
   mergeChatSendParams,
   parseChatWsMessage,
@@ -16,7 +17,6 @@ describe('buildChatWsUrl', () => {
     const url = buildChatWsUrl('conv1')
     expect(url).toMatch(/^ws:\/\/[^/]+\/ws\/ai-demo\/conv1\/$/)
   })
-
   it('appends the blueprint query param when given', () => {
     expect(buildChatWsUrl('conv1', 'bp-7')).toMatch(/\/ws\/ai-demo\/conv1\/\?blueprint=bp-7$/)
   })
@@ -25,6 +25,43 @@ describe('buildChatWsUrl', () => {
     const url = buildChatWsUrl('a/b c', 'x&y')
     expect(url).toContain('/ws/ai-demo/a%2Fb%20c/')
     expect(url).toContain('blueprint=x%26y')
+  })
+})
+
+describe('buildCancelTurnFrame (ADR-017 PR-2)', () => {
+  it('carries both agent and turn_id when the stop names a specific turn', () => {
+    expect(buildCancelTurnFrame('jeeves', 'turn-1')).toBe(
+      '{"type":"cancel_turn","agent":"jeeves","turn_id":"turn-1"}',
+    )
+  })
+
+  it('carries agent only when no turn identity is known', () => {
+    expect(buildCancelTurnFrame('jeeves')).toBe('{"type":"cancel_turn","agent":"jeeves"}')
+  })
+
+  it('stays bare when neither is known (#198 legacy frame)', () => {
+    expect(buildCancelTurnFrame()).toBe('{"type":"cancel_turn"}')
+  })
+})
+
+describe('turn bookends (ADR-017 PR-2)', () => {
+  it('parses turn_started into its event', () => {
+    const event = parseChatWsMessage(
+      '{"type":"turn_started","turn_id":"t1","agent_id":"jeeves"}',
+    )
+    expect(event).toEqual({ kind: 'turn_started', turnId: 't1', agentId: 'jeeves' })
+  })
+
+  it('parses turn_finished into its event', () => {
+    const event = parseChatWsMessage(
+      '{"type":"turn_finished","turn_id":"t1","agent_id":"jeeves"}',
+    )
+    expect(event).toEqual({ kind: 'turn_finished', turnId: 't1', agentId: 'jeeves' })
+  })
+
+  it('drops bookends missing their turn identity', () => {
+    expect(parseChatWsMessage('{"type":"turn_started","agent_id":"jeeves"}').kind).toBe('unknown')
+    expect(parseChatWsMessage('{"type":"turn_finished"}').kind).toBe('unknown')
   })
 })
 
