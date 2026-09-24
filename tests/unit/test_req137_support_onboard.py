@@ -65,7 +65,10 @@ def test_kickstart_and_chat_empty_state_share_journey_chips():
     briefing = BRIEFING.read_text(encoding="utf-8")
     assert "SUPPORT_KICKSTART_CANNED" in journey
     assert "is_support_consumer" in suggestions
-    assert "supportJourneyKickstart" in chat
+    # Slice-20/#856: the kickstart chip wiring moved into useSlashLifecycle.
+    assert "supportJourneyKickstart" in (
+        REPO / "webui" / "frontend" / "src" / "features" / "chat" / "useSlashLifecycle.ts"
+    ).read_text(encoding="utf-8")
     assert "Create a team" in front
     assert "Add a remote" in front
     assert "Wire a CLI" in front

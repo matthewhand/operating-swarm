@@ -36,16 +36,17 @@ def test_command_palette_demoted_and_no_collision():
 
 def test_sidebar_alt_pins_and_tips():
     sidebar = "\n".join(x.read_text(encoding="utf-8") for x in (SIDEBAR_TSX, SIDEBAR_TSX_ROWS))
-    # Alt/⌥+1…9 navigation
+    # #1088: Alt+Up / Alt+Down sequential navigation — the Alt+1..9 slot model
+    # is gone (it collided with native browser tab switching).
     assert "event.altKey" in sidebar
-    assert "/^[1-9]$/.test(event.key)" in sidebar
-    # REQ-172 replaced direct pin indexing with spill-aware targets; the
-    # Alt+1…9 navigation is asserted via the current contract.
-    assert "hotkeyTargets[idx]" in sidebar
-    assert "computeRailHotkeyTargets" in sidebar
+    assert "/^[1-9]$/.test(event.key)" not in sidebar
+    assert "computeRailNavSequence" in sidebar
+    assert "stepRailNav" in sidebar
 
-    # Hover shortcut badge on favourite tiles
-    assert "os-fav-tile__shortcut" in sidebar
+    # #1088: the hover digit badge on favourite tiles is retired — the
+    # sequential Alt+↑/↓ model has no per-row slot. The CSS class remains
+    # only as dead style, so the honest assertion is its absence in markup.
+    assert "os-fav-tile__shortcut" not in sidebar
 
     # Single in-field ⌘K / Ctrl+K chip — do not also append it to the Search label
     assert "searchShortcutLabel" in sidebar
@@ -74,7 +75,9 @@ def test_in_field_unfocused_hints_replace_overlay():
     palette = SEARCH_PALETTE_TSX.read_text(encoding="utf-8")
     css = INDEX_CSS.read_text(encoding="utf-8")
 
-    assert "composer-send-hint" in chat
+    # #1093 (4): the ↵ send hint is retired (the queued pill carries the
+    # enter-interrupt hint); the Esc-to-clear hint stays for typed drafts.
+    assert "composer-send-hint" not in chat
     assert "composer-clear-hint" in chat
     assert "KeybindingTips" not in chat
     assert "first-load-tips" not in chat
