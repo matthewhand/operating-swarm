@@ -14,9 +14,15 @@
 # Hard stops honoured here:
 #   - never pushes anything to public unless tests/test_tracked_files_sanitization.py is green
 #   - upstream commits use author/committer mhand <11550632+matthewhand@users.noreply.github.com>
+#   - a failed dated-branch push aborts the sync (#1112): the old
+#     "push ... 2>/dev/null" could exit 0 having published nothing.
 set -euo pipefail
 
-PRIVATE_REMOTE="${PRIVATE_REMOTE:-public}"
+# #1112: the mirror SoT is matthewhand/operating-swarm. The old default
+# remote ("public" -> open-swarm.git) pushed dated branches to a repo that
+# must not carry them, then gh pr create failed because the branch existed
+# nowhere the PR could see.
+PRIVATE_REMOTE="${PRIVATE_REMOTE:-mirror}"
 PUBLIC_REPO="${PUBLIC_REPO:-matthewhand/operating-swarm}"
 PUBLIC_MAIN="${PUBLIC_MAIN:-main}"
 PROD_DIR="${PROD_DIR:-$HOME/dev/dormant/open-swarm}"
@@ -36,9 +42,28 @@ git fetch "$PRIVATE_REMOTE" --quiet
 PUBLIC_TIP="$(git rev-parse "$PRIVATE_REMOTE/$PUBLIC_MAIN")"
 PRIVATE_TIP="$(git rev-parse HEAD)"
 
+# #1112: prove the configured remote IS the mirror before publishing to it.
+REMOTE_URL="$(git remote get-url "$PRIVATE_REMOTE")"
+case "$REMOTE_URL" in
+  *"operating-swarm"*) ;;
+  *)
+    echo "FAIL: remote '$PRIVATE_REMOTE' points at $REMOTE_URL, not the mirror" >&2
+    echo "      fix: git remote add mirror https://github.com/matthewhand/operating-swarm.git" >&2
+    exit 1
+    ;;
+esac
+
 if [ "$MODE" = "check" ]; then
   # Content drift, not commit count: the mirror uses commit-tree, so private
-  # history never lands in public — the trees are the truth.
+  # history never lands in public — the trees are the truth. Tree equality
+  # is the definitive "in sync" verdict (#1112); the file counter below it
+  # only exists to warn before drift crosses the old threshold.
+  PUBLIC_TREE="$(git rev-parse "$PRIVATE_REMOTE/$PUBLIC_MAIN^{tree}")"
+  PRIVATE_TREE="$(git rev-parse HEAD^{tree})"
+  if [ "$PUBLIC_TREE" = "$PRIVATE_TREE" ]; then
+    echo "OK: trees identical (public $(echo "$PUBLIC_TIP" | cut -c1-8), private $(echo "$PRIVATE_TIP" | cut -c1-8))"
+    exit 0
+  fi
   changed="$(git diff --name-only "$PRIVATE_REMOTE/$PUBLIC_MAIN" HEAD | wc -l)"
   echo "drift: public at $(echo "$PUBLIC_TIP" | cut -c1-8), private at $(echo "$PRIVATE_TIP" | cut -c1-8): $changed files differ"
   if [ "$changed" -gt "$DRIFT_THRESHOLD" ]; then
@@ -79,7 +104,15 @@ MCOMMIT="$(printf '%s\n' "$MSG" | GIT_AUTHOR_NAME="$MHAND_NAME" GIT_AUTHOR_EMAIL
   git commit-tree "$TREE" -p "$PUBLIC_TIP")"
 echo "mirror commit: $(echo "$MCOMMIT" | cut -c1-8)"
 
-git push "$PRIVATE_REMOTE" "$MCOMMIT:refs/heads/$BRANCH" --quiet 2>/dev/null
+# #1112: a failed push used to be swallowed here (2>/dev/null), so the
+# script printed the commit hash and exited 0 having published nothing.
+# Now: loud failure, then verification that the branch actually landed.
+echo "== publish dated branch =="
+git push "$PRIVATE_REMOTE" "$MCOMMIT:refs/heads/$BRANCH" --quiet
+if ! git ls-remote --heads "$PRIVATE_REMOTE" "refs/heads/$BRANCH" | grep -q "$MCOMMIT"; then
+  echo "FAIL: dated branch missing on $PRIVATE_REMOTE after push" >&2
+  exit 1
+fi
 
 PR_URL="$(gh pr create --repo "$PUBLIC_REPO" --base "$PUBLIC_MAIN" --head "$BRANCH" \
   --title "mirror: sync sanitised runtime from private SoT ($DATE_STAMP)" \

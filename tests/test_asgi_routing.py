@@ -232,6 +232,9 @@ class TestWebsocketRoundTrip:
 
             await communicator.send_to(text_data=json.dumps({"message": "Ping?"}))
 
+            # 0) ADR-017 PR-1: the turn opens with its identity bookend.
+            await expect_turn_started(communicator)
+
             # 1) the user's own message echoed back as an HTML partial
             user_html = await communicator.receive_from()
             assert "Ping?" in user_html
@@ -294,9 +297,34 @@ async def expect_spa_hello(communicator, timeout=1):
     return payload
 
 
+async def expect_turn_started(communicator, timeout=1):
+    """ADR-017 PR-1: every turn opens with a turn_started bookend (skip it)."""
+    payload = json.loads(await communicator.receive_from(timeout=timeout))
+    assert payload.get("type") == "turn_started"
+    assert payload.get("turn_id")
+    return payload
+
+
+async def drain_turn_finished(communicator, timeout=1):
+    """ADR-017 PR-1: drain trailing telemetry until the closing bookend.
+
+    A turn may emit JSON after the final partial (context_usage); the one
+    guarantee is that ``turn_finished`` closes the turn. Consuming it here
+    keeps a later send on the same socket starting at its own bookend.
+    """
+    closing = None
+    while not await communicator.receive_nothing(timeout=0.5):
+        frame = await communicator.receive_from(timeout=timeout)
+        if frame.startswith("{") and '"turn_finished"' in frame:
+            closing = frame
+    assert closing, "turn never closed its turn_finished bookend"
+    return json.loads(closing)
+
+
 async def _drain_reply(communicator, prompt):
     """Send a prompt dict and collect (user_echo, placeholder, frames-until-final)."""
     await communicator.send_to(text_data=json.dumps(prompt))
+    await expect_turn_started(communicator, timeout=BP_TIMEOUT)
     user_html = await communicator.receive_from(timeout=BP_TIMEOUT)
     placeholder_html = await communicator.receive_from(timeout=BP_TIMEOUT)
     match = re.search(r'id="(message-response-[0-9a-f]+)"', placeholder_html)
@@ -310,6 +338,7 @@ async def _drain_reply(communicator, prompt):
         frames.append(frame)
         if f'id="{contents_div_id}"' in frame and 'hx-swap-oob="true"' in frame:
             break
+    await drain_turn_finished(communicator, timeout=BP_TIMEOUT)
     return user_html, contents_div_id, frames
 
 
@@ -465,6 +494,7 @@ async def _drain_turn(communicator, prompt):
       later turn on the same socket by one frame.
     """
     await communicator.send_to(text_data=json.dumps(prompt))
+    await expect_turn_started(communicator, timeout=BP_TIMEOUT)
     user_html = await communicator.receive_from(timeout=BP_TIMEOUT)
 
     notices: list[str] = []
@@ -484,8 +514,13 @@ async def _drain_turn(communicator, prompt):
             break
 
     trailing: list[str] = []
+    closing: str | None = None
     while not await communicator.receive_nothing(timeout=0.5):
-        trailing.append(await communicator.receive_from(timeout=BP_TIMEOUT))
+        frame = await communicator.receive_from(timeout=BP_TIMEOUT)
+        trailing.append(frame)
+        if frame.startswith("{") and '"turn_finished"' in frame:
+            closing = frame
+    assert closing, "turn never closed its turn_finished bookend"
     return user_html, notices, frames, trailing
 
 

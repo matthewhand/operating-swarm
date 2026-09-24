@@ -41,8 +41,10 @@ def test_req882_spec_doc_is_shipped():
 
 
 def test_req882_consumer_dispatches_demo_before_llm():
+    # ADR-017 PR-1: the dispatch moved into ``_run_chat_turn_body``, called by
+    # the serialised wrapper — scan the whole region, ordering still pinned.
     dispatch = _text(CONSUMERS).split("async def _run_serialised_chat_turn", 1)[1]
-    dispatch = dispatch.split("\n    async def ", 1)[0]
+    dispatch = dispatch.split("\n    async def _emit_teammate_task_cards", 1)[0]
     assert "is_demo_mode()" in dispatch
     assert "respond_with_demo(" in dispatch
     demo_at = dispatch.index("is_demo_mode()")
