@@ -81,7 +81,7 @@ describe('#856 slice J — ChatHeader', () => {
       path.join(__dirname, '..', '..', '..', 'pages', 'ChatPage.tsx'),
       'utf8',
     )
-    expect(src).toContain('ChatHeader {...chatHeaderProps}')
+    expect(src).toContain('<ChatHeader {...allChatScope} />')
     expect(src).not.toContain('os-chat-header')
   })
 })

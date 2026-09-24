@@ -2505,7 +2505,16 @@ const ChatPage = () => {
     interruptRunningTurn,
   })
 
-  const chatMessageListProps = {
+  // #856 slice P: the six pass-through props objects collapse into one
+  // spreadable scope record. Each extracted module (ChatHeader,
+  // ChatTranscriptShell, ChatOverlays, ChatMessageList, ChatBottomDock)
+  // destructures exactly these names, so spreading one record preserves
+  // behaviour. renderRoutingPicker rides inside as a callable - the dock
+  // invokes it rather than spreads it.
+  const renderRoutingPicker = () =>
+    renderRoutingPickerImpl(allChatScope as unknown as Record<string, any>)
+
+  const allChatScope = {
     AgentAvatar,
     ChatMessageActions,
     ChatMessageBubble,
@@ -2529,7 +2538,6 @@ const ChatPage = () => {
     activeChatAgentId,
     activeSelectionRef,
     agentIdFromBlueprint,
-      agentKind,
     attachToolToThread,
     awaitingAssistant,
     blueprints,
@@ -2611,10 +2619,6 @@ const ChatPage = () => {
     toggleThinking,
     voiceBind,
     workingTip,
-    __self: null as unknown,
-  }
-
-  const renderRoutingPickerProps = {
     ADD_REMOTE_VALUE,
     ALL_MEMBERS_TARGET,
     MANAGE_CLI_VALUE,
@@ -2639,7 +2643,6 @@ const ChatPage = () => {
     currentCli,
     currentCliModel,
     discoveredClis,
-    isApiAgent,
     isCliAgent,
     isRemoteAction,
     llmProfilesQuery,
@@ -2647,7 +2650,6 @@ const ChatPage = () => {
     memberTarget,
     navigateToPaletteAgent,
     ombSelectedBotId,
-    openSettingsSheet,
     persistAgentDropdownChoice,
     persistedDropdown,
     reconfigureProviderForSeat,
@@ -2664,7 +2666,6 @@ const ChatPage = () => {
     saveAgentRemoteBinding,
     selectedModelId,
     selectedRemoteId,
-    selectedTeam,
     sessionFromUrl,
     setComposerSessionsOpen,
     setMemberTarget,
@@ -2672,13 +2673,6 @@ const ChatPage = () => {
     setSelectedRemoteId,
     showEmptyRemoteChrome,
     showRemotesControl,
-    teamFromUrl,
-  }
-
-  const renderRoutingPicker = () =>
-    renderRoutingPickerImpl(renderRoutingPickerProps)
-
-  const chatBottomDockProps = {
     status,
     ArrowUp,
     ChatMessageInput,
@@ -2696,21 +2690,15 @@ const ChatPage = () => {
     QueuedSendPane,
     Reply,
     Square,
-    SuggestionChips,
     addToast,
     authRejected,
-    awaitingAssistant,
     bottomDockRef,
-    chipsDisabled,
-    chooseSuggestion,
     composerBusy,
     composerDragOver,
     composerMenu,
     composerPlaceholder,
-    composerRef,
     composerWrapRef,
     contextUsage,
-    conversationId,
     demoChips,
     describeSpeechPath,
     enqueueComposerFiles,
@@ -2731,10 +2719,7 @@ const ChatPage = () => {
     handleSend,
     hasSendableDraft,
     input,
-    interruptRunningTurn,
-    isApiAgent,
     isSlashOpen,
-    messages,
     // #1070: Send-now mirrors the composer's Enter-on-empty contract —
     // interrupt the running turn; the drain effect promotes the queued row.
     onSendNow: interruptRunningTurn,
@@ -2746,15 +2731,12 @@ const ChatPage = () => {
     queuedPaneMaxHeightPx,
     recentSlashIds,
     removeAttachment,
-    renderRoutingPicker,
     replyTarget,
-    selectedBlueprint,
     sendNowHint,
     setInput,
     setPluginsPanelOpen,
     setPlusOpen,
     setQueuedHoldIds,
-    setReplyTarget,
     setSlashSelectedIndex,
     setTokenDiagOpen,
     showContextUsage,
@@ -2766,11 +2748,6 @@ const ChatPage = () => {
     sttPathUsed,
     suggestionChips,
     transcriptHeightPx,
-    __ctx: null as unknown,
-  }
-
-  const chatHeaderProps = {
-    AgentAvatar,
     ApiSessionSwitcher,
     AuxActivityIndicator,
     CliSessionSwitcher,
@@ -2782,51 +2759,34 @@ const ChatPage = () => {
     RemoteSessionSwitcher,
     Settings,
     ThemeToggle,
-    activeChatAgentId,
     activeRemoteId,
     auxTasks,
     cliQuery,
     cliRemoteSession,
-    configuredRemoteRows,
-    currentCli,
     generationsOpen,
     headerFaceAgentId,
     headerRole,
     headerRoleLabel,
     identityTitleRef,
-    isApiAgent,
     isChiefOfStaff,
-    isCliAgent,
     isExampleRole,
     isRemoteCapableCli,
     isWorking,
     narrow,
     openAgentEditor,
     openRail,
-    openSettingsSheet,
     openTeamEditor,
     railOpen,
     requestAuxCancel,
     roleCssClass,
     searchParams,
-    selectedAgent,
-    selectedAgentName,
-    selectedBlueprint,
     selectedRemote,
-    selectedTeam,
     setGenerationsOpen,
-    setSearchParams,
-    showEmptyRemoteChrome,
     showHeaderRole,
-    showRemotesControl,
     teamChatMemberId,
     teamDeclaredRoster,
-    teamFromUrl,
     workspaceSubtitle,
     wsRef,
-    __ctx: null as unknown,
-  }
-  const chatOverlaysProps = {
     COPY_EMPTY_MESSAGE,
     COPY_EMPTY_TITLE,
     COPY_FAILED_MESSAGE,
@@ -2836,8 +2796,6 @@ const ChatPage = () => {
     FoldVertical,
     GenerationsPanel,
     RawResponseModal,
-    Reply,
-    START_CONTEXT_FROM_HERE_LABEL,
     START_CONTEXT_FROM_HERE_TOOLTIP,
     SessionPicker,
     SkillPopup,
@@ -2845,37 +2803,19 @@ const ChatPage = () => {
     agentKind,
     applyStartFromHere,
     assistantMessageCount,
-    composerRef,
     contextMax,
     contextMenu,
-    contextMeta,
-    contextStrategy,
-    conversationId,
     copyTextToClipboard,
     generationContexts,
-    generationsOpen,
-    handleContextToHere,
-    headerFaceAgentId,
     inputTokens,
-    isApiAgent,
-    messages,
     openSkillName,
     outputTokens,
     rawResponseModalText,
-    remoteFromUrl,
     remoteThreadPicker,
     seatToolCalls,
-    selectedAgentName,
     setContextMenu,
-    setGenerationsOpen,
-    setOpenSkillName,
-    setRawResponseModalText,
     setRemoteThreadPicker,
-    setReplyTarget,
-    setSearchParams,
     setStartFromHereWarning,
-    setTokenDiagOpen,
-    skillCatalog,
     startFromHereWarning,
     summaries,
     toastError,
@@ -2883,40 +2823,28 @@ const ChatPage = () => {
     tokenDiagOpen,
     toolCallsCount,
     userMessageCount,
-  }
-
-  const chatShellProps = {
     ChatBottomDock,
     ChatMessageList,
     ConsumerPills,
     DefaultLlmTip,
     RoleAgentTip,
-    activeChatAgentId,
-    agentKind,
-    bubbleTheme,
-    chatBottomDockProps,
-    chatMessageListProps,
     composerInsetCustomProperty,
     composerInsetPx,
     dismissDefaultLlmTip,
     dismissRoleTip,
-    getBubbleTheme,
     handleTranscriptScroll,
     ircGutterDragging,
     ircGutterPx,
-    isCliAgent,
     isRemoteAgent,
-    messagesEditable,
     onIrcRailDoubleClick,
     onIrcRailPointerDown,
     onIrcRailPointerMove,
     onIrcRailPointerUp,
-    remoteFromUrl,
     scrollBoxRef,
     showDefaultLlmTip,
     showRoleTip,
     statusLabel,
-    themeUsesIrcGutter,
+    renderRoutingPicker,
   }
 
   return (
@@ -2925,9 +2853,9 @@ const ChatPage = () => {
           header's box (the flyout is an absolutely-positioned child of the
           picker inside this header), leaving only its first row reachable.
           Titles still clamp in `.os-navbar-identity-label`. */}
-      <ChatHeader {...chatHeaderProps} />
-      <ChatTranscriptShell {...chatShellProps} />
-      <ChatOverlays {...chatOverlaysProps} />
+      <ChatHeader {...allChatScope} />
+      <ChatTranscriptShell {...allChatScope} />
+      <ChatOverlays {...allChatScope} />
 
     </div>
   )
