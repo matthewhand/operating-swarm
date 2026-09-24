@@ -7,7 +7,7 @@
  * the scroll/new-divider/visibility read-marking effects, and the WS
  * toast/reconnect plumbing. All state and refs stay page-owned.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { TOAST_KIND_WS_DISCONNECT, type Toast } from '../../components/DaisyUI'
 import {
@@ -85,6 +85,13 @@ export function useTranscriptLayout(opts: UseTranscriptLayoutOptions) {
     reconnect,
   } = opts
   const prevStatusRef = useRef<ChatConnectionStatus>('connecting')
+  const lastScrollTopRef = useRef(0)
+  const [mobileHeaderHidden, setMobileHeaderHidden] = useState(false)
+
+  useEffect(() => {
+    setMobileHeaderHidden(false)
+    lastScrollTopRef.current = 0
+  }, [conversationId, activeChatAgentId])
 
   const applyComposerInset = useCallback(() => {
     const next = measureComposerDockInset(bottomDockRef.current)
@@ -183,8 +190,23 @@ export function useTranscriptLayout(opts: UseTranscriptLayoutOptions) {
   // transcript bottom — not merely because a scroll happened.
   const handleTranscriptScroll = useCallback(
     (e: React.UIEvent<HTMLElement>) => {
-      const atBottom = isPinnedToTranscriptBottom(e.currentTarget, composerInsetPx)
+      const el = e.currentTarget
+      const scrollTop = el.scrollTop
+      const atBottom = isPinnedToTranscriptBottom(el, composerInsetPx)
       pinnedToBottomRef.current = atBottom
+
+      const diff = scrollTop - lastScrollTopRef.current
+      if (scrollTop <= 24) {
+        setMobileHeaderHidden(false)
+      } else if (diff > 12) {
+        // Scrolled down
+        setMobileHeaderHidden(true)
+      } else if (diff < -12) {
+        // Scrolled up
+        setMobileHeaderHidden(false)
+      }
+      lastScrollTopRef.current = Math.max(0, scrollTop)
+
       if (!atBottom || !seatUnread || !activeChatAgentId) return
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       setUnreadIds(markAgentRead(activeChatAgentId))
@@ -246,5 +268,5 @@ export function useTranscriptLayout(opts: UseTranscriptLayoutOptions) {
   // keeps a constant control count and never shifts under the pointer.
   const composerBusy = status === 'open' && generationIsInFlight(messages, awaitingAssistant)
 
-  return { handleTranscriptScroll, composerBusy, identityTitleRef }
+  return { handleTranscriptScroll, composerBusy, identityTitleRef, mobileHeaderHidden }
 }

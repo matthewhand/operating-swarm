@@ -263,4 +263,15 @@ describe('REQ-54 mobile rail tuck', () => {
     expect(screen.queryByTestId('os-swipe-hint')).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Agent list' })).toBeInTheDocument()
   })
+
+  it('never shows the swipe hint on tablet viewports (>= 640px)', async () => {
+    installViewport(768)
+    renderApp('/chat')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    await openRailAndPick(/Codey/)
+    expect(screen.queryByTestId('os-swipe-hint')).not.toBeInTheDocument()
+  })
 })

@@ -2469,6 +2469,17 @@ button.os-agent-row {
   /* #530: relative so the centered token meter can anchor to the header row. */
   position: relative;
 }
+@media (max-width: 639px) {
+  .os-chat-header {
+    transition: transform 220ms ease, margin-top 220ms ease, opacity 180ms ease;
+  }
+  .os-chat-header--hidden {
+    margin-top: calc(-1 * var(--os-top-chrome-h));
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+}
 @media (min-width: 640px) {
   .os-chat-header {
     gap: 0.75rem;
@@ -2569,7 +2580,7 @@ button.os-agent-row {
   align-items: center;
   gap: 0.15rem;
   min-width: 0;
-  max-width: 9.5rem;
+  max-width: 13rem;
   height: 2rem;
   padding-inline: 0.55rem;
   border: 0;
@@ -2687,7 +2698,7 @@ button.os-agent-row {
   height: 1.85rem;
   font-size: 0.75rem;
   padding-inline: 0.45rem;
-  max-width: 7.5rem;
+  max-width: 12rem;
 }
 /* #795: the provider glyph rides inside the pill; hidden on desktop where the
    text label already names the provider, shown on mobile where it replaces it. */
@@ -4110,6 +4121,11 @@ html:not([data-theme="light"]) .os-composer__send,
   font-size: 0.8125rem;
   line-height: 1.35;
   color: var(--color-base-content);
+}
+@media (min-width: 640px) {
+  .os-swipe-hint {
+    display: none !important;
+  }
 }
 .os-team-mark {
   color: color-mix(in srgb, var(--color-base-content) 80%, var(--color-primary));
