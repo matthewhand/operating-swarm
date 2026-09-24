@@ -45,13 +45,18 @@ export function savePillWidth(width: number | null): void {
 }
 
 /**
- * Drag math: a new width from the previous width plus a horizontal delta,
- * clamped to [min, fullText]. Negative or positive deltas both work.
+ * Drag math: a new width from the start width minus pointer displacement deltaX
+ * (event.clientX - startX).
+ *
+ * In the composer layout, the routing pill is anchored on the right side of the
+ * composer row. Dragging left (negative deltaX) expands the pill toward the
+ * composer input space. Dragging right (positive deltaX) narrows the pill.
  */
 export function pillWidthFromDrag(
   startWidth: number,
   deltaX: number,
   fullTextWidth: number,
 ): number {
-  return clampPillWidth(startWidth + deltaX, fullTextWidth)
+  return clampPillWidth(startWidth - deltaX, fullTextWidth)
 }
+

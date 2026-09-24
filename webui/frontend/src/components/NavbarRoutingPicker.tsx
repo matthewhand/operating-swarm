@@ -551,7 +551,10 @@ export function NavbarRoutingPicker({
       className={`os-routing-pill join-item ${paletteOpen ? 'os-routing-pill--hot' : ''}`}
       style={
         pillWidth !== null
-          ? { width: `${clampPillWidth(pillWidth, measureFullTextWidth())}px` }
+          ? {
+              width: `${clampPillWidth(pillWidth, measureFullTextWidth())}px`,
+              maxWidth: 'none',
+            }
           : undefined
       }
       data-routing-pill="agent"
@@ -567,6 +570,20 @@ export function NavbarRoutingPicker({
         openTwoStage()
       }}
     >
+      {/* #770 / #1110: double-slit grab handle — hover-reveal, col-resize cursor,
+          pointer-captured drag, click-through suppressed so the dialog
+          never opens mid-resize. Sits on the leading (left) edge facing the
+          composer input so dragging left expands into input space. */}
+      <span
+        className="os-routing-pill__grip"
+        aria-hidden="true"
+        data-testid="routing-pill-grip"
+        onPointerDown={onHandlePointerDown}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerUp}
+        onPointerCancel={onHandlePointerUp}
+        onClick={(event) => event.stopPropagation()}
+      />
       {/* #795: provider glyph — hidden on desktop (the label names it),
           shown on mobile where it replaces the text in an icon circle. */}
       <span className="os-routing-pill__icon" aria-hidden="true">
@@ -578,19 +595,6 @@ export function NavbarRoutingPicker({
       </span>
       <span ref={labelRef} className="os-routing-pill__label">{label}</span>
       <ChevronDown className="os-routing-pill__chevron" aria-hidden="true" />
-      {/* #770: double-slit grab handle — hover-reveal, col-resize cursor,
-          pointer-captured drag, click-through suppressed so the dialog
-          never opens mid-resize. */}
-      <span
-        className="os-routing-pill__grip"
-        aria-hidden="true"
-        data-testid="routing-pill-grip"
-        onPointerDown={onHandlePointerDown}
-        onPointerMove={onHandlePointerMove}
-        onPointerUp={onHandlePointerUp}
-        onPointerCancel={onHandlePointerUp}
-        onClick={(event) => event.stopPropagation()}
-      />
     </button>
   )
 
