@@ -7,6 +7,8 @@ import {
   pillWidthFromDrag,
   savePillWidth,
 } from '../composerPillResize'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 describe('#770 — composer pill resize math', () => {
   it('clamps to min ~3 chars and never above the full text width', () => {
@@ -44,5 +46,22 @@ describe('#770 — composer pill resize math', () => {
     localStorage.setItem(COMPOSER_PILL_WIDTH_STORAGE_KEY, String(COMPOSER_PILL_AUTO_MAX))
     expect(loadPillWidth()).toBe(COMPOSER_PILL_AUTO_MAX)
     localStorage.removeItem(COMPOSER_PILL_WIDTH_STORAGE_KEY)
+  })
+})
+
+describe('#1136 — provider/model pill stops clipping long names', () => {
+  const css = readFileSync(join(__dirname, '..', '..', 'index.css'), 'utf8')
+
+  it('auto cap grows from 152 (9.5rem) to 200 (12.5rem)', () => {
+    expect(COMPOSER_PILL_AUTO_MAX).toBe(200)
+  })
+
+  it('CSS max-width matches the JS cap so the pill can actually reach it', () => {
+    // #1135 landed the base block at 13rem (≥ the 200px JS cap); the
+    // composer-scoped override must not re-clip below it (#1136).
+    const block = css.match(/\.os-routing-pill \{[^}]*\}/)?.[0] ?? ''
+    expect(block).toContain('max-width: 13rem')
+    const composerBlock = css.match(/\.os-composer \.os-routing-pill \{[^}]*\}/)?.[0] ?? ''
+    expect(composerBlock).toContain('max-width: 13rem')
   })
 })
