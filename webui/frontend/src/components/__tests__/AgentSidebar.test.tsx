@@ -27,6 +27,7 @@ import {
   notifyApprovalWait,
   resetAgentAttention,
 } from '../../lib/agentAttention'
+import { recordTurnFrame, resetTurnRegistry } from '../../lib/agentTurns'
 
 function blueprint(
   id: string,
@@ -3438,5 +3439,82 @@ describe('#747 — remote rows render their platform-themed face', () => {
       expect(themed).not.toBeNull()
     })
     expect(document.querySelector('.os-remote-face')).not.toBeNull()
+  })
+})
+
+describe('AgentSidebar #1118 agent turns avatar animation', () => {
+  beforeEach(() => {
+    resetTurnRegistry()
+    localStorage.clear()
+    rememberEmptyFavourites()
+    vi.stubGlobal('fetch', mockFetch())
+  })
+
+  afterEach(() => {
+    resetTurnRegistry()
+    vi.unstubAllGlobals()
+    localStorage.clear()
+  })
+
+  it('retains animating avatar motion when another agent is selected/focused (#1118)', async () => {
+    // Focus Stewie
+    renderSidebar('/chat?blueprint=stewie')
+
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const codey = await within(list).findByRole('link', { name: /Codey/ })
+
+    // Initially, Codey is idle
+    expect(codey.querySelector('[data-avatar-active="true"]')).toBeNull()
+
+    // Agent A (Codey) starts a turn in agentTurns registry
+    act(() => {
+      recordTurnFrame({
+        kind: 'turn_started',
+        turnId: 'turn-codey-1',
+        agentId: 'codey',
+      })
+    })
+
+    // Codey's rail avatar animates even though Stewie is focused!
+    expect(codey.querySelector('[data-avatar-active="true"]')).toBeInTheDocument()
+
+    // When turn completes, animation clears
+    act(() => {
+      recordTurnFrame({
+        kind: 'turn_finished',
+        turnId: 'turn-codey-1',
+        agentId: 'codey',
+      })
+    })
+
+    expect(codey.querySelector('[data-avatar-active="true"]')).toBeNull()
+  })
+
+  it('retains animating avatar motion on pinned tile when another agent is selected (#1118)', async () => {
+    localStorage.setItem(PINNED_AGENTS_STORAGE_KEY, JSON.stringify(['codey']))
+    renderSidebar('/chat?blueprint=stewie')
+
+    const tile = await screen.findByRole('link', { name: 'Codey' })
+    expect(tile.querySelector('[data-avatar-active="true"]')).toBeNull()
+
+    act(() => {
+      recordTurnFrame({
+        kind: 'turn_started',
+        turnId: 'turn-codey-2',
+        agentId: 'codey',
+      })
+    })
+
+    expect(tile.querySelector('[data-avatar-active="true"]')).toBeInTheDocument()
+
+    act(() => {
+      recordTurnFrame({
+        kind: 'turn_finished',
+        turnId: 'turn-codey-2',
+        agentId: 'codey',
+      })
+    })
+
+    expect(tile.querySelector('[data-avatar-active="true"]')).toBeNull()
   })
 })
