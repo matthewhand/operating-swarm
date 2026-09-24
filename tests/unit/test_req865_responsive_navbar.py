@@ -1,5 +1,7 @@
 """REQ-865: Responsive navbar element prioritization (#255)."""
 
+import re
+
 from pathlib import Path
 
 from helpers.source_surface import chat_surface
@@ -26,7 +28,11 @@ def test_chat_page_navbar_priority_classes():
     # cropped the routing flyout — an absolutely-positioned child of the picker
     # inside this header — to its first row. The REQ-865 width behaviour is
     # asserted above, on the label that owns the title, and still holds.
-    assert 'className="os-chat-header gap-1.5 sm:gap-3"' in tsx
+    # #1130: the className is a template literal now (mobile scroll-to-hide
+    # appends `os-chat-header--hidden` conditionally), so the pin matches the
+    # header element carrying the REQ-865 gap classes rather than one exact
+    # attribute string.
+    assert re.search(r'<header className=\{?["`\']os-chat-header gap-1\.5 sm:gap-3', tsx)
     assert "os-chat-header overflow-hidden" not in tsx
     assert "os-chat-header__identity" in tsx
     assert "os-navbar-identity-label" in tsx
