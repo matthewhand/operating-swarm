@@ -85,8 +85,10 @@ import { ComputerControlStub } from '../components/ComputerControlStub'
 import { NavbarRoutingPicker } from '../components/NavbarRoutingPicker'
 
 import {
+  AGENT_BUBBLE_THEME_STORAGE_KEY,
   BUBBLE_THEME_CHANGED_EVENT,
   BUBBLE_THEME_STORAGE_KEY,
+  agentBubbleThemeOverrides,
   getBubbleTheme,
   loadBubbleTheme,
   type BubbleTheme,
@@ -542,7 +544,20 @@ const ChatPage = () => {
   const autoSpeakHydratedRef = useRef(false)
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
-  const [bubbleTheme, setBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
+  // #1121: the transcript renders the *effective* theme — the agent's own
+  // override (rail menu → theme, os.bubbleThemeByAgent) wins over the global
+  // default. Both layers re-resolve on the change event / storage so a rail
+  // or Settings write restyles the mounted transcript immediately; the tick
+  // forces recomputation even when the global value is unchanged.
+  const [globalBubbleTheme, setGlobalBubbleTheme] = useState<BubbleTheme>(() => loadBubbleTheme())
+  const [bubbleThemeTick, setBubbleThemeTick] = useState(0)
+  const bubbleTheme = useMemo<BubbleTheme>(
+    () =>
+      (activeChatAgentId && agentBubbleThemeOverrides()[activeChatAgentId]) ||
+      globalBubbleTheme,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeChatAgentId, globalBubbleTheme, bubbleThemeTick],
+  )
   // #675: resizable IRC gutter — per-row dividers persist through the shared
   // store; the transcript only mirrors the store via the change event.
   const [ircGutterPx, setIrcGutterPx] = useState(() => loadIrcGutterPx())
@@ -580,14 +595,22 @@ const ChatPage = () => {
   // #506: Settings is a second bubble-theme writer — keep an already-mounted
   // transcript in sync instead of going stale until reload.
   useEffect(() => {
-    const onThemeChanged = (event: Event) => {
-      const detail = (event as CustomEvent<BubbleTheme>).detail
-      if (detail) setBubbleTheme(detail)
-      else setBubbleTheme(loadBubbleTheme())
+    // #506/#1121: Settings and the rail agent menu are both theme writers —
+    // re-resolve the effective theme (global + per-agent override) instead of
+    // trusting the event detail, so either surface keeps a mounted
+    // transcript in sync.
+    const onThemeChanged = () => {
+      setGlobalBubbleTheme(loadBubbleTheme())
+      setBubbleThemeTick((t) => t + 1)
     }
     const onStorage = (event: StorageEvent) => {
-      if (event.key === BUBBLE_THEME_STORAGE_KEY || event.key === null) {
-        setBubbleTheme(loadBubbleTheme())
+      if (
+        event.key === BUBBLE_THEME_STORAGE_KEY ||
+        event.key === AGENT_BUBBLE_THEME_STORAGE_KEY ||
+        event.key === null
+      ) {
+        setGlobalBubbleTheme(loadBubbleTheme())
+        setBubbleThemeTick((t) => t + 1)
       }
       if (
         event.key === COMPOSER_SHOW_PROVIDER_STORAGE_KEY ||
