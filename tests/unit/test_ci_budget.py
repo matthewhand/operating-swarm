@@ -55,4 +55,4 @@ def test_python_tests_is_one_python_no_playwright_job():
     jobs = data["jobs"]
     assert "frontend" not in jobs
     assert "vitest" in jobs
-    assert jobs["test"]["strategy"]["matrix"]["python-version"] == ["3.12"]
+    assert jobs["test"]["strategy"]["matrix"]["python-version"] == ["3.12", "3.13"]  # #899/#1115

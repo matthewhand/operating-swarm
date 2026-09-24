@@ -67,7 +67,7 @@ def test_python_matrix_stays_off_browsers():
     """3.12 pytest stays keyless/SQLite — no Playwright, no npm test."""
     job = _load_workflow(PYTEST_WORKFLOW)["jobs"]["test"]
     matrix = job["strategy"]["matrix"]["python-version"]
-    assert matrix == ["3.12"]
+    assert matrix == ["3.12", "3.13"]  # #899/#1115: pyproject declares both
     blob = "\n".join(_job_step_runs(job)).lower()
     assert "playwright" not in blob
     assert "npm test" not in blob
