@@ -38,7 +38,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        # PR #899 port: pyproject declares 3.12 + 3.13 — CI tests both.
+        python-version: ["3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4

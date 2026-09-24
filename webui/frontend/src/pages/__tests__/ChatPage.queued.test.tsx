@@ -504,8 +504,11 @@ describe('ChatPage stop button (#223)', () => {
 
     const stop = screen.getByTestId('agent-row-stop')
     fireEvent.click(stop)
+    // #1096/#1097 ADR-017 PR-2: the stop is agent-scoped (no bookend seen
+    // yet in this mock, so the registry fallback names the agent only).
     expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
       type: 'cancel_turn',
+      agent: 'codey',
     })
   })
 
@@ -540,6 +543,7 @@ describe('ChatPage stop button (#223)', () => {
     fireEvent.click(screen.getByTestId('agent-row-stop'))
     expect(JSON.parse(String(ws.send.mock.calls[0][0]))).toEqual({
       type: 'cancel_turn',
+      agent: 'codey',
     })
     expect(screen.getByTestId('queued-row')).toHaveTextContent('still queued')
   })
