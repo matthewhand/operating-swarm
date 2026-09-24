@@ -1,5 +1,11 @@
 /**
- * REQ-172: Alt+1–9 spill into top unpinned rail rows when favourites < 10.
+ * #1088 — Alt+Up / Alt+Down sequential rail navigation (Herdr parity).
+ *
+ * REQ-172's Alt+1..9 slot model collided with native browser tab switching
+ * (Alt+1..8 switches tabs on Linux/Windows), so the slots are gone. The
+ * navigable sequence is the rail's visual order: visible pins first, then
+ * every row in the uncollapsed sections. Movement is sequential with
+ * boundary clamping — no wrap, no spill arithmetic, no digit keys.
  */
 
 import { chatHrefForRowId } from './agentNotifications'
@@ -21,7 +27,7 @@ export function herdrChatHref(agentId: string): string {
 }
 
 /**
- * Structural row shape for hotkey targeting — callers own their row types
+ * Structural row shape for nav targeting — callers own their row types
  * (AgentSidebar uses TeamRoster/RemoteEntry), so these stay minimum-viable.
  */
 export interface RailRow {
@@ -40,7 +46,8 @@ export interface RailHotkeyTarget {
   isHerdr?: boolean
 }
 
-export function computeRailHotkeyTargets({
+/** The rail's visual order: visible pins, then every row in section order. */
+export function computeRailNavSequence({
   visiblePins,
   orderedRows,
 }: {
@@ -49,9 +56,7 @@ export function computeRailHotkeyTargets({
 }): RailHotkeyTarget[] {
   const targets: RailHotkeyTarget[] = []
 
-  // Up to 9 pins (1-indexed Alt+1..9)
-  for (let i = 0; i < Math.min(visiblePins.length, 9); i++) {
-    const pin = visiblePins[i]
+  for (const pin of visiblePins) {
     // #543: herdr seats chat like every other kind — the pin targets the
     // agent's own conversation, not the settings-adjacent members page.
     const herdr = isHerdrAgent(pin)
@@ -64,10 +69,7 @@ export function computeRailHotkeyTargets({
     })
   }
 
-  // Leftover Alt+N slots filled from top of unpinned orderedRows (in order)
-  const remaining = 9 - targets.length
-  for (let i = 0; i < Math.min(orderedRows.length, remaining); i++) {
-    const row = orderedRows[i]
+  for (const row of orderedRows) {
     if (row.kind === 'team' && row.team) {
       targets.push({
         id: row.id,
@@ -97,4 +99,57 @@ export function computeRailHotkeyTargets({
   }
 
   return targets
+}
+
+function paramsOf(searchOrHref: string): URLSearchParams {
+  const q = searchOrHref.includes('?')
+    ? searchOrHref.slice(searchOrHref.indexOf('?') + 1)
+    : searchOrHref
+  return new URLSearchParams(q)
+}
+
+/**
+ * Index in the sequence of the row the URL currently points at, or -1 when
+ * nothing matches (Alt+Down then starts from the top).
+ */
+export function activeRailNavIndex(
+  seq: RailHotkeyTarget[],
+  currentSearch: string,
+): number {
+  if (!currentSearch) return -1
+  const cur = paramsOf(currentSearch)
+  const curRemote = cur.get('remote')
+  const curSession = cur.get('session')
+  const curTeam = cur.get('team')
+  const curBlueprint = cur.get('blueprint') || cur.get('agent')
+  if (!curRemote && !curTeam && !curBlueprint) return -1
+
+  for (let i = 0; i < seq.length; i++) {
+    const t = paramsOf(seq[i].href)
+    if (curRemote) {
+      if (t.get('remote') !== curRemote) continue
+      const tSession = t.get('session')
+      if (tSession && curSession && tSession !== curSession) continue
+      if (tSession && !curSession) continue
+      return i
+    }
+    if (curTeam && t.get('team') === curTeam) return i
+    if (curBlueprint && t.get('blueprint') === curBlueprint) return i
+  }
+  return -1
+}
+
+/**
+ * The next/previous target with boundary clamping — never wraps, never
+ * escapes the sequence. An unanchored index (-1) starts from the top.
+ */
+export function stepRailNav(
+  seq: RailHotkeyTarget[],
+  currentIdx: number,
+  dir: 1 | -1,
+): RailHotkeyTarget | null {
+  if (seq.length === 0) return null
+  const next =
+    currentIdx < 0 ? 0 : Math.min(seq.length - 1, Math.max(0, currentIdx + dir))
+  return seq[next] ?? null
 }

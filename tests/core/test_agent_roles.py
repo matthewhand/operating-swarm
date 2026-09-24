@@ -6,6 +6,7 @@ from swarm.core.agent_roles import (
     ROLE_DEFAULT,
     ROLE_ENGINEER,
     ROLE_GATE,
+    ROLE_BELAY,
     ROLE_SKEPTIC,
     ROLE_SUGGESTIONS,
     ROLE_SUPPORT,
@@ -13,6 +14,7 @@ from swarm.core.agent_roles import (
     can_manage_agent_lifecycle,
     can_manage_topology,
     is_chief_of_staff,
+    is_belay_role,
     normalize_agent_role,
     role_badge_label,
     role_css_class,
@@ -112,3 +114,13 @@ def test_suggestions_role_and_blueprint_fields():
         }
     )
     assert fields["suggestions_agent"] == "Tips"
+
+
+def test_belay_role_aliases_and_badge():
+    for alias in ("belay", "belayer", "gate", "tool_gate", "tool-gate", "toolgate"):
+        assert normalize_agent_role(alias) == ROLE_GATE
+        assert is_belay_role(alias)
+    assert role_badge_label("belay") == "Belay"
+    assert role_badge_label("belayer") == "Belay"
+    assert role_badge_label("gate") == "Belay"
+    assert ROLE_BELAY == ROLE_GATE

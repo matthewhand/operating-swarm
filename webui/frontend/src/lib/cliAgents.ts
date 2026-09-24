@@ -65,7 +65,8 @@ export function suggestedCliEntries(
 
 export function cliSelectPlaceholder(configuredCount: number, selectedId = ''): string {
   if (configuredCount === 0) return 'No CLI agents'
-  if (!selectedId) return 'Pick a CLI'
+  // #1093 (5): 'default' beats imperative 'Pick a …'.
+  if (!selectedId) return 'default'
   return 'CLI'
 }
 

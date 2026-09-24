@@ -1277,9 +1277,10 @@ def test_trueforge_list_attaches_real_sessions(tf_server, monkeypatch):
                 "data": [
                     {
                         "id": "sess-9",
-                        "agent": "orchestrator",
+                        "agent": {"type": "reference", "id": "a1", "name": "orchestrator"},
                         "metadata": {"title": "refactor the parser"},
                         "created_at": "2026-09-21T10:00:00Z",
+                        "updated_at": "2026-09-22T08:30:00Z",
                     },
                     {"id": "sess-4", "agent": "coder", "created_at": "2026-09-20T09:00:00Z"},
                 ]
@@ -1300,6 +1301,12 @@ def test_trueforge_list_attaches_real_sessions(tf_server, monkeypatch):
     assert first["agent"] == "orchestrator"
     assert "refactor the parser" in str(first.get("title") or first.get("metadata"))
     assert first.get("created_at")
+    # #1100: the API exposes updated_at — surface it so the picker can show
+    # recent activity instead of an epoch-0 stamp.
+    assert first.get("updated_at") == "2026-09-22T08:30:00Z"
+    # #1099 sibling: a nested agent object (real API shape) must normalize to
+    # its name, not str()-ed dict garbage.
+    assert first.get("agent") == "orchestrator"
 
 
 def test_trueforge_list_survives_a_sessions_endpoint_failure(tf_server, monkeypatch):

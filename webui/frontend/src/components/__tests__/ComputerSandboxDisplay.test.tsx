@@ -13,6 +13,20 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ComputerControlStub } from '../ComputerControlStub'
+import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
+
+/** #1077: capture which settings section the Configure action requests. */
+function captureSettingsSection(): { read: () => string | null; stop: () => void } {
+  let section: string | null = null
+  const handler = (event: Event) => {
+    section = (event as CustomEvent<{ section?: string }>).detail?.section ?? null
+  }
+  window.addEventListener(OPEN_SETTINGS_EVENT, handler)
+  return {
+    read: () => section,
+    stop: () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler),
+  }
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return {
@@ -66,8 +80,15 @@ describe('#720 sandbox display in the computer pane', () => {
   it('shows the honest empty state when no sandbox is configured', async () => {
     await openPane()
     const region = await screen.findByTestId('sandbox-display')
-    expect(region).toHaveTextContent('No sandbox configured')
-    expect(region).toHaveTextContent('provider_not_daytona')
+    expect(region).toHaveTextContent('No sandbox provider configured')
+    // #1077: the raw internal reason never reaches the user; a Configure
+    // action routes straight to the sandbox settings section.
+    expect(region).not.toHaveTextContent('provider_not_daytona')
+    const configure = screen.getByTestId('sandbox-display-configure')
+    const probe = captureSettingsSection()
+    fireEvent.click(configure)
+    expect(probe.read()).toBe('sandboxes')
+    probe.stop()
     expect(screen.queryByTestId('sandbox-display-frame')).not.toBeInTheDocument()
   })
 

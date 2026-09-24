@@ -26,6 +26,12 @@ afterEach(() => {
     resetExpectedSpaVersion();
     resetGithubReleaseCache();
     setBakedSpaVersionForTests(null);
+    if (typeof window !== 'undefined') {
+        // #1098: innerWidth is a getter-only accessor in this jsdom/Node pair.
+        // defineProperty survives tests that redefined it (clamp/viewport
+        // tests) where a bare assignment throws 'read only'.
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
+    }
 });
 
 // Some Node + jsdom combinations (e.g. Node 26 with jsdom 29) do not expose

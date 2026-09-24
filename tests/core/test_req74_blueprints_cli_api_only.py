@@ -62,7 +62,8 @@ def test_discover_blueprints_has_no_webui_or_django_chat_id():
 
 
 @pytest.mark.django_db
-def test_models_and_blueprints_catalog_omit_webui_kind(api_client):
+def test_models_and_blueprints_catalog_omit_webui_kind(api_client, settings):
+    settings.ENABLE_API_AUTH = False
     models = api_client.get("/v1/models/")
     assert models.status_code == 200
     model_ids = [row.get("id") for row in models.json().get("data", [])]

@@ -8,6 +8,7 @@ export const EXAMPLE_ROLES = ['support', 'gate', 'skeptic'] as const
 export type ExampleRole = (typeof EXAMPLE_ROLES)[number]
 
 export const GATE_AGENT_ID = 'gate'
+export const BELAY_AGENT_ID = 'belay'
 export const SKEPTIC_AGENT_ID = 'skeptic'
 export const COS_AGENT_ID = 'cos'
 
@@ -22,6 +23,8 @@ const ROLE_ALIASES: Record<string, AgentRole> = {
   support: 'support',
   helper: 'support',
   gate: 'gate',
+  belay: 'gate',
+  belayer: 'gate',
   safety: 'gate',
   tool_gate: 'gate',
   'tool-gate': 'gate',
@@ -193,13 +196,22 @@ export const ROLE_BADGE_LABELS: Record<AgentRole, string> = {
   default: '',
   admin: 'Admin',
   support: 'Support',
-  gate: 'Gate',
+  gate: 'Belay',
+  belay: 'Belay',
   skeptic: 'Skeptic',
   advisor: 'Advisor',
   chief_of_staff: 'CoS',
   engineer: 'Engineer',
   suggestions: 'Suggest',
 }
+
+export function isBelay(role: unknown): boolean {
+  const norm = normalizeAgentRole(role)
+  return norm === 'gate' || norm === 'belay'
+}
+
+export const isGate = isBelay
+
 
 export function isAdvisor(role: unknown): boolean {
   return normalizeAgentRole(role) === ROLE_ADVISOR

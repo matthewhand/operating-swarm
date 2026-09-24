@@ -1335,7 +1335,7 @@ describe('SettingsSheet blueprint editor', () => {
     const list = await screen.findByRole('listbox', { name: 'Blueprints' })
     const gated = await within(list).findByRole('option', { name: 'Fixture Gate' })
     expect(gated).toHaveAttribute('data-role', 'gate')
-    expect(within(gated).getByText('Gate')).toHaveClass('os-agent-role-badge')
+    expect(within(gated).getByText('Belay')).toHaveClass('os-agent-role-badge')
     expect(within(list).queryByRole('option', { name: 'Django Chat' })).not.toBeInTheDocument()
   })
 

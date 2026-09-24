@@ -21,7 +21,7 @@ export interface RowRendererDeps {
 export function createRowRenderers(props: RowRendererDeps) {
     const { AgentAvatar, Link, NEEDS_APPROVAL_LABEL, PersonaRoster, RailRowSlot, StackedAvatars, Users, activeHerdrRow, activeRail, activeTaskSessionCount, agentLabel, agentRole, allowRowDrop, approvalWaitIds, beginRowDrag, catalog, cliActivityByAgent, cliRunningIds, declaredRosterForTeam, defaultSessionForRemote, defaultSessionForTeam, draggingId, dropOnSelf, dropReorder, dropTargetId, finishDrag, formatRailTimestamp, getRowLastMessage, isAvatarOnly, isCliRailAgent, isHerdrAgent, isMac, isPinnedId, loadLocalNewChatPerTask, markStackWorking, navigate, onClose, openDefinition, openGroupPicker, orderedFacesByRecency, parseAgentDragPayload, peekApprovalWait, peekCliRunning, peekRailDrag, pickOrClose, railTeamStackLayout, remoteHideId, remoteThemeFace, resolvedHiddenIds, roleBadgeLabel, roleCssClass, rosterById, rowMenuHandlers, sessionsByAgent, sessionsForRemote, sessionsForTeam, setSessionPicker, settingsTick, shouldOpenSessionPicker, sidebarHref, stackFacesForRemote, stackFacesForTeam, teamChatFaceStack, teamHideId, teamSidepaneStack, unreadIds } = props as any
 
-  const renderAgentRow = (agent: SidebarAgent, hidden: boolean, spillSlot?: number) => {
+  const renderAgentRow = (agent: SidebarAgent, hidden: boolean) => {
     const name = agentLabel(agent)
     const herdr = isHerdrAgent(agent)
     const sessions = sessionsByAgent[agent.id] ?? []
@@ -93,7 +93,6 @@ export function createRowRenderers(props: RowRendererDeps) {
             <span className="os-rail-name-line text-sm font-semibold leading-5">
               <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
               <RailRowSlot
-                spillSlot={spillSlot}
                 isMac={isMac}
                 unread={unread}
                 badge={roleBadgeNode}
@@ -128,7 +127,6 @@ export function createRowRenderers(props: RowRendererDeps) {
           className={className}
           data-agent-id={agent.id}
           data-role={dataRole}
-          data-hotkey={spillSlot}
           draggable={!hidden}
           onDragStart={(event) => beginRowDrag(event, { id: agent.id, name })}
           onDragEnd={finishDrag}
@@ -174,7 +172,6 @@ export function createRowRenderers(props: RowRendererDeps) {
             className={`${className} w-full`}
             data-agent-id={agent.id}
             data-role={dataRole}
-            data-hotkey={spillSlot}
             data-scale-out="true"
             aria-haspopup="dialog"
             aria-current={active ? 'page' : undefined}
@@ -201,7 +198,6 @@ export function createRowRenderers(props: RowRendererDeps) {
           className={className}
           data-agent-id={agent.id}
           data-role={dataRole}
-          data-hotkey={spillSlot}
           aria-current={active ? 'page' : undefined}
           {...dragHandlers}
           onClick={(event: ReactMouseEvent<HTMLElement>) => {
@@ -333,7 +329,7 @@ export function createRowRenderers(props: RowRendererDeps) {
     )
   }
 
-  const renderTeamLink = (team: TeamRoster, hidden: boolean, nested = false, spillSlot?: number) => {
+  const renderTeamLink = (team: TeamRoster, hidden: boolean, nested = false) => {
     const name = team.name || team.id
     const hideId = teamHideId(team.id)
     const active = Boolean(activeRail) && activeRail === hideId
@@ -406,7 +402,6 @@ export function createRowRenderers(props: RowRendererDeps) {
         aria-label={`${name} (team)`}
         data-agent-id={hideId}
         data-kind="team"
-        data-hotkey={spillSlot}
         data-stack-count={String(declared ? (declared.parsed ? declared.count : 1) : singleMember ? 1 : chatFace ? 1 : 0)}
         data-remainder={String(teamRemainder)}
         data-persona-count={declared ? String(declared.parsed ? declared.count : 1) : undefined}
@@ -444,7 +439,6 @@ export function createRowRenderers(props: RowRendererDeps) {
             <span className="os-rail-name-line text-sm font-semibold leading-5">
               <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
               <RailRowSlot
-                spillSlot={spillSlot}
                 isMac={isMac}
                 unread={unread}
                 timestampLabel={teamTimestampLabel}
@@ -464,7 +458,7 @@ export function createRowRenderers(props: RowRendererDeps) {
     )
   }
 
-  const renderRemoteRow = (remote: RemoteEntry, hidden: boolean, spillSlot?: number) => {
+  const renderRemoteRow = (remote: RemoteEntry, hidden: boolean) => {
     const name = remote.title
     const hideId = remoteHideId(remote.id)
     const active = Boolean(activeRail) && activeRail === hideId
@@ -524,7 +518,6 @@ export function createRowRenderers(props: RowRendererDeps) {
         aria-label={`${name} (remote)`}
         data-agent-id={hideId}
         data-kind="remote"
-        data-hotkey={spillSlot}
         data-remote-id={remote.id}
         data-stack-count={String(singleMember ? 1 : chatFace ? 1 : 0)}
         data-remainder={String(remoteRemainder)}
@@ -584,7 +577,6 @@ export function createRowRenderers(props: RowRendererDeps) {
             <span className="os-rail-name-line text-sm font-semibold leading-5">
               <span className="os-rail-row-name" title={name} data-testid="rail-agent-name">{name}</span>
               <RailRowSlot
-                spillSlot={spillSlot}
                 isMac={isMac}
                 unread={unread}
                 timestampLabel={remoteTimestampLabel}
@@ -610,7 +602,6 @@ export function createRowRenderers(props: RowRendererDeps) {
     team: TeamRoster,
     nested = false,
     seen: string[] = [],
-    spillSlot?: number,
     railIndex?: number,
   ) => {
     const hidden = resolvedHiddenIds.includes(teamHideId(team.id))
@@ -622,7 +613,7 @@ export function createRowRenderers(props: RowRendererDeps) {
         data-rail-id={nested ? undefined : teamHideId(team.id)}
         data-rail-index={nested ? undefined : railIndex}
       >
-        {hidden ? null : renderTeamLink(team, false, nested, spillSlot)}
+        {hidden ? null : renderTeamLink(team, false, nested)}
         {childSlots.length > 0 && !seen.includes(team.id) ? (
           <ul className="os-agent-team-nest">
             {childSlots.map((m) => {

@@ -42,9 +42,6 @@ import type { ReactNode } from 'react'
  * it always wins the remaining space and is cut with the existing fade.
  */
 export interface RailRowSlotProps {
-  /** The row's ⌥N / Alt+N spill index, when the row has one. */
-  spillSlot?: number
-  isMac: boolean
   unread?: boolean
   /** Static role badge. Rendered alongside the time, yielding before it. */
   badge?: ReactNode
@@ -54,19 +51,14 @@ export interface RailRowSlotProps {
 }
 
 export default function RailRowSlot({
-  spillSlot,
-  isMac,
   unread,
   badge,
   timestampLabel,
   dataRole,
 }: RailRowSlotProps) {
-  const tip = spillSlot ? (isMac ? `⌥${spillSlot}` : `Alt+${spillSlot}`) : ''
   return (
     <span
-      className={`os-rail-slot relative flex shrink-0 items-center${
-        tip ? ' os-rail-slot--has-tip' : ''
-      }`}
+      className="os-rail-slot relative flex shrink-0 items-center" 
       data-testid="rail-row-slot"
       data-role={dataRole}
     >
@@ -82,15 +74,6 @@ export default function RailRowSlot({
       ) : timestampLabel ? (
         <span className="os-rail-timestamp os-rail-slot__time" data-testid="rail-row-timestamp">
           {timestampLabel}
-        </span>
-      ) : null}
-      {tip ? (
-        <span
-          className="os-rail-shortcut os-rail-shortcut--layered text-[10px] font-mono text-base-content/40"
-          aria-label={`Shortcut ${isMac ? '⌥' : 'Alt+'}${spillSlot}`}
-          data-testid="spill-hotkey"
-        >
-          {tip}
         </span>
       ) : null}
     </span>

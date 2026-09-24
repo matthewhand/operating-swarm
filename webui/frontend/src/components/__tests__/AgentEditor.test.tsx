@@ -356,7 +356,7 @@ describe('AgentEditor (REQ-58)', () => {
       renderEditor({ agentId: 'remote-omb' })
       const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
       const select = await within(dialog).findByRole('combobox', { name: 'Remote' })
-      expect(within(select).getByRole('option', { name: 'Pick a remote' })).toBeInTheDocument()
+      expect(within(select).getByRole('option', { name: 'default' })).toBeInTheDocument()
       expect(within(select).getByRole('option', { name: 'OpenMousBot' })).toBeInTheDocument()
       expect(within(select).queryByRole('option', { name: 'No remotes' })).not.toBeInTheDocument()
     })

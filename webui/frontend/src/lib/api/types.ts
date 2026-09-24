@@ -16,6 +16,7 @@ export type AgentRole =
   | 'admin'
   | 'support'
   | 'gate'
+  | 'belay'
   | 'skeptic'
   | 'advisor'
   | 'chief_of_staff'

@@ -16,7 +16,7 @@ export interface ChatBottomDockProps {
 }
 
 export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps) {
-    const { ArrowUp, ChatMessageInput, ComposerAttachChips, ComposerPluginsBadge, ComposerPluginsPanel, ComposerSlashPopup, ContextUsageBadge, Layers, Mic, Paperclip, Plug, Plus, QueuedSendPane, Reply, Square, SuggestionChips, addToast, authRejected, awaitingAssistant, bottomDockRef, chipsDisabled, chooseSuggestion, composerBusy, composerDragOver, composerMenu, composerPlaceholder, composerRef, composerWrapRef, contextUsage, conversationId, demoChips, describeSpeechPath, enqueueComposerFiles, fileInputRef, filesFromList, filteredSlashItems, generationIsInFlight, handleCompact, handleComposerDragEnter, handleComposerDragLeave, handleComposerDragOver, handleComposerDrop, handleComposerKeyDown, handleComposerPaste, handleInputChange, handleMic, handleSelectSlashItem, handleSend, hasSendableDraft, input, interruptRunningTurn, isApiAgent, isSlashOpen, messages, pendingAttachments, pluginsPanelOpen, plusOpen, plusRef, queued, queuedPaneMaxHeightPx, recentSlashIds, removeAttachment, renderRoutingPicker, replyTarget, selectedBlueprint, sendNowHint, setInput, setPluginsPanelOpen, setPlusOpen, setQueuedHoldIds, setReplyTarget, setSlashSelectedIndex, setTokenDiagOpen, showContextUsage, showDemoChips, showSuggestionChips, slashQuery, slashSelectedIndex, status, sttListening, sttPathUsed, suggestionChips, transcriptHeightPx } = props as any
+    const { ArrowUp, ChatMessageInput, ComposerAttachChips, ComposerPluginsBadge, ComposerPluginsPanel, ComposerSlashPopup, ContextUsageBadge, Layers, Mic, Paperclip, Plug, Plus, QueuedSendPane, Reply, SuggestionChips, addToast, authRejected, awaitingAssistant, bottomDockRef, chipsDisabled, chooseSuggestion, composerDragOver, composerMenu, composerPlaceholder, composerRef, composerWrapRef, contextUsage, conversationId, demoChips, describeSpeechPath, enqueueComposerFiles, fileInputRef, filesFromList, filteredSlashItems, generationIsInFlight, handleCompact, handleComposerDragEnter, handleComposerDragLeave, handleComposerDragOver, handleComposerDrop, handleComposerKeyDown, handleComposerPaste, handleInputChange, handleMic, handleSelectSlashItem, handleSend, hasSendableDraft, input, isApiAgent, isSlashOpen, messages, onSendNow, pendingAttachments, pluginsPanelOpen, plusOpen, plusRef, queued, queuedPaneMaxHeightPx, recentSlashIds, removeAttachment, renderRoutingPicker, replyTarget, selectedBlueprint, sendNowHint, setInput, setPluginsPanelOpen, setPlusOpen, setQueuedHoldIds, setReplyTarget, setSlashSelectedIndex, setTokenDiagOpen, showContextUsage, showDemoChips, showSuggestionChips, slashQuery, slashSelectedIndex, status, sttListening, sttPathUsed, suggestionChips, transcriptHeightPx } = props as any
     const SparklesIcon = props.Sparkles || Sparkles
     const [enhancingLocal, setEnhancingLocal] = useState(false)
     const enhancing = props.enhancing ?? enhancingLocal
@@ -386,21 +386,12 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                     aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
                   />
                   )}
-                  {/* #732: ONE permanently mounted slot — the kbd used to
-                      mount/unmount with the draft, re-flowing the pill on the
-                      first and last keystroke. The glyph swaps in place; the
-                      node (and its reserved width) never changes. */}
-                  <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
-                    {sendNowHint ? (
-                      /* #631/#1072: the ↵ reveal announces the send action while a queued send waits. No queue → no hint. */
-                      <kbd
-                        className="os-composer__hint kbd kbd-xs"
-                        data-testid="composer-send-hint"
-                        title="Send Now! ↵"
-                      >
-                        Send ↵
-                      </kbd>
-                    ) : input ? (
+                  {/* #732/#1093(4): the ↵-hint badge is retired — the queued
+                      pill already carries the enter-interrupt hint, so the
+                      in-input badge duplicated it and spent composer width.
+                      The Esc-to-clear hint stays for typed drafts. */}
+                  {input ? (
+                    <span className="os-composer__hint-slot" data-testid="composer-hint-slot">
                       <kbd
                         className="os-composer__hint kbd kbd-xs"
                         data-testid="composer-clear-hint"
@@ -408,17 +399,8 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                       >
                         Esc
                       </kbd>
-                    ) : (
-                      <kbd
-                        className="os-composer__hint kbd kbd-xs"
-                        data-testid="composer-hint-placeholder"
-                        title=""
-                        aria-hidden="true"
-                      >
-                        Send ↵
-                      </kbd>
-                    )}
-                  </span>
+                    </span>
+                  ) : null}
                   {renderRoutingPicker()}
                   <button
                     type="button"
@@ -439,23 +421,11 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                 </div>
                 </div>{/* /os-composer */}
                 {/* #632: the primary action lives OUTSIDE the input box, to its
-                    right. Idle: send (↑) when there is a draft. Busy: square
-                    stop (□) — and the send stays beside it when a draft is
-                    typed, because clicking Send mid-flight is exactly how a
-                    send gets QUEUED (#603); removing it would kill queueing.
-                    The mic stays inside the input regardless. */}
-                {composerBusy ? (
-                  <button
-                    type="button"
-                    className="os-composer__send os-composer__send--stop"
-                    aria-label="Stop generating"
-                    title="Stop the generation in flight (queued sends stay queued)"
-                    data-testid="composer-stop"
-                    onClick={interruptRunningTurn}
-                  >
-                    <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-                  </button>
-                ) : null}
+                    right. #1096 supersedes the stop morph: the composer keeps
+                    exactly ONE action — the submit (↑). Disabled when idle
+                    (#1070 doctrine), enabled for a sendable draft, or the
+                    send-now affordance for a drainable queued send (#603).
+                    Stop moved to the generating agent's transcript row. */}
                 {hasSendableDraft ? (
                   <button
                     type="submit"
@@ -464,7 +434,28 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                   >
                     <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
                   </button>
-                ) : null}
+                ) : sendNowHint ? (
+                  <button
+                    type="button"
+                    className="os-composer__send"
+                    aria-label="Send now"
+                    data-testid="composer-send-now"
+                    onClick={onSendNow}
+                  >
+                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="os-composer__send os-composer__send--idle"
+                    aria-label="Send"
+                    aria-disabled="true"
+                    disabled
+                    tabIndex={-1}
+                  >
+                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                )}
               </div>{/* /os-composer-row */}
             </div>
           </form>

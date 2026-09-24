@@ -12,6 +12,8 @@ export function searchShortcutLabel(): string {
   return isMacPlatform() ? '⌘K' : 'Ctrl+K'
 }
 
+// #1088: sequential Alt+↑ / Alt+↓ rail navigation replaces the REQ-172 slot keys
+// (which collided with native browser tab switching).
 export function pinsShortcutLabel(): string {
-  return isMacPlatform() ? '⌥1–9' : 'Alt+1–9'
+  return isMacPlatform() ? '⌥↑/↓' : 'Alt+↑/↓'
 }

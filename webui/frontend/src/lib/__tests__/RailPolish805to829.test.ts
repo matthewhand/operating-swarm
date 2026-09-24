@@ -116,22 +116,25 @@ describe('#826 Hidden Agents copy', () => {
 })
 
 describe('#829 pinned tiles are squares', () => {
-  it('square aspect + even distribution + constant badge anchor', () => {
+  it('square floor + even distribution + constant badge anchor', () => {
     const text = css()
-    expect(ruleBlock(text, '.os-fav-tile {')).toMatch(/aspect-ratio:\s*1\s*\/\s*1/)
+    // #1071: the square is a floor now (min-height), not a hard clamp.
+    expect(ruleBlock(text, '.os-fav-tile {')).toMatch(/width:\s*5\.25rem/)
     expect(ruleBlock(text, '.os-fav-grid {')).toMatch(/justify-content:\s*space-evenly/)
   })
 })
 
 describe('#902 pinned tile geometry is width-independent', () => {
-  it('tiles are fixed squares, not fluid 1fr stretch + aspect-ratio coupling', () => {
+  it('tiles are fixed-width squares that may grow vertically for their label', () => {
     const tile = ruleBlock(css(), '.os-fav-tile {')
     // fixed square size — the vertical dimension must not derive from the
-    // fluid column width. (#934 widened 4.5rem → 5.25rem for the label;
-    // the geometry doctrine itself is unchanged.)
+    // fluid column width. (#934 widened 4.5rem → 5.25rem for the label.)
+    // #1071/#1074: height is now a *floor* (min-height), not a clamp — a
+    // two-line name gets its full second line instead of being cut off.
     expect(tile).toMatch(/width:\s*5\.25rem/)
-    expect(tile).toMatch(/height:\s*5\.25rem/)
-    expect(tile).not.toMatch(/height:\s*auto/)
+    expect(tile).toMatch(/min-height:\s*5\.25rem/)
+    expect(tile).not.toMatch(/(^|[^-])height:\s*5\.25rem/)
+    expect(tile).not.toMatch(/aspect-ratio/)
     expect(tile).toMatch(/justify-self:\s*center/)
     expect(tile).toMatch(/flex:\s*0 0 auto/)
   })
@@ -149,7 +152,7 @@ describe('#934 pinned tile labels are readable', () => {
     // The old 4.5rem square clipped most agent names mid-word. The tile is
     // still a fixed square (#902 doctrine), just one sized for its content.
     expect(tile).toMatch(/width:\s*5\.25rem/)
-    expect(tile).toMatch(/height:\s*5\.25rem/)
+    expect(tile).toMatch(/min-height:\s*5\.25rem/)
     expect(tile).not.toMatch(/width:\s*4\.5rem/)
   })
 
@@ -159,7 +162,82 @@ describe('#934 pinned tile labels are readable', () => {
     expect(name).toMatch(/-webkit-line-clamp:\s*2/)
     expect(name).toMatch(/-webkit-box-orient:\s*vertical/)
     expect(name).toMatch(/overflow:\s*hidden/)
+    // #1071: long words wrap instead of overflowing the clamp box
+    expect(name).toMatch(/word-break:\s*break-word/)
     // a single clipped line is the bug
     expect(name).not.toMatch(/white-space:\s*nowrap/)
+  })
+})
+
+describe('#1071/#1074 pinned tiles fit their labels and their rail', () => {
+  it('the second line of a wrapped name is never clipped (dynamic tile height)', () => {
+    const tile = ruleBlock(css(), '.os-fav-tile {')
+    // vertical budget math from #1074: 5.25rem fixed height left 17.6px for
+    // a 26.9px two-line label. min-height lets the tile grow instead.
+    expect(tile).toMatch(/min-height:\s*5\.25rem/)
+    expect(tile).not.toMatch(/(^|[^-])height:/)
+  })
+
+  it('avatar-only tiles shrink to the 68px rail, not the 84px square', () => {
+    const tile = ruleBlock(
+      css(),
+      '.os-agent-sidebar--avatar-only .os-fav-tile {'
+    )
+    expect(tile).toMatch(/width:\s*auto/)
+    expect(tile).not.toMatch(/width:\s*5\.25rem/)
+  })
+})
+
+describe('#1075 avatar-only search chrome stays inside the sidebar', () => {
+  it('the stacked search+add row grows to fit instead of centring into negative coordinates', () => {
+    const row = ruleBlock(
+      css(),
+      '.os-agent-sidebar--avatar-only .os-rail-search-row {'
+    )
+    // #764 stacks the trigger and Add button vertically; their combined
+    // 76px exceeds the 3.5rem chrome strip, so the fixed strip height
+    // centred them into y<0 (clipping the search icon). The row now sizes
+    // to its content with the chrome height as the floor.
+    expect(row).toMatch(/height:\s*auto/)
+    expect(row).toMatch(/min-height:\s*var\(--os-top-chrome-h\)/)
+  })
+})
+
+describe('#1067 footer icons share one vertical axis', () => {
+  it('avatar-only: the server button centres like Teams/Plugins/Routines above it', () => {
+    const btn = ruleBlock(
+      css(),
+      '.os-agent-sidebar--avatar-only .os-rail-footer-btn {'
+    )
+    // The hostname icon button kept `flex w-full px-1` and stayed left-anchored
+    // (13.5px drift vs the centred column). It must centre too.
+    expect(btn).toMatch(/justify-content:\s*center/)
+    expect(btn).toMatch(/padding-inline:\s*0/)
+  })
+
+  it('expanded: the server icon matches the 16px icon column of the nav rows', () => {
+    const sidebarSrc = sidebar()
+    // the server button drops its bespoke h-5 w-5 / h-3.5 sizing
+    expect(sidebarSrc).not.toMatch(/os-rail-hostname-icon[^"']*btn-square h-5 w-5/)
+    expect(sidebarSrc).toMatch(/os-rail-hostname-icon[^"']*h-4 w-4/)
+  })
+})
+
+describe('#1068 hostname row shares the footer rhythm', () => {
+  it('hostname typography matches the footer nav rows (text-sm scale)', () => {
+    // line-anchored: the avatar-only `.os-rail-hostname {` (display:none)
+    // appears earlier and contains the same substring.
+    const host = ruleBlock(css(), '\n.os-rail-hostname {')
+    expect(host).toMatch(/font-size:\s*0\.875rem/)
+  })
+
+  it('no extra top margin — padding rhythm comes from the footer container', () => {
+    const row = ruleBlock(css(), '.os-rail-hostname-row {')
+    expect(row).not.toMatch(/margin-top/)
+  })
+
+  it('the update chrome aligns its right edge with the nav rows\' padding', () => {
+    const chrome = ruleBlock(css(), '.os-rail-update-chrome {')
+    expect(chrome).toMatch(/margin-inline-end:\s*0\.25rem/)
   })
 })

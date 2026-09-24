@@ -36,10 +36,12 @@ FIXTURE_PLAIN = {
 def test_fixture_gate_blueprint_assigns_gate_role():
     fields = blueprint_role_fields(FIXTURE_GATE)
     assert fields["role"] == ROLE_GATE
-    assert role_badge_label(fields["role"]) == "Gate"
+    # #1080 renamed the gate role's badge to its canonical name, Belay
+    # ('gate' remains a legacy alias).
+    assert role_badge_label(fields["role"]) == "Belay"
     created = apply_blueprint_role(fields["role"])
     assert created == ROLE_GATE
-    assert role_badge_label(created) == "Gate"
+    assert role_badge_label(created) == "Belay"
 
 
 def test_fixture_plain_blueprint_assigns_no_role():

@@ -398,7 +398,7 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
     expect(screen.getByTestId('palette-loc')).toHaveTextContent('/chat?blueprint=support')
   })
 
-  it('closes the palette on Alt+1-9 rail hotkey without preventing default', async () => {
+  it('#1088: Alt+digit no longer closes the palette (the slot model is gone)', async () => {
     const { onClose } = renderRoutedPalette()
     await screen.findByRole('option', { name: /^Support/i })
     const event = new KeyboardEvent('keydown', {
@@ -407,10 +407,8 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
       bubbles: true,
       cancelable: true,
     })
-    const defaultPreventedSpy = vi.spyOn(event, 'preventDefault')
     window.dispatchEvent(event)
-    expect(onClose).toHaveBeenCalled()
-    expect(defaultPreventedSpy).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('filters bots by query and Enter chooses the highlighted row', async () => {

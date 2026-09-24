@@ -83,7 +83,7 @@ describe('agentRemote binding (Issue #745)', () => {
     ])
     expect(configuredRemotes(catalog)).toHaveLength(1)
     expect(remoteSelectPlaceholder(configuredRemotes(catalog).length, 'omb')).toBe('Remote')
-    expect(remoteSelectPlaceholder(1, '')).toBe('Pick a remote')
+    expect(remoteSelectPlaceholder(1, '')).toBe('default')
     expect(remoteSelectPlaceholder(0, '')).toBe('No remotes')
   })
 

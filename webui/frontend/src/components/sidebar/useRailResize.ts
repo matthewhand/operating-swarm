@@ -14,6 +14,8 @@ import {
   DEFAULT_RAIL_WIDTH,
   isFullyCollapsedWidth,
   COLLAPSED_RAIL_WIDTH,
+  defaultRailWidth,
+  RAIL_WIDTH_STORAGE_KEY,
 } from '../../lib/railResize'
 import { loadRailSide, RAIL_SIDE_EVENT, type RailSide } from '../../lib/railSide'
 
@@ -34,7 +36,23 @@ export function useRailResize({ narrow, onClose }: UseRailResizeOptions) {
     return () => window.removeEventListener(RAIL_SIDE_EVENT, sync)
   }, [])
 
-  const [railWidth, setRailWidth] = useState(() => loadRailWidth())
+  const [railWidth, setRailWidth] = useState(() =>
+    loadRailWidth(typeof window !== 'undefined' ? window.innerWidth : undefined),
+  )
+
+  useEffect(() => {
+    // #1083: if the user has not explicitly customized rail width, adapt default width across laptop/desktop viewports.
+    const handleResize = () => {
+      try {
+        if (!localStorage.getItem(RAIL_WIDTH_STORAGE_KEY)) {
+          setRailWidth(defaultRailWidth(window.innerWidth))
+        }
+      } catch {}
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
   const [isResizing, setIsResizing] = useState(false)
   const isAvatarOnly = !narrow && isAvatarOnlyWidth(railWidth)
   // #765: the divider-only state — the pane body collapses entirely and only

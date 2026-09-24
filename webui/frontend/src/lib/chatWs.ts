@@ -174,8 +174,14 @@ export function buildChatWsEditFrame(index: number, content: string): string {
 }
 
 /** #198: ask the server to interrupt the turn in flight (enter-to-interrupt). */
-export function buildCancelTurnFrame(): string {
-  return JSON.stringify({ type: 'cancel_turn' })
+/**
+ * #198: cancel the turn in flight. #1096: the frame now carries the target
+ * identity — `agent` scopes the cancel to that agent's turn (per-agent
+ * interrupt; other concurrent turns keep streaming). The server treats an
+ * absent agent exactly as before (cancel the active turn).
+ */
+export function buildCancelTurnFrame(agent?: string): string {
+  return JSON.stringify({ type: 'cancel_turn', ...(agent ? { agent } : {}) })
 }
 
 export function newConversationId(): string {
@@ -258,7 +264,8 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
     }
     if (type === 'turn_cancelled') {
       // #198: ack for cancel_turn — styled as a status line in the transcript.
-      return { kind: 'status', text: 'Interrupted — queued message promoted.' }
+      // #1093 (3): plain language; the promotion itself is visible below.
+      return { kind: 'status', text: 'Interrupted by user.' }
     }
     if (type === 'aux_task_started') {
       // #818: background LLM work became visible.

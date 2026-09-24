@@ -142,11 +142,13 @@ describe('REQ-75 blueprint role apply + picker filter', () => {
     webui: true,
   }
 
-  it('creates an agent from role=gate with a Gate badge, and no role when omitted', () => {
+  it('creates an agent from role=gate / role=belay with a Belay badge, and no role when omitted', () => {
     const gated = applyBlueprintAssignment('new-gate', fixtureGate)
     expect(gated.role).toBe('gate')
-    expect(roleBadgeLabel(gated.role)).toBe('Gate')
+    expect(roleBadgeLabel(gated.role)).toBe('Belay')
     expect(gated.workflow).toBe('as_tool')
+    const belayed = applyBlueprintAssignment('new-belay', { ...fixtureGate, role: 'belay' })
+    expect(roleBadgeLabel(belayed.role)).toBe('Belay')
     const plain = applyBlueprintAssignment('new-plain', fixturePlain)
     expect(plain.role).toBeUndefined()
     expect(roleBadgeLabel(plain.role)).toBe('')
@@ -169,7 +171,7 @@ describe('REQ-75 blueprint role apply + picker filter', () => {
     expect(isWebuiBlueprint(fixtureGate)).toBe(false)
     const picked = assignableBlueprints([fixtureGate, fixturePlain, djangoChat, codey])
     expect(picked.map((item) => item.id)).toEqual(['fixture_gate', 'fixture_plain', 'codey'])
-    expect(catalogPickerLabel(fixtureGate)).toBe('Fixture Gate · Gate')
+    expect(catalogPickerLabel(fixtureGate)).toBe('Fixture Gate · Belay')
     expect(catalogPickerLabel(fixturePlain)).toBe('Fixture Plain')
     expect(normalizeWorkflow('as-tool')).toBe('as_tool')
     expect(normalizeWorkflow('handoff')).toBe('handoff')
