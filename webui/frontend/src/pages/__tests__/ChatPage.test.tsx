@@ -4722,4 +4722,13 @@ describe('ChatPage API model palette (#281)', () => {
     // #836: the manage footer lands on the unified Providers hub.
     expect(opened).toEqual([{ section: 'providers' }])
   })
+
+  it('renders navbar avatar matching the remote agent id when remote is in URL', async () => {
+    renderChat('/chat?remote=trueforge')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const headerAvatar = screen.getByTestId('header-avatar-generations')
+    expect(headerAvatar.querySelector('[data-agent-id="trueforge"]')).toBeTruthy()
+  })
 })

@@ -141,8 +141,8 @@ function App() {
     // never dismisses it. Only the undocked drawer auto-closes.
     if (!narrow || railDocked) return
     setRailOpen(false)
-    if (!isSwipeHintDismissed()) setSwipeHint(true)
-  }, [narrow, railDocked])
+    if (viewportTier === 'mobile' && !isSwipeHintDismissed()) setSwipeHint(true)
+  }, [narrow, railDocked, viewportTier])
   const dismissHint = useCallback(() => {
     dismissSwipeHint()
     setSwipeHint(false)
@@ -336,7 +336,7 @@ function App() {
                 </main>
               </div>
             </div>
-            <SwipeHint open={narrow && swipeHint && !railOpen} onDismiss={dismissHint} />
+            <SwipeHint open={viewportTier === 'mobile' && narrow && swipeHint && !railOpen} onDismiss={dismissHint} />
           </div>
         </RailChromeProvider>
       </ToastProvider>

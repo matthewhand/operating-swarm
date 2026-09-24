@@ -10,8 +10,8 @@
  */
 
 export const COMPOSER_PILL_MIN_WIDTH = 40 // 2.5rem — ~3 chars + chevron
-/** Default (auto) cap matching the pre-#770 CSS max-width. */
-export const COMPOSER_PILL_AUTO_MAX = 152 // 9.5rem
+/** Default (auto) cap matching the CSS max-width. */
+export const COMPOSER_PILL_AUTO_MAX = 200 // 12.5rem
 export const COMPOSER_PILL_WIDTH_STORAGE_KEY = 'swarm_composer_pill_width'
 
 /**

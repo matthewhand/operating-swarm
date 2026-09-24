@@ -237,7 +237,7 @@ import {
   teamHideId,
   teamThreadId,
 } from '../lib/teamRosters'
-import { defaultSessionForTeam } from '../lib/sessionPicker'
+import { defaultSessionForRemote, defaultSessionForTeam } from '../lib/sessionPicker'
 import {
   OMB_NO_AGENTS_WARNING,
   ombSendTarget,
@@ -992,23 +992,42 @@ const ChatPage = () => {
   // when one is targeted, else `defaultSessionForTeam`'s rule (chief_of_staff_id,
   // else CoS role, else first) — the same rule the rail's team row reads, so the
   // two surfaces cannot disagree about which face represents the team.
+  const selectedRemoteSession = selectedRemote?.agents.find((agent) => agent.id === sessionFromUrl)
+  const defaultRemoteSession = selectedRemote ? defaultSessionForRemote(selectedRemote) : null
+  const remoteChatMemberId =
+    selectedRemoteSession?.id ||
+    sessionFromUrl ||
+    defaultRemoteSession?.memberId ||
+    remoteFromUrl
+  const selectedTeamSession = selectedTeam?.members.find((member) => member.id === sessionFromUrl)
+  const defaultTeamSession = selectedTeam ? defaultSessionForTeam(selectedTeam) : null
   const teamChatMemberId =
     teamFromUrl && selectedTeam
       ? memberTarget && memberTarget !== ALL_MEMBERS_TARGET
         ? memberTarget
-        : (defaultSessionForTeam(selectedTeam)?.memberId ?? '')
+        : (defaultTeamSession?.memberId ?? '')
       : ''
+  const activeTeamMember = selectedTeamSession || defaultTeamSession
   const headerFaceAgentId = teamFromUrl
     ? teamChatMemberId || teamFromUrl
+    : remoteFromUrl
+    ? remoteChatMemberId
     : agentIdFromBlueprint(selectedBlueprint) || selectedBlueprint || ''
-  const selectedRemoteSession = selectedRemote?.agents.find((agent) => agent.id === sessionFromUrl)
-  const selectedTeamSession = selectedTeam?.members.find((member) => member.id === sessionFromUrl)
   // #108: only rail rows whose kind is actually 'cli' may drive the CLI
   // picker. api_agent is a rail row too (kind 'api') and must never match.
   const selectedCli = cliAgents.find(
     (row) => row.id === selectedBlueprint && row.kind !== 'api',
   )
   const selectedAgent = blueprints.find((bp) => bp.id === selectedBlueprint)
+  const headerFaceAvatarSrc = teamFromUrl
+    ? (activeTeamMember as any)?.avatarSrc || (activeTeamMember as any)?.avatar_path || undefined
+    : remoteFromUrl
+    ? (selectedRemoteSession as any)?.avatarSrc ||
+      (selectedRemoteSession as any)?.avatar_path ||
+      defaultRemoteSession?.avatarSrc ||
+      (selectedRemote as any)?.avatar_path ||
+      undefined
+    : selectedAgent?.avatar_path || (selectedCli as any)?.avatar_path || undefined
   const runtimeBlueprint = teamFromUrl ? '' : assignedBlueprintId(selectedBlueprint)
   const fallbackAgentName =
     selectedAgent?.name ||
@@ -2131,7 +2150,7 @@ const ChatPage = () => {
 
   // #856 slice 18: transcript layout & read-state effects moved verbatim to
   // features/chat/useTranscriptLayout.tsx.
-  const { handleTranscriptScroll, composerBusy, identityTitleRef } = useTranscriptLayout({
+  const { handleTranscriptScroll, composerBusy, identityTitleRef, mobileHeaderHidden } = useTranscriptLayout({
     messages,
     replyTarget,
     input,
@@ -2805,6 +2824,7 @@ const ChatPage = () => {
     cliRemoteSession,
     generationsOpen,
     headerFaceAgentId,
+    headerFaceAvatarSrc,
     headerRole,
     headerRoleLabel,
     identityTitleRef,
@@ -2812,6 +2832,7 @@ const ChatPage = () => {
     isExampleRole,
     isRemoteCapableCli,
     isWorking,
+    mobileHeaderHidden,
     narrow,
     openAgentEditor,
     openRail,

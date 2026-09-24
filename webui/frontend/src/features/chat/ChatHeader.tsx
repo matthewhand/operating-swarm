@@ -12,11 +12,11 @@ export interface ChatHeaderProps {
 }
 
 export const ChatHeader = function ChatHeader(props: ChatHeaderProps) {
-    const { AgentAvatar, ApiSessionSwitcher, AuxActivityIndicator, CliSessionSwitcher, ComputerControlStub, OPEN_SETTINGS_EVENT, PanelLeft, Pencil, PersonaRoster, RemoteSessionSwitcher, Settings, ThemeToggle, activeChatAgentId, activeRemoteId, auxTasks, cliQuery, cliRemoteSession, configuredRemoteRows, currentCli, generationsOpen, headerFaceAgentId, headerRole, headerRoleLabel, identityTitleRef, isApiAgent, isChiefOfStaff, isCliAgent, isExampleRole, isRemoteCapableCli, isWorking, narrow, openAgentEditor, openRail, openSettingsSheet, openTeamEditor, railOpen, requestAuxCancel, roleCssClass, searchParams, selectedAgent, selectedAgentName, selectedBlueprint, selectedRemote, selectedTeam, setGenerationsOpen, setSearchParams, showEmptyRemoteChrome, showHeaderRole, showRemotesControl, teamChatMemberId, teamDeclaredRoster, teamFromUrl, workspaceSubtitle, wsRef } = props as any
+    const { AgentAvatar, ApiSessionSwitcher, AuxActivityIndicator, CliSessionSwitcher, ComputerControlStub, OPEN_SETTINGS_EVENT, PanelLeft, Pencil, PersonaRoster, RemoteSessionSwitcher, Settings, ThemeToggle, activeChatAgentId, activeRemoteId, auxTasks, cliQuery, cliRemoteSession, configuredRemoteRows, currentCli, generationsOpen, headerFaceAgentId, headerFaceAvatarSrc, headerRole, headerRoleLabel, identityTitleRef, isApiAgent, isChiefOfStaff, isCliAgent, isExampleRole, isRemoteCapableCli, isWorking, mobileHeaderHidden, narrow, openAgentEditor, openRail, openSettingsSheet, openTeamEditor, railOpen, requestAuxCancel, roleCssClass, searchParams, selectedAgent, selectedAgentName, selectedBlueprint, selectedRemote, selectedTeam, setGenerationsOpen, setSearchParams, showEmptyRemoteChrome, showHeaderRole, showRemotesControl, teamChatMemberId, teamDeclaredRoster, teamFromUrl, workspaceSubtitle, wsRef } = props as any
 
   return (
     <>
-      <header className="os-chat-header gap-1.5 sm:gap-3">
+      <header className={`os-chat-header gap-1.5 sm:gap-3 ${mobileHeaderHidden ? 'os-chat-header--hidden' : ''}`} data-mobile-hidden={mobileHeaderHidden ? 'true' : 'false'}>
         <div className="os-chat-header__identity flex min-w-0 flex-1 items-center gap-2 group">
           {narrow ? (
             <button
@@ -72,7 +72,7 @@ export const ChatHeader = function ChatHeader(props: ChatHeaderProps) {
                 }}
               >
                 <AgentAvatar
-                  src={teamFromUrl ? undefined : selectedAgent?.avatar_path}
+                  src={headerFaceAvatarSrc ?? (teamFromUrl ? undefined : selectedAgent?.avatar_path)}
                   agentId={headerFaceAgentId}
                   active={isWorking}
                   status={isWorking ? 'working' : 'idle'}
