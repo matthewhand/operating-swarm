@@ -66,4 +66,22 @@ describe('#574: the rail footer keeps its height when the labels are hidden', ()
       expect(sidebar).toContain(testid)
     }
   })
+
+  it('#1206: equalizes vertical distribution between Routines and Server icon', () => {
+    // In avatar-only mode, the hostname row matches the 2rem height of the footer buttons above it
+    const avatarMatch = css.match(
+      /\.os-agent-sidebar--avatar-only\s+\.os-rail-hostname-row\s*\{([^}]+)\}/,
+    )
+    expect(avatarMatch).toBeTruthy()
+    expect(avatarMatch![1]).toMatch(/height:\s*2rem/)
+    expect(avatarMatch![1]).toMatch(/align-items:\s*center/)
+
+    // In expanded mode, the hostname row carries min-height and py-1.5 padding-block matching the buttons
+    const rowMatch = css.match(
+      /(?:^|\n)\.os-rail-hostname-row\s*\{([^}]+)\}/,
+    )
+    expect(rowMatch).toBeTruthy()
+    expect(rowMatch![1]).toMatch(/min-height:\s*2rem/)
+    expect(rowMatch![1]).toMatch(/padding-block:\s*0\.375rem/)
+  })
 })

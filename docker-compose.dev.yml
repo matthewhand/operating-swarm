@@ -68,7 +68,12 @@ services:
       # source (the package lives at src/swarm/). Prepending the mounted source
       # to PYTHONPATH makes edits the code that actually runs, so uvicorn's
       # reloader picks them up.
-      PYTHONPATH: "/app/src"
+      # The pylibs tail carries optional heavy deps installed with
+      # `pip --target` (Daytona SDK, #253/REQ-863): the runtime python is
+      # root-owned, so a plain `pip install` inside the container fails with
+      # EACCES. The target dir lives on the mounted ~/.local/share/swarm
+      # volume, so the install survives recreation.
+      PYTHONPATH: "/app/src:${HOME}/.local/share/swarm/pylibs"
       # REQ-45: dev sandbox. HOME is injected and swarm state dirs are mapped
       # from the host (see base compose). Treat as sandbox-home (warning banner),
       # not a green isolated box. Override SWARM_RUNTIME_MODE=sandbox-isolated
