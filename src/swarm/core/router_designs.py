@@ -47,6 +47,60 @@ def load_designs() -> list[dict[str, Any]]:
     return [a for a in agents if isinstance(a, dict) and a.get("agent_id")]
 
 
+# #1157: seat→design lookups run per turn; designs change rarely and only via
+# upsert/delete, so a tiny (path, mtime)-keyed cache keeps the resolver cheap
+# without ever serving a stale design after a write or an env reroute.
+_designs_cache: tuple[str, float, list[dict[str, Any]]] | None = None
+
+
+def _designs_cached() -> list[dict[str, Any]]:
+    global _designs_cache
+    path = designs_path()
+    try:
+        key = (str(path), path.stat().st_mtime)
+    except OSError:
+        return []
+    if _designs_cache is None or _designs_cache[:2] != key:
+        _designs_cache = (*key, load_designs())
+    return _designs_cache[2]
+
+
+def _find_design(agent_id: str) -> dict[str, Any] | None:
+    """The design row for ``agent_id`` (mtime-cached), or None."""
+    raw = (agent_id or "").strip()
+    if not raw:
+        return None
+    for spec in _designs_cached():
+        if spec.get("agent_id") == raw:
+            return spec
+    return None
+
+
+def designed_agent_kind(agent_id: str) -> str | None:
+    """Kind of the designed agent ``agent_id`` ('personality'/'cli'/…), or None.
+
+    #1157: the chat-turn resolver needs to know whether an incoming seat id
+    is a designer-created agent without a full designs load per request.
+    """
+    spec = _find_design(agent_id)
+    kind = str(spec.get("kind") or "").strip().lower() if spec else ""
+    return kind or None
+
+
+def designed_seat_params(agent_id: str) -> dict[str, str]:
+    """Params routing a turn at a designed (non-CLI) seat to its runner.
+
+    Personality/swarm designs run through the ``agent_router`` blueprint with
+    a direct target (their real Agent objects are bound there by
+    ``_attach_designed``). CLI designs are remapped by the CLI catalog
+    instead and need no params. Non-designs get ``{}``.
+    """
+    kind = designed_agent_kind(agent_id)
+    if kind in ("personality", "swarm"):
+        return {"target_agent": agent_id.strip(), "routing_strategy": "direct"}
+    return {}
+
+
 def save_designs(agents: list[dict[str, Any]]) -> None:
     path = designs_path()
     path.parent.mkdir(parents=True, exist_ok=True)

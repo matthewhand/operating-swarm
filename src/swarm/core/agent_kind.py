@@ -52,6 +52,16 @@ def resolve_chat_blueprint_id(model_or_agent_id: str | None) -> str:
     from swarm.core.cli_catalog import cli_from_rail_id
     if cli_from_rail_id(raw):
         return "cli_agent"
+    # #1157: designer-created personality/swarm agents have no blueprint
+    # class of their own — they run through agent_router, which binds their
+    # real openai-agents Agent objects via _attach_designed. CLI designs are
+    # already remapped above; remote ids above; everything else falls here.
+    try:
+        from swarm.core.router_designs import designed_agent_kind
+        if designed_agent_kind(raw) in ("personality", "swarm"):
+            return "agent_router"
+    except Exception:  # pragma: no cover - designs file unreadable → legacy fallthrough
+        pass
     return raw
 
 
