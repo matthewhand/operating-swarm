@@ -100,6 +100,8 @@ EXPECTED_RESUME_ARGV = {
         "--mode",
         "text",
         "--approve",
+        "--model",
+        "litellm/tiny",
         "--",
         PROMPT,
     ],

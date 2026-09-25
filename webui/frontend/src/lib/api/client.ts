@@ -197,11 +197,16 @@ export async function apiGet<T>(
 
   return (await response.json()) as T
 }
-export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+export async function apiPatch<T>(
+  path: string,
+  body: unknown,
+  options?: { keepalive?: boolean },
+): Promise<T> {
   const response = await fetch(path, {
     method: 'PATCH',
     headers: buildHeaders(true),
     body: JSON.stringify(body),
+    ...(options?.keepalive ? { keepalive: true } : {}),
   })
 
   if (!response.ok) {

@@ -327,21 +327,24 @@ export function fetchUserPrefs(): Promise<UserPrefs | null> {
 let _prefsPatchThrottledUntil = 0
 const PREFS_PATCH_BACKOFF_MS = 30_000
 
-export async function saveUserPrefs(patch: {
-  favourites?: PinnedAgent[]
-  hidden_agents?: string[]
-  hostname_override?: string
-  context_auto_compress_pct?: number
-  context_strategy?: ContextStrategy
-  context_cull_trigger_pct?: number
-  context_cull_fraction_pct?: number
-  theme?: Theme
-  theme_navbar_mode?: NavbarThemeToggleMode
-  bubble_theme?: string
-  rail_sections?: RailSectionsState
-  values?: Record<string, unknown>
-  agent_dropdowns?: AgentDropdowns
-}): Promise<UserPrefs | null> {
+export async function saveUserPrefs(
+  patch: {
+    favourites?: PinnedAgent[]
+    hidden_agents?: string[]
+    hostname_override?: string
+    context_auto_compress_pct?: number
+    context_strategy?: ContextStrategy
+    context_cull_trigger_pct?: number
+    context_cull_fraction_pct?: number
+    theme?: Theme
+    theme_navbar_mode?: NavbarThemeToggleMode
+    bubble_theme?: string
+    rail_sections?: RailSectionsState
+    values?: Record<string, unknown>
+    agent_dropdowns?: AgentDropdowns
+  },
+  options?: { keepalive?: boolean },
+): Promise<UserPrefs | null> {
   if (
     patch.favourites === undefined &&
     patch.hidden_agents === undefined &&
@@ -390,7 +393,7 @@ export async function saveUserPrefs(patch: {
     await ensureCsrfCookie()
     // #800: provenance — this PATCH was the #738 flood; name it in 429 forensics.
     const data = await withClientSource('saveUserPrefs', () =>
-      apiPatch<unknown>(USER_PREFS_PATH, body),
+      apiPatch<unknown>(USER_PREFS_PATH, body, { keepalive: options?.keepalive ?? true }),
     )
     invalidateUserPrefsCache()
     const parsed = parseUserPrefs(data)

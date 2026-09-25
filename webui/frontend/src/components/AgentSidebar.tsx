@@ -117,8 +117,11 @@ import {
   stepRailNav,
 } from '../lib/railHotkeys'
 import {
+  PINNED_AGENTS_CHANGED_EVENT,
   excludePinnedFromList,
+  hasPinnedAgentsStorage,
   loadOrSeedPinnedAgents,
+  loadPinnedAgents,
   parseAgentDragPayload,
   type PinnedAgent,
 } from '../lib/pinnedAgents'
@@ -531,12 +534,22 @@ export default function AgentSidebar({
           JSON.stringify(current ?? []) === JSON.stringify(next) ? current : next,
         )
       }
+      // #1217: cross-tab / same-tab storage synchronization for pinned agents
+      if (hasPinnedAgentsStorage()) {
+        const nextPins = loadPinnedAgents()
+        setPins((current) => {
+          if (JSON.stringify(current) === JSON.stringify(nextPins)) return current
+          skipPrefsSave.current = true
+          return nextPins
+        })
+      }
     }
     window.addEventListener(SCALE_OUT_SESSIONS_EVENT, onChange)
     window.addEventListener(AGENT_CHAT_SESSIONS_EVENT, onChange)
     window.addEventListener(AGENT_CONVERSATION_EVENT, onChange)
     window.addEventListener(GENERATION_COMPLETE_EVENT, onChange)
     window.addEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onChange)
+    window.addEventListener(PINNED_AGENTS_CHANGED_EVENT, onChange)
     window.addEventListener('storage', onChange)
     return () => {
       window.removeEventListener(SCALE_OUT_SESSIONS_EVENT, onChange)
@@ -544,6 +557,7 @@ export default function AgentSidebar({
       window.removeEventListener(AGENT_CONVERSATION_EVENT, onChange)
       window.removeEventListener(GENERATION_COMPLETE_EVENT, onChange)
       window.removeEventListener(HIDDEN_AGENTS_CHANGED_EVENT, onChange)
+      window.removeEventListener(PINNED_AGENTS_CHANGED_EVENT, onChange)
       window.removeEventListener('storage', onChange)
     }
   }, [])
@@ -796,28 +810,66 @@ export default function AgentSidebar({
   // re-renders never cancels a legitimate pending save, and an echoed bag
   // (identical content) never re-saves.
   const lastPrefsSignature = useRef('')
+  const pendingPrefsTimer = useRef<number | null>(null)
+
+  const flushPrefsSave = useCallback(() => {
+    if (!prefsReady) return
+    const override =
+      hostname.trim() === defaultHostname() ? '' : hostname.trim()
+    const signature = JSON.stringify([pins, resolvedHiddenIds, override, sectionState])
+    if (signature === lastPrefsSignature.current) return
+    lastPrefsSignature.current = signature
+    void saveUserPrefs({
+      favourites: pins,
+      hidden_agents: resolvedHiddenIds,
+      hostname_override: override,
+      // #786: sidepane layout syncs with the same debounce.
+      rail_sections: sectionState,
+    })
+  }, [pins, resolvedHiddenIds, hostname, sectionState, prefsReady])
+
   useEffect(() => {
     if (!prefsReady) return
     if (skipPrefsSave.current) {
       skipPrefsSave.current = false
       return
     }
-    const handle = window.setTimeout(() => {
-      const override =
-        hostname.trim() === defaultHostname() ? '' : hostname.trim()
-      const signature = JSON.stringify([pins, resolvedHiddenIds, override, sectionState])
-      if (signature === lastPrefsSignature.current) return
-      lastPrefsSignature.current = signature
-      void saveUserPrefs({
-        favourites: pins,
-        hidden_agents: resolvedHiddenIds,
-        hostname_override: override,
-        // #786: sidepane layout syncs with the same debounce.
-        rail_sections: sectionState,
-      })
+    const override =
+      hostname.trim() === defaultHostname() ? '' : hostname.trim()
+    const signature = JSON.stringify([pins, resolvedHiddenIds, override, sectionState])
+    if (signature === lastPrefsSignature.current) return
+
+    if (pendingPrefsTimer.current !== null) {
+      window.clearTimeout(pendingPrefsTimer.current)
+    }
+    pendingPrefsTimer.current = window.setTimeout(() => {
+      pendingPrefsTimer.current = null
+      flushPrefsSave()
     }, 300)
-    return () => window.clearTimeout(handle)
-  }, [pins, resolvedHiddenIds, hostname, sectionState, prefsReady])
+
+    return () => {
+      if (pendingPrefsTimer.current !== null) {
+        window.clearTimeout(pendingPrefsTimer.current)
+        pendingPrefsTimer.current = null
+      }
+    }
+  }, [pins, resolvedHiddenIds, hostname, sectionState, prefsReady, flushPrefsSave])
+
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (pendingPrefsTimer.current !== null) {
+        window.clearTimeout(pendingPrefsTimer.current)
+        pendingPrefsTimer.current = null
+        flushPrefsSave()
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    window.addEventListener('pagehide', onBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      window.removeEventListener('pagehide', onBeforeUnload)
+    }
+  }, [flushPrefsSave])
 
   useEffect(() => {
     const onSettings = () => setSettingsTick((n) => n + 1)
