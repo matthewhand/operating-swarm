@@ -306,7 +306,10 @@ def extract_agent_state(payload: Any) -> str | None:
     if not isinstance(payload, Mapping):
         return None
 
-    for key in ("state", "status", "agent_state"):
+    # #1189: the herdr CLI's own field is ``agent_status`` (agent get / agent
+    # list JSON) — recognized alongside the looser aliases so best-effort
+    # extraction actually sees the live payload's state.
+    for key in ("state", "status", "agent_state", "agent_status"):
         raw = payload.get(key)
         if isinstance(raw, str) and raw.strip().lower() in _KNOWN_STATES:
             return raw.strip().lower()

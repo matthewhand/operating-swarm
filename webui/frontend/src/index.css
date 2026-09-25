@@ -1956,14 +1956,30 @@ button.os-agent-row {
   padding-right: 0.15rem;
   justify-content: center;
   padding: 0.25rem 0.15rem;
+  /* #1194: the expanded grid's 4.75rem floor is label-era sizing — with the
+     labels hidden it stretched every row to 76px around a ~59px tile, and
+     the tile's own centering turned the difference into dead space above
+     and below. Auto lets the row hug the tile. */
+  min-height: auto;
 }
 .os-agent-sidebar--avatar-only .os-fav-tile {
   /* #1074: the rail is 68px here; the 84px square overflowed the rail on
      both sides. Width follows the column, height stays content-driven. */
   width: auto;
+  /* #1194: hug the face. The tile is exactly the #1146 row rhythm (2.25rem):
+     no inherited two-line-label floor, no block padding, contents centred. */
   min-height: auto;
-  padding: 0.35rem 0;
+  height: 2.25rem;
+  padding: 0;
+  justify-content: center;
   background: transparent;
+}
+/* #1194: the 3rem face was sized for avatar + two-line label; at the
+   2.25rem tile height it clipped. Same face size as the #1146 rows. */
+.os-agent-sidebar--avatar-only .os-fav-tile .os-agent-avatar--lg,
+.os-agent-sidebar--avatar-only .os-fav-tile .os-blob-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
 }
 .os-agent-sidebar--avatar-only .os-fav-tile__name,
 .os-agent-sidebar--avatar-only .os-fav-tile__shortcut,
@@ -2000,6 +2016,20 @@ button.os-agent-row {
 }
 .os-agent-sidebar--avatar-only .os-hidden-bots-label,
 .os-agent-sidebar--avatar-only .os-hidden-bots-tail {
+  display: none;
+}
+.os-agent-sidebar--avatar-only .os-hidden-bots {
+  margin-inline: 0.35rem;
+}
+.os-agent-sidebar--avatar-only .os-hidden-bots-row {
+  justify-content: center;
+  padding: 0.45rem 0;
+  height: 2rem;
+}
+.os-agent-sidebar--avatar-only .os-hidden-bots-lead {
+  justify-content: center;
+}
+.os-agent-sidebar--avatar-only .os-hidden-drop-label {
   display: none;
 }
 .os-agent-sidebar--avatar-only .os-rail-hostname {

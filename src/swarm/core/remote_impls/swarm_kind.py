@@ -131,7 +131,27 @@ def _swarm_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> O
                 http_status=last.status,
                 data={"model": model, "response": last.body or last.text},
             )
-        if last.status in R._AUTH:
+        if last.status == 403 and _looks_like_csrf_rejection(last):
+            # #1191: keyless parent + CSRF-enforcing child. Django folds CSRF
+            # failures into 403 — distinguish them from real auth refusals by
+            # body, dance browser-style, and only then treat 403 as auth.
+            for dance_path in ("/v1/chat/completions/", "/v1/chat/completions"):
+                danced = _swarm_csrf_dance_post(
+                    spec, f"{spec.base_url}{dance_path}", payload, timeout
+                )
+                if danced.status in R._UP:
+                    return R.OperateResult(
+                        remote="swarm",
+                        op="send",
+                        ok=True,
+                        detail=(
+                            f"sent nested swarm turn via CSRF dance POST {dance_path} model={model}"
+                        ),
+                        http_status=danced.status,
+                        data={"model": model, "response": danced.body or danced.text},
+                    )
+            last = danced
+        if last.status in R._AUTH and not _looks_like_csrf_rejection(last):
             return R.OperateResult(
                 remote="swarm",
                 op="send",
@@ -143,13 +163,90 @@ def _swarm_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> O
                 http_status=last.status,
                 data=last.body,
             )
+        # #1191: a 403 that is really CSRF (or a failed dance) falls through to
+        # the honest final return below — the child's answer is the truth.
+    # #1191: prefer the child's own error message over a generic label.
+    child_detail = ""
+    if isinstance(last.body, dict) and last.body.get("detail"):
+        child_detail = str(last.body["detail"])
     return R.OperateResult(
         remote="swarm",
         op="send",
         ok=False,
-        detail=last.error or f"nested swarm send failed (http {last.status})",
+        detail=last.error or child_detail or f"nested swarm send failed (http {last.status})",
         http_status=last.status,
         data=last.body or last.text,
     )
+
+
+def _looks_like_csrf_rejection(result: HttpResult) -> bool:
+    text = (result.text or "") + json.dumps(result.body) if isinstance(result.body, dict) else (result.text or "")
+    return "CSRF" in text
+
+
+def _swarm_csrf_dance_post(
+    spec: RemoteSpec, url: str, payload: dict[str, Any], timeout: float
+) -> HttpResult:
+    """Browser-equivalent CSRF dance: collect the child's csrftoken cookie
+    from GET /, then POST with the cookie jar plus X-CSRFToken and Referer.
+    Uses a cookie-aware opener (http_json is one-shot, jar-less)."""
+    import http.cookiejar
+
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar)
+    )
+    try:
+        with opener.open(urllib.request.Request(f"{spec.base_url.rstrip('/')}/"), timeout=timeout) as resp:
+            resp.read()
+    except (urllib.error.URLError, OSError):
+        return R.HttpResult(status=None, error="CSRF dance: could not fetch token page")
+    token = ""
+    for cookie in jar:
+        if cookie.name == "csrftoken":
+            token = cookie.value
+            break
+    if not token:
+        return R.HttpResult(status=None, error="CSRF dance: child issued no csrftoken cookie")
+    headers = {
+        **R._auth_headers(spec),
+        "Content-Type": "application/json",
+        "X-CSRFToken": token,
+        "Referer": f"{spec.base_url.rstrip('/')}/",
+    }
+    request = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
+    )
+    started = time.monotonic()
+    try:
+        with opener.open(request, timeout=timeout) as resp:
+            raw = resp.read()
+            text = raw.decode("utf-8", errors="replace")
+            parsed: Any = None
+            if text.strip():
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+            return R.HttpResult(
+                status=getattr(resp, "status", None) or resp.getcode(),
+                body=parsed,
+                text=text,
+                url=url,
+                latency_ms=round((time.monotonic() - started) * 1000),
+                headers={k.lower(): v for k, v in resp.headers.items()},
+            )
+    except urllib.error.HTTPError as exc:
+        raw = exc.read() if hasattr(exc, "read") else b""
+        text = raw.decode("utf-8", errors="replace") if raw else ""
+        parsed = None
+        if text.strip():
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+        return R.HttpResult(status=exc.code, body=parsed, text=text, url=url, headers={})
+    except (urllib.error.URLError, OSError) as exc:
+        return R.HttpResult(status=None, error=f"CSRF dance failed: {exc}")
 
 

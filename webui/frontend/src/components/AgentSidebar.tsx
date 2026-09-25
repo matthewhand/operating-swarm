@@ -1649,6 +1649,7 @@ export default function AgentSidebar({
   const railSectionsProps = {
     AgentAvatar,
     agentTurns,
+    canScroll,
     Link,
     NEEDS_APPROVAL_LABEL,
     RailSectionEmpty,
@@ -1898,15 +1899,6 @@ export default function AgentSidebar({
           </button>
         </div>
 
-          <div
-            className={`os-rail-scroll-fade pointer-events-none transition-opacity duration-150 ${
-              canScroll ? 'opacity-100' : 'opacity-0'
-            }`}
-            data-testid="rail-scroll-fade"
-            data-can-scroll={canScroll ? 'true' : 'false'}
-            aria-hidden="true"
-          />
-
           <RailSections {...railSectionsProps} />
 
         <div
@@ -1948,6 +1940,7 @@ export default function AgentSidebar({
               className="os-hide-drop__action os-hidden-bots-row group"
               aria-haspopup="dialog"
               aria-label={`Hidden Agents ${hiddenCount} (${hiddenCount} hidden)`}
+              title={`Hidden Agents (${hiddenCount})`}
               data-testid="os-hidden-bots-button"
               onClick={() =>
                 openSearchPalette({
@@ -1959,7 +1952,14 @@ export default function AgentSidebar({
               onMouseEnter={() => setHoveringHidden(true)}
               onMouseLeave={() => setHoveringHidden(false)}
             >
-              <span className="os-hidden-bots-label font-medium">Hidden Agents</span>
+              <span className="os-hidden-bots-lead flex items-center gap-1.5 min-w-0">
+                <EyeOff
+                  className="os-hidden-bots-icon h-3.5 w-3.5 shrink-0"
+                  aria-hidden="true"
+                  data-testid="os-hidden-bots-icon"
+                />
+                <span className="os-hidden-bots-label font-medium truncate">Hidden Agents</span>
+              </span>
               <span className="os-hidden-bots-tail font-mono text-xs" data-testid="os-hidden-bots-tail">
                 <span
                   className={`os-hidden-bots-count ${hoveringHidden ? 'hidden' : 'inline group-hover:hidden'}`}

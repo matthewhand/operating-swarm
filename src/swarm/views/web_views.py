@@ -20,6 +20,13 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from swarm.core.blueprint_discovery import discover_blueprints
 from swarm.core.paths import get_user_config_dir_for_swarm
 
+
+def load_team_rosters_safe():
+    """#1185: late-bound registry read so tests can monkeypatch cleanly."""
+    from swarm.core import team_rosters as rosters_core
+
+    return rosters_core.load_team_rosters()
+
 # Import the setting for the blueprints directory
 from swarm.settings import BLUEPRINT_DIRECTORY
 from swarm.utils.env_utils import *
@@ -380,8 +387,8 @@ _DEMO_TEAM_ROSTER = {
 }
 
 
-def team_rosters_json(request):
-    """Serve team_rosters.json for the AGENTS sidepane (not /v1/teams/ aliases)."""
+def _static_team_rosters_payload() -> dict | None:
+    """The static demo fixture file, if any candidate exists and parses (#1185)."""
     candidates = [
         Path("webui/frontend/public/team_rosters.json"),
         Path("webui/frontend/dist/team_rosters.json"),
@@ -391,10 +398,36 @@ def team_rosters_json(request):
         if not path.is_file():
             continue
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        return JsonResponse(payload, safe=False)
+    return None
+
+
+def team_rosters_json(request):
+    """Serve team_rosters.json for the AGENTS sidepane (not /v1/teams/ aliases).
+
+    #1185: the registry (team_rosters.json in the user config dir, the same
+    store POST /v1/team-rosters/ writes) is the source of truth. The static
+    demo fixture is an append-only fallback so a repo file can never shadow
+    user-created rosters; registry entries win on id collision.
+    """
+    try:
+        from swarm.core.team_rosters import serialize_roster
+
+        registry = list(load_team_rosters_safe().values())
+    except Exception:  # pragma: no cover - defensive: registry failures degrade
+        registry = []
+    if registry:
+        return JsonResponse(
+            {"object": "list", "data": [serialize_roster(entry) for entry in registry]},
+            safe=False,
+        )
+    static_payload = _static_team_rosters_payload()
+    if static_payload:
+        fallback = static_payload.get("data") if isinstance(static_payload, dict) else static_payload
+        if isinstance(fallback, list) and fallback:
+            return JsonResponse({"object": "list", "data": fallback}, safe=False)
     return JsonResponse({"object": "list", "data": [_DEMO_TEAM_ROSTER]})
 
 
