@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
 
+import httpx
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
@@ -173,6 +174,8 @@ def test_openai_client_kwargs_prefers_litellm_proxy():
         assert openai_client_kwargs() == {
             "api_key": "sk-master",
             "base_url": "https://open-litellm.example/v1",
+            # #1156: per-phase read deadline ships on every client kwargs dict.
+            "timeout": httpx.Timeout(connect=10.0, read=45.0, write=None, pool=10.0),
         }
 
 
@@ -186,11 +189,17 @@ def test_openai_client_kwargs_litellm_api_key_beats_master_key():
         assert openai_client_kwargs() == {
             "api_key": "sk-litellm",
             "base_url": "http://127.0.0.1:4000/v1",
+            # #1156: per-phase read deadline ships on every client kwargs dict.
+            "timeout": httpx.Timeout(connect=10.0, read=45.0, write=None, pool=10.0),
         }
 
 
 def test_openai_client_kwargs_empty_when_unset():
     with patch.dict(os.environ, {}, clear=True):
-        assert openai_client_kwargs() == {}
+        # #1156: the read deadline is unconditional — an unset env still yields
+        # the per-phase timeout (and no credential/base_url keys).
+        kwargs = openai_client_kwargs()
+        assert "api_key" not in kwargs and "base_url" not in kwargs
+        assert kwargs["timeout"].read == 45.0
         assert get_llm_api_key() is None
         assert get_llm_base_url() is None
