@@ -265,6 +265,35 @@ def _trueforge_create_session(
             action=R._settings_action(spec.id),
         )
     if sess_resp.status not in R._UP and sess_resp.status != 201:
+        # #1159: the gateway answers a bare 400 when the agent payload doesn't
+        # match its schema (agent: {name}). Name the schema, the agent we
+        # tried, and the gateway's own detail — never a naked "http 400".
+        if sess_resp.status == 400:
+            gateway = ""
+            if isinstance(sess_resp.body, dict):
+                gateway = str(
+                    sess_resp.body.get("detail")
+                    or sess_resp.body.get("error")
+                    or sess_resp.body.get("message")
+                    or ""
+                ).strip()
+            elif sess_resp.text:
+                gateway = sess_resp.text.strip()[:200]
+            detail = (
+                f"TrueForge rejected the session create for agent '{name}' (http 400): "
+                "the gateway expects {\"agent\": {\"name\": <real agent>}}."
+            )
+            if gateway:
+                detail += f" Gateway said: {gateway}"
+            detail += " Check the agent name in Settings → Remotes."
+            return "", R.OperateResult(
+                remote=spec.id,
+                op="send",
+                ok=False,
+                detail=detail,
+                http_status=sess_resp.status,
+                data=sess_resp.body or sess_resp.text or None,
+            )
         return "", R.OperateResult(
             remote=spec.id,
             op="send",
@@ -311,9 +340,26 @@ def _trueforge_send(
     sess_id = requested_session
     created_for = ""
     if not sess_id:
-        sess_id, err = _trueforge_create_session(
-            spec, base_url, (target or "").strip() or "orchestrator", timeout_s
-        )
+        # #1159: a trueforge seat with no agent wired used to pass the
+        # REMOTE'S OWN NAME as the agent and eat a bare gateway 400. That is
+        # never a valid agent name — fail fast with the rebind path, no wire
+        # call at all. (Empty target keeps the legacy "orchestrator" default,
+        # which is a real agent in a stock TrueForge install.)
+        agent_name = (target or "").strip() or "orchestrator"
+        if agent_name == spec.id or agent_name == "trueforge":
+            return R.OperateResult(
+                remote=spec.id,
+                op="send",
+                ok=False,
+                detail=(
+                    "This TrueForge remote has no agent wired — the send would "
+                    "use the remote's own name as the agent. Set an agent in "
+                    "Settings → Remotes (or pick one from the rail menu)."
+                ),
+                data={"missing_agent": True, "rejected_agent_name": agent_name},
+                action=R._settings_action(spec.id),
+            )
+        sess_id, err = _trueforge_create_session(spec, base_url, agent_name, timeout_s)
         if err is not None:
             return err
 

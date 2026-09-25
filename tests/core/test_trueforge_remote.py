@@ -1328,3 +1328,57 @@ def test_trueforge_list_survives_a_sessions_endpoint_failure(tf_server, monkeypa
     assert listed.ok is True
     assert len(listed.data["data"]) == 1
     assert listed.data.get("sessions") in (None, [])
+
+
+# ---------------------------------------------------------------------------
+# #1159 — no agent wired: fail fast with actionable copy; gateway 400s name
+# the schema hint (agent: {name}).
+# ---------------------------------------------------------------------------
+
+
+def test_trueforge_send_without_agent_fails_fast_with_rebind_copy(tf_server, monkeypatch):
+    """A trueforge seat that would use the remote's OWN name as agent refuses BEFORE the wire (#1159)."""
+    host, port, router = tf_server
+    hits = []
+
+    def counting(method, url, **kwargs):
+        hits.append(url)
+        raise AssertionError("no HTTP call expected when no agent is wired")
+
+    monkeypatch.setattr("swarm.core.remotes.http_json", counting)
+    result = remotes_core.operate(
+        "trueforge",
+        "send",
+        prompt="hi",
+        target="trueforge",
+        config={"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}},
+        timeout=2.0,
+    )
+    assert result.ok is False
+    assert "no agent wired" in result.detail
+    assert "Settings → Remotes" in result.detail
+    assert hits == [], "must not hit the gateway without an agent"
+
+
+def test_trueforge_session_create_400_names_the_schema_hint(tf_server):
+    """Gateway 400 on session create surfaces the agent:{name} schema hint."""
+    host, port, router = tf_server
+    router.routes[("POST", "/api/v1/sessions")] = (
+        400,
+        {"error": "Invalid input", "detail": "at agent"},
+    )
+    from swarm.core import remotes as R
+    from swarm.core.remote_impls import trueforge as tf
+
+    spec = R.RemoteSpec(
+        id="tf",
+        title="TrueForge",
+        host_label="trueforge",
+        kind="trueforge",
+        base_url=f"http://{host}:{port}",
+    )
+    sess_id, err = tf._trueforge_create_session(spec, f"http://{host}:{port}", "nope-agent", 2.0)
+    assert sess_id == ""
+    assert err is not None and err.ok is False
+    assert "agent" in err.detail and ('"name"' in err.detail or "'name'" in err.detail)
+    assert "nope-agent" in err.detail
