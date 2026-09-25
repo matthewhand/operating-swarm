@@ -50,7 +50,7 @@ services:
         set -e
         python manage.py migrate --fake-initial
         echo "--- Starting Open Swarm ASGI (uvicorn --reload) ---"
-        exec uvicorn swarm.asgi:application --host 0.0.0.0 --port 8000 --reload
+        exec uvicorn swarm.asgi:application --host 0.0.0.0 --port 8000 --reload --reload-include '*.py'
     volumes:
       # Live source tree. hatchling installs into site-packages (no src/
       # open_swarm.egg-info), so PYTHONPATH below is what makes this mount win.
