@@ -15,7 +15,9 @@ describe('REQ-196: Collapsed sidepane vertical alignment for Support and peer ro
     const rowRules = avatarOnlyRowMatch![1]
     expect(rowRules).toMatch(/justify-content:\s*center/)
     expect(rowRules).toMatch(/align-items:\s*center/)
-    expect(rowRules).toMatch(/height:\s*2\.75rem/)
+    // #1146: ultra-compact rows — 2.25rem (the REQ-196 alignment contract
+    // itself is unchanged; only the density metric moved).
+    expect(rowRules).toMatch(/height:\s*2\.25rem/)
 
     // Expect .os-agent-sidebar--avatar-only .os-agent-row__avatar-slot to center and reset margin
     const avatarSlotMatch = css.match(

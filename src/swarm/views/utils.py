@@ -335,6 +335,12 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
              effective_params = dict(params or {})
              if "cli" not in effective_params and cli_name:
                  effective_params["cli"] = cli_name
+             # #1157: designed personality/swarm seats route through
+             # agent_router with a direct target — feed the seat params
+             # unless the caller already supplied routing explicitly.
+             from swarm.core.router_designs import designed_seat_params
+             for k, v in designed_seat_params(original_id).items():
+                 effective_params.setdefault(k, v)
              tags = blueprint_info.get("metadata", {}).get("tags") or []
              if "variant" not in effective_params and "skeptic" in tags:
                  effective_params["variant"] = "skeptic_loop"

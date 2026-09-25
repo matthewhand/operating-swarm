@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from swarm.consumers import DjangoChatConsumer
+from swarm.consumers import DjangoChatConsumer, _TURN_STATE_CTX
 
 # The consumer fixtures (mock_scope/mock_user/consumer) live in
 # tests/test_consumers.py — import them so this file shares one definition.
@@ -197,3 +197,88 @@ async def test_turn_registry_bookends(consumer):
     await consumer._end_turn(turn)
     assert turn.turn_id not in consumer.active_turns
     assert turn.finished_at is not None
+
+
+# ---------------------------------------------------------------------------
+# ADR-017 PR-5 — team member-granular concurrency — team member-granular concurrency
+# ---------------------------------------------------------------------------
+
+
+def _team_frame(target: str) -> dict:
+    return {
+        "message": "hi",
+        "blueprint": "demo-team",
+        "params": {"team": "demo-team", "target": target, "enabled_tools": []},
+    }
+
+
+@pytest.mark.asyncio
+async def test_member_targeted_sends_use_member_lock_key(consumer, monkeypatch):
+    """PR-5: params {team, target:member} locks on team#member, not the team."""
+    seen: list[str] = []
+
+    async def fake_body(text_data_json, message_text, blueprint_id, params):
+        seen.append(_TURN_STATE_CTX.get().agent_id)
+
+    monkeypatch.setattr(consumer, "_run_chat_turn_body", fake_body)
+    monkeypatch.setattr(consumer, "send", AsyncMock())
+    await consumer._run_serialised_chat_turn(_team_frame("codey"), "hi")
+    assert seen == ["demo-team#codey"]
+
+
+@pytest.mark.asyncio
+async def test_all_compose_keeps_team_wide_lock(consumer, monkeypatch):
+    """PR-5: target=all (the whole-team compose) keeps the team lock key."""
+    seen: list[str] = []
+
+    async def fake_body(text_data_json, message_text, blueprint_id, params):
+        seen.append(_TURN_STATE_CTX.get().agent_id)
+
+    monkeypatch.setattr(consumer, "_run_chat_turn_body", fake_body)
+    monkeypatch.setattr(consumer, "send", AsyncMock())
+    await consumer._run_serialised_chat_turn(_team_frame("all"), "hi")
+    assert seen == ["demo-team"]
+
+
+@pytest.mark.asyncio
+async def test_different_members_run_concurrently_same_member_serialises(consumer):
+    """Two members interleave; the same member queues exactly as before."""
+    order: list[str] = []
+    inside = asyncio.Event()
+
+    async def member_turn(target: str, release: asyncio.Event | None):
+        lock = consumer._agent_lock(f"demo-team#{target}")
+        async with lock:
+            order.append(f"{target}:start")
+            if target == "codey" and release is not None:
+                inside.set()
+                await asyncio.wait_for(release.wait(), timeout=2)
+            order.append(f"{target}:end")
+
+    release = asyncio.Event()
+    task_a = asyncio.create_task(member_turn("codey", release))
+    await inside.wait()
+    task_b = asyncio.create_task(member_turn("poet", None))
+    await asyncio.sleep(0.05)
+    assert "poet:start" in order, f"member poet must not queue behind codey: {order}"
+
+    task_c = asyncio.create_task(member_turn("codey", None))
+    await asyncio.sleep(0.05)
+    release.set()
+    await asyncio.gather(task_a, task_b, task_c)
+    starts = [i for i, o in enumerate(order) if o == "codey:start"]
+    ends = [i for i, o in enumerate(order) if o == "codey:end"]
+    assert len(starts) == 2 and len(ends) == 2
+    assert ends[0] < starts[1], f"same member must serialise: {order}"
+
+
+@pytest.mark.asyncio
+async def test_cancel_by_member_only_stops_that_member(consumer, monkeypatch):
+    """PR-5: cancel(agent='demo-team#poet') leaves codey's turn running."""
+    monkeypatch.setattr(consumer, "send", AsyncMock())
+    codey_turn = await consumer._begin_turn(agent_id="demo-team#codey")
+    poet_turn = await consumer._begin_turn(agent_id="demo-team#poet")
+
+    await consumer._cancel_current_turn(agent_id="demo-team#poet")
+    assert poet_turn.cancel_event.is_set()
+    assert not codey_turn.cancel_event.is_set()
