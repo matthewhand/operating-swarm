@@ -701,4 +701,37 @@ describe('#565 reply quote in the bubble', () => {
   })
 })
 
+describe('#1209: message not sent retry error banner readability', () => {
+  it('renders high-contrast retry error banner with Retry button and icon', () => {
+    const onResend = vi.fn()
+    render(
+      <ChatMessageBubble
+        role="user"
+        agentName="You"
+        text="Hello world"
+        streaming={false}
+        editing={false}
+        onCancelEdit={() => {}}
+        onSaveEdit={() => {}}
+        sendFailed={true}
+        onResend={onResend}
+      />,
+    )
+
+    const banner = screen.getByTestId('send-failed')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveClass('os-send-failed')
+    expect(banner).toHaveTextContent('Not sent — the connection dropped.')
+
+    const button = screen.getByTestId('resend-button')
+    expect(button).toBeInTheDocument()
+    expect(button).toHaveTextContent('Retry')
+    expect(button).toHaveClass('btn-error')
+
+    fireEvent.click(button)
+    expect(onResend).toHaveBeenCalledTimes(1)
+  })
+})
+
+
 

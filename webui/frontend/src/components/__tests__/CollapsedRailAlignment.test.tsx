@@ -85,3 +85,42 @@ describe('#574: the rail footer keeps its height when the labels are hidden', ()
     expect(rowMatch![1]).toMatch(/padding-block:\s*0\.375rem/)
   })
 })
+
+describe('#1207: hides pinned avatars, hidden bots, and footer when completely collapsed', () => {
+  const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8')
+
+  it('hides .os-fav-grid, hidden bots row, and footer container in collapsed mode', () => {
+    const match = css.match(
+      /\.os-agent-sidebar--collapsed\s+\.os-fav-grid[^{]*\{([^}]+)\}/,
+    )
+    expect(match).toBeTruthy()
+    expect(match![1]).toMatch(/display:\s*none\s*!important/)
+
+    expect(css).toMatch(
+      /\.os-agent-sidebar--collapsed\s+\[data-testid=['"]hidden-bots-row['"]\]/,
+    )
+    expect(css).toMatch(
+      /\.os-agent-sidebar--collapsed\s+\[data-testid=['"]sidebar-footer-container['"]\]/,
+    )
+  })
+})
+
+describe('#1208: divider pill elevation and avatar-only visibility', () => {
+  const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8')
+
+  it('elevates .os-rail-divider-pill with z-index 60', () => {
+    const pillBlock = css.match(/\.os-rail-divider-pill\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(pillBlock).toBeTruthy()
+    expect(pillBlock).toMatch(/z-index:\s*60/)
+  })
+
+  it('makes expand pill visible and interactive in avatar-only mode without hover', () => {
+    const avatarPillMatch = css.match(
+      /\.os-agent-sidebar--avatar-only\s+\.os-rail-divider-pill[^{]*\{([^}]+)\}/,
+    )
+    expect(avatarPillMatch).toBeTruthy()
+    expect(avatarPillMatch![1]).toMatch(/opacity:\s*1/)
+    expect(avatarPillMatch![1]).toMatch(/pointer-events:\s*auto/)
+  })
+})
+

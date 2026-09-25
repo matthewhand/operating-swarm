@@ -81,13 +81,13 @@ export function useRailResize({ narrow, onClose }: UseRailResizeOptions) {
       pillDraggedRef.current = false
       return
     }
-    if (isAvatarOnly) {
+    if (isAvatarOnly || isCollapsed) {
       expandSidebar()
     }
     else {
       concealSidebar()
     }
-  }, [isAvatarOnly, expandSidebar, concealSidebar])
+  }, [isAvatarOnly, isCollapsed, expandSidebar, concealSidebar])
 
   const startDragXRef = useRef(0)
   const startWidthRef = useRef(railWidth)
