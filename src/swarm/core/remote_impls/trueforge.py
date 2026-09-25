@@ -345,7 +345,14 @@ def _trueforge_send(
         # never a valid agent name — fail fast with the rebind path, no wire
         # call at all. (Empty target keeps the legacy "orchestrator" default,
         # which is a real agent in a stock TrueForge install.)
-        agent_name = (target or "").strip() or "orchestrator"
+        # #1159 uplift: a wired spec.agent outranks both the raw target and
+        # the kind default — the operator's declared agent is authoritative
+        # for a named instance.
+        agent_name = (
+            (target or "").strip()
+            or (getattr(spec, "agent", "") or "").strip()
+            or "orchestrator"
+        )
         if agent_name == spec.id or agent_name == "trueforge":
             return R.OperateResult(
                 remote=spec.id,
@@ -390,7 +397,13 @@ def _trueforge_send(
             # #425: a resume key taken straight off the list is an *agent* id,
             # and TrueForge will not turn one into a session. Start a session for
             # that name instead of handing back a bare "404 Session not found".
-            agent_name = (target or "").strip() or requested_session
+            # #1159 uplift: the wired agent outranks the raw resume key when
+            # deriving the mint name — a remote's own id is not an agent name.
+            agent_name = (
+                (target or "").strip()
+                or (getattr(spec, "agent", "") or "").strip()
+                or requested_session
+            )
             minted, mint_err = _trueforge_create_session(spec, base_url, agent_name, timeout_s)
             if mint_err is not None:
                 return R.OperateResult(

@@ -465,6 +465,10 @@ class RemoteSpec:
     provenance: dict[str, Any] = field(default_factory=dict)
     kind: str = ""
     timeout: float | None = None
+    # #1159: the agent this remote targets (trueforge/letta-style harnesses
+    # that need one to mint a session). Empty = not wired; the adapter then
+    # keeps its kind default and refuses remote-id-as-agent.
+    agent: str = ""
 
     def origin(self) -> tuple[str, int]:
         parsed = urlparse(self.base_url)
@@ -1128,6 +1132,7 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             "ssh_host",
             "ssh_user",
             "ssh_identity_env",
+            "agent",  # #1159: wired agent for session-minting harnesses
         ):
             if key in block and block[key] is not None:
                 setattr(spec, key, block[key])
