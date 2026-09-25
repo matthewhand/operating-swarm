@@ -27,7 +27,7 @@ import {
   streamingAffordanceClass,
   type BubbleTheme,
 } from '../lib/bubbleTheme'
-import { Brain, ChevronRight } from 'lucide-react'
+import { AlertCircle, Brain, ChevronRight, RotateCcw } from 'lucide-react'
 import { STREAM_REPLIES_CHANGED_EVENT, streamingPartialEnabled } from '../lib/streamReplies'
 import { splitLeadingQuote } from '../lib/replyQuote'
 import { extractThinkingBlock } from '../lib/messageArtifacts'
@@ -443,17 +443,22 @@ export function ChatMessageBubble({
           {children}
           {sendFailed && role === 'user' ? (
             <div
-              className="os-send-failed mt-1 flex items-center gap-2 text-[11px] text-error"
+              className="os-send-failed mt-2 flex items-center justify-between gap-2.5 rounded-lg bg-base-100/95 px-2.5 py-1.5 text-xs text-base-content shadow-sm border border-error/40"
               data-testid="send-failed"
             >
-              <span>Not sent — the connection dropped.</span>
+              <div className="flex items-center gap-1.5 text-error font-medium">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>Not sent — the connection dropped.</span>
+              </div>
               <button
                 type="button"
-                className="btn btn-ghost btn-xs text-error"
+                className="btn btn-xs btn-error text-error-content font-medium gap-1 shrink-0"
                 onClick={onResend}
                 data-testid="resend-button"
+                aria-label="Retry sending message"
               >
-                Resend
+                <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                Retry
               </button>
             </div>
           ) : null}

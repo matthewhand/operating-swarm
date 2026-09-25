@@ -1744,7 +1744,7 @@ export default function AgentSidebar({
       <aside
         className={`os-agent-sidebar os-agent-sidebar--${railSide} fixed inset-y-0 ${
           railSide === 'right' ? 'right-0' : 'left-0'
-        } z-40 flex shrink-0 flex-col transition-transform duration-200 lg:static lg:z-0 lg:translate-x-0 ${
+        } z-40 flex shrink-0 flex-col transition-transform duration-200 lg:relative lg:z-30 lg:translate-x-0 ${
           open
             ? 'translate-x-0'
             : railSide === 'right'
@@ -1812,7 +1812,7 @@ export default function AgentSidebar({
                 const pillEl = event.currentTarget
                 pillDraggedRef.current = false
                 const onMove = (e: PointerEvent) => {
-                  if (pillDraggedRef.current || Math.abs(e.clientX - startX) > 4) {
+                  if (pillDraggedRef.current || Math.abs(e.clientX - startX) > 8) {
                     pillDraggedRef.current = true
                     window.removeEventListener('pointermove', onMove)
                     window.removeEventListener('pointerup', onUp)

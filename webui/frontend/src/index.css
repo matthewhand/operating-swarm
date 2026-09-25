@@ -477,6 +477,7 @@ html:not([data-theme="light"]) .os-composer-wrap,
   background: var(--color-base-100, #ffffff);
   border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+  z-index: 60;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
@@ -1836,12 +1837,18 @@ button.os-agent-row {
 .os-agent-sidebar--collapsed .os-rail-scroller,
 .os-agent-sidebar--collapsed .os-rail-search-row,
 .os-agent-sidebar--collapsed > .flex,
-.os-agent-sidebar--collapsed .os-rail-scroll-fade {
-  display: none;
+.os-agent-sidebar--collapsed .os-rail-scroll-fade,
+.os-agent-sidebar--collapsed .os-fav-grid,
+.os-agent-sidebar--collapsed [data-testid='hidden-bots-row'],
+.os-agent-sidebar--collapsed [data-testid='sidebar-footer-container'] {
+  display: none !important;
 }
 .os-agent-sidebar--collapsed .os-rail-divider-pill,
 .os-agent-sidebar--collapsed .os-rail-resizer:hover .os-rail-divider-pill,
-.os-agent-sidebar--collapsed .os-rail-resizer:focus-within .os-rail-divider-pill {
+.os-agent-sidebar--collapsed .os-rail-resizer:focus-within .os-rail-divider-pill,
+.os-agent-sidebar--avatar-only .os-rail-divider-pill,
+.os-agent-sidebar--avatar-only .os-rail-resizer:hover .os-rail-divider-pill,
+.os-agent-sidebar--avatar-only .os-rail-resizer:focus-within .os-rail-divider-pill {
   opacity: 1;
   pointer-events: auto;
 }
