@@ -233,7 +233,7 @@ def _n8n_send(
             op="send",
             ok=False,
             detail=(
-                "Pick an n8n workflow. Open Swarm does not mint new "
+                "Pick an n8n workflow. Operating Swarm does not mint new "
                 "workflows. Pass session_id as workflow:webhook "
                 "(list the remote to see available flows)."
             ),

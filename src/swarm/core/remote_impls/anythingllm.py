@@ -265,7 +265,7 @@ def iter_anythingllm_chat(
             "",
             True,
             (
-                "Pick an AnythingLLM workspace or thread. Open Swarm does not mint "
+                "Pick an AnythingLLM workspace or thread. Operating Swarm does not mint "
                 "new threads. Pass session_id as workspace or workspace:thread "
                 "(list the remote to see available sessions)."
             ),
@@ -450,7 +450,7 @@ def _anythingllm_send(
             op="send",
             ok=False,
             detail=(
-                "Pick an AnythingLLM workspace or thread. Open Swarm does not mint "
+                "Pick an AnythingLLM workspace or thread. Operating Swarm does not mint "
                 "new threads. Pass session_id as workspace or workspace:thread "
                 "(list the remote to see available sessions)."
             ),

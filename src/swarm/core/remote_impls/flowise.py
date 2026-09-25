@@ -343,7 +343,7 @@ def iter_flowise_chat(
             "",
             True,
             (
-                "Pick a Flowise flow or chat session. Open Swarm does not mint "
+                "Pick a Flowise flow or chat session. Operating Swarm does not mint "
                 "new threads. Pass session_id as flowId or flowId:chatId "
                 "(list the remote to see available sessions)."
             ),
@@ -470,7 +470,7 @@ def _flowise_send(
             op="send",
             ok=False,
             detail=(
-                "Pick a Flowise flow or chat session. Open Swarm does not mint "
+                "Pick a Flowise flow or chat session. Operating Swarm does not mint "
                 "new threads. Pass session_id as flowId or flowId:chatId "
                 "(list the remote to see available sessions)."
             ),
