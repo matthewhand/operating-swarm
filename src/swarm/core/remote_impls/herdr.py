@@ -361,9 +361,14 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
         # #849: per-spec dispatch (named instances, not the default key).
         client = herdr_client_from_spec(spec)
         # #728: an omitted target is no longer a dead end. One member in the
-        # workspace → auto-target it; several → honest error naming every
-        # choice (target + name) so the user can pick; discovery failure →
-        # keep the original refusal copy.
+        # workspace → auto-target it; several → auto-target the first **idle**
+        # agent (#1189 — a working agent must never receive an injected prompt
+        # mid-turn); none idle → honest error naming every choice with its
+        # state so the user can pick. Discovery failure → keep the original
+        # refusal copy. A wired ``agent`` on the remote (#1159) beats all of
+        # this — the operator's explicit pick wins.
+        if not pane and (getattr(spec, "agent", "") or "").strip():
+            pane = spec.agent.strip()
         if not pane:
             try:
                 members = client.discover_members()
@@ -384,23 +389,42 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
             if len(rows) == 1:
                 pane = rows[0]["target"]
             elif rows:
-                names = ", ".join(
-                    f"{r['target']} ({r['name']})"
-                    if r["name"] and r["name"] != r["target"]
-                    else r["target"]
-                    for r in rows
+                def _pane_state(tid: str) -> str:
+                    try:
+                        return str(extract_agent_state(client.agent_get(tid)) or "")
+                    except Exception:
+                        return ""
+                idle = next(
+                    (r["target"] for r in rows if _pane_state(r["target"]) == "idle"),
+                    "",
                 )
-                return R.OperateResult(
-                    remote="herdr",
-                    op="send",
-                    ok=False,
-                    detail=(
-                        f"Several Herdr agents are running — pick one: {names}. "
-                        "Chat with a specific agent from the rail menu "
-                        "(Select session) or name the pane id."
-                    ),
-                    data={"targets": [r["target"] for r in rows]},
-                )
+                if idle:
+                    pane = idle
+                else:
+                    names = ", ".join(
+                        (
+                            f"{r['target']} ({r['name']})"
+                            if r["name"] and r["name"] != r["target"]
+                            else f"{r['target']}"
+                        )
+                        + (
+                            f" [{_pane_state(r['target'])}]"
+                            if _pane_state(r["target"])
+                            else ""
+                        )
+                        for r in rows
+                    )
+                    return R.OperateResult(
+                        remote="herdr",
+                        op="send",
+                        ok=False,
+                        detail=(
+                            f"Several Herdr agents are running and none is idle — pick one: {names}. "
+                            "Chat with a specific agent from the rail menu "
+                            "(Select session) or name the pane id."
+                        ),
+                        data={"targets": [r["target"] for r in rows]},
+                    )
             else:
                 return R.OperateResult(
                     remote="herdr",

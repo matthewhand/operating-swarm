@@ -2658,6 +2658,18 @@ describe('AgentSidebar REQ-129 — Hidden Agents row chrome', () => {
     fireEvent.mouseLeave(btn)
     expect(within(btn).getByTestId('os-hidden-bots-count')).toHaveTextContent('2')
   })
+
+  it('renders EyeOff icon affordance inside os-hidden-bots-lead and retains icon in ultra-compact mode (#1193)', async () => {
+    localStorage.setItem(HIDDEN_AGENTS_STORAGE_KEY, JSON.stringify(['gate']))
+    localStorage.setItem('swarm_rail_width_v1', '68')
+    renderSidebar()
+    const btn = await screen.findByTestId('os-hidden-bots-button')
+    expect(btn).toBeInTheDocument()
+    const icon = within(btn).getByTestId('os-hidden-bots-icon')
+    expect(icon).toBeInTheDocument()
+    expect(btn).toHaveAttribute('title', 'Hidden Agents (1)')
+    expect(btn).toHaveAttribute('aria-label', expect.stringContaining('Hidden Agents 1'))
+  })
 })
 
 describe('AgentSidebar REQ-116 — Resizable left rail', () => {

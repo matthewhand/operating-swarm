@@ -204,6 +204,44 @@ def _anythingllm_split_session(session_id: str) -> tuple[str, str]:
     return sid, ""
 
 
+def _anythingllm_resolve_session(
+    spec: RemoteSpec, timeout: float
+) -> tuple[str, str]:
+    """#1187: resolve a session automatically when the caller gave none.
+
+    Order: the remote's wired ``agent`` (Settings → Remotes, #1159 wiring —
+    beats auto), else the first workspace GET /api/v1/workspaces exposes
+    (the same list the UI would offer the user). Returns ``(sid, ws_name)``;
+    ``("", "")`` when nothing is wired and no workspace is visible — the
+    caller then refuses honestly. Nothing is ever minted.
+    """
+    wired = (getattr(spec, "agent", "") or "").strip()
+    if wired:
+        return wired, ""
+    result = R.http_json(
+        "GET",
+        f"{spec.base_url}/api/v1/workspaces",
+        headers=R._auth_headers(spec),
+        timeout=timeout,
+    )
+    body = result.body
+    if isinstance(body, dict):
+        workspaces = body.get("workspaces") or body.get("data") or []
+    elif isinstance(body, list):
+        workspaces = body
+    else:
+        workspaces = []
+    for ws in workspaces:
+        if not isinstance(ws, dict):
+            continue
+        slug = str(ws.get("slug") or ws.get("id") or "").strip()
+        if not slug:
+            continue
+        name = str(ws.get("name") or slug).strip()
+        return slug, name
+    return "", ""
+
+
 def _anythingllm_chat_urls(spec: RemoteSpec, ws_slug: str, thread_slug: str) -> tuple[str, str]:
     base = f"{spec.base_url}/api/v1/workspace/{ws_slug}"
     if thread_slug:
@@ -443,6 +481,14 @@ def _anythingllm_send(
     ``error`` bodies surface, never faked.
     """
     sid = (session_id or target or "").strip()
+    auto_selected = False
+    ws_name = ""
+    if not sid:
+        # #1187: no explicit session — resolve one automatically (wired agent
+        # first, then the first listed workspace). Refuse honestly when neither
+        # exists; never mint anything.
+        sid, ws_name = _anythingllm_resolve_session(spec, timeout)
+        auto_selected = bool(sid)
     ws_slug, thread_slug = _anythingllm_split_session(sid)
     if not ws_slug:
         return R.OperateResult(
@@ -473,11 +519,15 @@ def _anythingllm_send(
             break
     label = thread_slug or ws_slug
     if assembled and not error:
+        if auto_selected:
+            detail = f"AnythingLLM replied in {ws_name or label} (auto-selected workspace)"
+        else:
+            detail = f"AnythingLLM replied in {label}"
         return R.OperateResult(
             remote="anythingllm",
             op="send",
             ok=True,
-            detail=f"AnythingLLM replied in {label}",
+            detail=detail,
             http_status=http_status or 200,
             data={"response": assembled, "thread": sid},
         )

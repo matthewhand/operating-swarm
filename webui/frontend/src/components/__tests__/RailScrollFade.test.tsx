@@ -61,6 +61,9 @@ describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
     expect(fade).toHaveClass('os-rail-scroll-fade')
     expect(fade).toHaveClass('pointer-events-none')
 
+    const nav = screen.getByRole('navigation', { name: 'Agent list' })
+    expect(nav.parentElement).toContainElement(fade)
+
     // Plugins button is clickable and opens modal
     const pluginsBtn = screen.getByRole('button', { name: 'Plugins' })
     expect(pluginsBtn).toBeInTheDocument()

@@ -114,6 +114,10 @@ services:
       # bare-metal | sandbox-home | sandbox-isolated
       SWARM_RUNTIME: "${SWARM_RUNTIME:-sandbox-home}"
       SWARM_HOST_GATEWAY: "${SWARM_HOST_GATEWAY:-host.docker.internal}"
+      # #1189: the herdr client runs the CLI (not a bare `herdr` on PATH —
+      # the seat PATH does not carry ~/.local/bin). The binary is mounted ro
+      # at the identical host path.
+      HERDR_BIN: "${HOME}/.local/bin/herdr"
       # REQ-916 / #515 / #690: external name for container-gateway aliases
       # (host.docker.internal & co) as seen from LAN browsers. Rewrites the
       # browser-facing ui_url even when the server itself is in a container.
@@ -161,6 +165,9 @@ services:
       - "${HOME}/.hermes:${HOME}/.hermes"
       - "${HOME}/.grok:${HOME}/.grok"
       - "${HOME}/.local/share/uv:${HOME}/.local/share/uv:ro"
+      # #1189: the herdr CLI's unix socket + client state live in
+      # ~/.config/herdr — mount writable so seat sends reach the host TUI.
+      - "${HOME}/.config/herdr:${HOME}/.config/herdr"
     depends_on:
       postgres:
         condition: service_healthy

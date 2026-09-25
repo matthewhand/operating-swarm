@@ -1239,24 +1239,23 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             if sandbox_reply is not None:
                 full_message = sandbox_reply
             else:
-                stream = await client.chat.completions.create(
-                    model=model,
-                    messages=model_messages,
-                    stream=True,
-                )
-                async for chunk in stream:
+                # #1181: the #1154 stall-prone gateway route intermittently
+                # never sends stream headers; degrade to non-stream (which
+                # answers in <1s) instead of dying at the #1156 read deadline.
+                from swarm.utils.llm_stream import stream_with_fallback
+
+                async def _emit_chunk(text: str) -> None:
                     # #198: same cooperative cancel as the blueprint path.
                     if self._cancel_event().is_set():
-                        break
-                    choices = getattr(chunk, "choices", None) or []
-                    if not choices:
-                        continue
-                    message_chunk = choices[0].delta.content
-                    if message_chunk:
-                        full_message += message_chunk
-                        await self.send(
-                            text_data=_oob_append_html(contents_div_id, message_chunk)
-                        )
+                        return
+                    await self.send(text_data=_oob_append_html(contents_div_id, text))
+
+                full_message = await stream_with_fallback(
+                    client,
+                    model=model,
+                    messages=model_messages,
+                    on_chunk=_emit_chunk,
+                )
         except Exception as e:
             logger.error("Default-model chat stream failed: %s", e, exc_info=True)
             await self.send_error_message(
