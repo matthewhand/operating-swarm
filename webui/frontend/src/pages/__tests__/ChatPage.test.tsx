@@ -85,6 +85,71 @@ describe('chatLoginHref helpers', () => {
   })
 })
 
+describe('#1149 optimistic user echo', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  it('renders the submitted message immediately, before any WS frame', async () => {
+    renderChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const composer = await screen.findByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(composer, { target: { value: 'instant echo please' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    // No WS frame has been flushed — the row must already be visible.
+    const row = await screen.findByText('instant echo please')
+    expect(row).toBeTruthy()
+  })
+
+  it('the server user_echo upgrades the pending row instead of duplicating it', async () => {
+    renderChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const composer = await screen.findByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(composer, { target: { value: 'echo once only' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    await screen.findByText('echo once only')
+    // Server confirms: the SPA frame carries the legacy inner HTML shape.
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            kind: 'spa.frame',
+            conversationId: 'blueprint:codey',
+            data: {
+              type: 'message',
+              html: '<div id="message-list" hx-swap-oob="beforeend"><div class="user-message">echo once only</div></div>',
+            },
+          }),
+        }),
+      )
+    })
+    await waitFor(() => {
+      expect(screen.getAllByText('echo once only')).toHaveLength(1)
+    })
+  })
+})
+
 describe('ChatPage reconnect focus', () => {
   beforeEach(() => {
     MockWebSocket.instances = []

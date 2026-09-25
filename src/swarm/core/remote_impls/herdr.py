@@ -312,9 +312,31 @@ def _herdr_reply_after_timeout(
     return _herdr_pane_text(read)
 
 
+def _herdr_live_pane_ids(client: Any) -> list[str]:
+    """#1144: pane ids that actually exist right now (best-effort, deduped)."""
+    from swarm.herdr.client import members_from_agent_list, members_from_workspace_list
+
+    try:
+        rows = members_from_agent_list(client.agent_list(), remote="herdr")
+    except Exception:
+        try:
+            rows = members_from_workspace_list(client.workspace_list(), remote="herdr")
+        except Exception:
+            return []
+    ids: list[str] = []
+    for row in rows or []:
+        # members rows carry the routing target under ``name`` (pane id);
+        # accept ``target``/``display`` spellings too.
+        tid = str((row or {}).get("name") or (row or {}).get("target") or "").strip()
+        if tid and tid not in ids:
+            ids.append(tid)
+    return ids
+
+
 def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, config: dict[str, Any] | None = None) -> OperateResult:
     from swarm.herdr.client import (
         WAIT_UNTIL_STOPPED,
+        HerdrAgentMissingError,
         HerdrBlockedError,
         HerdrCLIError,
         HerdrClient,
@@ -414,6 +436,22 @@ def _herdr_send(spec: RemoteSpec, prompt: str, target: str, timeout: float, conf
         target = pane
     except SSHNotConfiguredError as exc:
         return R.OperateResult(remote="herdr", op="send", ok=False, detail=str(exc))
+    except HerdrAgentMissingError as exc:
+        # #1144: the bound pane was deleted — never dump the raw CLI JSON.
+        # Offer the rebind path and name the panes that DO exist.
+        available = _herdr_live_pane_ids(client)
+        listing = ", ".join(available[:6]) if available else "none right now"
+        return R.OperateResult(
+            remote="herdr",
+            op="send",
+            ok=False,
+            detail=(
+                f"The Herdr pane {pane} no longer exists — the seat's binding is stale. "
+                f"Rebind it (rail menu → Select session, or Settings → Remotes → herdr). "
+                f"Live panes: {listing}."
+            ),
+            data={"target": pane, "missing": True, "available": available},
+        )
     except HerdrBlockedError as exc:
         # #740: a blocked pane is a CLI sitting at an approval/question
         # prompt. Surface WHAT it is asking (the pane's recent text) and HOW
