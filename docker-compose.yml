@@ -145,6 +145,13 @@ services:
       - "${HOME}/.local/share/opencode:${HOME}/.local/share/opencode"
       - "${HOME}/.cache/opencode:${HOME}/.cache/opencode"
       - "${HOME}/.local/state/opencode:${HOME}/.local/state/opencode"
+      # #1140: the list-models probes for the remaining CLIs mkdir their own
+      # state dirs in-container (root-owned HOME → EACCES kills the probe).
+      # gemini/agy need ~/.gemini, opencode's probe needs ~/.config/opencode,
+      # codex's setup probe needs ~/.codex. Writable, same doctrine as #1125.
+      - "${HOME}/.gemini:${HOME}/.gemini"
+      - "${HOME}/.config/opencode:${HOME}/.config/opencode"
+      - "${HOME}/.codex:${HOME}/.codex"
     depends_on:
       postgres:
         condition: service_healthy

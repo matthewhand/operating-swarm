@@ -244,7 +244,7 @@ def test_cli_agents_endpoint_exposes_native_consensus(client):
     assert data["native_consensus"]["grok"] == ["--best-of-n", "{n}"]
     assert data["catalog"]["grok"]["parse"] == "json:.text"
     assert data["list_models"]["opencode"] == ["opencode", "models"]
-    assert data["list_models"]["gemini"] == ["gemini", "--list-models"]
+    assert "gemini" not in data["list_models"]  # #1142: deliberately unprobed
     assert data["list_models"]["codex"] == ["codex", "debug", "models"]
     assert data["list_sessions"]["grok"]["capability"] == "works"
     assert data["list_sessions"]["grok"]["list_argv"][:2] == ["grok", "sessions"]
