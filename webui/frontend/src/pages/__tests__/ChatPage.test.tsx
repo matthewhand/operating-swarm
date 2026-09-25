@@ -965,6 +965,185 @@ describe('ChatPage auto-reconnect backoff', () => {
   })
 })
 
+describe('#1168 pending-send watchdog', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  async function openAndSend(text: string) {
+    renderChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const composer = await screen.findByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(composer, { target: { value: text } })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+  }
+
+  it('marks the echo as failed when no server confirmation arrives within the grace window', async () => {
+    await openAndSend('lost in the void')
+    expect(screen.queryByTestId('send-failed')).toBeNull()
+    // Grace elapses with zero frames from the server.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_500)
+    })
+    expect(screen.getByTestId('send-failed')).toBeTruthy()
+    expect(screen.getByTestId('resend-button')).toBeTruthy()
+  })
+
+  it('does NOT fail the row when the server confirms within the grace window', async () => {
+    await openAndSend('arrived safely')
+    // The echo must be tagged with the conversation the page actually
+    // subscribed to (the subscribe frame carries the live UUID).
+    const convId = JSON.parse(
+      String(MockWebSocket.instances[0].send.mock.calls[0][0]),
+    ).conversationId as string
+    await act(async () => {
+      MockWebSocket.instances[0]?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            kind: 'spa.frame',
+            conversationId: convId,
+            data: '<div id="message-list" hx-swap-oob="beforeend"><div class="user-message">arrived safely</div></div>',
+          }),
+        }),
+      )
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(screen.queryByTestId('send-failed')).toBeNull()
+  })
+
+  it('resend re-sends the SAME text through the socket and restores pending', async () => {
+    await openAndSend('try again please')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_500)
+    })
+    const ws = MockWebSocket.instances[0]!
+    const sendsBefore = ws.send.mock.calls.length
+    fireEvent.click(screen.getByTestId('resend-button'))
+    expect(ws.send.mock.calls.length).toBeGreaterThan(sendsBefore)
+    const lastFrame = JSON.parse(ws.send.mock.calls.at(-1)![0] as string)
+    expect(JSON.stringify(lastFrame)).toContain('try again please')
+    // Failed marker cleared; the row is pending (not failed) again.
+    expect(screen.queryByTestId('send-failed')).toBeNull()
+  })
+
+  it('fails the echo immediately when the socket died between check and send', async () => {
+    renderChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const composer = await screen.findByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(composer, { target: { value: 'stale socket victim' } })
+    // Socket dies AFTER the status check would have passed.
+    await act(async () => {
+      const sock = MockWebSocket.instances[0]!
+      sock.readyState = 3
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    // The mux swallowed the frame (stale registry socket) — from the page's
+    // view the send "succeeded", so the grace watchdog is the safety net.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_500)
+    })
+    expect(screen.getByTestId('send-failed')).toBeTruthy()
+  })
+})
+
+describe('#1167 typing anywhere focuses the composer', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetConversationThreads()
+  })
+
+  async function openChat(entry = '/chat?blueprint=codey') {
+    renderChat(entry)
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    await screen.findByRole('textbox', { name: 'Chat message' })
+  }
+
+  function typeOnBody(key: string) {
+    fireEvent.keyDown(document.body, { key, bubbles: true })
+  }
+
+  it('a printable key with body focus lands in the composer', async () => {
+    await openChat()
+    const composer = screen.getByRole('textbox', { name: 'Chat message' })
+    typeOnBody('h')
+    typeOnBody('i')
+    expect(composer).toHaveFocus()
+    expect((composer as HTMLTextAreaElement).value).toBe('hi')
+  })
+
+  it('does NOT capture when the key target is an editable control', async () => {
+    await openChat()
+    const composer = screen.getByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(composer, { target: { value: 'x' } })
+    // A keydown whose target is a real input/textarea (any other field) is
+    // left alone — the keystroke already has a home.
+    const other = document.createElement('textarea')
+    document.body.appendChild(other)
+    fireEvent.keyDown(other, { key: 'q', bubbles: true })
+    expect((composer as HTMLTextAreaElement).value).toBe('x')
+    other.remove()
+  })
+
+  it('does NOT capture modifier shortcuts (ctrl/meta/alt)', async () => {
+    await openChat()
+    const composer = screen.getByRole('textbox', { name: 'Chat message' })
+    composer.blur()
+    fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true, bubbles: true })
+    expect((composer as HTMLTextAreaElement).value).toBe('')
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true, bubbles: true })
+    expect((composer as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('does NOT capture named keys (Tab, Escape, F2, arrows)', async () => {
+    await openChat()
+    const composer = screen.getByRole('textbox', { name: 'Chat message' })
+    composer.blur()
+    for (const key of ['Tab', 'Escape', 'F2', 'ArrowLeft', 'Enter', 'Shift']) {
+      fireEvent.keyDown(document.body, { key, bubbles: true })
+    }
+    expect((composer as HTMLTextAreaElement).value).toBe('')
+  })
+})
+
 describe('ChatPage computer-control pane (REQ-80)', () => {
   beforeEach(() => {
     MockWebSocket.instances = []

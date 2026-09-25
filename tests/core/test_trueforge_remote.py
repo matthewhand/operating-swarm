@@ -1328,3 +1328,158 @@ def test_trueforge_list_survives_a_sessions_endpoint_failure(tf_server, monkeypa
     assert listed.ok is True
     assert len(listed.data["data"]) == 1
     assert listed.data.get("sessions") in (None, [])
+
+
+# ---------------------------------------------------------------------------
+# #1159 — no agent wired: fail fast with actionable copy; gateway 400s name
+# the schema hint (agent: {name}).
+# ---------------------------------------------------------------------------
+
+
+def test_trueforge_send_without_agent_fails_fast_with_rebind_copy(tf_server, monkeypatch):
+    """A trueforge seat that would use the remote's OWN name as agent refuses BEFORE the wire (#1159)."""
+    host, port, router = tf_server
+    hits = []
+
+    def counting(method, url, **kwargs):
+        hits.append(url)
+        raise AssertionError("no HTTP call expected when no agent is wired")
+
+    monkeypatch.setattr("swarm.core.remotes.http_json", counting)
+    result = remotes_core.operate(
+        "trueforge",
+        "send",
+        prompt="hi",
+        target="trueforge",
+        config={"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}},
+        timeout=2.0,
+    )
+    assert result.ok is False
+    assert "no agent wired" in result.detail
+    assert "Settings → Remotes" in result.detail
+    assert hits == [], "must not hit the gateway without an agent"
+
+
+def test_trueforge_session_create_400_names_the_schema_hint(tf_server):
+    """Gateway 400 on session create surfaces the agent:{name} schema hint."""
+    host, port, router = tf_server
+    router.routes[("POST", "/api/v1/sessions")] = (
+        400,
+        {"error": "Invalid input", "detail": "at agent"},
+    )
+    from swarm.core import remotes as R
+    from swarm.core.remote_impls import trueforge as tf
+
+    spec = R.RemoteSpec(
+        id="tf",
+        title="TrueForge",
+        host_label="trueforge",
+        kind="trueforge",
+        base_url=f"http://{host}:{port}",
+    )
+    sess_id, err = tf._trueforge_create_session(spec, f"http://{host}:{port}", "nope-agent", 2.0)
+    assert sess_id == ""
+    assert err is not None and err.ok is False
+    assert "agent" in err.detail and ('"name"' in err.detail or "'name'" in err.detail)
+    assert "nope-agent" in err.detail
+
+
+def test_trueforge_wired_agent_outranks_default(tf_server, monkeypatch):
+    """#1159 uplift: spec.agent (persisted 'agent' key) is authoritative —
+    it beats the kind default for a named instance."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (201, {"data": {"id": "sess-1"}}),
+        ("POST", "/api/v1/sessions/sess-1/turns"): (
+            202,
+            {"data": {"id": "turn-1", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-1/turns/turn-1"): (
+            200,
+            {"data": {"id": "turn-1", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-1/turns/turn-1/events"): (
+            200,
+            {"data": [{"type": "model.message", "content": "ok"}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge-demo": {
+                "kind": "trueforge",
+                "base_url": f"http://{host}:{port}",
+                "agent": "garruk",
+            }
+        }
+    }
+
+    result = remotes_core.operate("trueforge-demo", "send", prompt="hi", config=cfg)
+
+    assert result.ok is True
+    mint_bodies = [
+        body
+        for method, path, body in router.received_bodies
+        if method == "POST" and path == "/api/v1/sessions"
+    ]
+    assert mint_bodies and mint_bodies[0]["agent"]["name"] == "garruk"
+
+
+def test_trueforge_load_remote_reads_the_agent_key():
+    """#1159 uplift: load_remote copies the persisted 'agent' key onto the spec."""
+    spec = remotes_core.load_remote(
+        "trueforge-demo",
+        config={
+            "remotes": {
+                "trueforge-demo": {"kind": "trueforge", "base_url": "http://x:1", "agent": "garruk"}
+            }
+        },
+    )
+    assert spec.agent == "garruk"
+
+
+def test_trueforge_wired_agent_fixes_the_recover_mint(tf_server, monkeypatch):
+    """#1159 uplift: the #425 recovery path derives its mint agent from the
+    resume key; a wired agent outranks that raw id."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions/trueforge-demo/turns"): (
+            404,
+            {"error": "Session not found"},
+        ),
+        ("POST", "/api/v1/sessions"): (201, {"data": {"id": "sess-new"}}),
+        ("POST", "/api/v1/sessions/sess-new/turns"): (
+            202,
+            {"data": {"id": "turn-1", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-new/turns/turn-1"): (
+            200,
+            {"data": {"id": "turn-1", "state": "completed"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-new/turns/turn-1/events"): (
+            200,
+            {"data": [{"type": "model.message", "content": "Recovered."}]},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {
+        "remotes": {
+            "trueforge-demo": {
+                "kind": "trueforge",
+                "base_url": f"http://{host}:{port}",
+                "agent": "garruk",
+            }
+        }
+    }
+
+    result = remotes_core.operate(
+        "trueforge-demo", "send", prompt="hi", session_id="trueforge-demo", config=cfg
+    )
+
+    assert result.ok is True
+    mint_bodies = [
+        body
+        for method, path, body in router.received_bodies
+        if method == "POST" and path == "/api/v1/sessions"
+    ]
+    assert mint_bodies and mint_bodies[0]["agent"]["name"] == "garruk"

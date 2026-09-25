@@ -208,7 +208,7 @@ def chat_letta(
     """POST to Letta /v1/agents/{id}/messages with resolved agent ID."""
     resolved_id = (agent_id or "").strip()
     if not resolved_id or resolved_id.lower() == "default":
-        raise RuntimeError("letta agent id is required (Open Swarm does not mint new agents)")
+        raise RuntimeError("letta agent id is required (Operating Swarm does not mint new agents)")
 
     base = _safe_http_url(base_url)
     if base.endswith("/v1"):
@@ -613,7 +613,7 @@ def default_remote_member(framework: str, members: list[dict[str, str]]) -> str:
 
 
 def parse_remote_catalog(body: Any) -> list[dict[str, str]]:
-    """Normalize Open Swarm / OMB / OpenAI / generic agent list JSON."""
+    """Normalize Operating Swarm / OMB / OpenAI / generic agent list JSON."""
     if not isinstance(body, dict):
         if isinstance(body, list):
             return _members_from_list(body)

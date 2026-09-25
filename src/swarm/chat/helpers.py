@@ -10,7 +10,11 @@ consumers.py rebinds these names eagerly after its class.
 """
 from __future__ import annotations
 
+import asyncio
 import importlib
+import os
+import time
+from datetime import datetime, timezone  # noqa: F401 — _message_ts (R._message_ts)
 
 
 class _ConsumersRef:
@@ -22,7 +26,25 @@ class _ConsumersRef:
 
 R = _ConsumersRef()
 
-from datetime import datetime, timezone
+# #1170: the chat-side provider gate must not hold a turn (and its agent lock)
+# forever when a bucket stays saturated. Past this cap the gate aborts the turn
+# honestly; override with SWARM_CHAT_GATE_WAIT_CAP_S.
+_PROVIDER_GATE_CAP_ENV = "SWARM_CHAT_GATE_WAIT_CAP_S"
+_DEFAULT_GATE_CAP_S = 60.0
+
+
+class ProviderGateTimeout(RuntimeError):
+    """The provider gate exceeded its wait cap; the turn must fail honestly."""
+
+
+def _chat_gate_wait_cap_s() -> float:
+    raw = os.environ.get(_PROVIDER_GATE_CAP_ENV, "")
+    try:
+        value = float(raw) if raw.strip() else _DEFAULT_GATE_CAP_S
+    except ValueError:
+        value = _DEFAULT_GATE_CAP_S
+    return max(1.0, value)
+
 
 def _is_bootstrap_turn(blueprint_id: str, params) -> bool:
     """True when this turn should be served by the Bootstrap provider (#893)."""
@@ -177,33 +199,54 @@ def _conversation_cache_key(user, conversation_id):
 
 
 async def _gate_provider_rate_limit(consumer, params=None, blueprint_id=""):
-    """REQ-88: wait on the shared provider queue before a send (including test mode)."""
+    """REQ-88: wait on the shared provider queue before a send (including test mode).
+
+    #1170: the gate's verdict is now *honored*, visibly, with a cap.
+
+    1. The wait status is emitted the moment the wait **starts** — the old
+       ``on_wait`` hook only fired from inside ``acquire``'s retry loop, so a
+       long first wait left the composer animating with no copy.
+    2. The total wait is capped (``SWARM_CHAT_GATE_WAIT_CAP_S``, default 60s).
+       Past the cap, ``ProviderGateTimeout`` is raised so the responder fails
+       the turn honestly instead of holding the per-agent lock indefinitely.
+    3. The gate's ``WaitDecision`` is returned so ``respond_with_blueprint``
+       proceeds exactly when the gate allowed it.
+    """
     emitted = {"done": False}
+    wait_started = {"done": False}
+    cap_s = _chat_gate_wait_cap_s()
+    deadline = time.monotonic() + cap_s
 
     async def on_wait(decision):
+        if not wait_started["done"]:
+            # #1170: copy on the wire the moment waiting begins.
+            wait_started["done"] = True
+            from swarm.core.provider_rate_limit import format_wait_text
+
+            meta = decision.public_dict()
+            text = format_wait_text(decision)
+            try:
+                await consumer.send(text_data=R._rate_limit_status_html(text, meta))
+            except Exception:
+                R.logger.debug("rate-limit status send skipped", exc_info=True)
+            R._record_status(
+                consumer,
+                text,
+                role="info",
+                kind="rate_limit",
+                rate_limit=meta,
+                ts=R._message_ts(),
+            )
         if emitted["done"]:
             return
         emitted["done"] = True
-        from swarm.core.provider_rate_limit import format_wait_text
 
-        meta = decision.public_dict()
-        text = format_wait_text(decision)
+    async def _run_gate():
         try:
-            await consumer.send(text_data=R._rate_limit_status_html(text, meta))
+            from swarm.core.provider_rate_limit import gate_provider_send
         except Exception:
-            R.logger.debug("rate-limit status send skipped", exc_info=True)
-        R._record_status(
-            consumer,
-            text,
-            role="info",
-            kind="rate_limit",
-            rate_limit=meta,
-            ts=R._message_ts(),
-        )
-
-    try:
-        from swarm.core.provider_rate_limit import gate_provider_send
-
+            R.logger.debug("provider rate-limit gate import skipped", exc_info=True)
+            return None
         messages = getattr(consumer, "messages", None) or []
         return await gate_provider_send(
             params=params if isinstance(params, dict) else None,
@@ -211,6 +254,43 @@ async def _gate_provider_rate_limit(consumer, params=None, blueprint_id=""):
             messages=messages,
             on_wait=on_wait,
         )
+
+    try:
+        gate_task = asyncio.ensure_future(_run_gate())
+        try:
+            decision = await asyncio.wait_for(gate_task, timeout=cap_s)
+        except asyncio.TimeoutError:
+            gate_task.cancel()
+            try:
+                await gate_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            if not wait_started["done"]:
+                # The wait never even announced itself — say why the turn died.
+                from swarm.core.provider_rate_limit import format_wait_text
+
+                text = (
+                    f"Provider gate: still waiting for capacity after {cap_s:.0f}s — "
+                    "the message was not sent. Try again shortly, or raise the "
+                    "provider's rate limits in Settings."
+                )
+                try:
+                    await consumer.send(text_data=R._rate_limit_status_html(text, {}))
+                except Exception:
+                    R.logger.debug("gate cap status send skipped", exc_info=True)
+            seat = ""
+            if isinstance(params, dict):
+                seat = str(
+                    params.get("remote") or params.get("remote_id") or params.get("cli") or ""
+                ).strip()
+            raise ProviderGateTimeout(
+                f"Provider gate: {seat or blueprint_id or 'this seat'} is throttled — "
+                f"still waiting for capacity after {cap_s:.0f}s; the message was not sent. "
+                "Try again shortly or raise the provider's limits in Settings."
+            ) from None
+        return decision
+    except ProviderGateTimeout:
+        raise
     except Exception:
         R.logger.debug("provider rate-limit gate skipped", exc_info=True)
         return None

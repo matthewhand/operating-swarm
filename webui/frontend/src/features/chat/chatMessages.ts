@@ -30,6 +30,8 @@ export interface ChatMessage {
   streaming: boolean
   /** #1149: user row echoed optimistically, not yet confirmed by the server. */
   pending?: boolean
+  /** #1168: optimistic row the server never confirmed — resend offered. */
+  sendFailed?: boolean
   tools?: ToolCallState[]
   /** Blocking ``ask_user`` card or a non-blocking ```question fence. */
   question?: DecisionQuestion

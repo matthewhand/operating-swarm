@@ -26,6 +26,63 @@ R: Any = importlib.import_module("swarm.core.remotes")
 __all__ = ['_letta_agents_payload', '_letta_assistant_text', '_letta_delta', '_letta_list', '_letta_post_events', '_letta_send', '_letta_session_row', '_letta_text_from_content', 'filter_letta_sessions', 'iter_letta_chat']
 
 
+_LETTA_AGENT_REQUIRED_COPY = (
+    "No Letta agent is bound to this seat, and Operating Swarm never mints "
+    "new agents. Pick one in Settings → Remotes (or the seat's session "
+    "picker); with no binding, the seat talks to the first available agent "
+    "on the remote."
+)
+
+
+def _letta_agent_required(spec: RemoteSpec, timeout: float, *, down_reason: str = "") -> OperateResult:
+    """#1164: friendly agent-required failure for the no-binding path.
+
+    ``down_reason`` carries the honest list failure (short, no JSON dump) when
+    the remote could not even be listed.
+    """
+    reason = (down_reason or "").strip()
+    if len(reason) > 140:
+        reason = reason[:137] + "…"
+    if reason:
+        detail = (
+            f"{_LETTA_AGENT_REQUIRED_COPY} The remote could not be reached just "
+            f"now ({reason}). Start Letta or check the base URL in Settings → Remotes."
+        )
+    else:
+        detail = (
+            f"{_LETTA_AGENT_REQUIRED_COPY} The remote is reachable but currently "
+            "lists no agents."
+        )
+    return R.OperateResult(
+        remote=spec.id or "letta",
+        op="send",
+        ok=False,
+        detail=detail,
+        gap="letta_agent_required",
+    )
+
+
+def _letta_resolve_auto_agent(
+    spec: RemoteSpec, timeout: float
+) -> tuple[str, str, OperateResult | None]:
+    """#1164b: team parity — with no explicit binding, use the first agent.
+
+    Returns ``(agent_id, agent_name, err)``; ``err`` is the friendly
+    agent-required failure when the remote lists nothing usable.
+    """
+    listed = R._letta_list(spec, timeout)
+    if listed.ok:
+        sessions = list((listed.data or {}).get("sessions") or [])
+        for row in sessions:
+            agent_id = str((row or {}).get("id") or "").strip()
+            if agent_id:
+                return agent_id, str((row or {}).get("title") or agent_id).strip(), None
+        return "", "", _letta_agent_required(spec, timeout)
+    return "", "", _letta_agent_required(
+        spec, timeout, down_reason=str(listed.detail or "")
+    )
+
+
 def filter_letta_sessions(rows: list[dict[str, Any]], query: str = "") -> list[dict[str, Any]]:
     """Search Letta agent-session rows by id/title/snippet/channel."""
     needle = (query or "").strip().lower()
@@ -306,17 +363,15 @@ def iter_letta_chat(
     Resume key is an existing Letta agent id. Never mints a new agent.
     """
     sid = (session_id or target or "").strip()
+    auto_picked = False
+    agent_name = ""
     if not sid:
-        yield (
-            "",
-            True,
-            (
-                "Pick a Letta agent. Open Swarm does not mint new agents. "
-                "Pass session_id as the agent id (list the remote to see "
-                "available sessions)."
-            ),
-        )
-        return
+        # #1164b: team parity — no binding → first available agent on the remote.
+        sid, agent_name, err = _letta_resolve_auto_agent(spec, timeout)
+        if err is not None:
+            yield ("", True, err.detail)
+            return
+        auto_picked = True
     if not prompt.strip():
         yield ("", True, "prompt is required")
         return
@@ -403,18 +458,14 @@ def _letta_send(
 ) -> R.OperateResult:
     """Send into an existing Letta agent (never mints a new one)."""
     sid = (session_id or target or "").strip()
+    auto_picked = False
+    agent_name = ""
     if not sid:
-        return R.OperateResult(
-            remote=spec.id or "letta",
-            op="send",
-            ok=False,
-            detail=(
-                "Pick a Letta agent. Open Swarm does not mint new agents. "
-                "Pass session_id as the agent id (list the remote to see "
-                "available sessions)."
-            ),
-            gap="letta_agent_required",
-        )
+        # #1164b: team parity — no binding → first available agent on the remote.
+        sid, agent_name, err = _letta_resolve_auto_agent(spec, timeout)
+        if err is not None:
+            return err
+        auto_picked = True
     if not prompt.strip():
         return R.OperateResult(remote=spec.id or "letta", op="send", ok=False, detail="prompt is required")
     assembled = ""
@@ -429,13 +480,24 @@ def _letta_send(
         if done:
             break
     if assembled and not error:
+        detail = (
+            f"Auto-picked first available Letta agent '{agent_name}' ({sid}) — replied there."
+            if auto_picked
+            else f"Letta replied in agent {sid}"
+        )
         return R.OperateResult(
             remote=spec.id or "letta",
             op="send",
             ok=True,
-            detail=f"Letta replied in agent {sid}",
+            detail=detail,
             http_status=http_status or 200,
-            data={"response": assembled, "agent": sid, "thread": sid},
+            data={
+                "response": assembled,
+                "agent": sid,
+                "thread": sid,
+                "agent_name": agent_name,
+                "auto_picked": auto_picked,
+            },
         )
     if error and "API key" in error:
         return R.OperateResult(

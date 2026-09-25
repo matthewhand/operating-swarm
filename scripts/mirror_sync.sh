@@ -108,7 +108,10 @@ echo "mirror commit: $(echo "$MCOMMIT" | cut -c1-8)"
 # script printed the commit hash and exited 0 having published nothing.
 # Now: loud failure, then verification that the branch actually landed.
 echo "== publish dated branch =="
-git push "$PRIVATE_REMOTE" "$MCOMMIT:refs/heads/$BRANCH" --quiet
+# The dated branch is a regenerated snapshot, not history: a same-day re-sync
+# supersedes the earlier snapshot (its PR is typically already merged).
+# --force-with-lease keeps us honest if someone else moved it meanwhile.
+git push "$PRIVATE_REMOTE" "$MCOMMIT:refs/heads/$BRANCH" --force-with-lease --quiet
 if ! git ls-remote --heads "$PRIVATE_REMOTE" "refs/heads/$BRANCH" | grep -q "$MCOMMIT"; then
   echo "FAIL: dated branch missing on $PRIVATE_REMOTE after push" >&2
   exit 1

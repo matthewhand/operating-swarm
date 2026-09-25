@@ -465,6 +465,10 @@ class RemoteSpec:
     provenance: dict[str, Any] = field(default_factory=dict)
     kind: str = ""
     timeout: float | None = None
+    # #1159: the agent this remote targets (trueforge/letta-style harnesses
+    # that need one to mint a session). Empty = not wired; the adapter then
+    # keeps its kind default and refuses remote-id-as-agent.
+    agent: str = ""
 
     def origin(self) -> tuple[str, int]:
         parsed = urlparse(self.base_url)
@@ -1128,6 +1132,7 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             "ssh_host",
             "ssh_user",
             "ssh_identity_env",
+            "agent",  # #1159: wired agent for session-minting harnesses
         ):
             if key in block and block[key] is not None:
                 setattr(spec, key, block[key])
@@ -1867,13 +1872,23 @@ def _extract_version(payload: Any) -> Any:
     return None
 
 
+# #1181: a DOWN verdict is confirmed by a second probe after this beat — one
+# refused probe during a deploy/restart is transient, not a verdict.
+_HEALTH_CONFIRM_DELAY_S = 0.4
+
+
 def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> HealthResult:
-    """Honest health/version. One attempt. Never raises.
+    """Honest health/version. Never raises. DOWN is confirm-retried (#1181).
 
     #812 slice 4: dispatch goes through the adapter registry — adapters own
     their health (Herdr's CLI/SSH probe, alternate paths via
     ``extra_health_paths``); the shared prober stays kind-blind. Unregistered
     kinds (none today) fall straight to the generic prober.
+
+    #1181: a first probe that says DOWN is re-probed once after a short beat
+    before the verdict stands — a restart window used to flip every seat
+    "down" at once and let the #1169 pre-flight veto turns on one probe. UP /
+    DEGRADED / AUTH stay single-shot: those are real HTTP answers.
     """
     try:
         spec = load_remote(remote_id, config)
@@ -1886,24 +1901,77 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
     from swarm.remotes.registry import create_remote_adapter
 
     adapter = create_remote_adapter(spec, config)
-    if adapter is not None:
-        try:
-            return adapter.health(timeout, config)
-        except NotImplementedError:
-            pass  # adapter explicitly has no health — generic prober
-    return _check_health_spec(spec, timeout, config)
+
+    def _once() -> HealthResult:
+        if adapter is not None:
+            try:
+                return adapter.health(timeout, config)
+            except NotImplementedError:
+                pass  # adapter explicitly has no health — generic prober
+        return _check_health_once(spec, timeout, config)
+
+    first = _once()
+    if first.state != "DOWN":
+        return first
+    try:
+        time.sleep(_HEALTH_CONFIRM_DELAY_S)
+    except Exception:  # noqa: BLE001 — a sleep crash must never break health
+        pass
+    return _once()
 
 
-def _check_health_spec(
+# #1169: states a pre-flight may abort on. DOWN is the honest "gateway is not
+# there" — the adapter's own send path would only rediscover it slower. AUTH
+# and UNKNOWN stay out: the gateway is up (or unknowable), and send owns those.
+_PREFLIGHT_ABORT_STATES = frozenset({"DOWN"})
+
+
+def remote_down_preflight(
+    remote_id: str,
+    *,
+    config: dict[str, Any] | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> str | None:
+    """#1169 — one-shot reachability probe for a remote seat's turn.
+
+    Returns user-facing copy when the remote is *down* (the seat must render it
+    immediately instead of masking a sub-second failure behind the harness LLM
+    hop — the letta-demo spinner-forever report), and ``None`` when the turn
+    should proceed as before. Never raises: a probe crash is a skip, not a
+    veto. Unconfigured remotes short-circuit to ``None`` (their own send path
+    produces the not-added copy).
+    """
+    try:
+        spec = load_remote(remote_id, config)
+        if not is_configured(spec.id, config):
+            return None
+        health = check_health(remote_id, config=config, timeout=timeout)
+    except Exception:  # noqa: BLE001 — probe failure must never veto a turn
+        logger.debug("remote pre-flight probe skipped for %s", remote_id, exc_info=True)
+        return None
+    if health.ok or health.state not in _PREFLIGHT_ABORT_STATES:
+        return None
+    reason = (health.detail or "the gateway did not answer").strip()
+    if len(reason) > 160:
+        reason = reason[:157] + "…"
+    return (
+        f"The {remote_id} gateway is not reachable right now ({reason}). "
+        "Start the gateway or check its base URL in Settings → Remotes — the "
+        "message was not delivered."
+    )
+
+
+def _check_health_once(
     spec: RemoteSpec,
     timeout: float = _DEFAULT_TIMEOUT_S,
     config: dict[str, Any] | None = None,
     *,
     extra_health_paths: list[str] | None = None,
 ) -> HealthResult:
-    """Generic TCP+HTTP prober. Kind-blind by #812 slice 4: non-HTTP
-    transports and alternate probe paths arrive via adapter overrides
-    (``health`` / ``extra_health_paths``), not kind branches here."""
+    """Generic TCP+HTTP prober (one attempt — #1181 confirm lives in
+    :func:`check_health`). Kind-blind by #812 slice 4: non-HTTP transports
+    and alternate probe paths arrive via adapter overrides (``health`` /
+    ``extra_health_paths``), not kind branches here."""
     if not spec.base_url:
         return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="base_url is empty")
     if _looks_like_forbidden_llm_proxy(spec.base_url):
@@ -2068,7 +2136,21 @@ def probe_candidate_remote(
     if ssh_agent is not None:
         spec.ssh_agent = bool(ssh_agent)
 
-    return _check_health_spec(spec, timeout)
+    return _check_health_once(spec, timeout)
+
+
+# #1181: historical name — adapters forward here and tests patch through to
+# ``_check_health_once`` (kept as a wrapper so one patch point covers both).
+def _check_health_spec(
+    spec: RemoteSpec,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+    config: dict[str, Any] | None = None,
+    *,
+    extra_health_paths: list[str] | None = None,
+) -> HealthResult:
+    return _check_health_once(
+        spec, timeout, config, extra_health_paths=extra_health_paths
+    )
 
 
 def check_all_health(*, config: dict[str, Any] | None = None, timeout: float = _DEFAULT_TIMEOUT_S) -> list[HealthResult]:

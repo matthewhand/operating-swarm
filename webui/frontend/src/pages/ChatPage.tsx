@@ -271,6 +271,14 @@ import {
 import {
   estimateTokensInContext,
 } from '../lib/chatMeter'
+// #1168: pending-send watchdog (fail lost sends fast, offer resend).
+import {
+  PENDING_SEND_GRACE_MS,
+  failStalePendingSends,
+  restorePendingSend,
+} from '../lib/pendingSends'
+// #1167: typing anywhere in chat focuses the composer.
+import { makeTypingFocusHandler } from '../lib/typingFocus'
 import { useChatWebSocket } from '../features/chat/useChatWebSocket'
 import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
 import { useChatSend } from '../features/chat/useChatSend'
@@ -838,6 +846,20 @@ const ChatPage = () => {
   const lastUserTextRef = useRef('')
   // #1149: keys for optimistic user rows (upgraded in place by user_echo).
   const optimisticEchoCounterRef = useRef(0)
+  // #1168: grace timer ref — fails still-pending echoes when the server never
+  // confirms (dead socket race, restart). Cleared on user_echo/turn bookends.
+  const pendingSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** #1168: any server confirmation (user_echo / turn bookend) cancels the watchdog. */
+  const disarmPendingSendWatchdog = useCallback(() => {
+    if (pendingSendTimerRef.current) {
+      clearTimeout(pendingSendTimerRef.current)
+      pendingSendTimerRef.current = null
+    }
+  }, [])
+  /** #1168: socket-close path disarms via ref (the hook runs before this decl). */
+  const disarmPendingSendWatchdogRef = useRef<(() => void) | null>(null)
+  disarmPendingSendWatchdogRef.current = disarmPendingSendWatchdog
   /** Last hydrated agent or team thread; used to detect switch vs remount. */
   const lastHydratedAgentRef = useRef<string | null>(null)
   const previewSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -897,6 +919,23 @@ const ChatPage = () => {
     setHiddenSummaryIds([])
     setHiddenMessageKeys([])
   }, [threadKey])
+
+  // #1167: typing anywhere in chat focuses the composer. Printable typing
+  // with no editable control focused (body focus after clicking around) is
+  // captured: the composer is focused and the character lands in it, so no
+  // keystroke vanishes. Modifier combos, named keys, IME, and real inputs
+  // are never captured (see lib/typingFocus.ts).
+  useEffect(() => {
+    const handler = makeTypingFocusHandler(
+      () => composerRef.current,
+      (el, ch) => {
+        setInput((prev) => prev + ch)
+        el.focus()
+      },
+    )
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   useEffect(() => {
     if (!contextMenu) {
@@ -2123,6 +2162,7 @@ const ChatPage = () => {
     selectedBlueprint,
     userKeyCounterRef,
     notifyCtxRef,
+    disarmPendingSendWatchdog: disarmPendingSendWatchdog,
   })
 
   // #738: stable ref so the WS effect doesn't list handleWsEvent as a dep.
@@ -2147,6 +2187,7 @@ const ChatPage = () => {
     setAwaitingAssistant,
     setThreads,
     setConnectAttempt,
+    disarmPendingSendWatchdogRef,
   })
   const { reconnect } = wsControls
 
@@ -2247,7 +2288,7 @@ const ChatPage = () => {
   })
 
   const submitUserText = useCallback(
-    (text: string) => {
+    (text: string, resendKey?: string) => {
       const trimmed = text.trim()
       const readyAttach = readyAttachmentIds(pendingAttachments)
       if (!trimmed && readyAttach.length === 0) return
@@ -2263,11 +2304,20 @@ const ChatPage = () => {
             : '')
         if (fallbackText) {
           queued.enqueue(fallbackText)
-          addToast({
-            type: 'info',
-            title: 'Queued',
-            message: 'Chat is reconnecting — your message will send when the socket is back.',
-          })
+          // #1168: a resend attempted while the socket is down hands the text
+          // to the queue — drop the failed row so it does not linger.
+          if (resendKey) {
+            setThreads((prev) => ({
+              ...prev,
+              [threadKey]: (prev[threadKey] ?? []).filter((m) => m.key !== resendKey),
+            }))
+          } else {
+            addToast({
+              type: 'info',
+              title: 'Queued',
+              message: 'Chat is reconnecting — your message will send when the socket is back.',
+            })
+          }
         }
         return
       }
@@ -2312,16 +2362,19 @@ const ChatPage = () => {
       // #1149: optimistic echo — the user's own words render immediately on
       // the real-send path, marked pending; the server's user_echo upgrades
       // the row instead of duplicating it (see useChatWsDispatcher).
+      // #1168: resend reuses the ORIGINAL echo row (same key) instead of
+      // appending a duplicate — the failed row flips back to pending.
       const echoText = trimmed || attachmentCaption(pendingAttachments.map((item) => item.name))
-      if (echoText) {
+      let echoKey: string | null = resendKey ?? null
+      if (echoText && !echoKey) {
         optimisticEchoCounterRef.current += 1
-        const echoKey = `user-pending-${optimisticEchoCounterRef.current}-${Date.now()}`
+        echoKey = `user-pending-${optimisticEchoCounterRef.current}-${Date.now()}`
         setThreads((prev) => ({
           ...prev,
           [threadKey]: [
             ...(prev[threadKey] ?? []),
             {
-              key: echoKey,
+              key: echoKey as string,
               role: 'user' as const,
               text: echoText,
               streaming: false,
@@ -2330,9 +2383,42 @@ const ChatPage = () => {
             },
           ],
         }))
+      } else if (echoKey) {
+        setThreads((prev) => ({
+          ...prev,
+          [threadKey]: restorePendingSend(prev[threadKey] ?? [], echoKey as string),
+        }))
       }
       setAwaitingAssistant(true)
-      if (!sendText(trimmed)) setAwaitingAssistant(false)
+      if (!sendText(trimmed)) {
+        setAwaitingAssistant(false)
+        // #1168: the frame was NOT handed to the socket (stale socket race —
+        // status flipped after the 'open' check). Fail the echo immediately:
+        // a pending row that can never be confirmed is worse than an honest
+        // failure with a resend affordance.
+        if (echoKey) {
+          setThreads((prev) => ({
+            ...prev,
+            [threadKey]: (prev[threadKey] ?? []).map((m) =>
+              m.key === echoKey ? { ...m, sendFailed: true } : m,
+            ),
+          }))
+        }
+        return
+      }
+      // #1168: arm the grace watchdog — if no server bookend arrives within
+      // PENDING_SEND_GRACE_MS, still-pending echoes are declared lost.
+      if (pendingSendTimerRef.current) clearTimeout(pendingSendTimerRef.current)
+      pendingSendTimerRef.current = setTimeout(() => {
+        pendingSendTimerRef.current = null
+        setThreads((prev) => ({
+          ...prev,
+          [threadKey]: failStalePendingSends(prev[threadKey] ?? []),
+        }))
+        // The turn never started server-side — release the composer instead
+        // of leaving the seat locked on a send that was lost.
+        setAwaitingAssistant(false)
+      }, PENDING_SEND_GRACE_MS)
     },
     [
       addToast,
@@ -2348,6 +2434,15 @@ const ChatPage = () => {
       teamFromUrl,
       threadKey,
     ],
+  )
+
+  // #1168: resend a lost send — the SAME echo row flips back to pending and
+  // the text is pushed through the normal gate again (no duplicate row).
+  const resendUserText = useCallback(
+    (key: string, text: string) => {
+      submitUserText(text, key)
+    },
+    [submitUserText],
   )
 
   // #856 slice 20: slash catalog & streaming-lifecycle wiring moved
@@ -2692,6 +2787,7 @@ const ChatPage = () => {
     sendQuestionAnswer,
     sendText,
     sendToolDecision,
+    onResendSend: resendUserText,
     setEditingKey,
     setHiddenMessageKeys,
     setHiddenSummaryIds,

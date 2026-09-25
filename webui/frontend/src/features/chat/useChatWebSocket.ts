@@ -37,6 +37,7 @@ import {
 } from '../../lib/spaSocket'
 import { notifyGenerationComplete } from '../../lib/railOrder'
 import { maybeNotifyAgentTurn } from '../../lib/agentNotifications'
+import { failStalePendingSends } from '../../lib/pendingSends'
 import type { ChatMessage } from './chatMessages'
 
 interface NotifyCtx {
@@ -59,6 +60,8 @@ interface UseChatWebSocketOptions {
   setAwaitingAssistant: Dispatch<SetStateAction<boolean>>
   setThreads: Dispatch<SetStateAction<Record<string, ChatMessage[]>>>
   setConnectAttempt: Dispatch<SetStateAction<number>>
+  /** #1168: cancels the pending-send grace timer held by the page. */
+  disarmPendingSendWatchdogRef?: MutableRefObject<(() => void) | null>
 }
 
 export function useChatWebSocket({
@@ -76,6 +79,7 @@ export function useChatWebSocket({
   setAwaitingAssistant,
   setThreads,
   setConnectAttempt,
+  disarmPendingSendWatchdogRef,
 }: UseChatWebSocketOptions): { reconnect: () => void } {
   const backoffAttemptRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -128,6 +132,14 @@ export function useChatWebSocket({
         if (spaLastCloseCode() === WS_AUTH_REQUIRED_CODE) setAuthRejected(true)
       } else if (muxStatus === 'closed' || muxStatus === 'failed') {
         setAwaitingAssistant(false)
+        // #1168: the transport dropped — any in-flight pending-send watchdog
+        // can never be confirmed by this socket. Fail optimistic rows now so
+        // they do not hang past the grace window.
+        disarmPendingSendWatchdogRef?.current?.()
+        setThreads((prev) => ({
+          ...prev,
+          [threadKey]: failStalePendingSends(prev[threadKey] ?? []),
+        }))
         const rejected = spaLastCloseCode() === WS_AUTH_REQUIRED_CODE
         setAuthRejected(rejected)
         let interrupted = false

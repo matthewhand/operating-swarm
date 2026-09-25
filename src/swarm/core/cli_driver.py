@@ -430,19 +430,39 @@ class QwenCliAgent(BaseCliAgent):
         model: str | None = None,
         binary_override: str | None = None,
     ) -> list[str]:
+        # #1179: qwen 0.24.5 headless needs explicit `--approval-mode yolo`
+        # (without it, non-json -p cancels with no TTY; 0.19.6 json headless
+        # hung outright). Caller must close stdin (DEVNULL) — an open pipe
+        # makes the CLI wait forever.
         bin_cmd = split_cli_string(binary_override or self.default_binary)
-        argv = [*bin_cmd, "--output-format", "json", "-p", prompt]
+        argv = [
+            *bin_cmd,
+            "--output-format",
+            "json",
+            "--approval-mode",
+            "yolo",
+            "-p",
+            prompt,
+        ]
         if session_id:
             argv = [*argv[:1], "--resume", session_id, *argv[1:]]
         return argv
 
     def parse_output(self, stdout: str) -> str:
+        # #1179: 0.24.5 json output is an event-stream ARRAY; the reply lives
+        # on the last {"type": "result"} row. The legacy single-object shapes
+        # ({"response"|"result"}) are still honored for older installs.
         try:
             data = json.loads(stdout)
-            if isinstance(data, dict):
-                return str(data.get("result") or data.get("response") or stdout).strip()
         except (ValueError, TypeError):
-            pass
+            return stdout.strip()
+        if isinstance(data, list):
+            for row in reversed(data):
+                if isinstance(row, dict) and row.get("type") == "result":
+                    return str(row.get("result") or "").strip()
+            return ""
+        if isinstance(data, dict):
+            return str(data.get("result") or data.get("response") or stdout).strip()
         return stdout.strip()
 
     def resume_session_argv(self, session_id: str) -> list[str]:
@@ -462,8 +482,18 @@ class HermesCliAgent(BaseCliAgent):
         model: str | None = None,
         binary_override: str | None = None,
     ) -> list[str]:
+        # #1178: the installed hermes (v0.21.0) has no `run` subcommand —
+        # non-interactive turns are `chat -q <prompt> --oneshot --cli`. The
+        # caller must also close/inherit stdin (never leave an open pipe):
+        # hermes's TUI waits on it otherwise.
         bin_cmd = split_cli_string(binary_override or self.default_binary)
-        return [*bin_cmd, "run", "--prompt", prompt]
+        argv = [*bin_cmd, "chat", "-q", prompt, "--oneshot", "--cli"]
+        if session_id:
+            argv = [*argv, "--continue", session_id]
+        return argv
+
+    def resume_session_argv(self, session_id: str) -> list[str]:
+        return ["chat", "--continue", session_id]
 
     def parse_output(self, stdout: str) -> str:
         return stdout.strip()

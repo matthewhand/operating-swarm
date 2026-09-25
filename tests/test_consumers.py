@@ -2244,10 +2244,15 @@ class TestRespondWithDefaultModelLiteLLM:
             with patch.object(consumer, "send", new_callable=AsyncMock):
                 await consumer.respond_with_default_model("message-response-litellm")
 
-        mock_cls.assert_called_once_with(
-            api_key="sk-litellm-test",
-            base_url="http://127.0.0.1:4000/v1",
-        )
+        # #1156: the client carries the per-phase read deadline (connect=10s,
+        # read=45s default) so a stalled stream fails honestly; assert those
+        # fields plus the LiteLLM wiring rather than an exact-kwargs snapshot.
+        mock_cls.assert_called_once()
+        client_kwargs = mock_cls.call_args.kwargs
+        assert client_kwargs["api_key"] == "sk-litellm-test"
+        assert client_kwargs["base_url"] == "http://127.0.0.1:4000/v1"
+        assert client_kwargs["timeout"].connect == 10.0
+        assert client_kwargs["timeout"].read == 45.0
         create_kwargs = mock_client.chat.completions.create.await_args.kwargs
         assert create_kwargs["model"] == "orchestration"
 

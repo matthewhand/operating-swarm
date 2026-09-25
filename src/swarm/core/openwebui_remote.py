@@ -414,7 +414,7 @@ def iter_openwebui_chat(
             "",
             True,
             (
-                "Pick an Open WebUI chat. Open Swarm does not mint new chats. "
+                "Pick an Open WebUI chat. Operating Swarm does not mint new chats. "
                 "Pass session_id as the chat id (list the remote to see available sessions)."
             ),
         )
@@ -517,7 +517,7 @@ def openwebui_send(
             op="send",
             ok=False,
             detail=(
-                "Pick an Open WebUI chat. Open Swarm does not mint new chats. "
+                "Pick an Open WebUI chat. Operating Swarm does not mint new chats. "
                 "Pass session_id as the chat id (list the remote to see available sessions)."
             ),
             gap="openwebui_chat_required",

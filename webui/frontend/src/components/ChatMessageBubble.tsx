@@ -62,6 +62,10 @@ export interface ChatMessageBubbleProps {
   onToggleThinking?: (open?: boolean) => void
   /** #850: Whether this message is from a Herdr agent. */
   isHerdr?: boolean
+  /** #1168: server never confirmed this optimistic send — offer resend. */
+  sendFailed?: boolean
+  /** #1168: resend a lost send (same text, same row). */
+  onResend?: () => void
 }
 
 /**
@@ -262,6 +266,8 @@ export function ChatMessageBubble({
   thinkingOpen,
   onToggleThinking,
   isHerdr,
+  sendFailed,
+  onResend,
 }: ChatMessageBubbleProps) {
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -435,6 +441,22 @@ export function ChatMessageBubble({
             />
           )}
           {children}
+          {sendFailed && role === 'user' ? (
+            <div
+              className="os-send-failed mt-1 flex items-center gap-2 text-[11px] text-error"
+              data-testid="send-failed"
+            >
+              <span>Not sent — the connection dropped.</span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs text-error"
+                onClick={onResend}
+                data-testid="resend-button"
+              >
+                Resend
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
       {placement === 'below' && timeEl ? (

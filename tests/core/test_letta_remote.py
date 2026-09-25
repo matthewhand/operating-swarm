@@ -212,13 +212,17 @@ def test_list_auth_required_is_honest(http_router):
 
 
 def test_send_requires_existing_agent(http_router):
-    host, port, _router = http_router
+    # #1164: no binding + remote lists nothing usable → friendly agent-required
+    # failure. Operating Swarm never mints agents; copy names the product.
+    host, port, router = http_router
+    router.routes[("GET", "/v1/agents/")] = (200, [])
     result = remotes_core.operate(
         "letta", "send", prompt="hi", config=_cfg(host, port), session_id=None
     )
     assert result.ok is False
     assert result.gap == "letta_agent_required"
-    assert "does not mint new" in result.detail
+    assert "never mints" in result.detail
+    assert "Operating Swarm" in result.detail
     result2 = remotes_core.operate(
         "letta", "send", prompt="hi", config=_cfg(host, port), session_id=""
     )
@@ -385,25 +389,28 @@ def test_kind_aliases_memgpt():
 
 
 def test_iter_letta_chat_refuses_to_mint_without_agent_id(http_router):
-    host, port, _router = http_router
+    host, port, router = http_router
     spec = remotes_core.load_remote(
         "letta",
         {"llm": {}, "remotes": {"letta": {"base_url": f"http://{host}:{port}", "api_key": "k"}}},
     )
 
-    # Invariant: iter_letta_chat refuses to mint new agents without existing agent ID
+    # Invariant: iter_letta_chat never mints agents. With no binding and no
+    # usable agent on the remote it stops after ONE friendly terminal error
+    # (#1164 doctrine: auto-pick first agent; here the remote lists none).
+    router.routes[("GET", "/v1/agents/")] = (200, [])
     for empty_sid in (None, "", "   "):
         deltas = list(remotes_core.iter_letta_chat(spec, "hello", session_id=empty_sid))
         assert len(deltas) == 1
         delta, done, err = deltas[0]
         assert delta == ""
         assert done is True
-        assert "Pick a Letta agent" in err
-        assert "does not mint new agents" in err
+        assert "never mints" in err
+        assert "Operating Swarm" in err
 
     deltas_no_target = list(remotes_core.iter_letta_chat(spec, "hello", session_id=None, target=""))
     assert len(deltas_no_target) == 1
-    assert "does not mint new agents" in deltas_no_target[0][2]
+    assert "never mints" in deltas_no_target[0][2]
 
 
 def test_tolerant_health_check_variations(http_router):
@@ -508,3 +515,63 @@ def test_chat_letta_and_chat_remote_dispatch(http_router):
         api_key="secret-key",
     )
     assert reply2 == "Hello from chat_letta!"
+
+
+# ---------------------------------------------------------------------------
+# #1164 — Letta seat UX: no legacy name, auto-pick first agent (team parity),
+# and every listed agent proves send-capable.
+# ---------------------------------------------------------------------------
+
+
+def test_send_auto_picks_first_available_agent(http_router):
+    """No binding + reachable remote → first listed agent is used (team parity)."""
+    host, port, router = http_router
+    router.routes[("GET", "/v1/agents/")] = (200, _AGENTS)
+    sse = 'data: {"message_type": "assistant_message", "content": "hi there"}\n\n'
+    router.routes[("POST", f"/v1/agents/{AGENT_MEMORY}/messages/stream")] = (200, sse)
+    result = remotes_core.operate("letta", "send", prompt="hello", config=_cfg(host, port))
+    assert result.ok is True, result.detail
+    assert result.data["agent"] == AGENT_MEMORY
+    assert result.data["response"] == "hi there"
+    assert result.data.get("auto_picked") is True
+    assert AGENT_MEMORY in result.detail
+
+
+def test_send_without_agents_or_binding_is_friendly(http_router):
+    """Reachable remote with zero agents → honest, friendly, no raw JSON."""
+    host, port, router = http_router
+    router.routes[("GET", "/v1/agents/")] = (200, [])
+    result = remotes_core.operate("letta", "send", prompt="hello", config=_cfg(host, port))
+    assert result.ok is False
+    assert result.gap == "letta_agent_required"
+    assert "never mints" in result.detail
+    assert "Operating Swarm" in result.detail
+    assert '{"error"' not in result.detail and 'http 4' not in result.detail
+
+
+def test_send_auto_pick_unreachable_remote_is_friendly(http_router):
+    """Remote down + no binding → actionable copy naming the failure, no dump."""
+    host, port, _router = http_router
+    result = remotes_core.operate("letta", "send", prompt="hello", config=_cfg(host, port))
+    assert result.ok is False
+    assert result.gap == "letta_agent_required"
+    assert "Operating Swarm" in result.detail
+    assert '{"error"' not in result.detail
+
+
+def test_prove_every_listed_agent_round_trips(http_router):
+    """Every agent the remote lists must be send-capable (#1164c)."""
+    host, port, router = http_router
+    router.routes[("GET", "/v1/agents/")] = (200, _AGENTS)
+    for agent_id in (AGENT_MEMORY, AGENT_WORKFLOW):
+        sse = (
+            'data: {"message_type": "assistant_message", '
+            f'"content": "pong-{agent_id[:9]}"}}\n\n'
+        )
+        router.routes[("POST", f"/v1/agents/{agent_id}/messages/stream")] = (200, sse)
+        result = remotes_core.operate(
+            "letta", "send", prompt="ping", config=_cfg(host, port), session_id=agent_id
+        )
+        assert result.ok is True, result.detail
+        assert result.data["agent"] == agent_id
+        assert result.data["response"] == f"pong-{agent_id[:9]}"
