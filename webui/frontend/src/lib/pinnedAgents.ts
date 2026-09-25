@@ -11,6 +11,27 @@
 export const PINNED_AGENTS_STORAGE_KEY = 'swarm_pinned_agents'
 export const AGENT_DRAG_MIME = 'application/x-swarm-agent'
 
+/**
+ * #1217: fired on every write to the canonical pinned-agents store.
+ * The DOM `storage` event only fires in other documents, so same-tab
+ * surfaces must listen to this custom event for instant synchronization.
+ */
+export const PINNED_AGENTS_CHANGED_EVENT = 'swarm:pinned-agents-changed'
+
+function notifyPinnedAgentsChanged(): void {
+  try {
+    window.setTimeout(() => {
+      try {
+        window.dispatchEvent(new Event(PINNED_AGENTS_CHANGED_EVENT))
+      } catch {
+        /* listener gone */
+      }
+    }, 0)
+  } catch {
+    /* no window (SSG/tests) */
+  }
+}
+
 /** First-load favourite when `swarm_pinned_agents` is missing (empty prefs). */
 export const DEFAULT_PINNED_SUPPORT: PinnedAgent = { id: 'support', name: 'Support' }
 
@@ -99,6 +120,7 @@ export function savePinnedAgents(pins: PinnedAgent[]): void {
   } catch {
     /* persistence is best-effort */
   }
+  notifyPinnedAgentsChanged()
 }
 
 export function pinAgent(agent: PinnedAgent, current: PinnedAgent[]): PinnedAgent[] {

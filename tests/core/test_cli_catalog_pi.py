@@ -1,4 +1,4 @@
-"""Pi CLI catalog: model pin, list-models probe, no Aliyun default (#103)."""
+"""Pi CLI catalog: model pin, list-models probe, provider-qualified default (#1186)."""
 
 from __future__ import annotations
 
@@ -6,13 +6,15 @@ from swarm.core import cli_catalog
 from swarm.core.cli_adapter import CliAdapter
 
 
-def test_pi_catalog_cmd_has_no_implicit_model():
+def test_pi_catalog_cmd_pins_gateway_default():
     e = cli_catalog.catalog_entry("pi")
     assert e is not None
     cmd = e["cmd"]
     assert cmd[0] == "pi"
-    assert "--model" not in cmd
-    assert "default" not in [part.lower() for part in cmd]
+    # #1186: the catalog ships a WORKING default — a bare slug makes pi fall
+    # back to the openai provider and 401. apply_model replaces this pin.
+    assert cmd[cmd.index("--model") + 1] == "litellm/tiny"
+    assert cmd.count("--model") == 1
     assert cmd[-2:] == ["--", "{prompt}"]
 
 

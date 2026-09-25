@@ -412,9 +412,10 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
                       data-testid="agent-row-stop"
                       onClick={() => interruptRunningTurn()}
                     >
-                      <svg viewBox="0 0 16 16" className="h-3 w-3 fill-current" aria-hidden="true" focusable="false">
+                      <svg viewBox="0 0 16 16" className="h-3 w-3 fill-current shrink-0" aria-hidden="true" focusable="false">
                         <rect x="3" y="3" width="10" height="10" rx="1.5" />
                       </svg>
+                      <span className="os-agent-row__stop-label">Stop</span>
                     </button>
                   ) : null}
                   </>
@@ -682,12 +683,13 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
                 >
                   <svg
                     viewBox="0 0 16 16"
-                    className="h-3 w-3 fill-current"
+                    className="h-3 w-3 fill-current shrink-0"
                     aria-hidden="true"
                     focusable="false"
                   >
                     <rect x="3" y="3" width="10" height="10" rx="1.5" />
                   </svg>
+                  <span className="os-agent-row__stop-label">Stop</span>
                 </button>
               ) : null}
             </div>

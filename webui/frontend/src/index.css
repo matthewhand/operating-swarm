@@ -151,12 +151,6 @@ html:not([data-theme="light"]) .os-composer,
   background: var(--os-grok-composer, #262626);
 }
 
-/* #751: mirror the dark composer fill on the wrapping footer so the area
-   below the input pill stays opaque and consistent in dark themes. */
-html:not([data-theme="light"]) .os-composer-wrap,
-[data-theme="dark"] .os-composer-wrap {
-  background: var(--os-grok-composer, #262626);
-}
 
 /* #220: theme-gated streaming affordance (caret / block). */
 @keyframes os-stream-affordance-blink {
@@ -1417,10 +1411,22 @@ html:not([data-theme="light"]) .os-composer-wrap,
   border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-base-300));
   background: color-mix(in srgb, var(--color-base-300) 50%, transparent);
 }
+/* #1216: when idle with no pins, collapse to 0 visual real estate. */
 .os-fav-grid--bare {
-  border-color: transparent;
+  border: none;
   background: transparent;
-  min-height: 2.75rem;
+  min-height: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.os-fav-grid--bare .os-fav-grid__hint {
+  display: none;
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
 }
 .os-fav-grid__hint {
   grid-column: 1 / -1;
@@ -3005,9 +3011,7 @@ button.os-agent-row {
 
 .os-composer-wrap {
   padding: 0.75rem 1rem 0.25rem;
-  /* #751: solid full-bleed fill from the composer down to the page base so
-     transcript content cannot bleed through the gaps below the input pill. */
-  background: var(--color-base-100);
+  background: transparent;
 }
 /* #632: the primary action (send/stop) sits OUTSIDE the input box. The row
    owns the horizontal layout; .os-composer stays the rounded input pill. */
@@ -3190,24 +3194,42 @@ pre:focus-within .os-code-copy {
   color: var(--color-base-100);
 }
 /* #1096: the stop affordance lives on the generating agent's transcript row,
-   beside its animated avatar — a quiet square that turns loud on hover. The
-   composer itself carries no stop (#632 morph retired). */
+   beside its animated avatar. When space allows, a "Stop" label is shown; on
+   compact viewports or narrow containers it collapses to an icon button. */
 .os-agent-row__stop {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
+  gap: 0.25rem;
   height: 1.5rem;
+  padding: 0 0.45rem;
   border-radius: 0.4rem;
   border: 1px solid color-mix(in srgb, var(--color-error, #e11d48) 45%, transparent);
   color: var(--color-error, #e11d48);
   background: transparent;
   flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 .os-agent-row__stop:hover {
   background: var(--color-error, #e11d48);
   color: white;
   filter: brightness(1.05);
+}
+.os-agent-row__stop-label {
+  display: inline;
+}
+@media (max-width: 768px) {
+  .os-agent-row__stop-label {
+    display: none;
+  }
+  .os-agent-row__stop {
+    width: 1.5rem;
+    padding: 0;
+  }
 }
 .os-composer__send:hover {
   opacity: 0.92;

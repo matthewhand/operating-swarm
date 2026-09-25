@@ -321,10 +321,20 @@ CATALOG: dict[str, dict[str, Any]] = {
         # --mode text; --approve trusts project-local files for that run.
         # --no-session is smoke/verify only (see SMOKE_FLAGS) so production
         # runs can resume with --session.
-        # No catalog ``--model``: pi's implicit default was a discontinued
-        # Aliyun/DashScope coding-plan slug (401). Pin via apply_model from
-        # the live ``pi --list-models`` table (provider/id before ``--``).
-        "cmd": ["pi", "-p", "--mode", "text", "--approve", "--", "{prompt}"],
+        # #1186: pin the provider-qualified model. A bare slug (tiny) makes pi
+        # fall back to the openai provider and 401; `litellm/tiny` routes to
+        # the operator gateway declared in ~/.pi/agent/models.json.
+        "cmd": [
+            "pi",
+            "-p",
+            "--mode",
+            "text",
+            "--approve",
+            "--model",
+            "litellm/tiny",
+            "--",
+            "{prompt}",
+        ],
         "parse": "text",
         "mode": "write",
         "timeout": 240,
@@ -622,7 +632,7 @@ CLI_SIDEBAR: dict[str, dict[str, str]] = {
         "icon": "⌨️",
     },
     "omp": {
-        "name": "OMP",
+        "name": "OhMyPi",
         "specialty": "Oh My Pi CLI",
         "description": "Host omp CLI one-shot (-p + litellm/orchestration).",
         "color": "#f472b6",

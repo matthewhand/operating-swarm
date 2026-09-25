@@ -44,16 +44,17 @@ def test_apply_model_pins_gemini_before_prompt_not_over_gotchas():
 
 
 def test_apply_model_pins_pi_before_end_of_options():
-    # pi --help: --model <provider/id> before -- / {prompt}. Catalog cmd has
-    # no implicit Aliyun default; the Chat pill supplies the pin.
+    # pi --help: --model <provider/id> before -- / {prompt}. #1186: the
+    # catalog carries a working gateway default; apply_model REPLACES it
+    # (never duplicates) when the Chat pill supplies a different pin.
     assert c.MODEL_FLAG["pi"] == "--model"
     entry = c.catalog_entry("pi")
-    assert "--model" not in entry["cmd"]
-    assert "default" not in entry["cmd"]
+    assert entry["cmd"][entry["cmd"].index("--model") + 1] == "litellm/tiny"
     out = c.apply_model(entry, "pi", "openai/gpt-4o")
     cmd = out["cmd"]
     assert cmd.count("--model") == 1
     assert cmd[cmd.index("--model") + 1] == "openai/gpt-4o"
+    assert "litellm/tiny" not in cmd
     assert cmd.index("--model") < cmd.index("--")
     assert cmd[-2:] == ["--", "{prompt}"]
 
