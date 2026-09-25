@@ -2547,17 +2547,23 @@ describe('ChatPage team member dropdown', () => {
     fireEvent.change(composer, { target: { value: 'just codey' } })
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
 
-    // REQ-171A-3 / #603: second Send while awaitingAssistant is queued
-    // (REQ-90 / #447 pane), not a racing second {message}. Drain after
-    // the first assistant final so the member target still goes on the wire.
-    const queued = await screen.findByTestId('queued-row')
-    expect(queued).toHaveTextContent('just codey')
-    expect(
-      ws.send.mock.calls
+    // ADR-017 PR-5: a member-targeted send does NOT queue behind the team —
+    // it serialises on the member server-side (team#member lock) and goes
+    // straight on the wire while the all-members turn is still in flight.
+    await waitFor(() => {
+      const userFrames = ws.send.mock.calls
         .map((call) => JSON.parse(String(call[0])))
-        .filter((frame) => frame.message && frame.type !== 'status'),
-    ).toHaveLength(1)
+        .filter((frame) => frame.kind === 'chat.send' && frame.message && frame.type !== 'status')
+        .map(({ kind: _k, conversationId: _c, ...inner }) => inner)
+      expect(userFrames).toHaveLength(2)
+      expect(userFrames[1]).toEqual({
+        message: 'just codey',
+        params: { team: 'demo-team', target: 'codey', enabled_tools: [] },
+      })
+    })
+    expect(screen.queryByTestId('queued-row')).toBeNull()
 
+    // The all-members turn finishes; the transcript keeps both rows.
     await act(async () => {
       ws.onmessage?.(
         new MessageEvent('message', {
@@ -2584,6 +2590,36 @@ describe('ChatPage team member dropdown', () => {
         params: { team: 'demo-team', target: 'codey', enabled_tools: [] },
       })
     })
+  })
+
+  it('queues an all-members send while another all-members turn is in flight (#603)', async () => {
+    renderChat('/chat?team=demo-team')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    const composer = await screen.findByRole('textbox', { name: 'Chat message' })
+    fireEvent.click(await screen.findByTestId('routing-pill-agent'))
+    fireEvent.click(await screen.findByTestId('os-model-row-all'))
+    fireEvent.change(composer, { target: { value: 'first compose' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    const ws = MockWebSocket.instances[0]!
+    await waitFor(() => {
+      expect(ws.send).toHaveBeenCalled()
+    })
+
+    // REQ-171A-3 / #603 preserved for the team-wide compose: second Send
+    // while awaitingAssistant queues on the pane, not a racing {message}.
+    fireEvent.change(composer, { target: { value: 'second compose' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    const queued = await screen.findByTestId('queued-row')
+    expect(queued).toHaveTextContent('second compose')
+    expect(
+      ws.send.mock.calls
+        .map((call) => JSON.parse(String(call[0])))
+        .filter((frame) => frame.message && frame.type !== 'status'),
+    ).toHaveLength(1)
   })
 
   it('keeps Manage Team as the footer action and does not send when it is chosen (#755)', async () => {
