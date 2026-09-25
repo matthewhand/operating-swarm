@@ -277,6 +277,8 @@ import {
   failStalePendingSends,
   restorePendingSend,
 } from '../lib/pendingSends'
+// #1167: typing anywhere in chat focuses the composer.
+import { makeTypingFocusHandler } from '../lib/typingFocus'
 import { useChatWebSocket } from '../features/chat/useChatWebSocket'
 import { useChatWsDispatcher } from '../features/chat/useChatWsDispatcher'
 import { useChatSend } from '../features/chat/useChatSend'
@@ -917,6 +919,23 @@ const ChatPage = () => {
     setHiddenSummaryIds([])
     setHiddenMessageKeys([])
   }, [threadKey])
+
+  // #1167: typing anywhere in chat focuses the composer. Printable typing
+  // with no editable control focused (body focus after clicking around) is
+  // captured: the composer is focused and the character lands in it, so no
+  // keystroke vanishes. Modifier combos, named keys, IME, and real inputs
+  // are never captured (see lib/typingFocus.ts).
+  useEffect(() => {
+    const handler = makeTypingFocusHandler(
+      () => composerRef.current,
+      (el, ch) => {
+        setInput((prev) => prev + ch)
+        el.focus()
+      },
+    )
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   useEffect(() => {
     if (!contextMenu) {
