@@ -152,6 +152,13 @@ services:
       - "${HOME}/.gemini:${HOME}/.gemini"
       - "${HOME}/.config/opencode:${HOME}/.config/opencode"
       - "${HOME}/.codex:${HOME}/.codex"
+      # #1175: the CLI *exec* path (not just probes) needs state/binary dirs:
+      # qwen mkdirs ~/.qwen on first run; hermes's launcher + venv live in
+      # ~/.hermes (its python symlinks into ~/.local/share/uv, already mounted
+      # ro); grok's binary is a symlink into ~/.grok/downloads.
+      - "${HOME}/.qwen:${HOME}/.qwen"
+      - "${HOME}/.hermes:${HOME}/.hermes"
+      - "${HOME}/.grok:${HOME}/.grok:ro"
     depends_on:
       postgres:
         condition: service_healthy

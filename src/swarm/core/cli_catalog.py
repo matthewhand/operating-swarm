@@ -163,6 +163,11 @@ _EXTRA_BIN_REL = (
     (".opencode", "bin"),
     (".npm-global", "bin"),
     (".local", "share", "pnpm"),
+    # #1175: hermes's launcher execs `python` from its venv bin; the venv's
+    # python symlink resolves into ~/.local/share/uv (mounted ro for CLI
+    # discovery). Without this dir on PATH the launcher dies with
+    # "venv/bin/python: No such file or directory".
+    (".hermes", "hermes-agent", "venv", "bin"),
 )
 
 
