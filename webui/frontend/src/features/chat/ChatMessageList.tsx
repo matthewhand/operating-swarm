@@ -70,6 +70,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
     handleContextToHere,
     handleSaveSummary,
     handleToggleSummaryContext,    hiddenMessageKeys,
+    onResendSend,
     hiddenSummaryIds,
     hydrateError,
     isApiAgent,
@@ -488,6 +489,8 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
                   ts={message.ts}
                   avatar={bubbleAvatar}
                   skillCatalog={skillCatalog}
+                  sendFailed={message.sendFailed}
+                  onResend={() => onResendSend?.(message.key, message.text)}
                   onOpenSkill={setOpenSkillName}
                   thinkingOpen={thinkingOpen}
                   onToggleThinking={() => toggleThinking(message.key)}

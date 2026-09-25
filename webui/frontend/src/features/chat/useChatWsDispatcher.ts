@@ -59,6 +59,8 @@ interface UseChatWsDispatcherOptions {
     agentKind: string
     blueprintId: string
   }>
+  /** #1168: disarm the pending-send watchdog on first server confirmation. */
+  disarmPendingSendWatchdog?: () => void
 }
 
 export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
@@ -96,6 +98,9 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
         // row stop can name the exact turn_id when it cancels (#1113).
         recordTurnFrame(event)
         setAgentTurns((prev) => applyTurnFrame(prev, event))
+        // #1168: a server bookend proves the send arrived — disarm the
+        // pending-send watchdog so healthy slow turns never get failed.
+        options.disarmPendingSendWatchdog?.()
         return
       }
       if (event.kind === 'context_usage') {
@@ -242,13 +247,18 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
             // #1149: the row already exists optimistically (pending) —
             // upgrade the FIRST matching pending row instead of appending a
             // duplicate; only unmatched echoes append as before.
+            // #1168: a confirmed echo also disarms the pending-send watchdog.
+            options.disarmPendingSendWatchdog?.()
             const pendingIdx = current.findIndex(
-              (m) => m.role === 'user' && m.pending && (m.text === event.text || !m.text),
+              (m) =>
+                m.role === 'user' &&
+                (m.pending || m.sendFailed) &&
+                (m.text === event.text || !m.text),
             )
             if (pendingIdx >= 0) {
               next = current.map((m, i) =>
                 i === pendingIdx
-                  ? { ...m, text: event.text || m.text, pending: false }
+                  ? { ...m, text: event.text || m.text, pending: false, sendFailed: false }
                   : m,
               )
             } else {
