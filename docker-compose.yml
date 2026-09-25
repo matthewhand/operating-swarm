@@ -123,6 +123,11 @@ services:
       # browser-facing ui_url even when the server itself is in a container.
       SWARM_HOST_GATEWAY_EXTERNAL: "${SWARM_HOST_GATEWAY_EXTERNAL:-}"
       ENABLE_WEBUI: "${ENABLE_WEBUI:-true}"
+      # Optional heavy deps installed with `pip --target` into the mounted
+      # state volume (Daytona SDK, REQ-863/#253): the runtime python's
+      # site-packages is root-owned, so in-container pip installs would fail
+      # with EACCES. Appended (not prepended) so app source always wins.
+      PYTHONPATH: "${PYTHONPATH:-/app/src}:${HOME}/.local/share/swarm/pylibs"
     volumes:
       # Your swarm config (llm profiles, cli_agents, blueprint_library.json).
       # #762: must stay WRITABLE — blueprint_library.json persistence lives here

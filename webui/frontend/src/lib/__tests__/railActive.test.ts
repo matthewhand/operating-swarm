@@ -69,4 +69,24 @@ describe('railActive (#542)', () => {
     expect(isHerdrRowActive(params('?remote=omb&session=x'))).toBe('')
     expect(isHerdrRowActive(undefined)).toBe('')
   })
+
+  // #1203: when the herdr URL names a session, `activeRailId` must resolve to
+  // the herdr AGENT row (`herdr:<session>`), never the bare remote scope —
+  // otherwise both the agent row (via `activeHerdrRow`) and the local Herdr
+  // remote row (via `remote:herdr`) highlight at the same time.
+  describe('#1203: a named herdr session owns the active row', () => {
+    it('resolves ?remote=herdr&session=<agent> to herdr:<agent>, not remote:herdr', () => {
+      expect(activeRailIdFromParams(params('?remote=herdr&session=w3%3Ap2'))).toBe('herdr:w3:p2')
+    })
+
+    it('keeps the bare ?remote=herdr scope on the remote row', () => {
+      expect(activeRailIdFromParams(params('?remote=herdr'))).toBe('remote:herdr')
+    })
+
+    it('leaves non-herdr remotes on the remote row even with a session', () => {
+      // OMB sessions are bots on the far side — the seat row is the remote,
+      // so ?remote=omb&session=x must keep highlighting `remote:omb`.
+      expect(activeRailIdFromParams(params('?remote=omb&session=x'))).toBe('remote:omb')
+    })
+  })
 })

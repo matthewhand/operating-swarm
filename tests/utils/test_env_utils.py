@@ -109,13 +109,23 @@ def test_get_csv_env_strips_whitespace_and_drops_empties():
 
 
 def test_get_django_csrf_trusted_origins():
+    # #1193: hermetic — a developer .env may carry DJANGO_CSRF_TRUST_LAN,
+    # which expands CIDRs into this list and would break the exact-match pins.
     with patch.dict(
         os.environ,
-        {"DJANGO_CSRF_TRUSTED_ORIGINS": "https://a.com, https://b.com ,", "DJANGO_DEBUG": "false"},
+        {
+            "DJANGO_CSRF_TRUSTED_ORIGINS": "https://a.com, https://b.com ,",
+            "DJANGO_CSRF_TRUST_LAN": "",
+            "DJANGO_DEBUG": "false",
+        },
     ):
         assert get_django_csrf_trusted_origins() == ["https://a.com", "https://b.com"]
     # Default applies when unset (non-debug: no LAN port extras).
-    with patch.dict(os.environ, {"DJANGO_DEBUG": "false"}, clear=True):
+    with patch.dict(
+        os.environ,
+        {"DJANGO_DEBUG": "false", "DJANGO_CSRF_TRUST_LAN": ""},
+        clear=True,
+    ):
         assert get_django_csrf_trusted_origins() == [
             "http://localhost:8000",
             "http://127.0.0.1:8000",
@@ -127,6 +137,7 @@ def test_get_django_csrf_trusted_origins_debug_includes_listen_port():
         "DJANGO_DEBUG": "true",
         "DJANGO_ALLOWED_HOSTS": "198.51.100.30",
         "DJANGO_CSRF_TRUSTED_ORIGINS": "http://localhost:8000",
+        "DJANGO_CSRF_TRUST_LAN": "",
         "PORT": "8002",
     }
     with patch.dict(os.environ, env, clear=False):

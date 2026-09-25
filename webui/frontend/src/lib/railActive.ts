@@ -44,6 +44,8 @@ export interface RailSelection {
   teamId: string
   /** `?remote=` — bare remote id, or ''. */
   remoteId: string
+  /** `?session=` — the far-side session a remote URL names, or ''. (#1203) */
+  sessionId: string
   /** `?blueprint=` — resolved via `defaultBlueprintId`, never ''. */
   blueprintId: string
 }
@@ -55,8 +57,9 @@ export const RAIL_ACTIVE_HERDR_NOTE =
 export function railSelectionFromParams(params?: URLSearchParams | null): RailSelection {
   const teamId = (params?.get('team') ?? '').trim()
   const remoteId = (params?.get('remote') ?? '').trim()
+  const sessionId = (params?.get('session') ?? '').trim()
   const blueprintId = defaultBlueprintId(params?.get('blueprint') ?? '')
-  return { teamId, remoteId, blueprintId }
+  return { teamId, remoteId, sessionId, blueprintId }
 }
 
 export function railSelectionKind(selection: RailSelection): RailScopeKind {
@@ -70,12 +73,17 @@ export function railSelectionKind(selection: RailSelection): RailScopeKind {
  * seat is now URL-addressable — `?remote=herdr&session=<agent>` names the
  * agent — so `herdr:<agent>` can be active exactly like a remote row. An
  * empty session (the bare remote scope) still names no seat.
+ *
+ * #1203: derived from the selection (single source of truth) so this and
+ * {@link activeRailId} can never disagree about what a herdr URL names.
  */
+export function herdrRowIdFromSelection(selection: RailSelection): string {
+  if (selection.remoteId !== 'herdr' || !selection.sessionId) return ''
+  return `herdr:${selection.sessionId}`
+}
+
 export function herdrRowIdFromParams(params?: URLSearchParams | null): string {
-  const remoteId = (params?.get('remote') ?? '').trim()
-  const session = (params?.get('session') ?? '').trim()
-  if (remoteId !== 'herdr' || !session) return ''
-  return `herdr:${session}`
+  return herdrRowIdFromSelection(railSelectionFromParams(params))
 }
 
 /**
@@ -86,10 +94,26 @@ export function herdrRowIdFromParams(params?: URLSearchParams | null): string {
  * wins over the blueprint scope. Because a team/remote selection also carries
  * whatever `?blueprint=` happened to be in the URL, precedence here is what
  * keeps the team/remote row active instead of a stale seat row.
+ *
+ * #1203: a herdr URL that NAMES a session (`?remote=herdr&session=X`) resolves
+ * to the herdr agent row (`herdr:X`), not the remote scope — otherwise the
+ * agent row (via `herdrRowIdFromParams`) and the local Herdr remote row
+ * (`remote:herdr`) both matched "active" and highlighted together. Non-herdr
+ * remotes keep the remote-row id even with a session: their far-side sessions
+ * have no rail rows of their own, so the seat row IS the target.
  */
 export function activeRailId(selection: RailSelection): string {
   if (selection.teamId) return teamHideId(selection.teamId)
-  if (selection.remoteId) return remoteHideId(selection.remoteId)
+  if (selection.remoteId) {
+    // #1203: a herdr URL that names a session resolves to the herdr agent
+    // row, not the remote scope — the same id `herdrRowIdFromParams` yields,
+    // so both consumers agree and the local Herdr remote row never lights up
+    // alongside the agent row. Non-herdr remotes keep the remote-row id even
+    // with a session: their far-side sessions have no rail rows of their own.
+    const herdrRow = herdrRowIdFromSelection(selection)
+    if (herdrRow) return herdrRow
+    return remoteHideId(selection.remoteId)
+  }
   return selection.blueprintId
 }
 

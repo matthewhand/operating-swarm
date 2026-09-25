@@ -5,6 +5,7 @@ This module provides a single source of truth for environment variables used acr
 reducing direct os.getenv() calls and providing consistent defaults and type handling.
 """
 
+import ipaddress as _ipaddress
 import logging as _logging
 import os
 import secrets
@@ -75,8 +76,86 @@ def get_django_log_level() -> str:
     return os.getenv('DJANGO_LOG_LEVEL', 'INFO')
 
 
+# Ports a LAN reverse proxy or the app itself actually listens on. The
+# expansion is per-host x per-port, so keep this list honest and short.
+_LAN_ORIGIN_PORTS = (443, 8036, 8002, 8000, 3001, 3000)
+# Django CSRF origins are exact scheme://host[:port]; a /8 would mint 16M+.
+_LAN_MAX_HOSTS = 256
+
+
+def expand_lan_csrf_origins(
+    raw: str, explicit: list[str] | None = None
+) -> list[str]:
+    """Expand ``DJANGO_CSRF_TRUST_LAN`` CIDRs into concrete CSRF origins.
+
+    Django's ``CSRF_TRUSTED_ORIGINS`` has no CIDR support, but LAN operators
+    terminate https on a reverse proxy (e.g. ``https://10.10.0.36:8036``) in
+    front of the app. For every host IP in the given networks, emit ``https``
+    and ``http`` origins across ``_LAN_ORIGIN_PORTS`` (443 implied, no port
+    suffix). Explicit origins pass through first and are never duplicated.
+    Bounded: a network spanning more than ``_LAN_MAX_HOSTS`` hosts is refused.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(origin: str) -> None:
+        if origin and origin not in seen:
+            out.append(origin)
+            seen.add(origin)
+
+    for origin in explicit or []:
+        add(origin)
+
+    text = (raw or '').strip()
+    if not text:
+        return out
+
+    nets: list[_ipaddress._BaseNetwork] = []  # noqa: SLF001 - typing alias only
+    for part in text.split(','):
+        entry = part.strip()
+        if not entry:
+            continue
+        try:
+            nets.append(_ipaddress.ip_network(entry, strict=False))
+        except ValueError as exc:
+            raise ValueError(
+                f"DJANGO_CSRF_TRUST_LAN entry {entry!r} is not a CIDR or IP"
+            ) from exc
+
+    hosts: list[str] = []
+    for net in nets:
+        count = net.num_addresses
+        if count > _LAN_MAX_HOSTS:
+            raise ValueError(
+                f"DJANGO_CSRF_TRUST_LAN network {net} spans {count} addresses; "
+                f"refusing to expand more than {_LAN_MAX_HOSTS}"
+            )
+        for addr in net:
+            if addr == net.network_address or addr == net.broadcast_address:
+                if count > 2:  # single (/31,/32) pairs keep both addresses
+                    continue
+            hosts.append(str(addr))
+
+    for host in hosts:
+        for port in _LAN_ORIGIN_PORTS:
+            if port == 443:
+                add(f'https://{host}')
+                add(f'https://{host}:443')
+            else:
+                add(f'https://{host}:{port}')
+                add(f'http://{host}:{port}')
+        add(f'http://{host}')
+        add(f'http://{host}:80')
+    return out
+
+
 def get_django_csrf_trusted_origins() -> list[str]:
     """Get CSRF trusted origins.
+
+    ``DJANGO_CSRF_TRUST_LAN`` (comma list of CIDRs or bare IPs) expands into
+    concrete origins — https offloading proxies on the LAN without hand-
+    listing every origin (#1193). Explicit ``DJANGO_CSRF_TRUSTED_ORIGINS``
+    entries always pass through first.
 
     In debug, also synthesize http://<host>:<port> for each concrete allowed
     host at common UI ports plus ``PORT`` so a LAN phone on :8002 is not
@@ -84,6 +163,8 @@ def get_django_csrf_trusted_origins() -> list[str]:
     """
     val = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000')
     parsed = [v.strip() for v in val.split(',') if v.strip()]
+    lan_raw = os.getenv('DJANGO_CSRF_TRUST_LAN', '')
+    parsed = expand_lan_csrf_origins(lan_raw, parsed)
     if not is_django_debug():
         return parsed
     ports = {8000, 8001, 8002, 3000}
