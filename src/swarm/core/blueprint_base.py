@@ -708,6 +708,10 @@ class BlueprintBase(ABC):
         if is_openai_chat_provider(provider):
             provider = "openai"
         client_kwargs = { "api_key": profile_data.get("api_key"), "base_url": profile_data.get("base_url") }
+        # #1155: same read-phase deadline as the shared default client — a
+        # stalled gateway route must fail the turn honestly, not spin forever.
+        from swarm.utils.env_utils import llm_http_timeout
+        client_kwargs["timeout"] = llm_http_timeout()
         filtered_kwargs = {k: v for k, v in client_kwargs.items() if v is not None}
         log_kwargs = {k:v for k,v in filtered_kwargs.items() if k != 'api_key'}
         logger.debug(f"Creating new AsyncOpenAI client for '{profile_name}' with {log_kwargs} and api_mode={api_mode}")

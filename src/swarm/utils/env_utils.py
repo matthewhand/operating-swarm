@@ -10,6 +10,8 @@ import os
 import secrets
 from pathlib import Path
 
+import httpx
+
 _logger = _logging.getLogger(__name__)
 _api_auth_disabled_warning_emitted: bool = False
 _generated_testuser_password: str | None = None
@@ -280,7 +282,61 @@ def openai_client_kwargs() -> dict:
         kwargs["api_key"] = api_key
     if base_url:
         kwargs["base_url"] = base_url
+    # #1155: a stream whose headers never arrive (stalled gateway route, see
+    # #1154) must fail honestly instead of hanging the turn coroutine forever.
+    # Bounded connect/pool + bounded read (header wait / per-chunk gap); no
+    # total cap — a healthy slow generation still completes.
+    kwargs["timeout"] = llm_http_timeout()
     return kwargs
+
+
+# #1155: default read-phase deadline for LLM HTTP calls. Bounds the wait for
+# response headers and the gap between stream chunks; never bounds the total.
+LLM_READ_TIMEOUT_DEFAULT_S = 45.0
+LLM_READ_TIMEOUT_ENV = "SWARM_LLM_READ_TIMEOUT_S"
+
+
+def get_llm_read_timeout_s() -> float:
+    """Read-phase deadline in seconds (``SWARM_LLM_READ_TIMEOUT_S`` override)."""
+    raw = os.getenv(LLM_READ_TIMEOUT_ENV)
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            _logger.warning(
+                "%s=%r is not a number; using default %.1fs",
+                LLM_READ_TIMEOUT_ENV,
+                raw,
+                LLM_READ_TIMEOUT_DEFAULT_S,
+            )
+            return LLM_READ_TIMEOUT_DEFAULT_S
+        if value > 0:
+            return value
+        _logger.warning(
+            "%s=%r must be positive; using default %.1fs",
+            LLM_READ_TIMEOUT_ENV,
+            raw,
+            LLM_READ_TIMEOUT_DEFAULT_S,
+        )
+    return LLM_READ_TIMEOUT_DEFAULT_S
+
+
+def llm_http_timeout() -> "httpx.Timeout":
+    """httpx.Timeout bounding connect/pool/read per-phase — no overall cap.
+
+    httpx has no total-time concept: the read bound applies to the header
+    wait and to each inter-chunk gap individually, so healthy generations
+    that keep chunks flowing are never cut off, while a stalled stream
+    surfaces as a timeout error within the deadline instead of an
+    eternally-spinning seat.
+    """
+    read = get_llm_read_timeout_s()
+    return httpx.Timeout(
+        connect=10.0,
+        read=read,
+        write=None,
+        pool=10.0,
+    )
 
 
 def get_default_llm() -> str | None:
