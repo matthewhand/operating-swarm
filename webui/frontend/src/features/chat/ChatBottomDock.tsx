@@ -404,14 +404,21 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                   {renderRoutingPicker()}
                   <button
                     type="button"
-                    className="os-composer__icon"
+                    className={`os-composer__icon ${sttListening ? 'os-composer__icon--recording' : ''}`}
                     aria-label={sttListening ? 'Stop voice input' : 'Voice input'}
                     aria-pressed={sttListening}
                     data-testid="composer-mic"
+                    data-recording={sttListening ? 'true' : 'false'}
                     data-stt-path={sttPathUsed ?? undefined}
                     onClick={handleMic}
                   >
-                    <Mic className="h-4 w-4" aria-hidden="true" />
+                    {/* #1148: while listening the mic IS the stop button —
+                        same footprint, square stop glyph, recording styling. */}
+                    {sttListening ? (
+                      <span className="os-composer__stop-glyph" aria-hidden="true" />
+                    ) : (
+                      <Mic className="h-4 w-4" aria-hidden="true" />
+                    )}
                   </button>
                   {sttPathUsed ? (
                     <span className="sr-only" data-testid="stt-path">

@@ -81,6 +81,19 @@ class HerdrBlockedError(HerdrError):
         self.target = target
 
 
+class HerdrAgentMissingError(HerdrCLIError):
+    """The targeted pane/agent no longer exists (#1144).
+
+    The CLI answers ``{"error": {"code": "agent_not_found", ...}}`` —
+    carried historically as an opaque CLIError whose message dumped raw JSON
+    into the chat. Distinguished so the send path can offer a rebind instead.
+    """
+
+    def __init__(self, target: str, message: str = "", *, argv: list[str] | None = None, result: subprocess.CompletedProcess | None = None):
+        super().__init__(message or f"Herdr agent {target!r} not found", argv=argv, result=result)
+        self.target = target
+
+
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
@@ -104,6 +117,20 @@ def _looks_like_agent_blocked(payload: Any, stderr: str = "", stdout: str = "") 
         if part
     ).lower()
     return "agent_blocked" in blob or '"code": "agent_blocked"' in blob
+
+
+def _looks_like_agent_missing(payload: Any, stderr: str = "", stdout: str = "") -> bool:
+    """#1144: the CLI reports ``agent_not_found`` for deleted panes."""
+    blob = " ".join(
+        part
+        for part in (
+            stderr or "",
+            stdout or "",
+            json.dumps(payload) if isinstance(payload, dict | list) else str(payload or ""),
+        )
+        if part
+    ).lower()
+    return "agent_not_found" in blob
 
 
 def extract_prompt_type(payload: Any) -> str | None:
@@ -383,6 +410,16 @@ class HerdrClient:
                     except (ValueError, IndexError):
                         target = ""
                 raise HerdrBlockedError(target)
+            if _looks_like_agent_missing(parsed, stderr=stderr, stdout=stdout):
+                target = ""
+                for flag in ("get", "prompt", "read", "wait"):
+                    if flag in argv:
+                        try:
+                            target = argv[argv.index(flag) + 1]
+                            break
+                        except (ValueError, IndexError):
+                            target = ""
+                raise HerdrAgentMissingError(target, argv=argv, result=result)
             detail = (stderr or stdout or f"exit {result.returncode}").strip()
             raise HerdrCLIError(detail, argv=argv, result=result)
         return result, parsed

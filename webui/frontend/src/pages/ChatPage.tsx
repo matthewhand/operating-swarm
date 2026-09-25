@@ -836,6 +836,8 @@ const ChatPage = () => {
   const userKeyCounterRef = useRef(0)
   /** Consecutive auto-reconnect attempts since last successful open. */
   const lastUserTextRef = useRef('')
+  // #1149: keys for optimistic user rows (upgraded in place by user_echo).
+  const optimisticEchoCounterRef = useRef(0)
   /** Last hydrated agent or team thread; used to detect switch vs remount. */
   const lastHydratedAgentRef = useRef<string | null>(null)
   const previewSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2251,6 +2253,8 @@ const ChatPage = () => {
       if (!trimmed && readyAttach.length === 0) return
       // REQ-845 / #167: never drop a typed message on a closed/connecting socket. Keep
       // it in the per-conversation queue; the drain effect sends it on reopen.
+      // (#1149: queued rows stay in the queue pane — no echo here; the echo
+      // happens when the row actually drains through this function.)
       if (status !== 'open') {
         const fallbackText =
           trimmed ||
@@ -2298,6 +2302,28 @@ const ChatPage = () => {
           return
         }
       }
+      // #1149: optimistic echo — the user's own words render immediately on
+      // the real-send path, marked pending; the server's user_echo upgrades
+      // the row instead of duplicating it (see useChatWsDispatcher).
+      const echoText = trimmed || attachmentCaption(pendingAttachments.map((item) => item.name))
+      if (echoText) {
+        optimisticEchoCounterRef.current += 1
+        const echoKey = `user-pending-${optimisticEchoCounterRef.current}-${Date.now()}`
+        setThreads((prev) => ({
+          ...prev,
+          [threadKey]: [
+            ...(prev[threadKey] ?? []),
+            {
+              key: echoKey,
+              role: 'user' as const,
+              text: echoText,
+              streaming: false,
+              pending: true,
+              ts: new Date().toISOString(),
+            },
+          ],
+        }))
+      }
       setAwaitingAssistant(true)
       if (!sendText(trimmed)) setAwaitingAssistant(false)
     },
@@ -2311,6 +2337,7 @@ const ChatPage = () => {
       selectedBlueprint,
       sendText,
       status,
+      threadKey,
     ],
   )
 

@@ -28,6 +28,8 @@ export interface ChatMessage {
   text: string
   /** True while the assistant message is still streaming. */
   streaming: boolean
+  /** #1149: user row echoed optimistically, not yet confirmed by the server. */
+  pending?: boolean
   tools?: ToolCallState[]
   /** Blocking ``ask_user`` card or a non-blocking ```question fence. */
   question?: DecisionQuestion
