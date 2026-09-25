@@ -63,7 +63,6 @@ def with_native_consensus(name: str, n: int = 2) -> dict[str, Any] | None:
 #   grok      ``grok models``           (xAI CLI reference)
 #   claude    ``claude models``         (same shape as grok/opencode; older
 #                                       builds fail the probe → empty+warning)
-#   gemini    ``gemini --list-models``  (JSON; early-exit, no REPL)
 #   codex     ``codex debug models``    (raw catalog JSON)
 #   opencode  ``opencode models``       (already documented in this catalog)
 #   agy       ``agy models``            (tab-separated id<TAB>label lines; a
@@ -76,10 +75,14 @@ def with_native_consensus(name: str, n: int = 2) -> dict[str, Any] | None:
 # qwen: deliberately absent — its current build rejects ``--list-models``
 # ("Unknown arguments") and has no models subcommand, so there is nothing
 # honest to probe; dropdown falls back to ``R.CLI_MODELS`` presets via ``cli_models``.
+# gemini: deliberately absent (#1142) — same case as qwen. The installed CLI
+# rejects both spellings ("Unknown arguments: list-models, listModels") and
+# its --help documents no listing flag or models subcommand; probing it could
+# only ever warn. Dropdown falls back to ``R.CLI_MODELS`` presets.
 LIST_MODELS: dict[str, list[str]] = {
     "grok": ["grok", "models"],
     "claude": ["claude", "models"],
-    "gemini": ["gemini", "--list-models"],
+
     "codex": ["codex", "debug", "models"],
     "opencode": ["opencode", "models"],
     "agy": ["agy", "models"],

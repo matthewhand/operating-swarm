@@ -24,7 +24,7 @@ from swarm.core.cli_models import (
 FIXTURES = Path(__file__).parent / "fixtures" / "cli_models"
 PY = sys.executable
 
-REQUIRED_CLIS = ("grok", "claude", "gemini", "codex", "opencode", "pi")
+REQUIRED_CLIS = ("grok", "claude", "codex", "opencode", "pi")
 
 
 def _fixture(name: str) -> str:
@@ -162,6 +162,9 @@ async def test_probe_uses_pi_table_fixture_stdout(monkeypatch):
 
 async def test_probe_uses_gemini_fixture_stdout(monkeypatch):
     stdout = _fixture("gemini_list_models.json")
+    monkeypatch.setitem(
+        cli_catalog.LIST_MODELS, "gemini", ["gemini", "--list-models"]
+    )
 
     async def fake_run(argv, timeout):
         assert argv[-1] == "--list-models"
@@ -294,6 +297,13 @@ def test_qwen_falls_back_to_catalog_presets_without_probe():
 def test_omp_falls_back_to_catalog_presets_without_probe():
     result = list_models("omp")
     assert result.models == list(cli_catalog.CLI_MODELS["omp"])
+    assert "catalog presets" in (result.warning or "")
+
+
+def test_gemini_falls_back_to_catalog_presets_without_probe():
+    # #1142: gemini has no live probe argv; falls back to catalog presets
+    result = list_models("gemini")
+    assert result.models == list(cli_catalog.CLI_MODELS["gemini"])
     assert "catalog presets" in (result.warning or "")
 
 
