@@ -399,8 +399,12 @@ html:not([data-theme="light"]) .os-composer-wrap,
 .os-rail-resizer {
   position: absolute;
   top: 0;
-  right: -3px;
-  width: 6px;
+  /* #1147: the 6px strip was near-impossible to hover/click. The hit-zone
+     now extends 10px INTO the pane and 8px over the chat pane, so it always
+     overlaps the pill/icon revealed at the edge (44px total, centered on
+     the border). */
+  right: -8px;
+  width: 18px;
   height: 100%;
   cursor: col-resize;
   z-index: 50;
@@ -408,10 +412,11 @@ html:not([data-theme="light"]) .os-composer-wrap,
   background: transparent;
   transition: background-color 0.15s ease;
 }
-/* #816: on a right-docked rail the divider hugs the LEFT edge. */
+/* #816: on a right-docked rail the divider hugs the LEFT edge — mirrored
+   hit-zone (#1147): 8px over chat, 10px into the pane. */
 .os-rail-resizer--right {
   right: auto;
-  left: -3px;
+  left: -8px;
 }
 .os-rail-resizer:hover,
 .os-rail-resizer:focus-visible,
@@ -458,7 +463,10 @@ html:not([data-theme="light"]) .os-composer-wrap,
   top: 40%;
   /* #754: ride on the chat side of the divider (immediately right of the
      border line) instead of centered on it — the pill no longer sits in the
-     drag hit-zone, and reads as belonging to the transcript it controls. */
+     drag hit-zone, and reads as belonging to the transcript it controls.
+     #1147: the widened hit-zone (18px) now reaches 8px past the border, so
+     the pill's own 6px overhang is fully overlapped — hovering the pill
+     keeps the divider :hover alive and the pill revealed. */
   left: 100%;
   transform: translate(0, -50%);
   display: flex;
@@ -479,6 +487,27 @@ html:not([data-theme="light"]) .os-composer-wrap,
   min-width: 1.5rem;
   height: 1.5rem;
   width: 1.5rem;
+}
+
+/* #1148: while recording, the mic control renders as a stop button — red
+   accent ring + square glyph, identical footprint so nothing reflows. */
+.os-composer__icon--recording {
+  color: var(--color-error, #dc2626);
+  border-color: color-mix(in srgb, var(--color-error, #dc2626) 55%, transparent);
+}
+.os-composer__stop-glyph {
+  display: block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 0.125rem;
+  background: currentColor;
+}
+
+/* #1147: right-docked rail — the pill mirrors to the LEFT of the divider
+   (chat side is left when the rail hugs the right edge). */
+.os-rail-resizer--right .os-rail-divider-pill {
+  left: auto;
+  right: 100%;
 }
 
 /* Reveal on divider hover, on keyboard focus anywhere inside the pill, and on
@@ -1898,8 +1927,10 @@ button.os-agent-row {
   align-items: center;
   padding-left: 0.25rem;
   padding-right: 0.25rem;
-  min-height: 2.75rem;
-  height: 2.75rem;
+  /* #1146: ultra-compact rows hug the avatar — the old 2.75rem vertical
+     spend per row wasted a full avatar-height every 2 rows. */
+  min-height: 2.25rem;
+  height: 2.25rem;
 }
 .os-agent-sidebar--avatar-only .os-agent-row-wrap {
   display: flex;

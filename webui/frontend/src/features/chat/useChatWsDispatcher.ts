@@ -238,19 +238,34 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
         const current = prev[threadKey] ?? []
         let next = current
         switch (event.kind) {
-          case 'user_echo':
-            userKeyCounterRef.current += 1
-            next = [
-              ...current,
-              {
-                key: `user-${userKeyCounterRef.current}-${Date.now()}`,
-                role: 'user',
-                text: event.text,
-                streaming: false,
-                ts: new Date().toISOString(),
-              },
-            ]
+          case 'user_echo': {
+            // #1149: the row already exists optimistically (pending) —
+            // upgrade the FIRST matching pending row instead of appending a
+            // duplicate; only unmatched echoes append as before.
+            const pendingIdx = current.findIndex(
+              (m) => m.role === 'user' && m.pending && (m.text === event.text || !m.text),
+            )
+            if (pendingIdx >= 0) {
+              next = current.map((m, i) =>
+                i === pendingIdx
+                  ? { ...m, text: event.text || m.text, pending: false }
+                  : m,
+              )
+            } else {
+              userKeyCounterRef.current += 1
+              next = [
+                ...current,
+                {
+                  key: `user-${userKeyCounterRef.current}-${Date.now()}`,
+                  role: 'user',
+                  text: event.text,
+                  streaming: false,
+                  ts: new Date().toISOString(),
+                },
+              ]
+            }
             break
+          }
           case 'assistant_start':
             if (current.some((m) => m.key === event.id)) return prev
             next = [
