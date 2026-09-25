@@ -1899,6 +1899,47 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
     return _check_health_spec(spec, timeout, config)
 
 
+# #1169: states a pre-flight may abort on. DOWN is the honest "gateway is not
+# there" — the adapter's own send path would only rediscover it slower. AUTH
+# and UNKNOWN stay out: the gateway is up (or unknowable), and send owns those.
+_PREFLIGHT_ABORT_STATES = frozenset({"DOWN"})
+
+
+def remote_down_preflight(
+    remote_id: str,
+    *,
+    config: dict[str, Any] | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> str | None:
+    """#1169 — one-shot reachability probe for a remote seat's turn.
+
+    Returns user-facing copy when the remote is *down* (the seat must render it
+    immediately instead of masking a sub-second failure behind the harness LLM
+    hop — the letta-demo spinner-forever report), and ``None`` when the turn
+    should proceed as before. Never raises: a probe crash is a skip, not a
+    veto. Unconfigured remotes short-circuit to ``None`` (their own send path
+    produces the not-added copy).
+    """
+    try:
+        spec = load_remote(remote_id, config)
+        if not is_configured(spec.id, config):
+            return None
+        health = check_health(remote_id, config=config, timeout=timeout)
+    except Exception:  # noqa: BLE001 — probe failure must never veto a turn
+        logger.debug("remote pre-flight probe skipped for %s", remote_id, exc_info=True)
+        return None
+    if health.ok or health.state not in _PREFLIGHT_ABORT_STATES:
+        return None
+    reason = (health.detail or "the gateway did not answer").strip()
+    if len(reason) > 160:
+        reason = reason[:157] + "…"
+    return (
+        f"The {remote_id} gateway is not reachable right now ({reason}). "
+        "Start the gateway or check its base URL in Settings → Remotes — the "
+        "message was not delivered."
+    )
+
+
 def _check_health_spec(
     spec: RemoteSpec,
     timeout: float = _DEFAULT_TIMEOUT_S,

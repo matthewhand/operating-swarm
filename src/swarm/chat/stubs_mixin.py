@@ -189,7 +189,17 @@ class StubsMixin:
 
     async def respond_with_blueprint(self, blueprint_id, contents_div_id, params=None):
             """Generate the assistant reply by running a discovered blueprint."""
-            await R._gate_provider_rate_limit(self, params=params, blueprint_id=blueprint_id)
+            from swarm.chat.helpers import ProviderGateTimeout
+
+            try:
+                await R._gate_provider_rate_limit(self, params=params, blueprint_id=blueprint_id)
+            except ProviderGateTimeout as exc:
+                # #1170: the gate's verdict is honored — a throttled provider
+                # fails the turn honestly instead of proceeding silently after
+                # an unbounded wait inside the agent lock.
+                await self.send_error_message(contents_div_id, f"Error: {exc}")
+                return
+
             # In test mode, skip slow blueprint instantiation and return canned output.
             if os.environ.get("SWARM_TEST_MODE"):
                 from pathlib import Path as _Path
@@ -216,6 +226,25 @@ class StubsMixin:
                 await self._persist_completed_turn()
                 await self._emit_suggestions_if_enabled(blueprint_id)
                 return
+
+            # #1169: a remote seat whose gateway is *down* fails fast, visibly.
+            # The pre-flight probe (≤3s, thread-offloaded) runs before the
+            # harness LLM hop so a sub-second connectivity failure is not
+            # masked behind a spinner that outlives it. Any other state
+            # (AUTH/UNKNOWN/probe crash) proceeds exactly as before.
+            remote_name = ""
+            if isinstance(params, dict) and str(params.get("op") or "send") == "send":
+                remote_name = str(params.get("remote") or params.get("name") or "").strip()
+            if remote_name:
+                from swarm.core import remotes as _remotes
+
+                preflight_text = await asyncio.to_thread(
+                    _remotes.remote_down_preflight, remote_name
+                )
+                if preflight_text:
+                    R.logger.info("remote %s down at pre-flight: %s", remote_name, preflight_text)
+                    await self.send_error_message(contents_div_id, preflight_text)
+                    return
 
             from swarm.views.chat_views import (
                 _chunk_is_final,
