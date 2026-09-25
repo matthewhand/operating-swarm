@@ -2290,7 +2290,14 @@ const ChatPage = () => {
         const apiSeatProven =
           isApiBlueprintId(selectedBlueprint) ||
           (selectedAgent as { kind?: string } | undefined)?.kind === 'api'
-        if (!apiSeatProven) {
+        // ADR-017 PR-5: a member-targeted team send serialises on the
+        // MEMBER server-side (team#member lock) — it must not queue behind
+        // the whole team. All-members composes keep the team-wide queue.
+        const memberDirectSend =
+          Boolean(teamFromUrl) &&
+          memberTarget !== ALL_MEMBERS_TARGET &&
+          memberTarget.trim() !== ''
+        if (!apiSeatProven && !memberDirectSend) {
           const fallbackText =
             trimmed ||
             (readyAttach.length > 0
@@ -2330,6 +2337,7 @@ const ChatPage = () => {
     [
       addToast,
       awaitingAssistant,
+      memberTarget,
       messages,
       pendingAttachments,
       queued,
@@ -2337,6 +2345,7 @@ const ChatPage = () => {
       selectedBlueprint,
       sendText,
       status,
+      teamFromUrl,
       threadKey,
     ],
   )

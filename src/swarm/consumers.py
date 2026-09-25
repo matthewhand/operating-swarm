@@ -708,12 +708,24 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
         self.active_agent = blueprint_id or getattr(self, "active_agent", None)
         agent_id = str(blueprint_id or getattr(self, "active_agent", "") or "")
 
-        async with self._agent_lock(agent_id):
+        # ADR-017 PR-5: inside a team conversation a member-targeted send
+        # (params.target = memberId) serialises on the MEMBER, not the whole
+        # team — two members' turns interleave, while an "all" compose keeps
+        # the team-wide lock (one graph, one transcript writer).
+        member_key = ""
+        if params and str(params.get("team") or "") and str(params.get("target") or ""):
+            target = str(params["target"])
+            if target and target != "all":
+                member_key = f"{agent_id}#{target}"
+
+        async with self._agent_lock(member_key or agent_id):
             # #198: a fresh turn always starts un-cancelled. Before the turn
             # binds the task local context, this still resolves to the legacy
             # per-socket event — a bare cancel between turns must not leak in.
             self._cancel_event().clear()
-            turn = await self._begin_turn(agent_id=agent_id)
+            # PR-5: bookends/cancels attribute to the member key so the SPA's
+            # per-row stop targets exactly this member's turn.
+            turn = await self._begin_turn(agent_id=member_key or agent_id)
             try:
                 await self._run_chat_turn_body(
                     text_data_json, message_text, blueprint_id, params
