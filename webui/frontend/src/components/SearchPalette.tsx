@@ -297,7 +297,9 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
       {
         id: 'action-hidden',
         tab: 'Actions',
-        name: 'Hidden Bots',
+        // #826: same copy the rail row uses — the legacy "Hidden Bots" was
+        // the one place the relabel missed (visual sweep finding).
+        name: 'Hidden Agents',
         description: 'Unhide agents without leaving chat',
         action: () => {
           setHiddenOnly(true)
