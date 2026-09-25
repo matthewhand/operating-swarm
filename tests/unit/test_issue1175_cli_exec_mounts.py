@@ -36,17 +36,21 @@ def test_cli_exec_state_dirs_are_mounted_writable():
     for host_dir in (
         ".qwen",  # qwen first-run state dir (EACCES mkdir)
         ".hermes",  # hermes launcher + venv (python symlink target lives here)
-        ".grok",  # grok binary symlink target: ~/.grok/downloads (read-only OK)
+        ".grok",  # grok binary chain AND session state (writes under ~/.grok)
     ):
         rows = [v for v in volumes if f"/{host_dir}:" in v]
         assert rows, f"compose must mount $HOME/{host_dir} into the container"
+        assert not any(v.endswith(":ro") for v in rows), (
+            f"#1175: $HOME/{host_dir} must be writable — CLIs write session "
+            "state on first run and EACCES/RO kills the seat"
+        )
 
 
-def test_grok_download_target_mounted_readonly():
-    """grok's binary chain crosses into ~/.grok/downloads — ro is sufficient."""
+def test_uv_python_install_mounted_readonly():
+    """hermes's venv python symlinks into ~/.local/share/uv — ro is enough."""
     volumes = _swarm_volumes()
-    rows = [v for v in volumes if "/.grok:" in v]
-    assert rows, "compose must mount $HOME/.grok for the grok binary symlink"
+    rows = [v for v in volumes if "/.local/share/uv:" in v]
+    assert rows, "compose must mount $HOME/.local/share/uv for hermes's venv python"
 
 
 def test_hermes_venv_python_on_seat_path():
